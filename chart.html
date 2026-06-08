@@ -718,15 +718,25 @@ select.s-select{
 }
 .cell-goto-btn:active{background:#2a2e39;border-color:#2962ff;color:#fff}
 
-/* ── Per-cell candle countdown timer ────────────────────────────── */
+/* ── Per-cell candle countdown timer (right-side price-line widget) ── */
 .cell-timer-badge{
-  position:absolute;bottom:4px;left:4px;z-index:30;
-  background:#1a1e2d;border:1px solid #2f3241;border-radius:3px;
-  color:#d1d4dc;font:bold 10px/14px monospace;
-  padding:2px 5px;pointer-events:none;white-space:nowrap;
-  display:none;
+  position:absolute;right:0;z-index:60;
+  pointer-events:none;display:none;
+  flex-direction:column;align-items:stretch;visibility:hidden;
 }
-.cell-timer-badge.timer-on{display:block}
+.cell-timer-badge.timer-on{display:flex}
+.ctb-price{
+  background:#26a69a;color:#fff;
+  font:bold 10px/14px monospace;padding:2px 4px;
+  text-align:right;border-radius:3px 0 0 3px;white-space:nowrap;
+}
+.ctb-timer{
+  background:#1a1e2d;color:#d1d4dc;
+  font:bold 9px/13px monospace;padding:1px 4px;
+  text-align:right;border:1px solid #2f3241;
+  border-top:none;border-right:none;
+  border-radius:0 0 0 3px;white-space:nowrap;
+}
 
 /* ── WS status ────────────────────────────────────────────────────── */
 #ws-dot{
@@ -2819,14 +2829,17 @@ function buildGrid(key) {
       e.stopPropagation();
     };
 
-    // Per-cell candle countdown timer — bottom-left corner
+    // Per-cell price+timer widget — right side, follows price line
     const timerBadge=document.createElement('div');
     timerBadge.className='cell-timer-badge';
     timerBadge.dataset.cellIdx=i;
+    timerBadge.innerHTML='<div class="ctb-price">—</div><div class="ctb-timer">—</div>';
     if (S.showTimer!==false) timerBadge.classList.add('timer-on');
+    chartDiv.style.position='relative';
 
     cell.appendChild(overlay); cell.appendChild(chartDiv);
-    cell.appendChild(gotoBtn); cell.appendChild(timerBadge);
+    chartDiv.appendChild(timerBadge);
+    cell.appendChild(gotoBtn);
     gc.appendChild(cell); cellObj.el=chartDiv;
     cell.addEventListener('pointerdown',()=>selectCell(i));
 
@@ -2914,24 +2927,30 @@ async function buildCellChart(idx) {
   if (!el) return;
   if (c.chart){try{c.chart.remove();}catch(_){} c.chart=null; c.series=null;}
 
-  // --- 1. DIRECT BROWSER FETCH (Fixes missing historical data in grid) ---
-  let rawData=_baseDataFor(c.asset, c.tf);
-  if (!rawData || rawData.length < 50) {
+  // --- 1. DATA RESOLUTION FOR GRID CELLS ---
+  // Daily+ TFs (≥1440 min, e.g. 27d/81d/243d): always use pre-loaded BTC_DAILY
+  // (3218 candles, 2017→now). Never browser-fetch — instant resampling only.
+  // Intraday TFs: use pre-loaded pools; only browser-fetch if pool is truly empty.
+  let rawData = _baseDataFor(c.asset, c.tf);
+  if (c.tf >= 1440) {
+    // Daily+: BTC_DAILY is always complete — use it directly, no fetch needed.
+    if (!rawData || !rawData.length) rawData = [];
+  } else if (!rawData || rawData.length < 2) {
+    // Intraday: only fetch when pool is genuinely empty (not just "few bars")
     try {
       const iv = _binanceIvFor(c.tf);
       const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=' + iv + '&limit=1000');
       if (r.ok) {
         const klines = await r.json();
         rawData = klines.map(_parseKline);
-        if (c.tf >= 1440) { BTC_DAILY.length = 0; rawData.forEach(x=>BTC_DAILY.push(x)); }
-        else if (c.tf >= 15) { BTC_15M.length = 0; rawData.forEach(x=>BTC_15M.push(x)); }
+        if (c.tf >= 15) { BTC_15M.length = 0; rawData.forEach(x=>BTC_15M.push(x)); }
         else { ALLDATA[c.asset] = rawData; }
       }
     } catch(e) {
       rawData = ALLDATA[c.asset] || [];
     }
   }
-  // ------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
 
   const data=resampleForTF(rawData, c.tf, c.asset);
 
@@ -2991,6 +3010,8 @@ function updateCellPrice(idx, data) {
   if (!cell||!data.length) return;
   const last=data[data.length-1], first=data[0];
   const ltp=last.close, chg=ltp-first.open;
+  // Seed cell last-price for timer widget
+  if (CELLS[idx]) { CELLS[idx]._lastLTP=ltp; CELLS[idx]._candleOpen=last.open; }
   const pct=(first.open?chg/first.open*100:0).toFixed(2);
   const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   const cls=chg>=0?'up':'dn', color=chg>=0?'#26a69a':'#ef5350';
@@ -3015,6 +3036,24 @@ function toggleIndPanel() {
   b.classList.toggle('active', p.classList.toggle('open'));
 }
 function indPanelBg(e) { if(e.target===document.getElementById('ind-panel'))toggleIndPanel(); }
+
+// Brief toast shown when overlay blocks an action
+function _ovlToast(msg) {
+  let t=document.getElementById('_ovl-toast');
+  if(!t){
+    t=document.createElement('div');
+    t.id='_ovl-toast';
+    t.style.cssText='position:fixed;bottom:36px;left:50%;transform:translateX(-50%);'+
+      'background:#2a2e39;color:#d1d4dc;font-size:11px;padding:6px 14px;border-radius:6px;'+
+      'border:1px solid #363c4e;z-index:99999;pointer-events:none;opacity:0;'+
+      'transition:opacity .2s;white-space:nowrap;';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg;
+  t.style.opacity='1';
+  clearTimeout(t._tid);
+  t._tid=setTimeout(()=>{ t.style.opacity='0'; }, 2200);
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // SETTINGS
@@ -3515,7 +3554,18 @@ function _fsTapStart() {
 // ════════════════════════════════════════════════════════════════════════════
 let _lastLTP=null, _timerEl=null, _timerIv=null;
 
-// ── Grid cell countdown timers (updates every second) ─────────────────────
+// ── Remaining-time formatter ───────────────────────────────────────────────
+// TF ≥ 1 day → show "Nd" (remaining days). All shorter TFs → "M:SS".
+function _fmtRemaining(remaining, tfSec) {
+  if (tfSec >= 86400) {
+    const d = Math.floor(remaining / 86400);
+    return d + 'd';
+  }
+  const mm = Math.floor(remaining / 60), ss = remaining % 60;
+  return mm + ':' + String(ss).padStart(2, '0');
+}
+
+// ── Grid cell countdown timers — right-side price-line widget ─────────────
 let _cellTimerIv=null;
 function _tickCellTimers() {
   const nowSec=Math.floor(Date.now()/1000);
@@ -3524,8 +3574,24 @@ function _tickCellTimers() {
     const c=CELLS[idx]; if(!c) return;
     const tfSec=(c.tf||1)*60;
     const remaining=tfSec-(nowSec%tfSec);
-    const mm=Math.floor(remaining/60), ss=remaining%60;
-    badge.textContent=mm+':'+String(ss).padStart(2,'0');
+    const timerDiv=badge.querySelector('.ctb-timer');
+    const priceDiv=badge.querySelector('.ctb-price');
+    if (timerDiv) timerDiv.textContent=_fmtRemaining(remaining, tfSec);
+    // Position along price line
+    if (c.series && c._lastLTP != null) {
+      const y=c.series.priceToCoordinate(c._lastLTP);
+      if (y != null) {
+        const wh=badge.offsetHeight||27;
+        badge.style.top=Math.round(y-wh/2)+'px';
+        badge.style.visibility='visible';
+        if (priceDiv) {
+          priceDiv.textContent=c._lastLTP.toLocaleString('en-US',
+            {minimumFractionDigits:2,maximumFractionDigits:2});
+          const co=c._candleOpen??c._lastLTP;
+          priceDiv.style.background=c._lastLTP>=co?'#089981':'#f23645';
+        }
+      }
+    }
   });
 }
 function _startCellTimers() {
@@ -3567,9 +3633,8 @@ function _tickTimer() {
   if (!_timerEl||!mainSeries||S.layout!=='1x1') return;
   const tfSec=(S.tf||1)*60, nowSec=Math.floor(Date.now()/1000);
   const remaining=tfSec-(nowSec%tfSec);
-  const mm=Math.floor(remaining/60), ss=remaining%60;
   const timerEl=document.getElementById('ct-timer');
-  if (timerEl) timerEl.textContent=mm+':'+String(ss).padStart(2,'0');
+  if (timerEl) timerEl.textContent=_fmtRemaining(remaining, tfSec);
   if (_lastLTP===null) return;
   const y=mainSeries.priceToCoordinate(_lastLTP);
   if (y==null) return;
@@ -3697,6 +3762,8 @@ function _applyBTCKline(k) {
       c._btcBkt.close=close;
     }
     try{c.series.update({...c._btcBkt,value:close});}catch(_){}
+    c._lastLTP=close;
+    c._candleOpen=c._btcBkt.open;
     const idx=CELLS.indexOf(c);
     const cell=document.querySelector('.grid-cell[data-idx="'+idx+'"]');
     if (cell) {
@@ -3791,61 +3858,56 @@ async function _loadBTCHistory(tfMin) {
 
     // ── DAILY / WEEKLY TFs: paginate all the way back to Aug 2017 ──────────
     if (isDaily) {
-      let fetched = [];   // daily/weekly bars from the browser fetch (if it works)
-      // The browser fetch is geo-blocked for many users; isolate its failure so
-      // we can fall back to the server-injected daily history below.
-      try {
-        let endTime   = Date.now();
-        let allKlines = [];   // oldest-first after assembly
-        let pagesDone = 0;
-        const MAX_PAGES = 40; // safety cap (1000 bars × 40 = 40 000 days >> needed)
-
-        while (pagesDone < MAX_PAGES) {
-          const url =
-            'https://api.binance.com/api/v3/klines?symbol=BTCUSDT' +
-            '&interval=' + iv +
-            '&limit=1000' +
-            '&endTime=' + endTime;
-
-          const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-          if (!r.ok) throw new Error('HTTP ' + r.status);
-          const chunk = await r.json();
-          if (!chunk.length) break;
-
-          // Prepend this older chunk in front of what we already have
-          allKlines = [...chunk, ...allKlines];
-          pagesDone++;
-
-          // Stop if we've reached or passed the BTC launch date
-          if (parseInt(chunk[0][0]) <= BTC_LAUNCH_MS) break;
-          // Stop if fewer than 1000 bars → we're at the beginning
-          if (chunk.length < 1000) break;
-
-          // Next page: end just before the oldest bar in this chunk
-          endTime = parseInt(chunk[0][0]) - 1;
-
-          // Brief yield so the browser stays responsive between pages
-          await new Promise(res => setTimeout(res, 80));
-
-          // Update label with progress
-          const oldest = new Date(parseInt(chunk[0][0]));
-          _setLoadingLabel('⏳ ' + oldest.getFullYear() + '…');
-        }
-
-        // Parse and deduplicate (by time) in case of overlap at page boundaries
-        const seen = new Set();
-        fetched = allKlines
-          .map(_parseKline)
-          .filter(b => { if (seen.has(b.time)) return false; seen.add(b.time); return true; })
-          .sort((a, b) => a.time - b.time);
-      } catch(_) { fetched = []; }
-
-      if (fetched.length) {
-        // Browser fetch succeeded — resample if native interval is finer than TF
-        bars = (tfMin > ivMin) ? resampleForTF(fetched, tfMin, BTC_ASSET) : fetched;
-      } else if (Array.isArray(BTC_DAILY) && BTC_DAILY.length) {
-        // Browser blocked — use server-injected daily history (1d native).
+      // Fast path: BTC_DAILY is pre-loaded server-side with full history (2017→now).
+      // Skip the browser fetch entirely — it takes 2-10s and we already have the data.
+      if (Array.isArray(BTC_DAILY) && BTC_DAILY.length > 3000) {
         bars = (tfMin > 1440) ? resampleForTF(BTC_DAILY, tfMin, BTC_ASSET) : BTC_DAILY.slice();
+      } else {
+        // Fallback: BTC_DAILY missing or incomplete — try browser fetch
+        let fetched = [];
+        try {
+          let endTime   = Date.now();
+          let allKlines = [];
+          let pagesDone = 0;
+          const MAX_PAGES = 40;
+
+          while (pagesDone < MAX_PAGES) {
+            const url =
+              'https://api.binance.com/api/v3/klines?symbol=BTCUSDT' +
+              '&interval=' + iv +
+              '&limit=1000' +
+              '&endTime=' + endTime;
+
+            const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const chunk = await r.json();
+            if (!chunk.length) break;
+
+            allKlines = [...chunk, ...allKlines];
+            pagesDone++;
+
+            if (parseInt(chunk[0][0]) <= BTC_LAUNCH_MS) break;
+            if (chunk.length < 1000) break;
+
+            endTime = parseInt(chunk[0][0]) - 1;
+            await new Promise(res => setTimeout(res, 80));
+
+            const oldest = new Date(parseInt(chunk[0][0]));
+            _setLoadingLabel('⏳ ' + oldest.getFullYear() + '…');
+          }
+
+          const seen = new Set();
+          fetched = allKlines
+            .map(_parseKline)
+            .filter(b => { if (seen.has(b.time)) return false; seen.add(b.time); return true; })
+            .sort((a, b) => a.time - b.time);
+        } catch(_) { fetched = []; }
+
+        if (fetched.length) {
+          bars = (tfMin > ivMin) ? resampleForTF(fetched, tfMin, BTC_ASSET) : fetched;
+        } else if (Array.isArray(BTC_DAILY) && BTC_DAILY.length) {
+          bars = (tfMin > 1440) ? resampleForTF(BTC_DAILY, tfMin, BTC_ASSET) : BTC_DAILY.slice();
+        }
       }
 
     // ── INTRADAY TFs: single call, 1000 bars ──────────────────────────────

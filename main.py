@@ -1,5 +1,8 @@
 import io
 import json
+import os
+import time
+import threading
 import zipfile
 import requests
 import streamlit as st
@@ -14,7 +17,9 @@ st.markdown("""<style>
 iframe{border:none!important}
 </style>""", unsafe_allow_html=True)
 
-BTC_ASSET = "\u20bf BTC/USDT"   # ₿ BTC/USDT
+DAILY_CACHE_FILE = "daily_cache.json"
+DAILY_CACHE_TTL  = 86400          # refresh once per day (seconds)
+BTC_LAUNCH_MS    = 1502928000000  # 2017-08-17 UTC
 
 
 # ─── Download ZIP (sidebar) ───────────────────────────────────────────────
@@ -23,6 +28,8 @@ def _make_zip() -> bytes:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.write("main.py",    "main.py")
         zf.write("chart.html", "chart.html")
+        if os.path.exists(DAILY_CACHE_FILE):
+            zf.write(DAILY_CACHE_FILE, DAILY_CACHE_FILE)
     return buf.getvalue()
 
 with st.sidebar:
@@ -38,6 +45,7 @@ with st.sidebar:
     st.caption("Unzip → upload both files → run main.py")
 
 
+# ─── Live / recent candles (1m, 15m) ─────────────────────────────────────
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_btc_candles(interval: str = "1m", limit: int = 500) -> list:
     try:
@@ -63,19 +71,18 @@ def fetch_btc_candles(interval: str = "1m", limit: int = 500) -> list:
     return []
 
 
-@st.cache_data(show_spinner=False, persist="disk")
-def fetch_btc_daily_full() -> list:
-    """Paginate 1d klines back to BTC launch (Aug 2017), server-side."""
-    BTC_LAUNCH_MS = 1502928000000  # 2017-08-17 UTC
+# ─── Full daily history helpers ───────────────────────────────────────────
+def _fetch_daily_from_api() -> list:
+    """Paginate Binance 1d klines back to BTC launch. Returns sorted list."""
     all_klines: list = []
     end_time = None
     try:
-        for _ in range(10):  # safety cap; ~4 pages cover 2017→now
+        for _ in range(15):
             params = {"symbol": "BTCUSDT", "interval": "1d", "limit": 1000}
             if end_time is not None:
                 params["endTime"] = end_time
             r = requests.get(
-                "https://api.binance.com/api/v3/klines", params=params, timeout=10
+                "https://api.binance.com/api/v3/klines", params=params, timeout=15
             )
             if r.status_code != 200:
                 break
@@ -87,11 +94,12 @@ def fetch_btc_daily_full() -> list:
             if oldest <= BTC_LAUNCH_MS or len(chunk) < 1000:
                 break
             end_time = oldest - 1
+            time.sleep(0.15)
     except Exception:
         pass
 
-    seen = set()
-    out = []
+    seen: set = set()
+    out: list = []
     for k in all_klines:
         t = int(k[0]) // 1000
         if t in seen:
@@ -109,14 +117,60 @@ def fetch_btc_daily_full() -> list:
     return out
 
 
-# ─── HTML / JS — loaded from chart.html (keeps main.py small) ──────────
+def _save_cache(candles: list) -> None:
+    try:
+        with open(DAILY_CACHE_FILE, "w") as f:
+            json.dump({"fetched_at": int(time.time()), "candles": candles}, f)
+    except Exception:
+        pass
+
+
+def _load_cache() -> tuple[list, int]:
+    """Returns (candles, fetched_at). fetched_at=0 if file missing/corrupt."""
+    try:
+        with open(DAILY_CACHE_FILE) as f:
+            data = json.load(f)
+        return data["candles"], int(data.get("fetched_at", 0))
+    except Exception:
+        return [], 0
+
+
+def _background_refresh() -> None:
+    """Fetch fresh daily data from API and overwrite cache file silently."""
+    fresh = _fetch_daily_from_api()
+    if fresh:
+        _save_cache(fresh)
+
+
+def load_daily() -> list:
+    """
+    Fast path: return cached file instantly.
+    If cache is stale (> DAILY_CACHE_TTL), kick off a background refresh
+    so next app load gets fresh data — current load is never blocked.
+    """
+    candles, fetched_at = _load_cache()
+    age = time.time() - fetched_at
+
+    if not candles:
+        # No cache at all — must fetch synchronously (first-ever run)
+        candles = _fetch_daily_from_api()
+        if candles:
+            _save_cache(candles)
+    elif age > DAILY_CACHE_TTL:
+        # Cache exists but stale — serve it immediately, refresh in background
+        t = threading.Thread(target=_background_refresh, daemon=True)
+        t.start()
+
+    return candles
+
+
+# ─── HTML / JS ───────────────────────────────────────────────────────────
 with open("chart.html") as _f:
     _HTML = _f.read()
 
-
 candles     = fetch_btc_candles("1m",  500)
-candles_15m = fetch_btc_candles("15m", 500)
-daily       = fetch_btc_daily_full()
+candles_15m = fetch_btc_candles("15m", 1000)
+daily       = load_daily()
 
 html = (
     _HTML
