@@ -696,15 +696,37 @@ select.s-select{
 
 /* ── Go-to-latest button (Fix 10: 70% smaller) ────────────────────── */
 #goto-latest-btn{
-  position:fixed;bottom:6px;right:6px;z-index:2000;
-  width:17px;height:17px;border-radius:50%;
+  position:fixed;bottom:30px;right:6px;z-index:8200;
+  width:24px;height:24px;border-radius:50%;
   background:#1e222d;border:1px solid #363a45;
-  color:#9598a1;font-size:8px;line-height:1;
+  color:#9598a1;font-size:12px;line-height:1;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 2px 8px #0008;transition:background .15s,border-color .15s,opacity .15s;
   user-select:none;padding:0;
 }
 #goto-latest-btn:hover{background:#2a2e39;border-color:#2962ff;color:#fff}
+
+/* ── Per-cell "go to latest" button ─────────────────────────────── */
+.cell-goto-btn{
+  position:absolute;bottom:4px;right:4px;z-index:30;
+  width:20px;height:20px;border-radius:50%;
+  background:#1e222d;border:1px solid #363a45;
+  color:#9598a1;font-size:11px;line-height:1;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 1px 6px #0008;transition:background .15s,border-color .15s;
+  padding:0;
+}
+.cell-goto-btn:active{background:#2a2e39;border-color:#2962ff;color:#fff}
+
+/* ── Per-cell candle countdown timer ────────────────────────────── */
+.cell-timer-badge{
+  position:absolute;bottom:4px;left:4px;z-index:30;
+  background:#1a1e2d;border:1px solid #2f3241;border-radius:3px;
+  color:#d1d4dc;font:bold 10px/14px monospace;
+  padding:2px 5px;pointer-events:none;white-space:nowrap;
+  display:none;
+}
+.cell-timer-badge.timer-on{display:block}
 
 /* ── WS status ────────────────────────────────────────────────────── */
 #ws-dot{
@@ -2712,11 +2734,13 @@ function setLayout(key, btn) {
     document.getElementById('grid-btn').classList.remove('active');
     if (cmBtn) cmBtn.style.display='none';
     unwireSync(); destroyGridCells(); rebuildChart();
+    if (_cellTimerIv){clearInterval(_cellTimerIv);_cellTimerIv=null;}
   } else {
     ws.style.display='none'; gv.classList.add('active');
     document.getElementById('grid-btn').classList.add('active');
     if (cmBtn){cmBtn.style.display='';cmBtn.textContent='⛶';cmBtn.classList.remove('active');}
     destroyCharts(); buildGrid(key);
+    setTimeout(_startCellTimers, 200);
   }
 }
 
@@ -2784,7 +2808,25 @@ function buildGrid(key) {
 
     const chartDiv=document.createElement('div');
     chartDiv.className='cell-chart'; chartDiv.id='cell-chart-'+i;
+
+    // Per-cell "go to latest" button — bottom-right corner
+    const gotoBtn=document.createElement('button');
+    gotoBtn.className='cell-goto-btn';
+    gotoBtn.title='Go to latest candle';
+    gotoBtn.textContent='\u23ED';
+    gotoBtn.onclick=function(e){
+      const c2=CELLS[i]; if(c2&&c2.chart) try{c2.chart.timeScale().scrollToRealTime();}catch(_){}
+      e.stopPropagation();
+    };
+
+    // Per-cell candle countdown timer — bottom-left corner
+    const timerBadge=document.createElement('div');
+    timerBadge.className='cell-timer-badge';
+    timerBadge.dataset.cellIdx=i;
+    if (S.showTimer!==false) timerBadge.classList.add('timer-on');
+
     cell.appendChild(overlay); cell.appendChild(chartDiv);
+    cell.appendChild(gotoBtn); cell.appendChild(timerBadge);
     gc.appendChild(cell); cellObj.el=chartDiv;
     cell.addEventListener('pointerdown',()=>selectCell(i));
 
@@ -3042,8 +3084,14 @@ function applySettings() {
 
 // Fix 7: apply timer visibility
 function _applyTimerVisibility() {
+  // Single-chart timer widget
   const w = document.getElementById('candle-timer-widget');
   if (w) w.style.display = (S.showTimer===false)?'none':'';
+  // Grid cell timer badges
+  document.querySelectorAll('.cell-timer-badge').forEach(b => {
+    if (S.showTimer===false) b.classList.remove('timer-on');
+    else b.classList.add('timer-on');
+  });
 }
 
 // Fix 12: apply crosshair line style to all charts (strictly called on every rebuild)
@@ -3467,6 +3515,25 @@ function _fsTapStart() {
 // ════════════════════════════════════════════════════════════════════════════
 let _lastLTP=null, _timerEl=null, _timerIv=null;
 
+// ── Grid cell countdown timers (updates every second) ─────────────────────
+let _cellTimerIv=null;
+function _tickCellTimers() {
+  const nowSec=Math.floor(Date.now()/1000);
+  document.querySelectorAll('.cell-timer-badge.timer-on').forEach(badge => {
+    const idx=parseInt(badge.dataset.cellIdx)||0;
+    const c=CELLS[idx]; if(!c) return;
+    const tfSec=(c.tf||1)*60;
+    const remaining=tfSec-(nowSec%tfSec);
+    const mm=Math.floor(remaining/60), ss=remaining%60;
+    badge.textContent=mm+':'+String(ss).padStart(2,'0');
+  });
+}
+function _startCellTimers() {
+  if (_cellTimerIv) clearInterval(_cellTimerIv);
+  _cellTimerIv=setInterval(_tickCellTimers, 1000);
+  _tickCellTimers();
+}
+
 function initCandleTimer() {
   if (_timerEl){_timerEl.remove();_timerEl=null;}
   if (_timerIv){clearInterval(_timerIv);_timerIv=null;}
@@ -3483,12 +3550,12 @@ function initCandleTimer() {
     'display:flex;flex-direction:column;align-items:stretch;visibility:hidden;';
   _timerEl.innerHTML=
     '<div id="ct-price" style="background:#26a69a;color:#fff;'+
-      'font:bold 6px/9px monospace;padding:1px 3px;text-align:right;'+
-      'border-radius:2px 0 0 2px;white-space:nowrap;">—</div>'+
-    '<div id="ct-timer" style="background:#1a1e2d;color:#a0a3b1;'+
-      'font:bold 5px/8px monospace;padding:1px 3px;text-align:right;'+
+      'font:bold 11px/16px monospace;padding:2px 5px;text-align:right;'+
+      'border-radius:3px 0 0 3px;white-space:nowrap;">—</div>'+
+    '<div id="ct-timer" style="background:#1a1e2d;color:#d1d4dc;'+
+      'font:bold 10px/14px monospace;padding:2px 5px;text-align:right;'+
       'border:1px solid #2f3241;border-top:none;border-right:none;'+
-      'border-radius:0 0 0 2px;white-space:nowrap;">—</div>';
+      'border-radius:0 0 0 3px;white-space:nowrap;">—:——</div>';
   mainEl.appendChild(_timerEl);
   _timerIv=setInterval(_tickTimer,1000);
   _tickTimer();
@@ -3937,6 +4004,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Start live data — initial chart already has Python-injected data
   setTimeout(()=>{
     initCandleTimer();
+    _startCellTimers();
     _loadBTCHistory(S.tf);   // refresh with Binance REST then open WebSocket
   }, 800);
 
