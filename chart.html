@@ -3,6 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+<script>
+/* ── CSS-based self-fullscreen (no user gesture needed) ── */
+(function(){
+  function _selfFS(){
+    try {
+      if(window.parent===window) return; // not in iframe
+      var iframes = window.parent.document.querySelectorAll('iframe');
+      for(var i=0;i<iframes.length;i++){
+        try{
+          if(iframes[i].contentWindow===window){
+            var s=iframes[i].style;
+            s.cssText='position:fixed!important;top:0!important;left:0!important;'
+              +'width:100vw!important;height:100vh!important;'
+              +'max-height:none!important;z-index:2147483647!important;'
+              +'border:none!important;margin:0!important;padding:0!important;';
+            // Also hide Streamlit wrapper elements above us
+            try{
+              var p=iframes[i].parentElement;
+              while(p && p!==window.parent.document.body){
+                p.style.cssText=(p.style.cssText||'')
+                  +';overflow:visible!important;height:100%!important;';
+                p=p.parentElement;
+              }
+            }catch(e){}
+            break;
+          }
+        }catch(e){}
+      }
+    }catch(e){}
+  }
+  // Run immediately + after tiny delay (for Streamlit React mount)
+  _selfFS();
+  setTimeout(_selfFS, 200);
+  setTimeout(_selfFS, 800);
+  window.addEventListener('load', _selfFS);
+  try{ window.parent.addEventListener('resize', _selfFS); }catch(e){}
+})();
+</script>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 /* ── Reset ───────────────────────────────────────────────────────── */
@@ -20,6 +58,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   height:22px;min-height:22px;
   background:#1e222d;border-bottom:1px solid #2a2e39;
   display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow:hidden;
+  position:relative;z-index:8100;
 }
 #sym-wrap{position:relative;flex-shrink:0}
 #sym-btn{
@@ -112,6 +151,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#1e222d;border-bottom:1px solid #2a2e39;
   display:flex;align-items:center;padding:0 4px;gap:2px;
   overflow-x:auto;flex-shrink:0;-ms-overflow-style:none;scrollbar-width:none;
+  position:relative;z-index:8100;
 }
 #tf-bar::-webkit-scrollbar{display:none}
 #tf-bar.tf-hidden{display:none}
@@ -132,6 +172,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   height:20px;min-height:20px;
   background:#161a25;border-bottom:1px solid #2a2e39;
   display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;
+  position:relative;z-index:8100;
 }
 .ws-slot-btn{
   height:16px;padding:0 7px;border-radius:3px;border:1px solid #2a2e39;
@@ -181,6 +222,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#1e222d;border-top:1px solid #2a2e39;
   display:flex;align-items:center;padding:0 6px;gap:4px;
   overflow-x:auto;flex-shrink:0;-ms-overflow-style:none;scrollbar-width:none;
+  position:relative;z-index:8100;
 }
 #bottom-bar::-webkit-scrollbar{display:none}
 .bot-sep{width:1px;height:14px;background:#2a2e39;margin:0 2px;flex-shrink:0}
@@ -422,6 +464,7 @@ select.s-select{
 @keyframes fs-slide-in{from{transform:translateY(-100%)}to{transform:translateY(0)}}
 #fs-restore:active{background:#1a53e0}
 
+
 /* ── Swing S/R TF settings panel ────────────────────────────────── */
 .swing-tf-panel{
   display:none;padding:8px 6px 6px;
@@ -490,12 +533,173 @@ select.s-select{
 .tv-lightweight-charts a[href*="tradingview"]{display:none!important}
 .tv-lightweight-charts a{display:none!important}
 
-/* ── Go-to-latest button ─────────────────────────────────────────── */
+/* ── Fix 4: Blue ring only on touch (suppress on mouse/fine pointer) */
+@media (pointer:fine){.mob-press-ring{display:none!important}}
+
+/* ── Fix 9: Legend top-left horizontal layout ──────────────────── */
+#legend{
+  display:flex!important;flex-direction:row!important;
+  flex-wrap:wrap;align-items:center;gap:5px;
+  background:rgba(19,23,34,0.65);border-radius:4px;padding:3px 6px;
+}
+#legend .leg-sym{margin-bottom:0;font-size:10px}
+#legend .leg-status{margin-top:0}
+
+/* ── Fix 1: Auto-fit button ────────────────────────────────────── */
+#auto-btn{
+  height:18px;padding:0 7px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:10px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+#auto-btn:active{background:#2a2e39;color:#d1d4dc}
+#auto-btn:hover{border-color:#26a69a;color:#26a69a}
+
+/* ── Fix 2: Go-to-date button & popup ──────────────────────────── */
+#goto-date-btn{
+  height:18px;padding:0 7px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+#goto-date-btn:active{background:#2a2e39}
+#goto-date-btn:hover{border-color:#f0b429;color:#f0b429}
+#goto-date-panel{
+  display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
+  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
+  padding:12px 14px;z-index:9999;box-shadow:0 8px 32px #0009;
+  min-width:200px;
+}
+#goto-date-panel.open{display:block}
+#goto-date-panel label{font-size:11px;color:#787b86;display:block;margin-bottom:4px}
+#goto-date-inp{
+  background:#131722;border:1px solid #363c4e;border-radius:4px;
+  color:#d1d4dc;font-size:12px;padding:4px 8px;width:100%;
+  outline:none;margin-bottom:8px;
+}
+#goto-date-inp:focus{border-color:#2962ff}
+.goto-date-btns{display:flex;gap:6px}
+.goto-date-go{
+  flex:1;height:28px;background:#2962ff;border:none;border-radius:4px;
+  color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+}
+.goto-date-go:active{background:#1a53e0}
+.goto-date-cancel{
+  height:28px;padding:0 10px;background:#2a2e39;border:none;border-radius:4px;
+  color:#9598a1;font-size:12px;cursor:pointer;
+}
+
+/* ── Fix 7: Timer setting row ──────────────────────────────────── */
+/* (reuses existing toggle styles) */
+
+/* ── Fix 8: Per-cell settings icon ────────────────────────────── */
+.cell-settings-btn{
+  position:absolute;top:3px;right:3px;z-index:20;
+  width:14px;height:14px;border-radius:2px;
+  background:transparent;border:none;
+  color:#555;font-size:9px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  line-height:1;transition:color .15s;
+}
+.cell-settings-btn:hover{color:#d1d4dc;background:#2a2e3966}
+.cell-settings-panel{
+  display:none;position:fixed;z-index:10000;
+  background:#1e222d;border:1px solid #363c4e;border-radius:6px;
+  padding:0;width:148px;
+  box-shadow:0 6px 20px #000b;
+}
+.cell-settings-panel.open{display:block}
+.csp-title{
+  font-size:10px;font-weight:700;color:#d1d4dc;
+  padding:6px 8px 5px;border-bottom:1px solid #2a2e39;
+  display:flex;align-items:center;
+}
+.csp-title span{flex:1}
+.csp-row{
+  display:flex;align-items:center;padding:4px 8px;
+  border-bottom:1px solid #2a2e3933;font-size:10px;color:#d1d4dc;gap:6px;
+}
+.csp-row:last-child{border-bottom:none;padding-bottom:6px}
+.csp-row>span{flex:1;font-size:10px}
+.csp-close{
+  background:none;border:none;color:#787b86;cursor:pointer;
+  font-size:12px;padding:0 2px;line-height:1;
+}
+.csp-close:hover{color:#ef5350}
+
+/* ── Fix 12: Cursor settings ──────────────────────────────────── */
+#s-cross-color{
+  width:28px;height:28px;border-radius:4px;border:1px solid #363c4e;
+  padding:0;cursor:pointer;flex-shrink:0;background:#758696;display:inline-block;
+}
+#s-cross-color:hover{border-color:#9598a1}
+
+/* ── Fix 13: Overlay panel ────────────────────────────────────── */
+#overlay-btn{
+  height:18px;padding:0 7px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+#overlay-btn:active{background:#2a2e39}
+#overlay-btn.active{border-color:#2962ff;color:#2962ff}
+#overlay-dd{
+  display:none;position:fixed;bottom:30px;left:100px;
+  background:#1e222d;border:1px solid #363c4e;border-radius:6px;
+  z-index:9999;box-shadow:0 8px 24px #0009;min-width:120px;overflow:hidden;
+}
+#overlay-dd.open{display:block}
+.ovl-dd-item{
+  padding:8px 12px;font-size:12px;color:#d1d4dc;cursor:pointer;
+  border-bottom:1px solid #2a2e3944;
+}
+.ovl-dd-item:last-child{border-bottom:none}
+.ovl-dd-item:hover{background:#2a2e39}
+/* Overlay panels now tile like grid cells — no resize/drag */
+.ovl-panel{
+  position:fixed;z-index:8000;
+  background:#131722;border:1px solid #2a2e39;
+  overflow:hidden;display:flex;flex-direction:column;
+  box-sizing:border-box;
+}
+.ovl-panel-hdr{
+  height:20px;background:#1e222d;border-bottom:1px solid #2a2e39;
+  display:flex;align-items:center;padding:0 5px;gap:3px;flex-shrink:0;
+}
+.ovl-panel-title{font-size:9px;color:#787b86;flex:1}
+.ovl-panel-home{
+  background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;
+  padding:1px 4px;border-radius:2px;
+}
+.ovl-panel-home:hover{background:#2a2e39;color:#d1d4dc}
+.ovl-panel-body{flex:1;min-height:0;overflow:hidden}
+#ovl-count-inp{
+  width:40px;height:22px;background:#131722;border:1px solid #363c4e;
+  border-radius:3px;color:#d1d4dc;font-size:12px;text-align:center;
+  -webkit-user-select:auto;user-select:auto;
+}
+/* Active overlay panel highlight */
+.ovl-panel.ovl-active{
+  border:2px solid #2962ff !important;
+  box-shadow:0 0 0 1px #2962ff44;
+}
+.ovl-panel.ovl-active .ovl-panel-hdr{
+  background:#1a2444;
+}
+.ovl-panel-hdr{cursor:pointer;}
+
+/* Close-all floating button shown when overlays are active */
+#ovl-close-all{
+  display:none;position:fixed;top:50px;right:6px;z-index:8500;
+  background:#2a2e39;border:1px solid #363c4e;border-radius:20px;
+  color:#d1d4dc;font-size:10px;padding:4px 10px;cursor:pointer;
+  box-shadow:0 4px 12px #000a;gap:4px;align-items:center;
+}
+#ovl-close-all:hover{background:#363c4e}
+
+/* ── Go-to-latest button (Fix 10: 70% smaller) ────────────────────── */
 #goto-latest-btn{
   position:fixed;bottom:6px;right:6px;z-index:2000;
-  width:28px;height:28px;border-radius:50%;
+  width:17px;height:17px;border-radius:50%;
   background:#1e222d;border:1px solid #363a45;
-  color:#9598a1;font-size:12px;line-height:1;
+  color:#9598a1;font-size:8px;line-height:1;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 2px 8px #0008;transition:background .15s,border-color .15s,opacity .15s;
   user-select:none;padding:0;
@@ -731,7 +935,40 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
+  <div class="bot-sep"></div>
+  <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
+  <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
+  <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
+</div>
+
+<!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
+<div id="goto-date-panel">
+  <label>Go to Date</label>
+  <input type="date" id="goto-date-inp">
+  <div class="goto-date-btns">
+    <button class="goto-date-go" onclick="execGotoDate()">Go</button>
+    <button class="goto-date-cancel" onclick="toggleGotoDate()">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ CLOSE-ALL OVERLAYS BUTTON ══════════════════════════════════ -->
+<button id="ovl-close-all" onclick="_closeAllOverlays()">✕ Close All Overlays</button>
+
+<!-- ═══ OVERLAY DROPDOWN ═════════════════════════════════════════════ -->
+<div id="overlay-dd">
+  <div class="ovl-dd-item" onclick="openOverlayPanels()">Open</div>
+  <div class="ovl-dd-item" onclick="openOverlaySetting()">Setting</div>
+</div>
+
+<!-- ═══ OVERLAY SETTING PANEL ═══════════════════════════════════════ -->
+<div id="ovl-setting-panel" style="display:none;position:fixed;z-index:10001;bottom:35px;left:110px;background:#1e222d;border:1px solid #363c4e;border-radius:8px;padding:12px 14px;box-shadow:0 8px 24px #0009;min-width:170px;">
+  <div style="font-size:11px;font-weight:700;color:#d1d4dc;margin-bottom:8px">Overlay Setting</div>
+  <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#9598a1">
+    <span>Screens</span>
+    <input id="ovl-count-inp" type="number" min="1" max="4" value="2">
+  </div>
+  <button class="goto-date-go" style="margin-top:10px;width:100%" onclick="closeOverlaySetting()">Done</button>
 </div>
 
 </div><!-- #app -->
@@ -836,6 +1073,42 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           <div class="swing-tf-hint">Click chip to toggle · ✕ to remove · dots = color</div>
         </div>
       </div>
+
+      <!-- ── BTC indicator (same as Swing S/R, independent settings) ───── -->
+      <div class="ind-group">
+        <div class="ind-group-title">BTC</div>
+        <div class="ind-row">
+          <span class="ind-name">BTC S/R Lines</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-btc2" onchange="onBtc2Toggle(this)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">Line Width</span>
+          <div class="ind-ctrl">
+            <input class="ind-len" id="btc2-line-width" type="number" value="1" min="0.5" max="4" step="0.5"
+              onchange="setBtc2LineWidth(+this.value)">
+          </div>
+        </div>
+        <div class="swing-tf-panel open" id="btc2-tf-panel">
+          <div class="swing-cur-row" id="btc2-cur-row">
+            <span class="swing-cur-lbl" id="btc2-cur-lbl">Active TF (--)</span>
+            <div class="swing-cur-dots">
+              <span class="swing-clr-tag">Swing</span>
+              <button class="sr-clr-inp tv-clr-btn" id="btc2-cur-swing-clr" title="BTC Swing color (active TF)"></button>
+              <span class="swing-clr-tag" style="margin-left:4px">Candle</span>
+              <button class="sr-clr-inp tv-clr-btn" id="btc2-cur-candle-clr" title="BTC Candle H/L color (active TF)"></button>
+            </div>
+          </div>
+          <div class="swing-tf-chips" id="btc2-tf-chips"></div>
+          <div class="swing-tf-add-row">
+            <input class="swing-tf-input" id="btc2-tf-input" type="text" placeholder="5m / 4H / 2D" maxlength="6"
+              onkeydown="if(event.key==='Enter')addBtc2TF()">
+            <button class="swing-tf-addbtn" onclick="addBtc2TF()">+ Add</button>
+          </div>
+          <div class="swing-tf-hint">Click chip to toggle · ✕ to remove · dots = color</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -932,6 +1205,42 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <span class="ind-name">Show Grid Lines</span>
         <label class="toggle"><input type="checkbox" id="s-grid"><span class="sl"></span></label>
       </div>
+      <div class="settings-sec">Candle Timer</div>
+      <div class="ind-row">
+        <span class="ind-name">Show Remaining Timer</span>
+        <label class="toggle"><input type="checkbox" id="s-timer" checked><span class="sl"></span></label>
+      </div>
+      <div class="settings-sec">Cursor / Crosshair</div>
+      <div class="ind-row">
+        <span class="ind-name">Crosshair Color</span>
+        <button class="tv-clr-btn-lg" id="s-cross-color" data-color="#758696" style="background:#758696" onclick="event.stopPropagation();_openSettingsColor(this)"></button>
+      </div>
+      <div class="ind-row">
+        <span class="ind-name">Line Style</span>
+        <select id="s-cross-style" class="s-select">
+          <option value="0">Solid</option>
+          <option value="2">Dashed</option>
+          <option value="3">Large Dashed</option>
+          <option value="1">Dotted</option>
+        </select>
+      </div>
+      <div class="ind-row">
+        <span class="ind-name">Line Width</span>
+        <select id="s-cross-width" class="s-select">
+          <option value="1">1 px</option>
+          <option value="2">2 px</option>
+          <option value="3">3 px</option>
+        </select>
+      </div>
+      <div class="settings-sec">Top-Left Legend</div>
+      <div class="ind-row">
+        <span class="ind-name">Show OHLC only while hovering (auto-hide when not)</span>
+        <label class="toggle"><input type="checkbox" id="s-ohlc-hover"><span class="sl"></span></label>
+      </div>
+      <div class="ind-row">
+        <span class="ind-name">Hide axis price/time labels on crosshair</span>
+        <label class="toggle"><input type="checkbox" id="s-hide-axis-labels" checked><span class="sl"></span></label>
+      </div>
       <button class="apply-btn" onclick="applySettings()">Apply</button>
     </div>
   </div>
@@ -984,12 +1293,12 @@ function fmtChartTime(t) {
   const d = new Date(t * 1000);
   const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: cfg.zone, day:'2-digit', month:'2-digit',
+    timeZone: cfg.zone, day:'2-digit', month:'2-digit', year:'numeric',
     hour:'2-digit', minute:'2-digit', hour12:false,
   }).formatToParts(d);
   const g = ty => (parts.find(p => p.type===ty) || {}).value || '';
-  // DD/MM  HH:MM  <ZONE>
-  return g('day')+'/'+g('month')+'  '+g('hour')+':'+g('minute')+' '+cfg.label;
+  // DD/MM/YYYY  HH:MM  <ZONE>
+  return g('day')+'/'+g('month')+'/'+g('year')+'  '+g('hour')+':'+g('minute')+' '+cfg.label;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1457,6 +1766,24 @@ function deleteTF(tfMin) {
 
 // ── Apply a TF to the active chart / selected cell ───────────────────────
 function applyTF(tfMin) {
+  // ── When overlay panels are open: TF change goes to the active overlay panel ──
+  if (_overlayPanels.length > 0) {
+    const panel = _overlayPanels[_activeOvlPanelIdx];
+    if (panel) {
+      const body = panel.querySelector('.ovl-panel-body');
+      if (body) {
+        if (body._ovlChart) { try { body._ovlChart.remove(); } catch(_) {} }
+        _buildOverlayChart(body, _activeOvlPanelIdx, tfMin);
+        const titleEl = document.getElementById('ovl-title-' + _activeOvlPanelIdx);
+        if (titleEl) titleEl.textContent = '⧉ Overlay ' + (_activeOvlPanelIdx+1) + ' — ' + tfMinToLabel(tfMin);
+      }
+    }
+    document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', +b.dataset.tf === tfMin));
+    const el = document.getElementById('tf-menu-label');
+    if (el) el.textContent = tfMinToLabel(tfMin);
+    return;
+  }
+  // ── Normal mode (no overlays) ───────────────────────────────────────────
   if (CELLS.length > 0) {
     if (CELLS[SELECTED_CELL]) {
       CELLS[SELECTED_CELL].tf = tfMin;
@@ -1471,6 +1798,7 @@ function applyTF(tfMin) {
     b.classList.toggle('active', +b.dataset.tf === tfMin));
   setTfMenuLabel();
   _updateCurrentTfColorRow();
+  _updateBtc2TfColorRow();
   saveState();
 }
 
@@ -1478,7 +1806,13 @@ function setTfMenuLabel() {
   const el = document.getElementById('tf-menu-label');
   if (!el) return;
   const tf = (CELLS.length > 0 && CELLS[SELECTED_CELL]) ? CELLS[SELECTED_CELL].tf : S.tf;
-  el.textContent = tfMinToLabel(tf);
+  // Fix 6: use stored custom label if available, fallback to tfMinToLabel
+  let label = tfMinToLabel(tf);
+  if (Array.isArray(S._customTFs)) {
+    const found = S._customTFs.find(t => t.minutes === tf);
+    if (found && found.label) label = found.label;
+  }
+  el.textContent = label;
 }
 
 function toggleTfDropdown() {
@@ -1810,8 +2144,13 @@ function rebuildChart() {
     if (!S.legChg && chgEl) chgEl.style.display='none';
   }
   chart.subscribeCrosshairMove(param => {
-    // Cursor left the chart — reset legend to latest bar, keep crosshair hidden
-    if (!param?.seriesData?.size) { _resetLegToLatest(); return; }
+    const isOnChart = !!(param?.seriesData?.size);
+    // Fix 4: OHLC hover-only mode — show grp only while cursor is on chart
+    if (S.legOhlcHover) {
+      const g = document.getElementById('leg-ohlc-grp');
+      if (g) g.style.display = (S.legOhlc && isOnChart) ? '' : 'none';
+    }
+    if (!isOnChart) { _resetLegToLatest(); return; }
     const raw = param.seriesData.get(mainSeries);
     if (!raw) { _resetLegToLatest(); return; }
     const o = raw.open  ?? raw.value;
@@ -1830,11 +2169,14 @@ function rebuildChart() {
     if (!S.legChg)  { chgEl.style.display='none'; }
   });
 
+  // Apply cursor settings to newly rebuilt chart
+  setTimeout(()=>{ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 50);
   bindPriceScaleTouchZoom();
   bindMainResize();
   initCandleTimer();
   applyLegendVisibility();
   swingAfterRebuild();
+  swingAfterRebuildBtc2();
 }
 
 function gotoLatest() {
@@ -2424,6 +2766,14 @@ function buildGrid(key) {
     restoreBtn.onclick=function(e){ toggleCellFS(i); e.stopPropagation(); };
     cell.appendChild(restoreBtn);
 
+    // Fix 8: per-cell settings icon (⚙) top-right
+    const csetBtn=document.createElement('button');
+    csetBtn.className='cell-settings-btn';
+    csetBtn.title='Cell Settings';
+    csetBtn.textContent='⚙';
+    csetBtn.onclick=function(e){ _openCellSettings(i, csetBtn); e.stopPropagation(); };
+    cell.appendChild(csetBtn);
+
     // Overlay — symbol + price shown inside chart top-left
     const overlay=document.createElement('div');
     overlay.className='cell-overlay';
@@ -2517,12 +2867,30 @@ function _resizeCellChart(idx) {
   }
 }
 
-function buildCellChart(idx) {
+async function buildCellChart(idx) {
   const c=CELLS[idx], el=document.getElementById('cell-chart-'+idx);
   if (!el) return;
   if (c.chart){try{c.chart.remove();}catch(_){} c.chart=null; c.series=null;}
 
-  const rawData=_baseDataFor(c.asset, c.tf);
+  // --- 1. DIRECT BROWSER FETCH (Fixes missing historical data in grid) ---
+  let rawData=_baseDataFor(c.asset, c.tf);
+  if (!rawData || rawData.length < 50) {
+    try {
+      const iv = _binanceIvFor(c.tf);
+      const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=' + iv + '&limit=1000');
+      if (r.ok) {
+        const klines = await r.json();
+        rawData = klines.map(_parseKline);
+        if (c.tf >= 1440) { BTC_DAILY.length = 0; rawData.forEach(x=>BTC_DAILY.push(x)); }
+        else if (c.tf >= 15) { BTC_15M.length = 0; rawData.forEach(x=>BTC_15M.push(x)); }
+        else { ALLDATA[c.asset] = rawData; }
+      }
+    } catch(e) {
+      rawData = ALLDATA[c.asset] || [];
+    }
+  }
+  // ------------------------------------------------------------------------
+
   const data=resampleForTF(rawData, c.tf, c.asset);
 
   c.chart=LightweightCharts.createChart(el,{
@@ -2538,17 +2906,31 @@ function buildCellChart(idx) {
     kineticScroll:{mouse:true,touch:true},
   });
 
-  c.series=c.chart.addCandlestickSeries({
-    upColor:'#26a69a', downColor:'#ef5350',
-    borderUpColor:'#26a69a', borderDownColor:'#ef5350',
-    wickUpColor:'#26a69a', wickDownColor:'#ef5350',
-    priceLineVisible:true,
-  });
+  // --- 2. DYNAMIC CHART TYPES & COLORS (Applies cell settings) ---
+  const upClr = c.upColor || S.upColor || '#26a69a';
+  const dnClr = c.dnColor || S.dnColor || '#ef5350';
+  const cType = c.chartType || 'candle';
+
+  if (cType === 'candle') {
+    c.series = c.chart.addCandlestickSeries({ upColor: upClr, downColor: dnClr, borderUpColor: upClr, borderDownColor: dnClr, wickUpColor: upClr, wickDownColor: dnClr, priceLineVisible: true });
+  } else if (cType === 'bar') {
+    c.series = c.chart.addBarSeries({ upColor: upClr, downColor: dnClr, thinBars: false });
+  } else if (cType === 'line') {
+    c.series = c.chart.addLineSeries({ color: upClr, lineWidth: 2, priceLineVisible: true });
+  } else {
+    c.series = c.chart.addAreaSeries({ topColor: upClr + '44', bottomColor: upClr + '00', lineColor: upClr, lineWidth: 2, priceLineVisible: true });
+  }
+
   if (data.length) {
-    c.series.setData(data);
+    if (cType === 'line' || cType === 'area') {
+      c.series.setData(data.map(d => ({time: d.time, value: d.close})));
+    } else {
+      c.series.setData(data);
+    }
     _applyZoom(c.chart.timeScale(), c.asset, c.tf);
   }
-  // Save zoom whenever user scrolls this cell
+  // ------------------------------------------------------------------------
+
   c.chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
     clearTimeout(c._zoomTid);
     c._zoomTid = setTimeout(() => _saveZoom(c.asset, c.tf, r), 600);
@@ -2557,7 +2939,9 @@ function buildCellChart(idx) {
   if (c._mobTouchCleanup) { c._mobTouchCleanup(); c._mobTouchCleanup = null; }
   c._mobTouchCleanup = attachMobileTouchUX(el, c.chart, () => c.series);
   updateCellPrice(idx, data);
-  setTimeout(()=>buildCellSwing(idx), 60);
+  // Apply crosshair settings to this cell
+  _applyCrosshairStyle();
+  setTimeout(()=>{ buildCellSwing(idx); buildCellBtc2(idx); }, 60);
 }
 
 function updateCellPrice(idx, data) {
@@ -2601,6 +2985,18 @@ function toggleSettings() {
     set('s-leg-sym',S.legSym); set('s-leg-ohlc',S.legOhlc);
     set('s-leg-chg',S.legChg); set('s-leg-status',S.legStatus);
     set('s-grid',S.grid);
+    set('s-ohlc-hover', !!S.legOhlcHover);
+    // Fix 7: sync timer toggle
+    set('s-timer', S.showTimer!==false);
+    // Fix 12: sync cursor settings
+    const ccEl=document.getElementById('s-cross-color');
+    if(ccEl){ const c=S.crossColor||'#758696'; ccEl.dataset.color=c; ccEl.style.background=c; }
+    const csEl=document.getElementById('s-cross-style');
+    if(csEl) csEl.value=String(S.crossStyle != null ? S.crossStyle : 0);
+    const cwEl=document.getElementById('s-cross-width');
+    if(cwEl) cwEl.value=String(S.crossWidth||1);
+    // Fix 4: sync axis-label toggle
+    set('s-hide-axis-labels', S.hideAxisLabels!==false);
     // Sync active bg swatch
     document.querySelectorAll('.bg-swatch').forEach(b=>{
       const oc=b.getAttribute('onclick')||'';
@@ -2622,9 +3018,361 @@ function applySettings() {
   S.legOhlc  =document.getElementById('s-leg-ohlc').checked;
   S.legChg   =document.getElementById('s-leg-chg').checked;
   S.legStatus=document.getElementById('s-leg-status').checked;
+  // Fix 4: OHLC hover-only toggle
+  const ohEl=document.getElementById('s-ohlc-hover');
+  if(ohEl) S.legOhlcHover=ohEl.checked;
+  // Fix 7: timer show/hide
+  const timerEl=document.getElementById('s-timer');
+  if(timerEl){ S.showTimer=timerEl.checked; _applyTimerVisibility(); }
+  // Fix 12: cursor/crosshair settings
+  const ccEl=document.getElementById('s-cross-color');
+  const csEl=document.getElementById('s-cross-style');
+  const cwEl=document.getElementById('s-cross-width');
+  if(ccEl){ S.crossColor=ccEl.dataset.color||S.crossColor||'#758696'; }
+  if(csEl){ S.crossStyle=+csEl.value; }
+  if(cwEl){ S.crossWidth=+cwEl.value; }
+  _applyCrosshairStyle();
+  // Fix 4: axis label visibility
+  const halEl=document.getElementById('s-hide-axis-labels');
+  if(halEl){ S.hideAxisLabels=halEl.checked; _applyCrosshairAxisLabels(); }
   toggleSettings(); saveState(); applyBgToPage(); rebuildChart();
   if(S.layout!=='1x1') CELLS.forEach((_,k)=>buildCellChart(k));
   applyLegendVisibility();
+}
+
+// Fix 7: apply timer visibility
+function _applyTimerVisibility() {
+  const w = document.getElementById('candle-timer-widget');
+  if (w) w.style.display = (S.showTimer===false)?'none':'';
+}
+
+// Fix 12: apply crosshair line style to all charts (strictly called on every rebuild)
+function _applyCrosshairStyle() {
+  const col   = S.crossColor  || '#758696';
+  const style = (S.crossStyle != null) ? +S.crossStyle : 0;  // 0=Solid, 1=Dotted, 2=Dashed, 3=LargeDashed
+  const width = S.crossWidth  || 1;
+  const mode  = S.crossMode   || 1;
+  const opts  = { crosshair:{
+    mode,
+    vertLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
+    horzLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
+  }};
+  if(chart)  try{chart.applyOptions(opts);}catch(_){}
+  CELLS.forEach(c=>{ if(c.chart) try{c.chart.applyOptions(opts);}catch(_){} });
+  // Also apply to overlay charts
+  _overlayPanels.forEach(p=>{
+    const body=p.querySelector('.ovl-panel-body');
+    if(body&&body._ovlChart) try{body._ovlChart.applyOptions(opts);}catch(_){}
+  });
+}
+
+// Fix 4: hide axis price/time labels when crosshair is active
+function _applyCrosshairAxisLabels() {
+  const hide = S.hideAxisLabels!==false;
+  const opts = { crosshair:{
+    vertLine:{labelVisible:!hide},
+    horzLine:{labelVisible:!hide},
+  }};
+  if(chart) try{chart.applyOptions(opts);}catch(_){}
+  CELLS.forEach(c=>{ if(c.chart) try{c.chart.applyOptions(opts);}catch(_){} });
+}
+
+// Fix 1: Auto-fit chart — reset barSpacing to default and fitContent
+function autoFitChart() {
+  // Show last ~50 recent candles — scroll to latest + set bar spacing
+  const BAR_SPACING = 8;
+  const RIGHT_OFFSET = 5;
+  const BARS = 50;
+  const doAuto = (ch) => {
+    if (!ch) return;
+    try { ch.timeScale().scrollToRealTime(); } catch(_) {}
+    try { ch.timeScale().applyOptions({barSpacing: BAR_SPACING, rightOffset: RIGHT_OFFSET}); } catch(_) {}
+    // Set visible logical range to last BARS bars
+    try {
+      const lr = ch.timeScale().getVisibleLogicalRange();
+      if (lr) {
+        const to = lr.to;
+        ch.timeScale().setVisibleLogicalRange({from: to - BARS, to: to + RIGHT_OFFSET});
+      }
+    } catch(_) {}
+  };
+  if (S.layout==='1x1') {
+    doAuto(chart);
+  } else {
+    CELLS.forEach(c => doAuto(c.chart));
+  }
+}
+
+// Fix 2: Go-to-date panel toggle
+function toggleGotoDate() {
+  const p=document.getElementById('goto-date-panel');
+  if(!p) return;
+  p.classList.toggle('open');
+  const inp=document.getElementById('goto-date-inp');
+  if(inp && p.classList.contains('open')) inp.focus();
+  // close overlay menu if open
+  const dd=document.getElementById('overlay-dd');
+  if(dd) dd.classList.remove('open');
+}
+function execGotoDate() {
+  const inp=document.getElementById('goto-date-inp');
+  if(!inp||!inp.value) return;
+  const ts=Math.floor(new Date(inp.value).getTime()/1000);
+  if(isNaN(ts)) return;
+  const jump=(ch)=>{ try { ch.timeScale().scrollToPosition(0,true); ch.timeScale().setVisibleRange({from:ts,to:ts+86400*30}); } catch(_){} };
+  if(S.layout==='1x1'){ if(chart) jump(chart); }
+  else CELLS.forEach(c=>{ if(c.chart) jump(c.chart); });
+  toggleGotoDate();
+}
+
+// Fix 13: Overlay menu + panels
+let _overlayPanels=[];
+function toggleOverlayMenu() {
+  const dd=document.getElementById('overlay-dd');
+  if(!dd) return;
+  dd.classList.toggle('open');
+  document.getElementById('goto-date-panel').classList.remove('open');
+}
+// Track which overlay panel is "active" (receives TF / indicator changes)
+let _activeOvlPanelIdx = 0;
+
+function openOverlayPanels() {
+  const dd=document.getElementById('overlay-dd');
+  if(dd) dd.classList.remove('open');
+  const n=+document.getElementById('ovl-count-inp').value||2;
+  _overlayPanels.forEach(p=>p.remove()); _overlayPanels=[];
+  _activeOvlPanelIdx=0;
+
+  // Compute chart area bounds (below top-bar, above bottom-bar)
+  const topEl=document.getElementById('top-bar')||document.getElementById('tf-bar')||document.querySelector('.tf-bar');
+  const botEl=document.getElementById('bottom-bar');
+  const topH=topEl ? topEl.getBoundingClientRect().bottom : 50;
+  const botH=botEl ? (window.innerHeight-botEl.getBoundingClientRect().top) : 26;
+  const availH=window.innerHeight-topH-botH;
+  const availW=window.innerWidth;
+
+  // ─── SINGLE COLUMN layout: panels stacked vertically ────────────────────
+  const cols=1;
+  const rows=n;
+  const cellW=availW;
+  const cellH=Math.floor(availH/rows);
+
+  const ovlTFs=[1,5,15,60,240,1440];
+  for(let i=0;i<n;i++){
+    const tf=ovlTFs[i%ovlTFs.length];
+    const panel=document.createElement('div');
+    panel.className='ovl-panel'+(i===0?' ovl-active':'');
+    panel.style.cssText=`left:0px;top:${topH+i*cellH}px;width:${cellW}px;height:${cellH}px;`;
+    panel.dataset.idx=String(i);
+    panel.innerHTML=
+      `<div class="ovl-panel-hdr" onclick="_setActiveOvlPanel(${i})">`+
+        `<span class="ovl-panel-title" id="ovl-title-${i}">⧉ Overlay ${i+1} — ${tfMinToLabel(tf)}</span>`+
+        `<button class="ovl-panel-home" onclick="event.stopPropagation();_ovlGotoLatest(this.closest('.ovl-panel'))" title="Go to latest">⊡</button>`+
+        `<button class="ovl-panel-home" onclick="event.stopPropagation();_closeOverlay(this.closest('.ovl-panel'))" title="Close this overlay">✕</button>`+
+      `</div>`+
+      `<div class="ovl-panel-body" id="ovl-body-${i}"></div>`;
+    document.body.appendChild(panel);
+    _overlayPanels.push(panel);
+    const capturedI=i, capturedTf=tf;
+    setTimeout(()=>_buildOverlayChart(panel.querySelector('.ovl-panel-body'),capturedI,capturedTf),60*i);
+  }
+  const cab=document.getElementById('ovl-close-all');
+  if(cab) cab.style.display='flex';
+  const ob=document.getElementById('overlay-btn');
+  if(ob) ob.classList.add('active');
+  // Dim the background chart
+  _setMainChartDim(true);
+}
+
+function _setActiveOvlPanel(idx) {
+  _activeOvlPanelIdx=idx;
+  _overlayPanels.forEach((p,i)=>{
+    p.classList.toggle('ovl-active', i===idx);
+  });
+}
+
+function _setMainChartDim(dim) {
+  let dimEl=document.getElementById('main-chart-dim');
+  if(dim) {
+    if(!dimEl){
+      dimEl=document.createElement('div');
+      dimEl.id='main-chart-dim';
+      dimEl.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;z-index:7999;background:rgba(0,0,0,0.55);pointer-events:auto;cursor:not-allowed;';
+      dimEl.title='Overlay active — click "Close All Overlays" to return to main chart';
+      document.body.appendChild(dimEl);
+    }
+  } else {
+    if(dimEl) dimEl.remove();
+  }
+}
+
+function _closeOverlay(panel) {
+  if(!panel) return;
+  const body=panel.querySelector('.ovl-panel-body');
+  if(body&&body._ovlChart) try{body._ovlChart.remove();}catch(_){}
+  panel.remove();
+  _overlayPanels=_overlayPanels.filter(p=>p!==panel);
+  // Renumber remaining panels' idx
+  _overlayPanels.forEach((p,i)=>{p.dataset.idx=String(i);});
+  _activeOvlPanelIdx=Math.min(_activeOvlPanelIdx,Math.max(0,_overlayPanels.length-1));
+  if(_overlayPanels.length===0){
+    const cab=document.getElementById('ovl-close-all');
+    if(cab) cab.style.display='none';
+    const ob=document.getElementById('overlay-btn');
+    if(ob) ob.classList.remove('active');
+    _setMainChartDim(false);
+  }
+}
+function _closeAllOverlays() {
+  _overlayPanels.forEach(p=>{
+    const body=p.querySelector('.ovl-panel-body');
+    if(body&&body._ovlChart) try{body._ovlChart.remove();}catch(_){}
+    p.remove();
+  });
+  _overlayPanels=[];
+  const cab=document.getElementById('ovl-close-all');
+  if(cab) cab.style.display='none';
+  const ob=document.getElementById('overlay-btn');
+  if(ob) ob.classList.remove('active');
+  _setMainChartDim(false);
+}
+function _buildOverlayChart(bodyEl, idx, tf) {
+  if(!bodyEl) return;
+  tf = tf || S.tf;
+  const rawData=_baseDataFor(S.asset, tf);
+  const data=resampleForTF(rawData, tf, S.asset);
+  const ch=LightweightCharts.createChart(bodyEl, {
+    width:bodyEl.clientWidth||300, height:bodyEl.clientHeight||200,
+    layout:{background:{type:'solid',color:S.bgColor},textColor:S.textColor,fontSize:7},
+    grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
+    crosshair:{mode:1,vertLine:{color:'#758696',width:1,style:1,labelBackgroundColor:'#131722'},horzLine:{color:'#758696',width:1,style:1,labelBackgroundColor:'#131722'}},
+    rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,barSpacing:6,rightOffset:5},
+    localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p>=1000?(p/1000).toFixed(1)+'K':p.toFixed(2)},
+    handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
+    handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true},
+    kineticScroll:{mouse:true,touch:true},
+  });
+  const ser=ch.addCandlestickSeries({
+    upColor:S.upColor,downColor:S.dnColor,
+    borderUpColor:S.upColor,borderDownColor:S.dnColor,
+    wickUpColor:S.upColor,wickDownColor:S.dnColor,
+    priceLineVisible:true,
+  });
+  if(data.length) { ser.setData(data); try{ch.timeScale().scrollToRealTime();}catch(_){} }
+  bodyEl._ovlChart=ch; bodyEl._ovlSeries=ser; bodyEl._ovlTf=tf;
+  const ro=new ResizeObserver(()=>{ try{ch.resize(bodyEl.clientWidth,bodyEl.clientHeight);}catch(_){} });
+  ro.observe(bodyEl);
+}
+function _ovlGotoLatest(panel) {
+  const body=panel.querySelector('.ovl-panel-body');
+  if(body&&body._ovlChart) try{body._ovlChart.timeScale().scrollToRealTime();}catch(_){}
+}
+function openOverlaySetting() {
+  const dd=document.getElementById('overlay-dd');
+  if(dd) dd.classList.remove('open');
+  const p=document.getElementById('ovl-setting-panel');
+  if(p) p.style.display=p.style.display==='none'?'block':'none';
+}
+function closeOverlaySetting() {
+  const p=document.getElementById('ovl-setting-panel');
+  if(p) p.style.display='none';
+}
+// Fix 13: drag overlay panels
+function _dragPanel(e, panel) {
+  e.preventDefault();
+  const ox=e.clientX-panel.offsetLeft, oy=e.clientY-panel.offsetTop;
+  const mm=(ev)=>{ panel.style.left=(ev.clientX-ox)+'px'; panel.style.top=(ev.clientY-oy)+'px'; };
+  const mu=()=>{ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); };
+  document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+}
+
+// Fix 8: per-cell settings panel (opens near the ⚙ button of that cell)
+let _cellSettingsPanel=null;
+function _openCellSettings(idx, btn) {
+  if(_cellSettingsPanel){ _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+  const c=CELLS[idx]; if(!c) return;
+  const panel=document.createElement('div');
+  panel.className='cell-settings-panel open';
+  panel.innerHTML=
+    `<div class="csp-title"><span>Cell ${idx+1}</span><button class="csp-close" onclick="_closeCellSettings()">✕</button></div>`+
+    `<div class="csp-row"><span>Type</span>`+
+      `<select class="s-select" style="font-size:10px;width:68px" onchange="_setCellChartType(${idx},this.value)">`+
+        `<option value="candle" ${(!c.chartType||c.chartType==='candle')?'selected':''}>Candle</option>`+
+        `<option value="bar" ${c.chartType==='bar'?'selected':''}>Bar</option>`+
+        `<option value="line" ${c.chartType==='line'?'selected':''}>Line</option>`+
+        `<option value="area" ${c.chartType==='area'?'selected':''}>Area</option>`+
+      `</select></div>`+
+    `<div class="csp-row"><span>Up</span>`+
+      `<button class="tv-clr-btn-lg" data-color="${c.upColor||S.upColor}" style="background:${c.upColor||S.upColor};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>_setCellColor(${idx},'up',v))"></button></div>`+
+    `<div class="csp-row"><span>Down</span>`+
+      `<button class="tv-clr-btn-lg" data-color="${c.dnColor||S.dnColor}" style="background:${c.dnColor||S.dnColor};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>_setCellColor(${idx},'dn',v))"></button></div>`+
+    `<div class="csp-row"><span>Log</span>`+
+      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${c.log?'checked':''} onchange="_setCellLog(${idx},this.checked)"><span class="sl"></span></label></div>`;
+
+  // Smart positioning: prefer above-left of button, clamp to viewport
+  document.body.appendChild(panel);
+  const pW=panel.offsetWidth||148, pH=panel.offsetHeight||120;
+  const rect=btn.getBoundingClientRect();
+  const vw=window.innerWidth, vh=window.innerHeight;
+  let left=rect.right-pW;
+  let top=rect.top-pH-4;
+  if(left<4) left=4;
+  if(left+pW>vw-4) left=vw-pW-4;
+  if(top<4) top=rect.bottom+4;
+  if(top+pH>vh-4) top=vh-pH-4;
+  panel.style.left=left+'px'; panel.style.top=top+'px';
+  _cellSettingsPanel=panel;
+}
+function _closeCellSettings(){
+  if(_cellSettingsPanel){ _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+}
+function _setCellChartType(idx,type){
+  const c=CELLS[idx]; if(!c) return; c.chartType=type; buildCellChart(idx); wireSync();
+}
+function _setCellColor(idx,which,color){
+  const c=CELLS[idx]; if(!c) return;
+  if(which==='up') c.upColor=color; else c.dnColor=color;
+  buildCellChart(idx); wireSync();
+}
+function _setCellLog(idx,on){
+  const c=CELLS[idx]; if(!c) return; c.log=on; buildCellChart(idx); wireSync();
+}
+
+// Close overlay / date / cell-settings panels on outside click
+document.addEventListener('click', (e) => {
+  // Overlay dropdown
+  const ovlBtn=document.getElementById('overlay-btn');
+  const ovlDd=document.getElementById('overlay-dd');
+  if(ovlDd && ovlDd.classList.contains('open') && !ovlDd.contains(e.target) && e.target!==ovlBtn)
+    ovlDd.classList.remove('open');
+  // Go-to-date panel
+  const gdPanel=document.getElementById('goto-date-panel');
+  const gdBtn=document.getElementById('goto-date-btn');
+  if(gdPanel && gdPanel.classList.contains('open') && !gdPanel.contains(e.target) && e.target!==gdBtn)
+    gdPanel.classList.remove('open');
+  // Cell settings panel
+  if(_cellSettingsPanel && !_cellSettingsPanel.contains(e.target) &&
+     !e.target.classList.contains('cell-settings-btn'))
+    { _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+});
+
+// Fix 12: color picker helper for settings modal
+function _openSettingsColor(btn, onChangeCallback) {
+  let inp=btn._colorInp;
+  if(!inp){
+    inp=document.createElement('input');
+    inp.type='color';inp.style.cssText='position:absolute;opacity:0;width:0;height:0';
+    document.body.appendChild(inp);
+    inp.addEventListener('input',()=>{
+      btn.style.background=inp.value; btn.dataset.color=inp.value;
+      if(btn._colorCb) btn._colorCb(inp.value);
+    });
+    btn._colorInp=inp;
+  }
+  if(onChangeCallback) btn._colorCb=onChangeCallback;
+  inp.value=btn.dataset.color||'#758696';
+  inp.click();
 }
 
 function applyBgToPage() {
@@ -2681,6 +3429,15 @@ document.addEventListener('fullscreenchange',()=>{
     document.getElementById('fs-btn').textContent='⛶';
     document.getElementById('fs-btn').classList.remove('active');
   }
+  // Fix 11: re-sync crosshair after fullscreen change in grid mode
+  setTimeout(()=>{
+    if (S.layout!=='1x1') {
+      try { wireSync(); } catch(_) {}
+      CELLS.forEach(c=>{ if(c.chart) try { c.chart.resize(c.el.clientWidth, c.el.clientHeight); } catch(_){} });
+    } else {
+      if (chart) try { chart.resize(document.getElementById('main-chart').clientWidth, document.getElementById('main-chart').clientHeight); } catch(_) {}
+    }
+  }, 120);
 });
 function restoreFS() {
   document.getElementById('fs-restore').style.display='none';
@@ -2689,6 +3446,20 @@ function restoreFS() {
   document.getElementById('fs-btn').textContent='⊡';
   document.getElementById('fs-btn').classList.add('active');
   try{localStorage.setItem('tvFS','1');}catch(_){}
+}
+function _fsTapStart() {
+  const ov = document.getElementById('fs-start-overlay');
+  if (ov) ov.classList.remove('show');
+  const el = document.documentElement;
+  const rfs = el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen;
+  if (rfs) {
+    try {
+      rfs.call(el);
+      document.getElementById('fs-btn').textContent='⊡';
+      document.getElementById('fs-btn').classList.add('active');
+      try{localStorage.setItem('tvFS','1');}catch(_){}
+    } catch(_) {}
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2751,7 +3522,7 @@ function _tickTimer() {
 // LIVE CANDLE — BTC/USDT via Binance WebSocket (tick-by-tick)
 // ════════════════════════════════════════════════════════════════════════════
 const _btcBucket={tf:null,time:null,open:null,high:-Infinity,low:Infinity,close:null};
-let _swingRebuildTimer=null;
+let _swingRebuildTimer=null, _btcRafId=0;
 const BTC_ASSET='\u20bf BTC/USDT';
 
 function _applyBTCKline(k) {
@@ -2792,8 +3563,27 @@ function _applyBTCKline(k) {
       }, 300);
     }
     _btcBucket.tf=S.tf; _btcBucket.time=bucket;
-    _btcBucket.open=open; _btcBucket.high=high;
-    _btcBucket.low=low;   _btcBucket.close=close;
+    // For large synthetic TFs (e.g. 27D) the current bucket already contains
+    // many past days of historical data.  Seeding only from the incoming 1m
+    // kline would collapse that data into a tiny bar — causing a sudden gap.
+    // Instead, look up the historical bar for this exact bucket and start from
+    // its accumulated OHLC, then extend with the live close/high/low.
+    (function() {
+      const _raw = _baseDataFor(BTC_ASSET, S.tf);
+      const _hist = (S.tf > 1) ? resampleForTF(_raw, S.tf, BTC_ASSET) : _raw;
+      const _last = _hist.length ? _hist[_hist.length - 1] : null;
+      if (_last && _last.time === bucket) {
+        _btcBucket.open  = _last.open;
+        _btcBucket.high  = Math.max(_last.high, high);
+        _btcBucket.low   = Math.min(_last.low,  low);
+        _btcBucket.close = close;
+      } else {
+        _btcBucket.open  = open;
+        _btcBucket.high  = high;
+        _btcBucket.low   = low;
+        _btcBucket.close = close;
+      }
+    })();
   } else {
     _btcBucket.high=Math.max(_btcBucket.high,high);
     _btcBucket.low =Math.min(_btcBucket.low, low);
@@ -2803,22 +3593,38 @@ function _applyBTCKline(k) {
   const bar={time:bucket, open:_btcBucket.open, high:_btcBucket.high,
              low:_btcBucket.low, close:_btcBucket.close, value:_btcBucket.close};
 
-  // Single chart mode
+  // Single chart mode (Fix 5: rAF-batched update to prevent last-candle flicker)
   if (S.layout==='1x1'&&mainSeries&&S.asset===BTC_ASSET) {
-    try{mainSeries.update(bar);}catch(_){}
     _lastLTP=close;
-    const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const ltpEl=document.getElementById('hdr-ltp');
-    if (ltpEl) ltpEl.textContent=fmt(close);
+    cancelAnimationFrame(_btcRafId);
+    _btcRafId=requestAnimationFrame(()=>{
+      if(!mainSeries) return;
+      try{mainSeries.update(bar);}catch(_){}
+      const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      const ltpEl=document.getElementById('hdr-ltp');
+      if (ltpEl) ltpEl.textContent=fmt(close);
+    });
   }
 
   // Grid mode
   CELLS.forEach(c => {
     if (c.asset!==BTC_ASSET||!c.series) return;
     const cTfSec=(c.tf||1)*60, cBucket=Math.floor(kOpenSec/cTfSec)*cTfSec;
-    if (!c._btcBkt||c._btcBkt.time!==cBucket)
-      c._btcBkt={time:cBucket,open,high,low,close};
-    else {
+    if (!c._btcBkt||c._btcBkt.time!==cBucket) {
+      // Seed from historical resampled data so large synthetic TFs (27D/81D/243D)
+      // retain their accumulated OHLC instead of collapsing to a single 1m bar.
+      const _cRaw  = _baseDataFor(c.asset, c.tf);
+      const _cHist = (c.tf > 1) ? resampleForTF(_cRaw, c.tf, c.asset) : _cRaw;
+      const _cLast = _cHist.length ? _cHist[_cHist.length - 1] : null;
+      if (_cLast && _cLast.time === cBucket) {
+        c._btcBkt = {time:cBucket, open:_cLast.open,
+                     high:Math.max(_cLast.high,high),
+                     low :Math.min(_cLast.low, low),
+                     close};
+      } else {
+        c._btcBkt = {time:cBucket, open, high, low, close};
+      }
+    } else {
       c._btcBkt.high=Math.max(c._btcBkt.high,high);
       c._btcBkt.low =Math.min(c._btcBkt.low, low);
       c._btcBkt.close=close;
@@ -3103,14 +3909,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   } catch(_) {}
 
-  // Fullscreen restore banner
-  try {
-    if (localStorage.getItem('tvFS')==='1') {
-      const banner=document.getElementById('fs-restore');
-      banner.style.display='block';
-      setTimeout(()=>{banner.style.display='none';},10000);
+  // Silent auto-fullscreen: fires on very first touch — no overlay, completely invisible to user
+  (function(){
+    let _done = false;
+    function _autoFS(e){
+      if (_done) return;
+      _done = true;
+      document.removeEventListener('touchstart', _autoFS, {capture:true});
+      document.removeEventListener('pointerdown', _autoFS, {capture:true});
+      if (document.fullscreenElement) return;
+      const el = document.documentElement;
+      const rfs = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen;
+      if (!rfs) return;
+      try {
+        const p = rfs.call(el);
+        if (p && p.then) p.then(()=>{
+          const btn=document.getElementById('fs-btn');
+          if(btn){btn.textContent='⊡';btn.classList.add('active');}
+          try{localStorage.setItem('tvFS','1');}catch(_){}
+        }).catch(()=>{});
+      } catch(_){}
     }
-  } catch(_) {}
+    document.addEventListener('touchstart',  _autoFS, {capture:true, passive:true, once:true});
+    document.addEventListener('pointerdown', _autoFS, {capture:true, once:true});
+  })();
 
   // Start live data — initial chart already has Python-injected data
   setTimeout(()=>{
@@ -3118,9 +3940,14 @@ document.addEventListener('DOMContentLoaded', () => {
     _loadBTCHistory(S.tf);   // refresh with Binance REST then open WebSocket
   }, 800);
 
+  // Fix 4 & 12: apply crosshair/cursor settings from saved state
+  setTimeout(()=>{ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); _applyTimerVisibility(); }, 900);
+
   _loadTfColors();
   _swingTFLoad();
   _renderSwingChips();
+  _btc2TFLoad();
+  _renderBtc2Chips();
   setTimeout(initSwingIndicator, 600);
 });
 
@@ -3674,6 +4501,278 @@ function swingAfterRebuild() {
   if (!SWING_STATE.visible) return;
   swingRemoveCanvas();
   initSwingIndicator();
+}
+function swingAfterRebuildBtc2() {
+  if (!BTC2_SWING_STATE.visible) return;
+  btc2RemoveCanvas();
+  initBtc2Indicator();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BTC INDICATOR  (independent duplicate of Swing S/R — same algorithm, own settings)
+// ════════════════════════════════════════════════════════════════════════════
+const BTC2_SWING_STATE = { visible: false };
+const _BTC2_WIDTH_KEY  = 'btc2LineWidth';
+let   BTC2_LINE_WIDTH  = +(localStorage.getItem(_BTC2_WIDTH_KEY) || 1);
+let   BTC2_TF_LIST     = [];
+let   BTC2_TF_COLORS   = {};   // { [tfMin]: { swing: '#xxx', candle: '#xxx' } }
+let   btc2Canvas = null, btc2Ctx = null;
+let   _btc2Lines = [];
+
+const _BTC2_TF_DEFAULTS = [
+  {min:60,   label:'1H',  enabled:true},
+  {min:240,  label:'4H',  enabled:true},
+  {min:1440, label:'1D',  enabled:true},
+];
+
+function setBtc2LineWidth(w) {
+  BTC2_LINE_WIDTH = Math.max(0.5, Math.min(4, w||1));
+  try{localStorage.setItem(_BTC2_WIDTH_KEY, BTC2_LINE_WIDTH);}catch(_){}
+  btc2Draw();
+  CELLS.forEach((_,i)=>buildCellBtc2(i));
+}
+function _btc2TFSave() {
+  try{localStorage.setItem('btc2TFList', JSON.stringify(BTC2_TF_LIST));}catch(_){}
+}
+function _btc2TFLoad() {
+  try{
+    const p=JSON.parse(localStorage.getItem('btc2TFList'));
+    if(Array.isArray(p)&&p.length>0){BTC2_TF_LIST=p;return;}
+  }catch(_){}
+  BTC2_TF_LIST=_BTC2_TF_DEFAULTS.map(x=>({...x}));
+}
+function _btc2SrColor(tfMin){
+  if(BTC2_TF_COLORS[tfMin]&&BTC2_TF_COLORS[tfMin].swing) return BTC2_TF_COLORS[tfMin].swing;
+  // Different default palette from Swing (shifted)
+  if(tfMin<=5)     return '#f06292';
+  if(tfMin<=30)    return '#80cbc4';
+  if(tfMin<=90)    return '#ffb74d';
+  if(tfMin<=240)   return '#64b5f6';
+  if(tfMin<=1440)  return '#a5d6a7';
+  if(tfMin<=4320)  return '#ce93d8';
+  if(tfMin<=12960) return '#ff8a65';
+  return '#ffe082';
+}
+function _btc2CandleColor(tfMin){
+  if(BTC2_TF_COLORS[tfMin]&&BTC2_TF_COLORS[tfMin].candle) return BTC2_TF_COLORS[tfMin].candle;
+  return _btc2SrColor(tfMin);
+}
+function _btc2ComputeMultiTF(asset, currentTf) {
+  const allLines=[];
+  const rawCur=_baseDataFor(asset,currentTf);
+  const dataCur=resampleForTF(rawCur,currentTf,asset);
+  if(dataCur.length>=3){
+    const lines=_swingComputeWithColors(dataCur,currentTf,_btc2SrColor,_btc2CandleColor);
+    allLines.push(...lines.filter(l=>currentTf<=l.levelTf));
+  }
+  const enabledTFs=BTC2_TF_LIST.filter(t=>t.enabled&&t.min>currentTf).sort((a,b)=>a.min-b.min);
+  for(const tf of enabledTFs){
+    const raw=_baseDataFor(asset,tf.min);
+    const data=resampleForTF(raw,tf.min,asset);
+    if(data.length>=3){
+      const htfLines=_swingComputeWithColors(data,tf.min,_btc2SrColor,_btc2CandleColor);
+      allLines.push(...htfLines.filter(l=>currentTf<=l.levelTf));
+    }
+  }
+  return allLines;
+}
+// Generic swing compute with injectable color functions
+function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
+  if(!bars||bars.length<2) return [];
+  const periodSec=(tfMin||1)*60;
+  const WIN=300;
+  const raw=bars.length>WIN?bars.slice(-WIN):bars.slice();
+  const data=raw.length>1?raw.slice(0,-1):raw;
+  let aRes=[],aSup=[],chLines=[],clLines=[];
+  let pGreen=false,pRed=false,pHigh=0,pLow=0;
+  for(let i=0;i<data.length;i++){
+    const cur=data[i];
+    const curGreen=cur.close>cur.open, curRed=cur.close<cur.open;
+    const validateLines=(arr)=>{
+      for(let j=arr.length-1;j>=0;j--){
+        const ln=arr[j];
+        if(ln.creationIndex>=i) continue;
+        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+2*periodSec;}
+        else{arr.splice(j,1);}
+      }
+    };
+    validateLines(chLines); validateLines(clLines);
+    if(i>=1&&pGreen&&curRed){
+      const rPrice=Math.max(pHigh,cur.high);
+      const rTime=pHigh>=cur.high?data[i-1].time:cur.time;
+      aRes=aRes.filter(l=>l.price<=rPrice); aSup=aSup.filter(l=>l.price<=rPrice);
+      aRes.push({price:rPrice,startTime:rTime,kind:'sh'});
+    }
+    if(i>=1&&pRed&&curGreen){
+      const sPrice=Math.min(pLow,cur.low);
+      const sTime=pLow<=cur.low?data[i-1].time:cur.time;
+      aSup=aSup.filter(l=>l.price>=sPrice); aRes=aRes.filter(l=>l.price>=sPrice);
+      aSup.push({price:sPrice,startTime:sTime,kind:'sl'});
+    }
+    chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'ch',periodSec});
+    clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'cl',periodSec});
+    pGreen=curGreen; pRed=curRed; pHigh=cur.high; pLow=cur.low;
+  }
+  const out=[];
+  const srColor=srColorFn(tfMin);
+  const allSwings=[...aRes,...aSup].sort((a,b)=>b.startTime-a.startTime).slice(0,5);
+  for(const sw of allSwings){
+    out.push({price:sw.price,startTime:sw.startTime,endTime:null,kind:sw.kind,color:srColor,isInfinite:true,levelTf:tfMin});
+  }
+  const _cndClr=candleColorFn(tfMin);
+  const lastTime=data.length?data[data.length-1].time:0;
+  const allCandles=[...chLines,...clLines].filter(l=>l.endTime>lastTime);
+  for(const l of allCandles){
+    out.push({price:l.price,startTime:l.startTime,endTime:l.endTime,kind:l.kind,color:_cndClr,isInfinite:false,periodSec:l.periodSec,levelTf:tfMin});
+  }
+  return out;
+}
+function btc2InitCanvas(){
+  if(btc2Canvas) return;
+  const container=document.getElementById('main-chart');
+  if(!container) return;
+  btc2Canvas=document.createElement('canvas');
+  btc2Canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:6';
+  container.appendChild(btc2Canvas);
+  btc2Ctx=btc2Canvas.getContext('2d');
+  _btc2ResizeCanvas();
+}
+function _btc2ResizeCanvas(){
+  if(!btc2Canvas) return;
+  const el=document.getElementById('main-chart');
+  if(!el) return;
+  const _dpr=window.devicePixelRatio||1;
+  const _w=el.clientWidth,_h=el.clientHeight;
+  btc2Canvas.width=_w*_dpr; btc2Canvas.height=_h*_dpr;
+  btc2Canvas.style.width=_w+'px'; btc2Canvas.style.height=_h+'px';
+}
+function btc2RemoveCanvas(){
+  if(btc2Canvas){btc2Canvas.remove();btc2Canvas=null;btc2Ctx=null;}
+}
+function btc2Draw(){
+  if(!btc2Ctx||!btc2Canvas) return;
+  const _dpr=window.devicePixelRatio||1;
+  const _cssW=btc2Canvas.width/_dpr, _cssH=btc2Canvas.height/_dpr;
+  btc2Ctx.setTransform(1,0,0,1,0,0);
+  btc2Ctx.clearRect(0,0,btc2Canvas.width,btc2Canvas.height);
+  if(!BTC2_SWING_STATE.visible||!chart||!mainSeries) return;
+  btc2Ctx.setTransform(_dpr,0,0,_dpr,0,0);
+  for(const ln of _btc2Lines){
+    const y=mainSeries.priceToCoordinate(ln.price);
+    if(y==null||y<0||y>_cssH) continue;
+    const x0=chart.timeScale().timeToCoordinate(ln.startTime);
+    const xS=ln.isInfinite?(x0==null||x0<0?0:x0):x0;
+    let xE;
+    if(ln.isInfinite){xE=_cssW;}
+    else{
+      xE=chart.timeScale().timeToCoordinate(ln.endTime);
+      if(xE==null||xE<0){
+        const xPrev=chart.timeScale().timeToCoordinate(ln.startTime-ln.periodSec);
+        const barPx=(xS!=null&&xPrev!=null)?Math.abs(xS-xPrev):10;
+        xE=xS+barPx*((ln.endTime-ln.startTime)/ln.periodSec);
+      }
+    }
+    if(xS==null||xE<=xS) continue;
+    btc2Ctx.save(); btc2Ctx.beginPath(); btc2Ctx.moveTo(xS,y); btc2Ctx.lineTo(xE,y);
+    btc2Ctx.strokeStyle=ln.color; btc2Ctx.lineWidth=BTC2_LINE_WIDTH;
+    btc2Ctx.globalAlpha=1.0; btc2Ctx.setLineDash([]); btc2Ctx.stroke(); btc2Ctx.restore();
+  }
+}
+function initBtc2Indicator(){
+  _btc2Lines=_btc2ComputeMultiTF(S.asset,S.tf);
+  btc2InitCanvas(); btc2SubscribeChart(); btc2Draw();
+}
+function btc2SubscribeChart(){
+  if(!chart||!mainSeries) return;
+  chart.timeScale().subscribeVisibleLogicalRangeChange(btc2Draw);
+  chart.subscribeCrosshairMove(btc2Draw);
+  try{mainSeries.priceScale().subscribeVisiblePriceRangeChange(btc2Draw);}catch(_){}
+}
+function buildCellBtc2(idx){
+  const c=CELLS[idx];
+  const el=document.getElementById('cell-chart-'+idx);
+  if(!c||!c.chart||!c.series||!el) return;
+  if(c.btc2&&c.btc2.canvas){try{c.btc2.canvas.remove();}catch(_){}}
+  c.btc2=null;
+  if(!BTC2_SWING_STATE.visible) return;
+  const lines=_btc2ComputeMultiTF(c.asset,c.tf);
+  const canvas=document.createElement('canvas');
+  canvas.style.cssText='position:absolute;top:0;left:0;pointer-events:none;z-index:6';
+  el.appendChild(canvas);
+  {const _d=window.devicePixelRatio||1;canvas.width=el.clientWidth*_d;canvas.height=el.clientHeight*_d;canvas.style.width=el.clientWidth+'px';canvas.style.height=el.clientHeight+'px';}
+  const ctx=canvas.getContext('2d');
+  const draw=()=>{
+    if(!ctx||!canvas||!BTC2_SWING_STATE.visible||!c.chart||!c.series){if(ctx){ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);}return;}
+    const _dpr=window.devicePixelRatio||1;
+    const _cw=el.clientWidth*_dpr,_ch=el.clientHeight*_dpr;
+    if(canvas.width!==_cw||canvas.height!==_ch){canvas.width=_cw;canvas.height=_ch;canvas.style.width=el.clientWidth+'px';canvas.style.height=el.clientHeight+'px';}
+    const _cssW=canvas.width/_dpr,_cssH=canvas.height/_dpr;
+    ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.setTransform(_dpr,0,0,_dpr,0,0);
+    for(const ln of lines){
+      const y=c.series.priceToCoordinate(ln.price);
+      if(y==null||y<0||y>_cssH) continue;
+      const x0=c.chart.timeScale().timeToCoordinate(ln.startTime);
+      const xS=ln.isInfinite?(x0==null||x0<0?0:x0):x0;
+      let xE;
+      if(ln.isInfinite){xE=_cssW;}
+      else{xE=c.chart.timeScale().timeToCoordinate(ln.endTime);if(xE==null||xE<0){const xPrev=c.chart.timeScale().timeToCoordinate(ln.startTime-ln.periodSec);const barPx=(xS!=null&&xPrev!=null)?Math.abs(xS-xPrev):10;xE=xS+barPx*((ln.endTime-ln.startTime)/ln.periodSec);}}
+      if(xS==null||xE<=xS) continue;
+      ctx.save();ctx.beginPath();ctx.moveTo(xS,y);ctx.lineTo(xE,y);ctx.strokeStyle=ln.color;ctx.lineWidth=BTC2_LINE_WIDTH;ctx.globalAlpha=1.0;ctx.setLineDash([]);ctx.stroke();ctx.restore();
+    }
+  };
+  c.btc2={canvas,ctx,lines,draw};
+  c.chart.timeScale().subscribeVisibleLogicalRangeChange(draw);
+  c.chart.subscribeCrosshairMove(draw);
+  try{c.series.priceScale().subscribeVisiblePriceRangeChange(draw);}catch(_){}
+  draw();
+}
+function onBtc2Toggle(cb){
+  BTC2_SWING_STATE.visible=cb.checked;
+  if(cb.checked){
+    if(S.layout==='1x1'){swingAfterRebuildBtc2();}
+    else{CELLS.forEach((_,i)=>buildCellBtc2(i));}
+  } else {
+    btc2RemoveCanvas();
+    CELLS.forEach(c=>{if(c.btc2&&c.btc2.canvas){try{c.btc2.canvas.remove();}catch(_){} c.btc2=null;}});
+  }
+}
+function _renderBtc2Chips(){
+  const cont=document.getElementById('btc2-tf-chips');
+  if(!cont) return;
+  cont.innerHTML='';
+  const sorted=BTC2_TF_LIST.slice().sort((a,b)=>a.min-b.min);
+  sorted.forEach((t,i)=>{
+    const chip=document.createElement('div');
+    chip.className='swing-tf-chip'+(t.enabled?' chip-on':'');
+    chip.innerHTML=`<span onclick="_btc2ChipToggle(${i})">${t.label}</span>`+
+      `<button class="swing-del" onclick="_btc2ChipDel(${i})">✕</button>`;
+    cont.appendChild(chip);
+  });
+}
+function _btc2ChipToggle(i){if(!BTC2_TF_LIST[i])return;BTC2_TF_LIST[i].enabled=!BTC2_TF_LIST[i].enabled;_btc2TFSave();_renderBtc2Chips();_btc2Refresh();}
+function _btc2ChipDel(i){BTC2_TF_LIST.splice(i,1);_btc2TFSave();_renderBtc2Chips();_btc2Refresh();}
+function addBtc2TF(){
+  const inp=document.getElementById('btc2-tf-input');if(!inp)return;
+  const min=_parseTFMin(inp.value);if(!min){inp.style.borderColor='#ef5350';setTimeout(()=>{inp.style.borderColor='';},1200);return;}
+  if(BTC2_TF_LIST.some(t=>t.min===min)){inp.value='';return;}
+  BTC2_TF_LIST.push({min,label:_minToTFLabel(min),enabled:true});
+  inp.value='';_btc2TFSave();_renderBtc2Chips();_btc2Refresh();
+}
+function _btc2Refresh(){
+  if(!BTC2_SWING_STATE.visible) return;
+  if(S.layout==='1x1'){swingAfterRebuildBtc2();}
+  else{CELLS.forEach((_,i)=>buildCellBtc2(i));}
+}
+function _updateBtc2TfColorRow(){
+  const activeTf=(CELLS.length>0&&CELLS[SELECTED_CELL])?CELLS[SELECTED_CELL].tf:S.tf;
+  const lblEl=document.getElementById('btc2-cur-lbl');
+  const swEl=document.getElementById('btc2-cur-swing-clr');
+  const cnEl=document.getElementById('btc2-cur-candle-clr');
+  if(lblEl) lblEl.textContent='Active TF ('+tfMinToLabel(activeTf)+')';
+  if(swEl){const sc=_btc2SrColor(activeTf);swEl.style.background=sc;swEl.dataset.color=sc;
+    swEl.onclick=(e)=>{e.stopPropagation();_openSettingsColor(swEl,(hex)=>{if(!BTC2_TF_COLORS[activeTf])BTC2_TF_COLORS[activeTf]={};BTC2_TF_COLORS[activeTf].swing=hex;_btc2Refresh();_updateBtc2TfColorRow();});};}
+  if(cnEl){const cc=_btc2CandleColor(activeTf);cnEl.style.background=cc;cnEl.dataset.color=cc;
+    cnEl.onclick=(e)=>{e.stopPropagation();_openSettingsColor(cnEl,(hex)=>{if(!BTC2_TF_COLORS[activeTf])BTC2_TF_COLORS[activeTf]={};BTC2_TF_COLORS[activeTf].candle=hex;_btc2Refresh();_updateBtc2TfColorRow();});};}
 }
 
 function onSwingToggle(cb) {

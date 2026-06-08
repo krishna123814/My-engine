@@ -9,8 +9,9 @@ st.set_page_config(page_title="BTC/USDT Live", page_icon="₿",
                    layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""<style>
 #MainMenu,footer,header{visibility:hidden}
-.main .block-container{padding:0!important;max-width:100%!important}
-.stApp{background:#131722}
+.main .block-container{padding:0!important;max-width:100%!important;margin:0!important}
+.stApp{background:#131722;overflow:hidden}
+iframe{border:none!important}
 </style>""", unsafe_allow_html=True)
 
 BTC_ASSET = "\u20bf BTC/USDT"   # ₿ BTC/USDT
