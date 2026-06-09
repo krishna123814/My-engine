@@ -607,6 +607,26 @@ select.s-select{
   box-shadow:0 6px 20px #000b;
 }
 .cell-settings-panel.open{display:block}
+.vl-num-inp{width:40px;background:#131722;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;text-align:center;padding:1px 3px;}
+.vl-sel{background:#131722;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;padding:1px 3px;cursor:pointer;}
+/* ── Custom Chart Keyboard ──────────────────────────────────────────── */
+#chart-kb{position:fixed;bottom:0;left:0;right:0;background:#1a1d27;border-top:1.5px solid #2962ff;padding:8px 8px 12px;z-index:99999;display:none;user-select:none;-webkit-user-select:none;box-shadow:0 -4px 20px #000a;}
+#chart-kb.kb-open{display:block;}
+.kb-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 2px;}
+.kb-title{font-size:11px;font-weight:700;color:#9598a1;letter-spacing:.5px;}
+.kb-close{background:none;border:none;color:#9598a1;font-size:16px;cursor:pointer;padding:0 4px;line-height:1;}
+.kb-close:active{color:#d1d4dc;}
+.kb-letters{display:none;margin-bottom:6px;}
+#chart-kb.kb-text .kb-letters{display:block;}
+.kb-row{display:flex;gap:5px;margin-bottom:5px;justify-content:center;}
+.kb-key{background:#2a2e39;border:none;border-radius:7px;color:#d1d4dc;font-size:16px;font-weight:600;height:44px;min-width:44px;flex:1;max-width:72px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .08s;}
+.kb-key:active,.kb-key.kb-pressed{background:#363c4e;}
+.kb-key.kb-letter{font-size:14px;font-weight:700;color:#b0b3c0;max-width:56px;}
+.kb-key.kb-action{background:#363c4e;color:#d1d4dc;font-size:15px;}
+.kb-key.kb-action:active{background:#454a5a;}
+.kb-key.kb-done{background:#2962ff;color:#fff;max-width:200px;font-size:14px;letter-spacing:.3px;}
+.kb-key.kb-done:active{background:#1a4fd8;}
+.kb-key.kb-zero{max-width:200px;}
 .csp-title{
   font-size:10px;font-weight:700;color:#d1d4dc;
   padding:6px 8px 5px;border-bottom:1px solid #2a2e39;
@@ -767,24 +787,6 @@ select.s-select{
 }
 
 /* Floating OHLCV tooltip (shown on long-press) */
-.mob-tooltip{
-  position:fixed;z-index:99990;
-  background:#1e222d;border:1px solid #363c4e;border-radius:7px;
-  padding:7px 9px;min-width:116px;
-  font-size:11.5px;color:#d1d4dc;
-  box-shadow:0 6px 28px #0009;
-  pointer-events:none;
-  display:none;
-  opacity:0;transform:scale(0.88) translateY(4px);
-  transition:opacity 0.14s ease,transform 0.14s ease;
-}
-.mob-tooltip.mob-tt-vis{opacity:1;transform:scale(1) translateY(0)}
-.mt-row{display:flex;justify-content:space-between;gap:10px;padding:1.5px 0;line-height:1.5}
-.mt-l{color:#787b86;font-weight:700;font-size:10px;letter-spacing:.3px}
-.mt-chg{
-  text-align:right;font-weight:700;font-size:11px;
-  margin-top:4px;border-top:1px solid #2a2e39;padding-top:3px;
-}
 
 /* Long-press activation ring */
 .mob-press-ring{
@@ -882,7 +884,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ HEADER ═══════════════════════════════════════════════════════════ -->
 <div id="hdr">
   <div id="sym-wrap">
-    <button id="sym-btn">
+    <button id="sym-btn" onclick="_openAssetPicker(this)">
       <span id="sym-label">&#x20bf; BTC/USDT</span>
     </button>
   </div>
@@ -953,6 +955,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <div class="leg-status" id="leg-status"><span class="leg-dot"></span>CLOSED</div>
     </div>
     <div id="main-chart"></div>
+    <button id="main-cset-btn" class="cell-settings-btn" onclick="_openMainChartSettings(this)" title="Chart Settings">⚙</button>
   </div>
 </div>
 
@@ -1283,13 +1286,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 // ════════════════════════════════════════════════════════════════════════════
 // DATA  — injected by Python  (1-min BTCUSDT candles, 500 bars)
 // ════════════════════════════════════════════════════════════════════════════
-const ALLDATA     = { '\u20bf BTC/USDT': __BTC_CANDLES__ };
-// 15m candles (500 bars ≈ 5 days) — used as base for 15m–12H resampling
+const ALLDATA     = { '\u20bf BTC/USDT': __BTC_CANDLES__, '\ud83d\udcca BANKNIFTY': __BN_CANDLES__ };
+// 15m candles — used as base for 15m–12H resampling
 const BTC_15M     = __BTC_15M__;
-// Full daily history fetched server-side (reliable even when the browser is
-// geo-blocked from Binance). Used as the data source for daily/weekly/monthly TFs.
 const BTC_DAILY   = __BTC_DAILY__;
-const ASSET_NAMES = ['\u20bf BTC/USDT'];
+const BN_15M      = __BN_15M__;
+const BN_DAILY    = __BN_DAILY__;
+const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
+const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
 // ════════════════════════════════════════════════════════════════════════════
 // STATE
@@ -1312,6 +1316,7 @@ const S = {
   legStatus: true,
   bgColor:   '#ffffff',
   textColor: '#131722',
+  vLine:     { enabled: true, color: '#2962ff', width: 1, offset: 5, style: 'solid' },
 };
 
 // ── Timezone-aware time formatting for crosshair label ──────────────────────
@@ -1355,7 +1360,8 @@ function saveState() {
       textColor: S.textColor,
       grid:      S.grid,
       selCell:   SELECTED_CELL,
-      cells:     CELLS.map(c => ({ asset: c.asset, tf: c.tf })),
+      cells:     CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
+      vLine:     { ...S.vLine },
     }));
   } catch(_) {}
 }
@@ -1403,7 +1409,7 @@ function _currentSnapshot() {
     tf:          S.tf,
     bgColor:     S.bgColor,
     textColor:   S.textColor,
-    cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf })),
+    cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
   };
 }
 
@@ -1616,7 +1622,7 @@ function parseTfStr(s) {
 function tfMinToLabel(m) {
   if (m < 60)         return m+'m';
   if (m < 1440)       { const h=m/60;          return (Number.isInteger(h)?h:h.toFixed(1))+'H'; }
-  if (m < 10080)      { const d=m/1440;        return (Number.isInteger(d)?d:d.toFixed(1))+'D'; }
+  if (m % 1440 === 0) { return (m/1440)+'D'; }  // exact days always shown as D (fixes 9D/27D/81D/243D)
   if (m < _MONTH_MIN) { const w=m/10080;       return (Number.isInteger(w)?w:w.toFixed(1))+'W'; }
                         const mo=m/_MONTH_MIN; return (Number.isInteger(mo)?mo:mo.toFixed(1))+'M';
 }
@@ -1815,6 +1821,9 @@ function applyTF(tfMin) {
     if (el) el.textContent = tfMinToLabel(tfMin);
     return;
   }
+  // ── No-op if this TF is already active (prevents double-refresh on re-click) ──
+  const _curTf = (CELLS.length > 0 && CELLS[SELECTED_CELL]) ? CELLS[SELECTED_CELL].tf : S.tf;
+  if (_curTf === tfMin) return;
   // ── Normal mode (no overlays) ───────────────────────────────────────────
   if (CELLS.length > 0) {
     if (CELLS[SELECTED_CELL]) {
@@ -1824,7 +1833,9 @@ function applyTF(tfMin) {
       refreshCellHeaders(); wireSync();
     }
   } else {
-    S.tf = tfMin; rebuildChart(); _loadBTCHistory(S.tf);
+    S.tf = tfMin; rebuildChart();
+    if (S.asset === BTC_ASSET) _loadBTCHistory(S.tf);
+    else if (S.asset === BN_ASSET) _loadBNHistory(S.tf);
   }
   document.querySelectorAll('.tf-btn').forEach(b =>
     b.classList.toggle('active', +b.dataset.tf === tfMin));
@@ -2078,11 +2089,180 @@ function chartOpts(el, h) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// FUTURE VERTICAL LINE — canvas overlay (same proven pattern as swing SR)
+// ════════════════════════════════════════════════════════════════════════════
+
+let _vlCanvas = null, _vlCtx = null, _mainVLTime = null;
+
+function _vlCreateCanvas() {
+  _vlRemoveCanvas();
+  const el = document.getElementById('main-chart');
+  if (!el) return;
+  el.style.position = 'relative';
+  _vlCanvas = document.createElement('canvas');
+  _vlCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:6;';
+  el.appendChild(_vlCanvas);
+  _vlCtx = _vlCanvas.getContext('2d');
+  _vlResizeCanvas();
+}
+function _vlResizeCanvas() {
+  if (!_vlCanvas) return;
+  const el = document.getElementById('main-chart');
+  if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = el.clientWidth, h = el.clientHeight;
+  _vlCanvas.width = w * dpr; _vlCanvas.height = h * dpr;
+  _vlCanvas.style.width = w + 'px'; _vlCanvas.style.height = h + 'px';
+}
+function _vlRemoveCanvas() {
+  if (_vlCanvas) { _vlCanvas.remove(); _vlCanvas = null; _vlCtx = null; }
+}
+
+function _vlDraw() {
+  if (!_vlCtx || !_vlCanvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  _vlCtx.setTransform(1, 0, 0, 1, 0, 0);
+  _vlCtx.clearRect(0, 0, _vlCanvas.width, _vlCanvas.height);
+  if (!S.vLine.enabled || !chart || !_mainVLTime) return;
+  const cssW = _vlCanvas.width / dpr, cssH = _vlCanvas.height / dpr;
+  const tfSec = (S.tf || 1) * 60;
+  const futureTime = _mainVLTime + (S.vLine.offset || 5) * tfSec;
+
+  // timeToCoordinate works for visible times; for future times use bar-width fallback
+  // (identical pattern to swingDraw's xE fallback)
+  let x = chart.timeScale().timeToCoordinate(futureTime);
+  if (x == null) {
+    const lastX  = chart.timeScale().timeToCoordinate(_mainVLTime);
+    if (lastX == null) return;
+    const prevX  = chart.timeScale().timeToCoordinate(_mainVLTime - tfSec);
+    const barPx  = (prevX != null) ? Math.abs(lastX - prevX) : 8;
+    x = lastX + (S.vLine.offset || 5) * barPx;
+  }
+  if (x < -20 || x > cssW + 20) return;
+
+  const tsH = (chart.timeScale && typeof chart.timeScale().height === 'function')
+    ? chart.timeScale().height() : 38;
+  _vlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  _vlCtx.save();
+  _vlCtx.strokeStyle = S.vLine.color || '#2962ff';
+  _vlCtx.lineWidth   = Math.max(1, S.vLine.width || 1);
+  _vlCtx.setLineDash((S.vLine.style || 'dashed') === 'solid' ? [] : [5, 4]);
+  _vlCtx.beginPath();
+  _vlCtx.moveTo(x, 0);
+  _vlCtx.lineTo(x, cssH - tsH);
+  _vlCtx.stroke();
+  _vlCtx.restore();
+}
+
+// Per-cell VLine canvas helpers
+function _vlCreateCellCanvas(idx) {
+  _vlRemoveCellCanvas(idx);
+  const c = CELLS[idx]; if (!c) return;
+  const el = document.getElementById('cell-chart-' + idx);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:6;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._vlCanvas = canvas; c._vlCtx = canvas.getContext('2d');
+}
+function _vlRemoveCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c) return;
+  if (c._vlCanvas) { c._vlCanvas.remove(); c._vlCanvas = null; c._vlCtx = null; }
+}
+function _vlDrawCell(idx) {
+  const c = CELLS[idx]; if (!c || !c._vlCtx || !c._vlCanvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._vlCtx.setTransform(1, 0, 0, 1, 0, 0);
+  c._vlCtx.clearRect(0, 0, c._vlCanvas.width, c._vlCanvas.height);
+  const vl = c.vLine || S.vLine;
+  if (!vl.enabled || !c.chart || !c._vlTime) return;
+  const cssW = c._vlCanvas.width / dpr, cssH = c._vlCanvas.height / dpr;
+  const tfSec = (c.tf || 1) * 60;
+  const futureTime = c._vlTime + (vl.offset || 5) * tfSec;
+
+  let x = c.chart.timeScale().timeToCoordinate(futureTime);
+  if (x == null) {
+    const lastX = c.chart.timeScale().timeToCoordinate(c._vlTime);
+    if (lastX == null) return;
+    const prevX = c.chart.timeScale().timeToCoordinate(c._vlTime - tfSec);
+    const barPx = (prevX != null) ? Math.abs(lastX - prevX) : 8;
+    x = lastX + (vl.offset || 5) * barPx;
+  }
+  if (x < -20 || x > cssW + 20) return;
+
+  const tsH = (c.chart.timeScale && typeof c.chart.timeScale().height === 'function')
+    ? c.chart.timeScale().height() : 38;
+  c._vlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c._vlCtx.save();
+  c._vlCtx.strokeStyle = vl.color || '#2962ff';
+  c._vlCtx.lineWidth   = Math.max(1, vl.width || 1);
+  c._vlCtx.setLineDash((vl.style || 'dashed') === 'solid' ? [] : [5, 4]);
+  c._vlCtx.beginPath();
+  c._vlCtx.moveTo(x, 0);
+  c._vlCtx.lineTo(x, cssH - tsH);
+  c._vlCtx.stroke();
+  c._vlCtx.restore();
+}
+
+function _vlResizeCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c || !c._vlCanvas) return;
+  const el = document.getElementById('cell-chart-' + idx); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._vlCanvas.width  = el.clientWidth  * dpr;
+  c._vlCanvas.height = el.clientHeight * dpr;
+  c._vlCanvas.style.width  = el.clientWidth  + 'px';
+  c._vlCanvas.style.height = el.clientHeight + 'px';
+}
+
+// Main-chart settings panel
+let _mainSettingsPanel = null;
+function _openMainChartSettings(btn) {
+  if (_mainSettingsPanel) { _mainSettingsPanel.remove(); _mainSettingsPanel = null; return; }
+  const vl = S.vLine;
+  const panel = document.createElement('div');
+  panel.className = 'cell-settings-panel open';
+  panel.innerHTML =
+    `<div class="csp-title"><span>Chart Settings</span><button class="csp-close" onclick="_closeMainChartSettings()">✕</button></div>`+
+    `<div class="csp-row"><span>Future Line</span>`+
+      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="S.vLine.enabled=this.checked;_vlDraw();saveState();"><span class="sl"></span></label></div>`+
+    `<div class="csp-row"><span>Color</span>`+
+      `<button class="tv-clr-btn-lg" data-color="${vl.color}" style="background:${vl.color};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>{S.vLine.color=v;_vlDraw();saveState();})"></button></div>`+
+    `<div class="csp-row"><span>Width</span>`+
+      `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="S.vLine.width=+this.value;_vlDraw();saveState();"></div>`+
+    `<div class="csp-row"><span>Offset (candles)</span>`+
+      `<input class="vl-num-inp" type="number" min="1" max="50" value="${vl.offset}" onchange="S.vLine.offset=+this.value;_vlDraw();saveState();"></div>`+
+    `<div class="csp-row"><span>Solid Line</span>`+
+      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">`+
+        `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="S.vLine.style=this.checked?'solid':'dashed';_vlDraw();saveState();">`+
+        `<span class="sl"></span></label></div>`;
+  document.body.appendChild(panel);
+  const pW = panel.offsetWidth || 172, pH = panel.offsetHeight || 140;
+  const rect = btn.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = rect.right - pW, top = rect.top - pH - 4;
+  if (left < 4) left = 4;
+  if (left + pW > vw - 4) left = vw - pW - 4;
+  if (top < 4) top = rect.bottom + 4;
+  if (top + pH > vh - 4) top = vh - pH - 4;
+  panel.style.left = left + 'px'; panel.style.top = top + 'px';
+  _mainSettingsPanel = panel;
+}
+function _closeMainChartSettings() {
+  if (_mainSettingsPanel) { _mainSettingsPanel.remove(); _mainSettingsPanel = null; }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // DESTROY MAIN CHARTS
 // ════════════════════════════════════════════════════════════════════════════
 function destroyCharts() {
+  _vlRemoveCanvas();
   try { if (chart) chart.remove(); } catch(_) {}
   chart = mainSeries = null;
+  _mainVLTime = null;
   document.getElementById('main-chart').innerHTML = '';
 }
 
@@ -2094,6 +2274,11 @@ function destroyCharts() {
 // 15m–12H → 15m candles (500 bars ≈ 5 days); gives 31–166 resampled bars
 // < 15m  → 1m candles (500 bars ≈ 8h)
 function _baseDataFor(asset, tfMin) {
+  if (asset === BN_ASSET) {
+    if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
+    if (tfMin >= 15   && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
+    return ALLDATA[asset] || [];
+  }
   if (tfMin >= 1440 && Array.isArray(BTC_DAILY) && BTC_DAILY.length) return BTC_DAILY;
   if (tfMin >= 15   && Array.isArray(BTC_15M)   && BTC_15M.length)   return BTC_15M;
   return ALLDATA[asset] || [];
@@ -2209,6 +2394,11 @@ function rebuildChart() {
   applyLegendVisibility();
   swingAfterRebuild();
   swingAfterRebuildBtc2();
+  _mainVLTime = data.length ? data[data.length - 1].time : null;
+  _vlCreateCanvas();
+  chart.timeScale().subscribeVisibleLogicalRangeChange(_vlDraw);
+  chart.subscribeCrosshairMove(_vlDraw);
+  _vlDraw();
 }
 
 function gotoLatest() {
@@ -2240,16 +2430,8 @@ function gotoLatest() {
 // ════════════════════════════════════════════════════════════════════════════
 
 // Singleton DOM elements shared across all charts
-let _mobTTEl = null, _mobRingEl = null;
+let _mobRingEl = null;
 
-function _getMobTT() {
-  if (!_mobTTEl) {
-    _mobTTEl = document.createElement('div');
-    _mobTTEl.className = 'mob-tooltip';
-    document.body.appendChild(_mobTTEl);
-  }
-  return _mobTTEl;
-}
 function _getMobRing() {
   if (!_mobRingEl) {
     _mobRingEl = document.createElement('div');
@@ -2259,37 +2441,6 @@ function _getMobRing() {
   return _mobRingEl;
 }
 
-function _mobShowTooltip(bar, cx, cy) {
-  const tt = _getMobTT();
-  if (!bar || bar.open == null) { _mobHideTooltip(); return; }
-  const fmt = v => v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-  const chg = bar.close - bar.open;
-  const pct = bar.open ? (chg / bar.open * 100).toFixed(2) : '0.00';
-  const sign = chg >= 0 ? '+' : '';
-  const cc = chg >= 0 ? '#26a69a' : '#ef5350';
-  tt.innerHTML =
-    '<div class="mt-row"><span class="mt-l">O</span><span>' + fmt(bar.open) + '</span></div>' +
-    '<div class="mt-row"><span class="mt-l">H</span><span style="color:#26a69a">' + fmt(bar.high) + '</span></div>' +
-    '<div class="mt-row"><span class="mt-l">L</span><span style="color:#ef5350">' + fmt(bar.low) + '</span></div>' +
-    '<div class="mt-row"><span class="mt-l">C</span><span style="color:' + cc + '">' + fmt(bar.close) + '</span></div>' +
-    '<div class="mt-chg" style="color:' + cc + '">' + sign + pct + '%</div>';
-
-  // Smart positioning: above finger, flip below if too close to top
-  const W = 124, H = 96, vw = window.innerWidth;
-  let x = cx - W / 2, y = cy - H - 20;
-  if (x < 6) x = 6;
-  if (x + W > vw - 6) x = vw - W - 6;
-  if (y < 10) y = cy + 28;
-
-  tt.style.cssText = 'display:block;left:' + x + 'px;top:' + y + 'px;';
-  requestAnimationFrame(() => tt.classList.add('mob-tt-vis'));
-}
-
-function _mobHideTooltip() {
-  if (!_mobTTEl) return;
-  _mobTTEl.classList.remove('mob-tt-vis');
-  setTimeout(() => { if (_mobTTEl && !_mobTTEl.classList.contains('mob-tt-vis')) _mobTTEl.style.display = 'none'; }, 160);
-}
 
 function _mobShowRing(cx, cy) {
   const r = _getMobRing();
@@ -2373,7 +2524,7 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
         const s = getSeries();
         if (!s) return;
         const bar = param.seriesData.get(s);
-        if (bar && bar.open != null) { _lastBar = bar; _mobShowTooltip(bar, lpCX, lpCY); }
+        if (bar && bar.open != null) { _lastBar = bar; }
       };
       try { chartInst.subscribeCrosshairMove(_xhCb); } catch(_) {}
     }
@@ -2383,7 +2534,6 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
   function lpDeactivate() {
     lpOn = false; _lastBar = null;
     _mobHideRing();
-    _mobHideTooltip();
     try { chartInst.applyOptions({handleScroll:{horzTouchDrag:true, vertTouchDrag:true, mouseWheel:true, pressedMouseMove:true}}); } catch(_) {}
     try { chartInst.clearCrosshairPosition(); } catch(_) {}
     if (_xhCb) {
@@ -2402,7 +2552,6 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
       const time  = chartInst.timeScale().coordinateToTime(cx - r.left);
       if (price != null && time != null) chartInst.setCrosshairPosition(price, time, s);
     } catch(_) {}
-    if (_lastBar) _mobShowTooltip(_lastBar, cx, cy);
   }
 
   function cancelLP() {
@@ -2626,11 +2775,12 @@ function _parseAreas(areas) {
 }
 
 function _cellTfLabel(tf){ const t=CELL_TFS.find(x=>x.tf===tf); return t?t.label:(tf+'m'); }
+function _cellAssetShort(a){ return a===BN_ASSET?'\ud83d\udcca BN':'\u20bf BTC'; }
 function refreshCellHeaders(){
   CELLS.forEach((c,i)=>{
     const cell=document.querySelector('.grid-cell[data-idx="'+i+'"]');
     if(!cell) return;
-    const label='\u20bf '+_cellTfLabel(c.tf);
+    const label=_cellAssetShort(c.asset)+' \u00b7 '+_cellTfLabel(c.tf);
     const s=cell.querySelector('.cell-sym'); if(s) s.textContent=label;
     const o=cell.querySelector('.co-sym');   if(o) o.textContent=label;
   });
@@ -2778,7 +2928,7 @@ function buildGrid(key) {
   for (let i=0;i<n;i++) {
     const sc=_savedCells && _savedCells[i];
     const tf=(sc&&sc.tf)?sc.tf:defaultTfs[i%defaultTfs.length];
-    const cellObj={asset:ASSET_NAMES[0], tf, chart:null, series:null, el:null};
+    const cellObj={asset:ASSET_NAMES[0], tf, chart:null, series:null, el:null, vLine:(sc&&sc.vLine)?{...sc.vLine}:null};
     CELLS.push(cellObj);
 
     const cell=document.createElement('div');
@@ -2812,7 +2962,7 @@ function buildGrid(key) {
     const overlay=document.createElement('div');
     overlay.className='cell-overlay';
     overlay.innerHTML=
-      '<span class="co-sym">\u20bf '+_cellTfLabel(tf)+'</span>'+
+      '<span class="co-sym">'+_cellAssetShort(cellObj.asset)+' \u00b7 '+_cellTfLabel(tf)+'</span>'+
       '<span class="co-price up">--</span>'+
       '<span class="co-chg" style="color:#555">--</span>';
 
@@ -2920,6 +3070,7 @@ function _resizeCellChart(idx) {
     c.swing.canvas.style.height = el.clientHeight + 'px';
     if (c.swing.draw) c.swing.draw();
   }
+  _vlResizeCellCanvas(idx); _vlDrawCell(idx);
 }
 
 async function buildCellChart(idx) {
@@ -2933,10 +3084,13 @@ async function buildCellChart(idx) {
   // Intraday TFs: use pre-loaded pools; only browser-fetch if pool is truly empty.
   let rawData = _baseDataFor(c.asset, c.tf);
   if (c.tf >= 1440) {
-    // Daily+: BTC_DAILY is always complete — use it directly, no fetch needed.
+    // Daily+: use injected daily data directly — no browser fetch needed.
+    if (!rawData || !rawData.length) rawData = [];
+  } else if (c.asset === BN_ASSET) {
+    // BankNifty: always use Angel-injected data (no public Binance equivalent)
     if (!rawData || !rawData.length) rawData = [];
   } else if (!rawData || rawData.length < 2) {
-    // Intraday: only fetch when pool is genuinely empty (not just "few bars")
+    // BTC intraday: fetch from Binance when pool is genuinely empty
     try {
       const iv = _binanceIvFor(c.tf);
       const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=' + iv + '&limit=1000');
@@ -2960,7 +3114,7 @@ async function buildCellChart(idx) {
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
     crosshair:{mode:1},
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
-    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:3,barSpacing:4,minBarSpacing:1},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:Math.max(3,(S.vLine&&S.vLine.offset||5)+1),barSpacing:4,minBarSpacing:1},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p>=1000?(p/1000).toFixed(1)+'K':p.toFixed(2)},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{axisPressedMouseMove:true,mouseWheel:true,pinch:true},
@@ -3003,6 +3157,12 @@ async function buildCellChart(idx) {
   // Apply crosshair settings to this cell
   _applyCrosshairStyle();
   setTimeout(()=>{ buildCellSwing(idx); buildCellBtc2(idx); }, 60);
+  if (!c.vLine) c.vLine = { ...S.vLine };
+  c._vlTime = data.length ? data[data.length - 1].time : null;
+  _vlCreateCellCanvas(idx);
+  c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _vlDrawCell(idx));
+  c.chart.subscribeCrosshairMove(() => _vlDrawCell(idx));
+  _vlDrawCell(idx);
 }
 
 function updateCellPrice(idx, data) {
@@ -3383,6 +3543,10 @@ function _openCellSettings(idx, btn) {
   panel.className='cell-settings-panel open';
   panel.innerHTML=
     `<div class="csp-title"><span>Cell ${idx+1}</span><button class="csp-close" onclick="_closeCellSettings()">✕</button></div>`+
+    `<div class="csp-row"><span>Asset</span>`+
+      `<select class="s-select" style="font-size:10px;width:90px" onchange="_setCellAsset(${idx},this.value)">`+
+        ASSET_NAMES.map(n=>`<option value="${n}" ${c.asset===n?'selected':''}>${n}</option>`).join('')+
+      `</select></div>`+
     `<div class="csp-row"><span>Type</span>`+
       `<select class="s-select" style="font-size:10px;width:68px" onchange="_setCellChartType(${idx},this.value)">`+
         `<option value="candle" ${(!c.chartType||c.chartType==='candle')?'selected':''}>Candle</option>`+
@@ -3395,7 +3559,21 @@ function _openCellSettings(idx, btn) {
     `<div class="csp-row"><span>Down</span>`+
       `<button class="tv-clr-btn-lg" data-color="${c.dnColor||S.dnColor}" style="background:${c.dnColor||S.dnColor};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>_setCellColor(${idx},'dn',v))"></button></div>`+
     `<div class="csp-row"><span>Log</span>`+
-      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${c.log?'checked':''} onchange="_setCellLog(${idx},this.checked)"><span class="sl"></span></label></div>`;
+      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${c.log?'checked':''} onchange="_setCellLog(${idx},this.checked)"><span class="sl"></span></label></div>`+
+    (()=>{ if(!c.vLine) c.vLine={...S.vLine}; const vl=c.vLine; return ``+
+      `<div class="csp-row" style="border-top:1px solid #2a2e39;margin-top:2px"><span style="font-weight:700;color:#9598a1">Future Line</span>`+
+        `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="CELLS[${idx}].vLine.enabled=this.checked;_vlDrawCell(${idx});saveState();"><span class="sl"></span></label></div>`+
+      `<div class="csp-row"><span>Color</span>`+
+        `<button class="tv-clr-btn-lg" data-color="${vl.color}" style="background:${vl.color};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>{CELLS[${idx}].vLine.color=v;_vlDrawCell(${idx});saveState();})"></button></div>`+
+      `<div class="csp-row"><span>Width</span>`+
+        `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="CELLS[${idx}].vLine.width=+this.value;_vlDrawCell(${idx});saveState();"></div>`+
+      `<div class="csp-row"><span>Offset (candles)</span>`+
+        `<input class="vl-num-inp" type="number" min="1" max="50" value="${vl.offset}" onchange="CELLS[${idx}].vLine.offset=+this.value;_vlDrawCell(${idx});saveState();"></div>`+
+      `<div class="csp-row"><span>Solid Line</span>`+
+        `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">`+
+          `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="CELLS[${idx}].vLine.style=this.checked?'solid':'dashed';_vlDrawCell(${idx});saveState();">`+
+          `<span class="sl"></span></label></div>`;
+    })();
 
   // Smart positioning: prefer above-left of button, clamp to viewport
   document.body.appendChild(panel);
@@ -3413,6 +3591,10 @@ function _openCellSettings(idx, btn) {
 }
 function _closeCellSettings(){
   if(_cellSettingsPanel){ _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+}
+function _setCellAsset(idx,name){
+  const c=CELLS[idx]; if(!c||!ASSET_NAMES.includes(name)) return;
+  c.asset=name; buildCellChart(idx); wireSync(); saveState();
 }
 function _setCellChartType(idx,type){
   const c=CELLS[idx]; if(!c) return; c.chartType=type; buildCellChart(idx); wireSync();
@@ -3442,25 +3624,13 @@ document.addEventListener('click', (e) => {
   if(_cellSettingsPanel && !_cellSettingsPanel.contains(e.target) &&
      !e.target.classList.contains('cell-settings-btn'))
     { _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+  // Main chart settings panel
+  if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
+     e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
+    { _mainSettingsPanel.remove(); _mainSettingsPanel=null; }
 });
 
 // Fix 12: color picker helper for settings modal
-function _openSettingsColor(btn, onChangeCallback) {
-  let inp=btn._colorInp;
-  if(!inp){
-    inp=document.createElement('input');
-    inp.type='color';inp.style.cssText='position:absolute;opacity:0;width:0;height:0';
-    document.body.appendChild(inp);
-    inp.addEventListener('input',()=>{
-      btn.style.background=inp.value; btn.dataset.color=inp.value;
-      if(btn._colorCb) btn._colorCb(inp.value);
-    });
-    btn._colorInp=inp;
-  }
-  if(onChangeCallback) btn._colorCb=onChangeCallback;
-  inp.value=btn.dataset.color||'#758696';
-  inp.click();
-}
 
 function applyBgToPage() {
   document.body.style.background = S.bgColor;
@@ -3520,9 +3690,13 @@ document.addEventListener('fullscreenchange',()=>{
   setTimeout(()=>{
     if (S.layout!=='1x1') {
       try { wireSync(); } catch(_) {}
-      CELLS.forEach(c=>{ if(c.chart) try { c.chart.resize(c.el.clientWidth, c.el.clientHeight); } catch(_){} });
+      CELLS.forEach((c,i)=>{
+        if(c.chart) try { c.chart.resize(c.el.clientWidth, c.el.clientHeight); } catch(_){}
+        _vlResizeCellCanvas(i); _vlDrawCell(i);
+      });
     } else {
       if (chart) try { chart.resize(document.getElementById('main-chart').clientWidth, document.getElementById('main-chart').clientHeight); } catch(_) {}
+      _vlResizeCanvas(); _vlDraw();
     }
   }, 120);
 });
@@ -3657,6 +3831,51 @@ const _btcBucket={tf:null,time:null,open:null,high:-Infinity,low:Infinity,close:
 let _swingRebuildTimer=null, _btcRafId=0;
 const BTC_ASSET='\u20bf BTC/USDT';
 
+// ── Asset switcher ────────────────────────────────────────────────────────
+let _assetPickerEl = null;
+function _openAssetPicker(btn) {
+  if (_assetPickerEl) { _assetPickerEl.remove(); _assetPickerEl = null; return; }
+  const panel = document.createElement('div');
+  panel.className = 'cell-settings-panel open';
+  panel.style.cssText = 'min-width:140px;padding:4px 0;z-index:9999';
+  panel.innerHTML = ASSET_NAMES.map(n =>
+    `<div class="csp-row" style="cursor:pointer;justify-content:flex-start;gap:8px;${n===S.asset?'color:#2962ff;font-weight:700':''}" onclick="switchAsset('${n}')">`+
+    `<span>${n}</span></div>`).join('');
+  document.body.appendChild(panel);
+  _assetPickerEl = panel;
+  const rect = btn.getBoundingClientRect();
+  panel.style.left = Math.max(4, rect.left) + 'px';
+  panel.style.top  = (rect.bottom + 4) + 'px';
+  setTimeout(() => {
+    function _h(e) {
+      if (!panel.contains(e.target)) { panel.remove(); _assetPickerEl = null; document.removeEventListener('click', _h, true); }
+    }
+    document.addEventListener('click', _h, true);
+  }, 50);
+}
+
+function switchAsset(name) {
+  if (!ASSET_NAMES.includes(name)) return;
+  if (_assetPickerEl) { _assetPickerEl.remove(); _assetPickerEl = null; }
+  S.asset = name;
+  const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
+  // Update LTP area label for non-BTC assets
+  const ltpEl = document.getElementById('hdr-ltp'); if (ltpEl && name !== BTC_ASSET) ltpEl.textContent = '--';
+  const chgEl = document.getElementById('hdr-chg'); if (chgEl && name !== BTC_ASSET) chgEl.textContent = '--';
+  saveState();
+  if (S.layout === '1x1') {
+    rebuildChart();
+    if (name === BTC_ASSET) _loadBTCHistory(S.tf);
+    else if (name === BN_ASSET) _loadBNHistory(S.tf);
+  } else {
+    CELLS.forEach(c => c.asset = name);
+    CELLS.forEach((_, i) => buildCellChart(i));
+    refreshCellHeaders(); wireSync();
+  }
+  if (name === BN_ASSET) _startBNPolling();
+  else _stopBNPolling();
+}
+
 function _applyBTCKline(k) {
   const close=parseFloat(k.c), high=parseFloat(k.h),
         low  =parseFloat(k.l), open=parseFloat(k.o);
@@ -3728,6 +3947,7 @@ function _applyBTCKline(k) {
   // Single chart mode (Fix 5: rAF-batched update to prevent last-candle flicker)
   if (S.layout==='1x1'&&mainSeries&&S.asset===BTC_ASSET) {
     _lastLTP=close;
+    _mainVLTime = bucket; _vlDraw();
     cancelAnimationFrame(_btcRafId);
     _btcRafId=requestAnimationFrame(()=>{
       if(!mainSeries) return;
@@ -3762,6 +3982,7 @@ function _applyBTCKline(k) {
       c._btcBkt.close=close;
     }
     try{c.series.update({...c._btcBkt,value:close});}catch(_){}
+    const _ci = CELLS.indexOf(c); c._vlTime = cBucket; _vlDrawCell(_ci);
     c._lastLTP=close;
     c._candleOpen=c._btcBkt.open;
     const idx=CELLS.indexOf(c);
@@ -3954,6 +4175,7 @@ async function _loadBTCHistory(tfMin) {
       _btcBucket.close  = last.close;
       _candleOpen[BTC_ASSET] = last.open;
       updateHeaderPrice(bars);
+      _mainVLTime = last.time; _vlDraw();
     }
 
   } catch(err) {
@@ -3962,6 +4184,131 @@ async function _loadBTCHistory(tfMin) {
 
   _setLoadingLabel('');
   _connectBTCWS();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BANKNIFTY HISTORY LOADER + LIVE POLLING
+// ════════════════════════════════════════════════════════════════════════════
+async function _loadBNHistory(tfMin) {
+  _setLoadingLabel('\u23f3 Loading BankNifty\u2026');
+  try {
+    const rawBars = _baseDataFor(BN_ASSET, tfMin);
+    const bars    = resampleForTF(rawBars, tfMin, BN_ASSET);
+    if (!bars.length) { _setLoadingLabel(''); return; }
+
+    // Only update the chart if the user is still on BN + this TF
+    if (mainSeries && S.asset === BN_ASSET && S.tf === tfMin && S.layout === '1x1') {
+      mainSeries.setData([]);
+      if (S.chartType === 'line' || S.chartType === 'area')
+        mainSeries.setData(bars.map(b => ({ time:b.time, value:b.close })));
+      else
+        mainSeries.setData(bars);
+      _applyZoom(chart.timeScale(), BN_ASSET, tfMin);
+
+      const last = bars[bars.length - 1];
+      _lastLTP = last.close;
+      _mainVLTime = last.time; _vlDraw();
+      // Update header price
+      const ltpEl = document.getElementById('hdr-ltp');
+      const chgEl = document.getElementById('hdr-chg');
+      if (ltpEl) ltpEl.textContent = last.close.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+      if (chgEl && bars.length > 1) {
+        const open0 = bars[0].open, chg = last.close - open0;
+        const pct = (open0 ? chg/open0*100 : 0).toFixed(2);
+        chgEl.textContent = (chg>=0?'+':'')+pct+'%';
+        chgEl.className = chg >= 0 ? 'up' : 'dn';
+      }
+    }
+
+    // Seed grid cells too
+    CELLS.forEach((c, i) => {
+      if (c.asset !== BN_ASSET || !c.series) return;
+      const raw2  = _baseDataFor(BN_ASSET, c.tf);
+      const data2 = resampleForTF(raw2, c.tf, BN_ASSET);
+      if (!data2.length) return;
+      if (S.chartType === 'line' || S.chartType === 'area')
+        c.series.setData(data2.map(b=>({time:b.time,value:b.close})));
+      else
+        c.series.setData(data2);
+      updateCellPrice(i, data2);
+    });
+  } catch(_) {}
+  _setLoadingLabel('');
+}
+
+// ── BN live polling (via /api/bn_live written by Python every render) ───────
+let _bnPollIv = null;
+function _stopBNPolling() {
+  if (_bnPollIv) { clearInterval(_bnPollIv); _bnPollIv = null; }
+}
+
+async function _pollBNLive() {
+  try {
+    const r = await fetch('/api/bn_live', { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) return;
+    const d = await r.json();
+    const candles = d.candles || [];
+    if (!candles.length) return;
+    const latest = candles[candles.length - 1];
+    if (!latest) return;
+
+    // Update live 1-min BN store
+    const arr = ALLDATA[BN_ASSET];
+    if (Array.isArray(arr)) {
+      if (arr.length && arr[arr.length-1].time === latest.time) {
+        arr[arr.length-1] = latest;
+      } else if (!arr.length || arr[arr.length-1].time < latest.time) {
+        arr.push(latest);
+      }
+    }
+
+    // Apply to single chart if BN is active
+    if (S.layout === '1x1' && mainSeries && S.asset === BN_ASSET) {
+      const tfSec = (S.tf||1)*60;
+      const bucket = Math.floor(latest.time/tfSec)*tfSec;
+      const raw3   = _baseDataFor(BN_ASSET, S.tf);
+      const hist3  = S.tf > 1 ? resampleForTF(raw3, S.tf, BN_ASSET) : raw3;
+      const last3  = hist3.length ? hist3[hist3.length-1] : null;
+      const bar    = last3 && last3.time === bucket
+        ? { time:bucket, open:last3.open, high:Math.max(last3.high,latest.high),
+            low:Math.min(last3.low,latest.low), close:latest.close, value:latest.close }
+        : { time:latest.time, open:latest.open, high:latest.high,
+            low:latest.low, close:latest.close, value:latest.close };
+      try { mainSeries.update(bar); } catch(_) {}
+      const ltpEl = document.getElementById('hdr-ltp');
+      if (ltpEl) ltpEl.textContent = latest.close.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+      _lastLTP = latest.close;
+      _mainVLTime = bucket; _vlDraw();
+    }
+
+    // Apply to BN grid cells
+    CELLS.forEach((c, ci) => {
+      if (c.asset !== BN_ASSET || !c.series) return;
+      const raw4  = _baseDataFor(BN_ASSET, c.tf);
+      const data4 = resampleForTF(raw4, c.tf, BN_ASSET);
+      const last4 = data4.length ? data4[data4.length-1] : null;
+      if (!last4) return;
+      try { c.series.update({...last4, value:last4.close}); } catch(_) {}
+      c._lastLTP = last4.close;
+      const cell2 = document.querySelector('.grid-cell[data-idx="'+ci+'"]');
+      if (cell2) {
+        const pe = cell2.querySelector('.cell-price');
+        if (pe) pe.textContent = last4.close.toLocaleString('en-IN',{minimumFractionDigits:2});
+      }
+    });
+
+    // Show live indicator if BN is active
+    if (S.asset === BN_ASSET || CELLS.some(c=>c.asset===BN_ASSET)) {
+      const st = document.getElementById('ws-status');
+      if (st && S.asset === BN_ASSET) st.innerHTML = '<span id="ws-dot" class="live"></span>Live (Angel)';
+    }
+  } catch(_) {}
+}
+
+function _startBNPolling() {
+  _stopBNPolling();
+  _pollBNLive();
+  _bnPollIv = setInterval(_pollBNLive, 15000);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3977,6 +4324,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (raw) {
       const st=JSON.parse(raw);
       if (st.tf)        S.tf=st.tf;
+      if (st.asset && ASSET_NAMES.includes(st.asset)) { S.asset=st.asset; const lb=document.getElementById('sym-label'); if(lb) lb.textContent=st.asset; }
       if (st.tz&&TZ_MAP[st.tz]) S.tz=st.tz;
       if (typeof st.legSym   ==='boolean') S.legSym=st.legSym;
       if (typeof st.legOhlc  ==='boolean') S.legOhlc=st.legOhlc;
@@ -3985,6 +4333,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof st.bgColor  ==='string')  S.bgColor=st.bgColor;
       if (typeof st.textColor==='string')  S.textColor=st.textColor;
       if (typeof st.grid     ==='boolean') S.grid=st.grid;
+      if (st.vLine && typeof st.vLine.offset==='number') Object.assign(S.vLine, st.vLine);
       S.chartType='candle';   // always candle; type switcher removed
       if (Array.isArray(st.cells)&&st.cells.length) _savedCells=st.cells;
       _applyRestoredUI(st);
@@ -4067,7 +4416,12 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(()=>{
     initCandleTimer();
     _startCellTimers();
-    _loadBTCHistory(S.tf);   // refresh with Binance REST then open WebSocket
+    if (S.asset === BN_ASSET) {
+      _loadBNHistory(S.tf);
+      _startBNPolling();
+    } else {
+      _loadBTCHistory(S.tf);   // refresh with Binance REST then open WebSocket
+    }
   }, 800);
 
   // Fix 4 & 12: apply crosshair/cursor settings from saved state
@@ -5024,6 +5378,11 @@ function _tvcSelect(hex, addRecent) {
   if (opFill) opFill.style.background = 'linear-gradient(to right,transparent,' + hex + ')';
   if (addRecent) _tvcAddRecent(hex);
   _tvcCommit();
+  // Auto-close picker after direct color selection (not opacity slider)
+  if (addRecent) {
+    const picker = document.getElementById('tv-clr-picker');
+    if (picker) picker.classList.remove('open');
+  }
 }
 
 function _tvcOpacity(val) {
@@ -5102,12 +5461,13 @@ function _openActiveTfColor(btn, type, activeTf) {
   });
 }
 
-// For settings modal candle color buttons
-function _openSettingsColor(btn) {
+// For settings modal candle color buttons (also handles VLine color callbacks)
+function _openSettingsColor(btn, onChangeCallback) {
   const cur = btn.dataset.color || _tvcNorm(btn.style.background) || '#ffffff';
   _tvcOpen(btn, cur, (hex) => {
     btn.style.background = hex;
     btn.dataset.color    = hex;
+    if (onChangeCallback) onChangeCallback(hex);
   });
 }
 
@@ -5135,5 +5495,147 @@ function _openSettingsColor(btn) {
     </div>
   </div>
 </div>
+<!-- ═══ CUSTOM CHART KEYBOARD ════════════════════════════════════════════ -->
+<div id="chart-kb">
+  <div class="kb-header">
+    <span class="kb-title">⌨ Chart Keyboard</span>
+    <button class="kb-close" onmousedown="event.preventDefault();_kbHide()">✕</button>
+  </div>
+  <!-- Letter row — visible only for text inputs -->
+  <div class="kb-letters">
+    <div class="kb-row">
+      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('m')">m</button>
+      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('H')">H</button>
+      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('D')">D</button>
+      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('W')">W</button>
+      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('M')">M</button>
+    </div>
+  </div>
+  <div class="kb-row">
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('1')">1</button>
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('2')">2</button>
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('3')">3</button>
+    <button class="kb-key kb-action" onmousedown="event.preventDefault();_kbBack()">⌫</button>
+  </div>
+  <div class="kb-row">
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('4')">4</button>
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('5')">5</button>
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('6')">6</button>
+    <button class="kb-key kb-action" onmousedown="event.preventDefault();_kbClear()">C</button>
+  </div>
+  <div class="kb-row">
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('7')">7</button>
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('8')">8</button>
+    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('9')">9</button>
+    <button class="kb-key kb-action" onmousedown="event.preventDefault();_kbPress('0')">0</button>
+  </div>
+  <div class="kb-row">
+    <button class="kb-key kb-done" onmousedown="event.preventDefault();_kbDone()">✓ Done</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+// CUSTOM CHART KEYBOARD
+// ════════════════════════════════════════════════════════════════════════════
+let _kbTarget = null;
+const _kbEl = () => document.getElementById('chart-kb');
+
+function _kbShow(inp) {
+  _kbTarget = inp;
+  const kb = _kbEl(); if (!kb) return;
+  kb.classList.add('kb-open');
+  // show letter row only for text inputs (TF labels)
+  kb.classList.toggle('kb-text', inp.type === 'text' || inp.type === '');
+}
+
+function _kbHide() {
+  const kb = _kbEl(); if (kb) kb.classList.remove('kb-open', 'kb-text');
+  _kbTarget = null;
+}
+
+function _kbPress(ch) {
+  if (!_kbTarget) return;
+  const t = _kbTarget;
+  if (t.type === 'number') {
+    t.value = String(t.value || '') + ch;
+    t.dispatchEvent(new Event('change', {bubbles:true}));
+  } else {
+    const s = t.selectionStart ?? t.value.length;
+    const e = t.selectionEnd ?? t.value.length;
+    t.value = t.value.slice(0, s) + ch + t.value.slice(e);
+    try { t.setSelectionRange(s+1, s+1); } catch(_) {}
+    t.dispatchEvent(new Event('input', {bubbles:true}));
+  }
+}
+
+function _kbBack() {
+  if (!_kbTarget) return;
+  const t = _kbTarget, v = t.value;
+  if (!v) return;
+  if (t.type === 'text' || t.type === '') {
+    const s = t.selectionStart ?? v.length;
+    if (s > 0) {
+      t.value = v.slice(0, s-1) + v.slice(s);
+      try { t.setSelectionRange(s-1, s-1); } catch(_) {}
+    }
+    t.dispatchEvent(new Event('input', {bubbles:true}));
+  } else {
+    t.value = String(t.value).slice(0, -1);
+    t.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+}
+
+function _kbClear() {
+  if (!_kbTarget) return;
+  _kbTarget.value = '';
+  _kbTarget.dispatchEvent(new Event('input', {bubbles:true}));
+  _kbTarget.dispatchEvent(new Event('change', {bubbles:true}));
+}
+
+function _kbDone() {
+  if (_kbTarget) {
+    _kbTarget.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
+    _kbTarget.blur();
+  }
+  _kbHide();
+}
+
+// Auto-attach: show keyboard when any chart input gains focus
+document.addEventListener('focusin', e => {
+  const t = e.target;
+  if (t.tagName !== 'INPUT') return;
+  if (t.type === 'checkbox' || t.type === 'color' || t.type === 'range') return;
+  _kbShow(t);
+});
+document.addEventListener('focusout', e => {
+  // Delay so mousedown on keyboard keys fires before blur hides keyboard
+  setTimeout(() => {
+    const kb = _kbEl();
+    if (!kb || !kb.classList.contains('kb-open')) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || (!kb.contains(active) && active.tagName !== 'INPUT')) {
+      _kbHide();
+    }
+  }, 200);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// KEEP-ALIVE — ping Streamlit server every 4 min to prevent Replit sleep
+// ════════════════════════════════════════════════════════════════════════════
+(function _keepAlive() {
+  const INTERVAL = 4 * 60 * 1000; // 4 minutes
+  function ping() {
+    try {
+      fetch('/_stcore/health', { method: 'GET', cache: 'no-store' }).catch(() => {});
+    } catch(_) {}
+  }
+  setInterval(ping, INTERVAL);
+  // Also ping immediately on page visibility restore (user switches back to tab)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') ping();
+  });
+})();
+</script>
 </body>
 </html>
