@@ -2,3 +2,4 @@ streamlit
 requests
 pyotp
 fyers-apiv3
+python-binance
