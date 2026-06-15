@@ -21,7 +21,19 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 st.markdown("""<style>
-#MainMenu,footer,header{visibility:hidden}
+/* ── Streamlit ke saare ads/badges/watermarks permanently hide ── */
+#MainMenu                        {display:none!important}
+footer                           {display:none!important}
+header                           {display:none!important}
+[data-testid="stToolbar"]        {display:none!important}
+[data-testid="stDecoration"]     {display:none!important}
+[data-testid="stStatusWidget"]   {display:none!important}
+[data-testid="manage-app-button"]{display:none!important}
+.reportview-container .main footer{display:none!important}
+.viewerBadge_container__1QSob   {display:none!important}
+.styles_viewerBadge__1yB5_      {display:none!important}
+#stDecoration                    {display:none!important}
+/* ── Layout ── */
 .main .block-container{padding:0!important;max-width:100%!important;margin:0!important}
 .stApp{background:#131722;overflow:hidden}
 iframe{border:none!important}
