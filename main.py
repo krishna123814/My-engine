@@ -44,6 +44,7 @@ CREDS_FILE        = ".fyers_creds.json"
 BN_LIVE_FILE      = "bn_live.json"
 DAILY_CACHE_FILE  = "btc_daily_cache.json"
 BN_DAILY_CACHE    = "bn_daily_cache.json"
+CHART_STATE_FILE  = "chart_state.json"   # server-side chart layout/settings save (Google ke bina)
 DAILY_CACHE_TTL   = 86400
 HIST_CACHE_TTL    = 300       # seconds for intraday cache (5 min — reduces API load)
 
@@ -822,7 +823,108 @@ if _qp.get("totp_trigger") == "1":
             st.session_state["totp_log"] = _log2
     st.rerun()
 
-# ─── Sidebar: Auth UI ──────────────────────────────────────────────────────────
+# Handler 2b: Server-side chart state save (Google ke bina — direct file pe)
+if _qp.get("cs_save") == "1":
+    _cs_data_b64 = _qp.get("cs_data", "")
+    st.query_params.clear()
+    if _cs_data_b64:
+        try:
+            import base64 as _b64mod
+            _cs_raw = _b64mod.urlsafe_b64decode(_cs_data_b64.encode()).decode("utf-8")
+            # Sanity check — valid JSON hi likho file mein
+            json.loads(_cs_raw)
+            with open(CHART_STATE_FILE, "w", encoding="utf-8") as _csf:
+                _csf.write(_cs_raw)
+        except Exception:
+            pass
+    st.rerun()
+
+# Handler 3: Google Drive OAuth callback — ?gd_cb=1#access_token=...
+# Popup yahan redirect hota hai — poora Streamlit UI hide karo, sirf callback JS chalao
+if _qp.get("gd_cb") == "1":
+    st.markdown("""
+<style>
+  /* Streamlit poora hide karo */
+  #root > div, .stApp, header, footer,
+  [data-testid="stAppViewContainer"],
+  [data-testid="stHeader"],
+  [data-testid="stToolbar"],
+  [data-testid="stSidebar"],
+  .main, .block-container { display: none !important; }
+  body { background: #131722 !important; margin: 0 !important; }
+</style>
+<div id="gd-cb-box" style="
+  position:fixed;top:0;left:0;width:100vw;height:100vh;
+  background:#131722;display:flex;align-items:center;
+  justify-content:center;font-family:sans-serif;color:#d1d4dc;
+  flex-direction:column;gap:16px;z-index:999999;">
+  <div id="gd-spinner" style="font-size:2.5rem;">☁</div>
+  <div id="gd-msg" style="font-size:1rem;">Google sign-in complete ho raha hai…</div>
+</div>
+<script>
+(function() {
+  // Google OAuth2 implicit flow: token URL fragment mein aata hai
+  // Fragment Streamlit tak nahi pahunchta — isliye hum sessionStorage trick use karte hain
+
+  var STORAGE_KEY = '_gd_oauth_pending';
+  var TS_KEY      = '_gd_oauth_ts';
+
+  function setMsg(txt, ok) {
+    var el = document.getElementById('gd-msg');
+    var sp = document.getElementById('gd-spinner');
+    if (el) el.textContent = txt;
+    if (sp) sp.textContent = ok ? '✅' : '❌';
+  }
+
+  function parseHash(str) {
+    var p = {};
+    (str || '').replace(/^[#?]/, '').split('&').forEach(function(pair) {
+      var kv = pair.split('=');
+      if (kv.length >= 2) p[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join('='));
+    });
+    return p;
+  }
+
+  function sendToken(token, exp) {
+    var msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
+
+    // Method 1: window.opener (popup ka parent)
+    try { if (window.opener && !window.opener.closed) { window.opener.postMessage(msg, '*'); } } catch(_) {}
+
+    // Method 2: localStorage (chart poll karta hai)
+    try {
+      localStorage.setItem(STORAGE_KEY, msg);
+      localStorage.setItem(TS_KEY, Date.now().toString());
+    } catch(_) {}
+
+    setMsg('✅ Sign-in ho gaya! Yeh window band ho rahi hai…', true);
+    setTimeout(function() {
+      try { window.close(); } catch(_) {}
+      // Agar window band nahi hui toh blank page dikhao
+      setTimeout(function() { document.body.innerHTML = '<p style="color:#26a69a;text-align:center;padding:40px;font-family:sans-serif">✅ Sign-in complete. Yeh tab band kar sakte ho.</p>'; }, 1500);
+    }, 1000);
+  }
+
+  // Hash directly milta hai toh seedha use karo
+  var hash = window.location.hash || window.location.search || '';
+  var params = parseHash(hash);
+  var token = params['access_token'];
+  var exp   = parseInt(params['expires_in'] || '3600', 10);
+
+  if (token) {
+    sendToken(token, exp);
+    return;
+  }
+
+  // Hash nahi mila — URL mein fragment tha jo Streamlit ne strip kar diya
+  // Yeh normal hai — chart ka localStorage poller handle karega
+  setMsg('❌ Token nahi mila. Chart pe wapas jao aur dobara Sign in karo.', false);
+})();
+</script>
+""", unsafe_allow_html=True)
+    st.stop()
+
+
 creds      = load_creds()
 sess_active = is_session_active()
 
@@ -1070,6 +1172,22 @@ def _build_chart_html(
             "</script>"
         )
         html = html.replace("</body>", inject + "\n</body>")
+
+    # ── Saved chart-state (server-side, Google ke bina) restore karo ──────────
+    _cs_state_raw = None
+    try:
+        if os.path.exists(CHART_STATE_FILE):
+            with open(CHART_STATE_FILE, "r", encoding="utf-8") as _csf:
+                _cs_state_raw = _csf.read().strip()
+            json.loads(_cs_state_raw)  # validate before inlining into <script>
+    except Exception:
+        _cs_state_raw = None
+    if _cs_state_raw:
+        _cs_safe = _cs_state_raw.replace("</", "<\\/")  # </script> injection se bachao
+        cs_inject = (
+            "\n<script>window.__CHART_STATE_RESTORE__ = " + _cs_safe + ";</script>"
+        )
+        html = html.replace("</body>", cs_inject + "\n</body>")
 
     return html
 
@@ -1338,3 +1456,265 @@ else:
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Google Cloud Restore card (login screen pe bhi) ────────────────────────
+    _gd_card_html = """
+<style>
+.gd-card{
+  background:#1a1f2e;border:1px solid #2962ff44;border-radius:12px;
+  padding:16px 18px;max-width:620px;margin:24px auto 0;
+}
+.gd-card-title{color:#90caf9;font:700 13px sans-serif;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.gd-card-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.gd-card-status{color:#787b86;font:600 11px sans-serif;flex:1;}
+.gd-card-btn{
+  background:#2962ff;color:#fff;border:none;border-radius:7px;
+  padding:9px 14px;font:700 12px sans-serif;cursor:pointer;
+  min-height:36px;white-space:nowrap;
+}
+.gd-card-btn:active{opacity:.8}
+.gd-card-inp{
+  flex:1;background:#131722;border:1px solid #363c4e;border-radius:6px;
+  color:#d1d4dc;font-size:11px;padding:7px 9px;outline:none;min-width:0;
+}
+.gd-card-ok{
+  background:#26a69a;color:#fff;border:none;border-radius:6px;
+  padding:7px 11px;font:700 11px sans-serif;cursor:pointer;white-space:nowrap;
+}
+</style>
+
+<div class="gd-card">
+  <div class="gd-card-title">☁ Google Cloud — Layout Restore</div>
+  <div class="gd-card-row">
+    <span class="gd-card-status" id="ls-gd-status">Checking…</span>
+    <button class="gd-card-btn" id="ls-gd-btn" onclick="lsGdSignIn()" style="display:none;">Sign in</button>
+  </div>
+  <div id="ls-gd-manual" style="display:none;margin-top:8px;">
+    <div style="color:#787b86;font:500 10px sans-serif;margin-bottom:5px;">Popup ka poora URL paste karo:</div>
+    <div style="display:flex;gap:6px;">
+      <input class="gd-card-inp" id="ls-gd-inp" placeholder="localhost:8501/?gd_cb=1#access_token=ya29…">
+      <button class="gd-card-ok" onclick="lsGdManualToken()">✓ OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
+  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE_NAME = 'banknifty-layout-sync.json';
+  const AUTH_FLAG = 'gdAuthed';
+
+  let _accessToken = null, _tokenExp = 0, _fileId = null;
+
+  function _hdr(){ return { Authorization: 'Bearer ' + _accessToken }; }
+  function _setStatus(t,c){ const s=document.getElementById('ls-gd-status'); if(s){s.textContent=t;s.style.color=c||'#787b86';} }
+  function _showBtn(show){ const b=document.getElementById('ls-gd-btn'); if(b) b.style.display=show?'':'none'; }
+  function _showManual(show){ const m=document.getElementById('ls-gd-manual'); if(m) m.style.display=show?'':'none'; }
+
+  function _getRedirectURI(){
+    try{
+      const origin = window.parent !== window
+        ? (document.referrer ? new URL(document.referrer).origin : window.location.origin)
+        : window.location.origin;
+      if(origin && origin!=='null') return origin+'/?gd_cb=1';
+    }catch(_){}
+    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
+  }
+
+  function _onToken(resp){
+    if(resp && resp.access_token){
+      _accessToken = resp.access_token;
+      _tokenExp = Date.now() + ((resp.expires_in||3600)*1000 - 60000);
+      try{ localStorage.setItem(AUTH_FLAG,'1'); }catch(_){}
+      return true;
+    }
+    return false;
+  }
+
+  // Popup OAuth
+  let _popWin=null, _popTimer=null, _lsPoll=null;
+  window.addEventListener('message', function(e){
+    try{
+      const d = typeof e.data==='string' ? JSON.parse(e.data) : e.data;
+      if(d && d.type==='gd_oauth_token' && d.access_token){
+        clearInterval(_popTimer); clearInterval(_lsPoll);
+        try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
+        if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+          _showBtn(false); _showManual(false);
+          _doRestore();
+        }
+      }
+    }catch(_){}
+  });
+
+  function _startLSPoll(){
+    clearInterval(_lsPoll);
+    _lsPoll = setInterval(function(){
+      try{
+        const raw = localStorage.getItem('_gd_oauth_pending');
+        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts')||'0',10);
+        if(raw && (Date.now()-ts)<60000){
+          clearInterval(_lsPoll);
+          try{ localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); }catch(_){}
+          const d = JSON.parse(raw);
+          if(d && d.access_token){
+            clearInterval(_popTimer);
+            try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
+            if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+              _showBtn(false); _showManual(false);
+              _doRestore();
+            }
+          }
+        }
+      }catch(_){}
+    },1000);
+  }
+
+  window.lsGdSignIn = function(){
+    const REDIRECT_URI = _getRedirectURI();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'select_account',
+    });
+    _setStatus('☁ Opening Google…','#f0b429');
+    _showBtn(false); _showManual(true);
+    try{ _popWin = window.open(authUrl,'gdLoginPopup','width=480,height=620,top=80,left=80'); }catch(_){}
+    if(!_popWin || _popWin.closed){ _setStatus('☁ Popup blocked — URL paste karo','#f23645'); _showManual(true); return; }
+    clearInterval(_popTimer);
+    _popTimer = setInterval(function(){
+      try{
+        if(_popWin && _popWin.closed){ clearInterval(_popTimer); clearInterval(_lsPoll); _setStatus('☁ Sign in cancelled','#f23645'); _showBtn(true); return; }
+        try{
+          const href = _popWin.location.href;
+          const frag = _popWin.location.hash;
+          if(href && href.includes('gd_cb=1') && frag){
+            clearInterval(_popTimer); clearInterval(_lsPoll);
+            const p = new URLSearchParams(frag.substring(1));
+            const tok = p.get('access_token');
+            try{ _popWin.close(); }catch(_){}
+            if(tok && _onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
+              _showBtn(false); _showManual(false);
+              _doRestore();
+            }
+          }
+        }catch(_){}
+      }catch(_){}
+    },800);
+    _startLSPoll();
+  };
+
+  window.lsGdManualToken = function(){
+    const raw = (document.getElementById('ls-gd-inp')||{}).value||'';
+    const hashIdx = raw.indexOf('#');
+    const frag = hashIdx!==-1 ? raw.substring(hashIdx+1) : (raw.includes('access_token')?raw:'');
+    if(!frag){ _setStatus('☁ Token nahi mila','#f23645'); return; }
+    const p   = new URLSearchParams(frag);
+    const tok = p.get('access_token');
+    if(!tok){ _setStatus('☁ Token extract nahi hua','#f23645'); return; }
+    document.getElementById('ls-gd-inp').value='';
+    if(_onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
+      _showBtn(false); _showManual(false);
+      _doRestore();
+    }
+  };
+
+  function _findFile(cb){
+    fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%22'+FILE_NAME+'%22&fields=files(id)',{headers:_hdr()})
+      .then(r=>r.json()).then(d=>{ const f=(d.files||[])[0]; cb(f?f.id:null); }).catch(()=>cb(null));
+  }
+
+  function _download(cb){
+    _findFile(function(id){
+      if(!id){ cb(null); return; }
+      _fileId=id;
+      fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:_hdr()})
+        .then(r=>r.json()).then(d=>cb(d)).catch(()=>cb(null));
+    });
+  }
+
+  function _applyLS(data){
+    let changed=false;
+    try{
+      for(const k in data){
+        if(k==='gdAuthed') continue;
+        if(localStorage.getItem(k)!==data[k]){ localStorage.setItem(k,data[k]); changed=true; }
+      }
+    }catch(_){}
+    return changed;
+  }
+
+  function _doRestore(){
+    _setStatus('☁ Cloud: restoring…','#f0b429');
+    _download(function(obj){
+      if(obj && obj.data){
+        const changed = _applyLS(obj.data);
+        _setStatus('☁ Restored ✓ — app khul rahi hai…','#26a69a');
+        if(changed) setTimeout(function(){ location.reload(); },800);
+        else _setStatus('☁ Cloud: connected ✓','#26a69a');
+      } else {
+        _setStatus('☁ Cloud: koi data nahi','#f23645');
+        _showBtn(true);
+      }
+    });
+  }
+
+  // Auto-boot: agar pehle sign in hua tha toh silent token try karo
+  function _boot(){
+    if(localStorage.getItem(AUTH_FLAG)!=='1'){
+      _setStatus('☁ Cloud se restore karo — Sign in karo','#787b86');
+      _showBtn(true);
+      return;
+    }
+    // Cached token check
+    if(_accessToken && Date.now() < _tokenExp){
+      _doRestore(); return;
+    }
+    _setStatus('☁ Cloud: reconnecting…','#787b86');
+    _showBtn(false);
+    // Silent token refresh — popup ke bina (prompt:none)
+    const REDIRECT_URI = _getRedirectURI();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'none',
+    });
+    const silentFrame = document.createElement('iframe');
+    silentFrame.style.cssText='display:none;width:0;height:0;';
+    silentFrame.src = authUrl;
+    document.body.appendChild(silentFrame);
+    let _silentDone = false;
+    window.addEventListener('message',function(e){
+      if(_silentDone) return;
+      try{
+        const d = typeof e.data==='string'?JSON.parse(e.data):e.data;
+        if(d && d.type==='gd_oauth_token' && d.access_token){
+          _silentDone=true;
+          if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+            _showBtn(false); _doRestore();
+          }
+        }
+      }catch(_){}
+    },{once:false});
+    // Timeout — silent fail
+    setTimeout(function(){
+      if(!_silentDone){
+        try{ document.body.removeChild(silentFrame); }catch(_){}
+        _setStatus('☁ Cloud: Sign in karo','#787b86');
+        _showBtn(true);
+      }
+    },5000);
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',_boot);
+  } else { _boot(); }
+})();
+</script>
+"""
+    components.html(_gd_card_html, height=160, scrolling=False)

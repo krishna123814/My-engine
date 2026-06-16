@@ -1546,10 +1546,37 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="lm-close" onclick="toggleLayoutMenu(event)">✕</button>
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
-  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
-    <span id="gd-status" style="font:600 12px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
+  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
+    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
+    <!-- Auto-save toggle -->
+    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
+      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
+             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
+             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
+      title="Auto-save on/off">⚡ Auto</button>
+    <!-- Cloud on/off toggle -->
+    <button id="gd-toggle" onclick="gdToggle()"
+      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
+             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
+      title="Cloud sync on/off">🟢</button>
     <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
   </div>
+  <!-- Manual token paste — popup URL copy karke yahan paste karo -->
+  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
+    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
+    <div style="display:flex;gap:6px;">
+      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
+        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
+               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
+      <button onclick="gdManualToken()"
+        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
+               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
+        ✓ OK
+      </button>
+    </div>
+  </div>
+  <!-- ss-status hidden — sirf internal use -->
+  <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
   <div class="lm-divider"></div>
@@ -2208,6 +2235,7 @@ function saveState() {
       textColor: S.textColor,
       grid:      S.grid,
       selCell:   SELECTED_CELL,
+      activeSlot: _activeSlot,
       cells:     CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
       vLine:     { ...S.vLine },
     }));
@@ -2353,6 +2381,7 @@ function saveToSlot(idx) {
 function saveToActiveLayout() {
   if (_activeSlot < 0) _activeSlot = 0;
   saveToSlot(_activeSlot);
+  saveState(); // activeSlot bhi persist karo
   // Flash save button
   const btn = document.getElementById('lm-save-btn');
   if (btn) {
@@ -2373,6 +2402,7 @@ function newLayout() {
   arr[idx] = _currentSnapshot('Layout ' + (idx + 1));
   _saveAllSlots(arr);
   _activeSlot = idx;
+  saveState(); // activeSlot bhi persist karo
   _renderLayoutDropdown();
   // Flash save button with confirmation
   const btn = document.getElementById('lm-save-btn');
@@ -6371,6 +6401,30 @@ document.addEventListener('DOMContentLoaded', () => {
                      '3x3':'9-3x3','4x3':'12-4x3','1x4':'4-rows','1x5':'5-rows','1x6':'6-rows'};
       let layout=st.layout||'1x1';
       if (_LEGACY[layout]) layout=_LEGACY[layout];
+
+      // ── Active slot restore: slot number bhi save karo ────────────────────
+      // Agar st.activeSlot hai toh wahi slot load karo (grid cells ke saath)
+      const savedSlotIdx = (typeof st.activeSlot === 'number') ? st.activeSlot : -1;
+      const allSlots = _loadAllSlots();
+      const slotToLoad = savedSlotIdx >= 0 ? allSlots[savedSlotIdx] : null;
+
+      if (slotToLoad) {
+        // Slot mil gaya — isme poori grid info hai (cells, layout sab)
+        _activeSlot = savedSlotIdx;
+        if (slotToLoad.bgColor)   S.bgColor   = slotToLoad.bgColor;
+        if (slotToLoad.textColor) S.textColor = slotToLoad.textColor;
+        if (slotToLoad.tf)        S.tf        = slotToLoad.tf;
+        if (slotToLoad.vLine)     Object.assign(S.vLine, slotToLoad.vLine);
+        if (slotToLoad.favTFs && Array.isArray(slotToLoad.favTFs)) {
+          _favTFs = [...slotToLoad.favTFs];
+          try { _LS.setItem(_FAV_KEY, JSON.stringify(_favTFs)); } catch(_) {}
+        }
+        _savedCells = slotToLoad.cells && slotToLoad.cells.length ? slotToLoad.cells : _savedCells;
+        let slotLayout = slotToLoad.layout || layout;
+        if (_LEGACY[slotLayout]) slotLayout = _LEGACY[slotLayout];
+        layout = slotLayout;
+      }
+
       if (layout!=='1x1'&&LAYOUTS[layout]) {
         setLayout(layout,null);
         const sc=st.selCell||0;
@@ -8918,6 +8972,9 @@ const GD = (function () {
   function _showBtn(label, show) {
     const b = document.getElementById('gd-btn');
     if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
+    // Manual paste row bhi sign in button ke saath dikhao
+    const mr = document.getElementById('gd-manual-row');
+    if (mr) mr.style.display = show ? '' : 'none';
   }
   function _toast(msg, color) {
     let t = document.getElementById('gd-toast');
@@ -9080,13 +9137,12 @@ const GD = (function () {
     // localStorage fallback polling
     _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
 
-    // Popup closed check
+    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
     clearInterval(_popupTimer);
     _popupTimer = setInterval(() => {
       try {
         if (_popupWin && _popupWin.closed) {
           clearInterval(_popupTimer);
-          // 2 sec wait — token postMessage/LS se aa sakta hai
           setTimeout(() => {
             if (_oauthCb) {
               clearInterval(_lsPollIv);
@@ -9095,9 +9151,36 @@ const GD = (function () {
               const cb2 = _oauthCb; _oauthCb = null; cb2(false);
             }
           }, 2000);
+          return;
+        }
+        // Same-origin check — jab popup redirect_uri pe aa jaaye
+        try {
+          const href = _popupWin.location.href;
+          const fragment = _popupWin.location.hash;
+          if (href && fragment && fragment.includes('access_token')) {
+            // Fragment mil gaya — Streamlit strip karne se pehle
+            clearInterval(_popupTimer);
+            clearInterval(_lsPollIv);
+            const p = new URLSearchParams(fragment.substring(1));
+            const token = p.get('access_token');
+            const exp   = parseInt(p.get('expires_in') || '3600', 10);
+            try { _popupWin.close(); } catch(_) {}
+            if (token) {
+              // localStorage mein bhi save karo backup ke liye
+              try {
+                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
+                localStorage.setItem('_gd_oauth_pending', msg);
+                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
+              } catch(_) {}
+              _onToken({ access_token: token, expires_in: exp });
+              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
+            }
+          }
+        } catch(crossOriginErr) {
+          // Popup abhi Google ke domain pe hai — normal, wait karo
         }
       } catch(_) {}
-    }, 800);
+    }, 300);
   }
 
   function _requestToken(interactive, cb) {
@@ -9259,15 +9342,24 @@ const GD = (function () {
       _origSetItem = localStorage.setItem.bind(localStorage);
       localStorage.setItem = function (k, v) {
         _origSetItem(k, v);
-        if (k !== '__ls_test__' && k !== AUTH_FLAG) { _dirty = true; _schedule(); }
+        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
+          _dirty = true;
+          _schedule();
+        }
       };
     } catch (_) {}
   }
   function _schedule() {
     if (localStorage.getItem(AUTH_FLAG) !== '1') return;
+    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
+    const autoOn = localStorage.getItem('gdAutoSave') === '1';
+    if (!autoOn) return;
     clearTimeout(_pushTimer);
-    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 4000);
+    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
   }
+
+  // Public: force push (manual Save Layout button ke liye)
+  function pushNow() { push(true); }
 
   // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
   // (GIS iframe mein origin=null error deta hai)
@@ -9277,36 +9369,311 @@ const GD = (function () {
     _boot(); // GIS SDK load nahi karo
   }
 
+  // Manual token inject (URL paste se)
+  function _manualToken(token, exp) {
+    _onToken({ access_token: token, expires_in: exp || 3600 });
+    _showBtn('', false);
+    sessionStorage.removeItem('gdRestored');
+    _setStatus('☁ Cloud: restoring…');
+    pull((found, changed) => {
+      sessionStorage.setItem('gdRestored', '1');
+      if (found) {
+        _toast('✓ Restore completed');
+        if (changed) {
+          sessionStorage.setItem('gdJustRestored', '1');
+          setTimeout(() => location.reload(), 950);
+        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
+      } else {
+        _setStatus('☁ Cloud: connected', '#26a69a');
+        push(true);
+      }
+    });
+  }
+
   // Save on tab hide / close (best-effort)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && _dirty) push(false);
   });
 
-  return { init, push, pull, signIn };
+  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
 })();
 
 // Global handler for the menu button
 function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
 
-// Hook the existing 💾 Save Layout (and ＋ New Layout) so one tap = local + cloud save
+// Manual token paste — popup URL se token extract karo
+function gdManualToken() {
+  const inp = document.getElementById('gd-token-inp');
+  if (!inp) return;
+  const raw = inp.value.trim();
+  if (!raw) return;
+
+  // URL mein se fragment nikalo: #access_token=...
+  let fragment = '';
+  try {
+    const hashIdx = raw.indexOf('#');
+    if (hashIdx !== -1) {
+      fragment = raw.substring(hashIdx + 1);
+    } else if (raw.includes('access_token')) {
+      // Sirf fragment part paste kiya hoga
+      fragment = raw;
+    }
+  } catch(_) {}
+
+  if (!fragment) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
+    return;
+  }
+
+  const p     = new URLSearchParams(fragment);
+  const token = p.get('access_token');
+  const exp   = parseInt(p.get('expires_in') || '3600', 10);
+
+  if (!token) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
+    return;
+  }
+
+  // Token mil gaya — GD ko dedo
+  inp.value = '';
+  const row = document.getElementById('gd-manual-row');
+  if (row) row.style.display = 'none';
+  try { GD._manualToken(token, exp); } catch(_) {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SERVER SAVE  (Streamlit server file — Google Drive ke bina)
+// Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
+// snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
+// Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
+// ════════════════════════════════════════════════════════════════════════════
+const SS = (function () {
+  function _setStatus(txt, color) {
+    const s = document.getElementById('ss-status');
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__') continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (localStorage.getItem(k) !== data[k]) {
+          localStorage.setItem(k, data[k]);
+          changed = true;
+        }
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  // ── Save: localStorage snapshot ko JSON file mein download karo (no reload) ──
+  // Form submit se page blank ho jaata tha — isliye ab direct download approach.
+  // Data localStorage mein already saved hai, ek .json backup bhi de dete hain.
+  function push() {
+    try {
+      const payload = JSON.stringify(_snapshot(), null, 2);
+      if (payload.length > 5000000) {
+        _setStatus('💽 JSON: data bahut bada hai', '#f23645');
+        return;
+      }
+      _setStatus('💽 JSON: saving…', '#f0b429');
+
+      // localStorage mein bhi save karo backup key ke saath
+      try {
+        localStorage.setItem('__ss_backup__', payload);
+      } catch(_) {}
+
+      _setStatus('💽 JSON: saved ✓', '#26a69a');
+      setTimeout(() => _setStatus('💽 JSON: ready', '#26a69a'), 2000);
+    } catch (err) {
+      _setStatus('💽 JSON: save failed', '#f23645');
+    }
+  }
+
+  // ── Download: JSON file phone mein save karo ──────────────────────────────
+  function download() {
+    try {
+      const payload = JSON.stringify(_snapshot(), null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'banknifty-layout-' + new Date().toISOString().slice(0,10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+      _setStatus('💽 JSON: downloaded ✓', '#26a69a');
+    } catch(err) {
+      _setStatus('💽 JSON: download failed', '#f23645');
+    }
+  }
+
+  // ── Restore from JSON file ────────────────────────────────────────────────
+  function restoreFromFile(file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const data = JSON.parse(e.target.result);
+        const changed = _apply(data);
+        _setStatus('💽 JSON: restored ✓', '#26a69a');
+        if (changed) {
+          setTimeout(() => { location.reload(); }, 600);
+        }
+      } catch(_) {
+        _setStatus('💽 JSON: invalid file', '#f23645');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // ── Restore: localStorage backup se auto-restore ────────────────────────────
+  function _boot() {
+    // Python inject (window.__CHART_STATE_RESTORE__) ya localStorage backup dono check
+    const restored = window.__CHART_STATE_RESTORE__;
+    const lsBkp = (() => {
+      try { const r = localStorage.getItem('__ss_backup__'); return r ? JSON.parse(r) : null; } catch(_) { return null; }
+    })();
+
+    if (!restored && !lsBkp) { _setStatus('💽 JSON: ready', '#26a69a'); return; }
+
+    if (sessionStorage.getItem('ssRestored') === '1') {
+      _setStatus('💽 JSON: ready', '#26a69a');
+      return;
+    }
+    sessionStorage.setItem('ssRestored', '1');
+    // Python inject pehle try karo, warna localStorage backup use karo
+    const src = restored || lsBkp;
+    const changed = _apply(src);
+    if (changed) {
+      _setStatus('💽 JSON: restoring…');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      _setStatus('💽 JSON: ready', '#26a69a');
+    }
+  }
+
+  function init() { _boot(); }
+  return { init, push, download, restoreFromFile };
+})();
+
+// Save Layout / New Layout pe server-side save bhi ho jaye (GD wale hook ke saath)
+(function () {
+  const _origSave2 = window.saveToActiveLayout;
+  window.saveToActiveLayout = function () {
+    if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
+    try { SS.push(); } catch (_) {}
+    // Cloud sync bhi karo (agar enabled ho)
+    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
+  };
+  const _origNew2 = window.newLayout;
+  window.newLayout = function () {
+    if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
+    try { SS.push(); } catch (_) {}
+    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
+  };
+})();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => SS.init());
+} else {
+  SS.init();
+}
+
+// Auto-save toggle
+function gdAutoSaveToggle() {
+  const cur = localStorage.getItem('gdAutoSave') === '1';
+  const next = !cur;
+  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
+  _updateAutoSaveUI();
+  if (next && _gdEnabled) {
+    // Turant ek push karo
+    try { GD.pushNow(); } catch(_) {}
+  }
+}
+function _updateAutoSaveUI() {
+  const btn = document.getElementById('gd-autosave-btn');
+  if (!btn) return;
+  const on = localStorage.getItem('gdAutoSave') === '1';
+  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
+  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
+  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
+  btn.style.color         = on ? '#26a69a' : '#787b86';
+}
+let _gdEnabled = (() => {
+  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
+})();
+
+function gdToggle() {
+  _gdEnabled = !_gdEnabled;
+  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
+  _updateGdToggleUI();
+  if (_gdEnabled) {
+    // _booted flag reset karo taaki GD dobara connect kar sake
+    try { GD._resetBoot(); } catch(_) {}
+    GD.init();
+  } else {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+    const b = document.getElementById('gd-btn');
+    if (b) b.style.display = 'none';
+    const mr = document.getElementById('gd-manual-row');
+    if (mr) mr.style.display = 'none';
+  }
+}
+function _updateGdToggleUI() {
+  const tog = document.getElementById('gd-toggle');
+  if (!tog) return;
+  tog.textContent = _gdEnabled ? '🟢' : '⚫';
+  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
+}
+
+// Hook GD save with toggle check
 (function () {
   const _origSave = window.saveToActiveLayout;
   window.saveToActiveLayout = function () {
     if (typeof _origSave === 'function') _origSave.apply(this, arguments);
-    try { GD.push(true); } catch (_) {}
+    // GD push is now done in the SS hook above (with toggle check)
   };
   const _origNew = window.newLayout;
   window.newLayout = function () {
     if (typeof _origNew === 'function') _origNew.apply(this, arguments);
-    try { GD.push(true); } catch (_) {}
+    // GD push is now done in the SS hook above (with toggle check)
   };
 })();
 
-// Start cloud sync once DOM is ready
+// Start cloud sync once DOM is ready (only if enabled)
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => GD.init());
+  document.addEventListener('DOMContentLoaded', () => {
+    _updateGdToggleUI();
+    _updateAutoSaveUI();
+    if (_gdEnabled) GD.init();
+    else {
+      const s = document.getElementById('gd-status');
+      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+    }
+  });
 } else {
-  GD.init();
+  _updateGdToggleUI();
+  _updateAutoSaveUI();
+  if (_gdEnabled) GD.init();
+  else {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
