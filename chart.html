@@ -4480,7 +4480,7 @@ async function buildCellChart(idx) {
     // Daily+: BTC_DAILY use karo; agar empty/incomplete hai toh paginated browser fetch
     if (c.asset === BTC_ASSET) {
       if (!rawData || !rawData.length) rawData = BTC_DAILY;
-      if (!rawData || rawData.length < 100) {
+      if (!rawData || !rawData.length) {
         // Same pagination logic as rebuildChart — 2017 tak fetch karo
         try {
           let endTime   = Date.now();
