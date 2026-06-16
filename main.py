@@ -1541,9 +1541,21 @@ else:
   const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
   const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
   const FILE_NAME = 'banknifty-layout-sync.json';
-  const AUTH_FLAG = 'gdAuthed';
+  const AUTH_FLAG  = 'gdAuthed';
+  const TOK_KEY    = '_gd_access_token';
+  const TOK_EXP_KEY= '_gd_token_exp';
 
   let _accessToken = null, _tokenExp = 0, _fileId = null;
+
+  // Reload hone par bhi token yaad rahe — localStorage se purana token uthao
+  try{
+    const savedTok = localStorage.getItem(TOK_KEY);
+    const savedExp = parseInt(localStorage.getItem(TOK_EXP_KEY)||'0',10);
+    if(savedTok && savedExp > Date.now()){
+      _accessToken = savedTok;
+      _tokenExp    = savedExp;
+    }
+  }catch(_){}
 
   function _hdr(){ return { Authorization: 'Bearer ' + _accessToken }; }
   function _setStatus(t,c){ const s=document.getElementById('ls-gd-status'); if(s){s.textContent=t;s.style.color=c||'#787b86';} }
@@ -1564,7 +1576,11 @@ else:
     if(resp && resp.access_token){
       _accessToken = resp.access_token;
       _tokenExp = Date.now() + ((resp.expires_in||3600)*1000 - 60000);
-      try{ localStorage.setItem(AUTH_FLAG,'1'); }catch(_){}
+      try{
+        localStorage.setItem(AUTH_FLAG,'1');
+        localStorage.setItem(TOK_KEY,_accessToken);
+        localStorage.setItem(TOK_EXP_KEY,String(_tokenExp));
+      }catch(_){}
       return true;
     }
     return false;
@@ -1691,8 +1707,14 @@ else:
       if(obj && obj.data){
         const changed = _applyLS(obj.data);
         _setStatus('☁ Restored ✓ — app khul rahi hai…','#26a69a');
-        if(changed) setTimeout(function(){ location.reload(); },800);
-        else _setStatus('☁ Cloud: connected ✓','#26a69a');
+        let alreadyReloaded = false;
+        try{ alreadyReloaded = sessionStorage.getItem('_gd_reloaded_once')==='1'; }catch(_){}
+        if(changed && !alreadyReloaded){
+          try{ sessionStorage.setItem('_gd_reloaded_once','1'); }catch(_){}
+          setTimeout(function(){ location.reload(); },800);
+        } else {
+          _setStatus('☁ Cloud: connected ✓','#26a69a');
+        }
       } else {
         _setStatus('☁ Cloud: koi data nahi','#f23645');
         _showBtn(true);

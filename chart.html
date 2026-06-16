@@ -1519,6 +1519,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
+    <button class="hdr-icon-btn" id="gh-save-btn" 
+      onclick="GH.push(true)" 
+      oncontextmenu="event.preventDefault(); GH.reset();"
+      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
+      ontouchend="clearTimeout(this._ghLong)"
+      title="Save to GitHub (Long-press to reset token)" 
+      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
+      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+    </button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
@@ -1546,6 +1555,20 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="lm-close" onclick="toggleLayoutMenu(event)">✕</button>
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
+  
+  <!-- GitHub Sync Buttons (Moved to Top) -->
+  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
+    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
+    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
+      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
+      PULL (Restore)
+    </button>
+    <button onclick="GH.reset()" 
+      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
+      Reset
+    </button>
+  </div>
+
   <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
     <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
     <!-- Auto-save toggle -->
@@ -1561,6 +1584,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       title="Cloud sync on/off">🟢</button>
     <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
   </div>
+
   <!-- Manual token paste — popup URL copy karke yahan paste karo -->
   <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
     <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
@@ -1579,8 +1603,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
-  <div class="lm-divider"></div>
-  <button class="lm-new-btn" onclick="newLayout()">＋ New Layout</button>
 </div>
 
 <!-- ═══ DRAWING TOOLS PANEL ═══════════════════════════════════════════ -->
@@ -2115,15 +2137,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 // SAFE localStorage WRAPPER — private browsing / quota errors silently handle
 // ════════════════════════════════════════════════════════════════════════════
 const _LS = (() => {
-  try { _LS.setItem('__ls_test__', '1'); _LS.removeItem('__ls_test__'); }
+  try { localStorage.setItem('__ls_test__', '1'); localStorage.removeItem('__ls_test__'); }
   catch(_) {
     // localStorage unavailable — in-memory fallback
     const _mem = {};
     return { getItem: k => _mem[k]??null, setItem: (k,v) => { _mem[k]=String(v); }, removeItem: k => { delete _mem[k]; } };
   }
-  return { getItem: k => { try{return _LS.getItem(k);}catch(_){return null;} },
-           setItem: (k,v) => { try{_LS.setItem(k,v);}catch(_){} },
-           removeItem: k => { try{_LS.removeItem(k);}catch(_){} } };
+  return { getItem: k => { try{return localStorage.getItem(k);}catch(_){return null;} },
+           setItem: (k,v) => { try{localStorage.setItem(k,v);}catch(_){} },
+           removeItem: k => { try{localStorage.removeItem(k);}catch(_){} } };
 })();
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2276,57 +2298,63 @@ function _currentSnapshot(name) {
     vLine:       {...S.vLine},
     favTFs:      [..._favTFs],
     cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
+    drawings:    JSON.parse(JSON.stringify(_DT.drawings || [])),
+    indSwing:    SWING_STATE.visible,
+    indBTC2:     BTC2_SWING_STATE.visible,
+    swingLineW:  SWING_LINE_WIDTH,
+    swingTFList: JSON.parse(JSON.stringify(SWING_TF_LIST || [])),
+    tfColors:    JSON.parse(JSON.stringify(_TF_COLORS || {})),
   };
 }
 
-// Render the layout list inside the dropdown
+// Render the layout list inside the dropdown — 2 fixed slots: BTC & BankNifty
 function _renderLayoutDropdown() {
   const list = document.getElementById('lm-list');
   if (!list) return;
   const slots = _loadAllSlots();
-  list.innerHTML = '';
-  let hasAny = false;
-  slots.forEach((slot, idx) => {
-    if (!slot) return;
-    hasAny = true;
 
-    // Build meta line: symbol · TF · grid
-    const symShort = slot.asset
-      ? (slot.asset.includes('BANK') ? '📊 BN' : '₿ BTC')
-      : '₿ BTC';
-    const tfLabel = slot.tf
-      ? (slot.tf >= 10080 ? '1W' : slot.tf >= 4320 ? '3D' : slot.tf >= 1440 ? '1D'
-        : slot.tf >= 240 ? '4H' : slot.tf >= 60 ? (slot.tf/60)+'H'
-        : slot.tf + 'm')
-      : '--';
-    const gridLabel = slot.layoutLabel || slot.layout || '1-Chart';
-    const meta = symShort + ' · ' + tfLabel + ' · ' + gridLabel;
+  // Force slot 0 = BTC, slot 1 = BankNifty names always
+  const FIXED = [
+    { idx: 0, label: '₿ BTC Layout' },
+    { idx: 1, label: '📊 BankNifty Layout' },
+  ];
+
+  list.innerHTML = '';
+  FIXED.forEach(({ idx, label }) => {
+    const slot = slots[idx];
+    let meta = 'Not saved yet';
+    if (slot) {
+      const tfLabel = slot.tf
+        ? (slot.tf >= 10080 ? '1W' : slot.tf >= 4320 ? '3D' : slot.tf >= 1440 ? '1D'
+          : slot.tf >= 240 ? '4H' : slot.tf >= 60 ? (slot.tf/60)+'H'
+          : slot.tf + 'm')
+        : '--';
+      const gridLabel = slot.layoutLabel || slot.layout || '1-Chart';
+      meta = tfLabel + ' · ' + gridLabel;
+    }
 
     const item = document.createElement('div');
     item.className = 'lm-item' + (idx === _activeSlot ? ' active' : '');
     item.innerHTML =
       '<span class="lm-item-dot"></span>' +
       '<div class="lm-item-info">' +
-        '<span class="lm-item-name">' + _escHtml(slot.name || 'Layout ' + (idx + 1)) + '</span>' +
+        '<span class="lm-item-name">' + label + '</span>' +
         '<span class="lm-item-meta">' + _escHtml(meta) + '</span>' +
-      '</div>' +
-      '<button class="lm-item-ren" title="Rename">✎</button>' +
-      '<button class="lm-item-del" title="Delete layout">✕</button>';
+      '</div>';
 
-    item.querySelector('.lm-item-ren').addEventListener('click', e => {
-      e.stopPropagation();
-      _inlineRename(item, idx);
+    item.addEventListener('click', () => {
+      if (slots[idx]) {
+        loadFromSlot(idx);
+      } else {
+        // Slot empty hai — pehle save karo is asset ke saath
+        _activeSlot = idx;
+        saveToSlot(idx);
+        saveState();
+        _renderLayoutDropdown();
+      }
     });
-    item.querySelector('.lm-item-del').addEventListener('click', e => {
-      e.stopPropagation();
-      _deleteLayout(idx);
-    });
-    item.addEventListener('click', () => loadFromSlot(idx));
     list.appendChild(item);
   });
-  if (!hasAny) {
-    list.innerHTML = '<div class="lm-empty">No saved layouts yet</div>';
-  }
 }
 
 function _escHtml(s) {
@@ -2446,6 +2474,34 @@ function loadFromSlot(idx) {
 
   // Restore cell configs for buildGrid
   _savedCells = slot.cells && slot.cells.length ? slot.cells : null;
+
+  // ── Restore drawings ──────────────────────────────────────────────────
+  if (slot.drawings && Array.isArray(slot.drawings)) {
+    _DT.drawings = JSON.parse(JSON.stringify(slot.drawings));
+    _DT._nextId  = (_DT.drawings.reduce((m,d) => Math.max(m, d.id||0), 0)) + 1;
+  } else {
+    _DT.drawings = [];
+  }
+
+  // ── Restore indicators ────────────────────────────────────────────────
+  if (typeof slot.indSwing === 'boolean') {
+    SWING_STATE.visible = slot.indSwing;
+    const ckSwing = document.getElementById('ck-swing');
+    if (ckSwing) ckSwing.checked = slot.indSwing;
+  }
+  if (typeof slot.indBTC2 === 'boolean') {
+    BTC2_SWING_STATE.visible = slot.indBTC2;
+    const ckBTC2 = document.getElementById('ck-btc2swing');
+    if (ckBTC2) ckBTC2.checked = slot.indBTC2;
+  }
+  if (slot.swingLineW) setSwingLineWidth(slot.swingLineW);
+  if (slot.swingTFList && Array.isArray(slot.swingTFList)) {
+    SWING_TF_LIST = JSON.parse(JSON.stringify(slot.swingTFList));
+    try { _LS.setItem(_SWING_STORE_KEY, JSON.stringify(SWING_TF_LIST)); } catch(_) {}
+  }
+  if (slot.tfColors && typeof slot.tfColors === 'object') {
+    _TF_COLORS = JSON.parse(JSON.stringify(slot.tfColors));
+  }
 
   applyBgToPage();
   setLayout(slot.layout || '1x1', null);
@@ -9492,6 +9548,209 @@ function gdManualToken() {
 // snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
 // Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
 // ════════════════════════════════════════════════════════════════════════════
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// GITHUB SYNC (Gist API)
+// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
+// ════════════════════════════════════════════════════════════════════════════
+const GH = (function () {
+  const GIST_NAME = 'banknifty-layout-sync.json';
+  const TOKEN_KEY = 'gh_token';
+  const GIST_ID_KEY = 'gh_gist_id';
+
+  function _setStatus(txt, color) {
+    const s = document.getElementById('gd-status'); // Reuse GD status for now
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+
+  function _toast(msg, color) {
+    if (window.GD && GD._toast) GD._toast(msg, color);
+    else alert(msg);
+  }
+
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
+        // Force overwrite even if it looks the same, to be sure
+        localStorage.setItem(k, data[k]);
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  async function push(showToast) {
+    // Force save current state to localStorage first
+    if (window.saveState) saveState();
+    if (window.saveToActiveLayout) saveToActiveLayout();
+    
+    let token = localStorage.getItem(TOKEN_KEY);
+    if (!token || token.length < 5) {
+      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
+      if (token && token.trim().length > 5) {
+        token = token.trim();
+        localStorage.setItem(TOKEN_KEY, token);
+      } else {
+        _setStatus('🐙 GitHub: Token required', '#f23645');
+        return;
+      }
+    }
+
+    _setStatus('🐙 GitHub: saving...', '#f0b429');
+    let gistId = localStorage.getItem(GIST_ID_KEY);
+    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json'
+    };
+
+    try {
+      let url = 'https://api.github.com/gists';
+      let method = 'POST';
+      let body = {
+        description: 'BankNifty Layout Sync',
+        public: false,
+        files: { [GIST_NAME]: { content: payload } }
+      };
+
+      if (gistId) {
+        url = `https://api.github.com/gists/${gistId}`;
+        method = 'PATCH';
+      }
+
+      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
+      const json = await resp.json();
+
+      if (resp.ok) {
+        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
+        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
+        if (showToast) _toast('☁ Saved to GitHub Gist');
+      } else {
+        console.error('GH Save Error:', json);
+        const errMsg = json.message || 'Save Failed';
+        
+        if (resp.status === 409) {
+          // Conflict error - force update by creating a new one or trying to pull first
+          console.warn('409 Conflict, retrying as new gist...');
+          localStorage.removeItem(GIST_ID_KEY);
+          return push(showToast);
+        }
+
+        if (resp.status === 404) {
+          localStorage.removeItem(GIST_ID_KEY);
+          const msg = "GitHub Error 404: Not Found.\n\n" +
+                      "This usually means your Token is missing 'gist' permission.\n" +
+                      "Please check 'gist' scope in GitHub Token settings.";
+          alert(msg);
+          _setStatus('🐙 GitHub: 404 Error', '#f23645');
+          return;
+        }
+
+        if (resp.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
+          _toast('Invalid Token: ' + errMsg, '#f23645');
+        } else {
+          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
+          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
+        }
+      }
+    } catch (err) {
+      _setStatus('🐙 GitHub: error', '#f23645');
+      _toast('GitHub Error: ' + err.message, '#f23645');
+    }
+  }
+
+  function reset() {
+    if (confirm("Reset GitHub Token and Gist ID?")) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(GIST_ID_KEY);
+      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
+      _toast('GitHub settings reset. Tap again to enter new token.');
+    }
+  }
+
+  async function pull(after) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (!token || !gistId) { if (after) after(false, false); return; }
+
+    _setStatus('🐙 GitHub: restoring...', '#f0b429');
+    const headers = {
+      'Authorization': `token ${token}`,
+      'Accept': 'application/vnd.github.v3+json'
+    };
+
+    try {
+      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
+      const json = await resp.json();
+
+      if (resp.ok && json.files[GIST_NAME]) {
+        const content = JSON.parse(json.files[GIST_NAME].content);
+        const changed = _apply(content.data);
+        if (after) after(true, changed);
+      } else {
+        if (after) after(false, false);
+      }
+    } catch (err) {
+      if (after) after(false, false);
+    }
+  }
+
+  function init() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (token && gistId) {
+      // Check if we just restored to avoid infinite loop
+      if (sessionStorage.getItem('gh_just_restored') === '1') {
+        sessionStorage.removeItem('gh_just_restored');
+        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
+        _toast('✓ GitHub Restore completed');
+        return;
+      }
+
+      _setStatus('🐙 GitHub: checking...', '#f0b429');
+      pull((found, changed) => {
+        if (found && changed) {
+          sessionStorage.setItem('gh_just_restored', '1');
+          _toast('✓ GitHub Restore completed');
+          setTimeout(() => location.reload(), 800);
+        } else if (found) {
+          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
+        } else {
+          _setStatus('🐙 GitHub: connected', '#787b86');
+        }
+      });
+    }
+  }
+
+  return { push, pull, init, reset };
+})();
+
+// Auto-init GitHub
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => GH.init());
+} else {
+  GH.init();
+}
+
 const SS = (function () {
   function _setStatus(txt, color) {
     const s = document.getElementById('ss-status');
