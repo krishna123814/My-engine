@@ -8986,17 +8986,69 @@ const GD = (function () {
     if (cb) cb(false);
   }
 
-  // ── Popup-based OAuth (iframe-safe, GIS bypass) ───────────────────────────
-  // GIS token client iframe mein kaam nahi karta (origin=null error)
-  // Isliye hum seedha Google OAuth2 implicit flow popup use karte hain
-  // Redirect URI: https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app
-  // (Google Cloud Console mein "Authorized redirect URIs" mein yeh add hona chahiye)
+  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
+  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
+  // Google Cloud Console mein dono register honi chahiye:
+  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
+  //   http://localhost:8501/?gd_cb=1
 
-  const REDIRECT_URI = 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app';
-  let _popupWin = null, _popupTimer = null;
+  function _getRedirectURI() {
+    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
+    try {
+      const origin = window.parent !== window
+        ? document.referrer
+          ? new URL(document.referrer).origin
+          : window.location.origin
+        : window.location.origin;
+      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
+    } catch(_) {}
+    // Fallback: Streamlit URL
+    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
+  }
+
+  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
+
+  // postMessage listener — callback page token bhejta hai yahan
+  window.addEventListener('message', function(e) {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d && d.type === 'gd_oauth_token' && d.access_token) {
+        clearInterval(_popupTimer);
+        clearInterval(_lsPollIv);
+        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
+        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
+        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
+      }
+    } catch(_) {}
+  });
+
+  // localStorage polling fallback (agar postMessage cross-origin block ho)
+  function _startLSPoll(cb) {
+    clearInterval(_lsPollIv);
+    _lsPollIv = setInterval(() => {
+      try {
+        const raw = localStorage.getItem('_gd_oauth_pending');
+        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
+        if (raw && (Date.now() - ts) < 60000) {
+          clearInterval(_lsPollIv);
+          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
+          const d = JSON.parse(raw);
+          if (d && d.access_token) {
+            clearInterval(_popupTimer);
+            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
+            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
+            if (cb) cb(true);
+          }
+        }
+      } catch(_) {}
+    }, 800);
+    setTimeout(() => clearInterval(_lsPollIv), 120000);
+  }
 
   function _openAuthPopup(cb) {
-    // GIS bypass — seedha Google OAuth2 implicit flow
+    _oauthCb = cb;
+    const REDIRECT_URI = _getRedirectURI();
+
     const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
       client_id:              CLIENT_ID,
       redirect_uri:           REDIRECT_URI,
@@ -9006,7 +9058,7 @@ const GD = (function () {
       prompt:                 'consent',
     });
 
-    const w = 480, h = 600;
+    const w = 480, h = 620;
     const left = Math.max(0, (screen.width  - w) / 2);
     const top  = Math.max(0, (screen.height - h) / 2);
 
@@ -9018,70 +9070,43 @@ const GD = (function () {
     if (!_popupWin || _popupWin.closed) {
       _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
       _showBtn('Sign in', true);
+      _oauthCb = null;
       if (cb) cb(false);
       return;
     }
 
     _setStatus('☁ Google window mein sign in karo…', '#f0b429');
 
-    // Popup ke URL mein access_token aane ka wait karo
+    // localStorage fallback polling
+    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
+
+    // Popup closed check
     clearInterval(_popupTimer);
     _popupTimer = setInterval(() => {
       try {
-        // Jab popup redirect_uri pe aa jaaye tab uska hash read kar sakte hain
-        const href = _popupWin.location.href;
-        if (href && href.startsWith(REDIRECT_URI) && href.includes('access_token')) {
+        if (_popupWin && _popupWin.closed) {
           clearInterval(_popupTimer);
-          const hash = _popupWin.location.hash || _popupWin.location.search;
-          _popupWin.close();
-          // Hash: #access_token=...&expires_in=3599&...
-          // Search (agar hash nahi): ?access_token=...
-          const str = hash.startsWith('#') ? hash.substring(1) : hash.startsWith('?') ? hash.substring(1) : hash;
-          const p     = new URLSearchParams(str);
-          const token = p.get('access_token');
-          const exp   = parseInt(p.get('expires_in') || '3600', 10);
-          if (token) {
-            _onToken({ access_token: token, expires_in: exp });
-            if (cb) cb(true);
-          } else {
-            _setStatus('☁ Token nahi mila', '#f23645');
-            _showBtn('Sign in', true);
-            if (cb) cb(false);
-          }
-        }
-      } catch (_) {
-        // Popup abhi Google ke domain pe hai — cross-origin, wait karo
-      }
-
-      // Agar popup band kar diya user ne
-      try {
-        if (_popupWin.closed) {
-          clearInterval(_popupTimer);
-          if (!accessToken) {
-            _setStatus('☁ Sign-in cancel hua', '#f23645');
-            _showBtn('Sign in', true);
-            if (cb) cb(false);
-          }
+          // 2 sec wait — token postMessage/LS se aa sakta hai
+          setTimeout(() => {
+            if (_oauthCb) {
+              clearInterval(_lsPollIv);
+              _setStatus('☁ Sign-in cancel hua', '#f23645');
+              _showBtn('Sign in', true);
+              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
+            }
+          }, 2000);
         }
       } catch(_) {}
-    }, 600);
+    }, 800);
   }
 
   function _requestToken(interactive, cb) {
     _pending = cb;
     if (interactive) {
-      // Hamesha popup use karo — GIS bypass
-      _openAuthPopup(ok => {
-        _pending = null;
-        if (cb) cb(ok);
-      });
+      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
       return;
     }
-    // Silent refresh — GIS token client try karo (background, no popup)
-    if (tokenClient) {
-      try { tokenClient.requestAccessToken({ prompt: '' }); return; }
-      catch (_) {}
-    }
+    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
     if (cb) cb(false);
   }
   function _withToken(cb) {
@@ -9244,28 +9269,12 @@ const GD = (function () {
     _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 4000);
   }
 
-  // ── Load Google Identity Services SDK, then init token client ────────────────
-  function _waitGIS() {
-    if (window.google && google.accounts && google.accounts.oauth2) {
-      try {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID, scope: SCOPE,
-          callback: _onToken, error_callback: _onTokenErr,
-        });
-      } catch (_) {}
-      _boot();
-    } else { setTimeout(_waitGIS, 200); }
-  }
+  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
+  // (GIS iframe mein origin=null error deta hai)
+  function _waitGIS() { _boot(); } // GIS skip, seedha boot
   function init() {
     _initAutoSave();
-    if (document.getElementById('gis-sdk')) { _waitGIS(); return; }
-    const s = document.createElement('script');
-    s.id = 'gis-sdk';
-    s.src = 'https://accounts.google.com/gsi/client';
-    s.async = true; s.defer = true;
-    s.onload = _waitGIS;
-    s.onerror = () => { _setStatus('☁ Cloud: offline (load failed)', '#f23645'); _showBtn('Retry', true); };
-    document.head.appendChild(s);
+    _boot(); // GIS SDK load nahi karo
   }
 
   // Save on tab hide / close (best-effort)
