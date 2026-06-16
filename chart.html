@@ -4477,11 +4477,11 @@ async function buildCellChart(idx) {
   // Intraday TFs: use pre-loaded pools; only browser-fetch if pool is truly empty.
   let rawData = _baseDataFor(c.asset, c.tf);
   if (c.tf >= 1440) {
-    // Daily+: BTC_DAILY use karo; agar empty/incomplete hai toh paginated browser fetch
     if (c.asset === BTC_ASSET) {
-      if (!rawData || !rawData.length) rawData = BTC_DAILY;
-      if (!rawData || !rawData.length) {
-        // Same pagination logic as rebuildChart — 2017 tak fetch karo
+      // BTC_DAILY seedha check karo — _baseDataFor fallback 1m data deta hai jo galat hai
+      rawData = (Array.isArray(BTC_DAILY) && BTC_DAILY.length) ? BTC_DAILY : [];
+      if (!rawData.length) {
+        // BTC_DAILY empty hai (server ne inject nahi kiya) — browser se fetch karo
         try {
           let endTime   = Date.now();
           let allKlines = [];
@@ -4507,12 +4507,12 @@ async function buildCellChart(idx) {
               .map(_parseKline)
               .filter(b => { if (seen.has(b.time)) return false; seen.add(b.time); return true; })
               .sort((a, b) => a.time - b.time);
-            // BTC_DAILY cache update karo — baaki cells ko dobara fetch nahi karna padega
+            // BTC_DAILY update karo — baaki cells dobara fetch nahi karenge
             BTC_DAILY.length = 0;
             rawData.forEach(x => BTC_DAILY.push(x));
           }
         } catch(e) {
-          rawData = BTC_DAILY || [];
+          rawData = [];
         }
       }
     } else if (!rawData || !rawData.length) rawData = [];
