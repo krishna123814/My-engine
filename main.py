@@ -567,6 +567,7 @@ def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
         return []
 
 def load_btc_daily() -> list:
+    """Fetch BTC daily candles 2017->now in yearly chunks (same as BankNifty pattern)."""
     today_str = _ist_now().strftime("%Y-%m-%d")
     if os.path.exists(DAILY_CACHE_FILE):
         try:
@@ -574,25 +575,62 @@ def load_btc_daily() -> list:
                 c = json.load(f)
             data = c.get("data", [])
             cache_ok = time.time() - c.get("ts", 0) < DAILY_CACHE_TTL
-            # Extra check: last candle aaj ka hona chahiye (stale date detect)
             if cache_ok and data:
-                import datetime as _dt
                 last_ts = data[-1][0] // 1000
-                last_date = _dt.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d")
+                last_date = datetime.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d")
                 if last_date < today_str:
-                    cache_ok = False  # aaj ki candle missing — refresh karo
+                    cache_ok = False
             if cache_ok:
                 return data
         except Exception:
             pass
-    data = fetch_btc("1d", 1000)
-    if data:
+
+    start_year = 2017
+    cur_year   = _ist_now().year
+
+    chunks: list[tuple[str, str]] = []
+    for yr in range(start_year, cur_year + 1):
+        chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
+        chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+
+    all_candles: list = []
+    seen_times: set   = set()
+
+    for i, (from_d, to_d) in enumerate(chunks):
+        if from_d > today_str:
+            break
+        actual_to = min(to_d, today_str)
+        from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
+            tzinfo=datetime.timezone.utc).timestamp() * 1000)
+        to_ms   = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
+            tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
         try:
-            with open(DAILY_CACHE_FILE, "w") as f:
-                json.dump({"ts": time.time(), "data": data}, f)
+            r = requests.get(
+                f"https://api.binance.com/api/v3/klines"
+                f"?symbol=BTCUSDT&interval=1d&startTime={from_ms}&endTime={to_ms}&limit=1000",
+                timeout=15,
+            ).json()
+            if isinstance(r, list):
+                for x in r:
+                    ts = int(x[0])
+                    if ts not in seen_times:
+                        seen_times.add(ts)
+                        all_candles.append([ts, float(x[1]), float(x[2]),
+                                            float(x[3]), float(x[4]), float(x[5])])
         except Exception:
             pass
-    return data
+        if i > 0:
+            time.sleep(0.1)
+
+    all_candles.sort(key=lambda x: x[0])
+
+    if all_candles:
+        try:
+            with open(DAILY_CACHE_FILE, "w") as f:
+                json.dump({"ts": time.time(), "data": all_candles}, f)
+        except Exception:
+            pass
+    return all_candles
 
 # ─── OHLC converter ───────────────────────────────────────────────────────────
 def to_ohlc(bars: list) -> list:
