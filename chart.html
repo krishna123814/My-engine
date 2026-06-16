@@ -4478,7 +4478,8 @@ async function buildCellChart(idx) {
   let rawData = _baseDataFor(c.asset, c.tf);
   if (c.tf >= 1440) {
     // Daily+: use injected daily data directly — no browser fetch needed.
-    if (!rawData || !rawData.length) rawData = [];
+    if (c.asset === BTC_ASSET && (!rawData || !rawData.length)) rawData = BTC_DAILY;
+    else if (!rawData || !rawData.length) rawData = [];
   } else if (c.asset === BN_ASSET) {
     // BankNifty: always use Angel-injected data (no public Binance equivalent)
     if (!rawData || !rawData.length) rawData = [];
