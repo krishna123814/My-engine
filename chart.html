@@ -4477,9 +4477,25 @@ async function buildCellChart(idx) {
   // Intraday TFs: use pre-loaded pools; only browser-fetch if pool is truly empty.
   let rawData = _baseDataFor(c.asset, c.tf);
   if (c.tf >= 1440) {
-    // Daily+: use injected daily data directly — no browser fetch needed.
-    if (c.asset === BTC_ASSET && (!rawData || !rawData.length)) rawData = BTC_DAILY;
-    else if (!rawData || !rawData.length) rawData = [];
+    // Daily+: BTC_DAILY use karo; agar empty hai (Streamlit Cloud) toh browser se fetch karo
+    if (c.asset === BTC_ASSET) {
+      if (!rawData || !rawData.length) rawData = BTC_DAILY;
+      if (!rawData || rawData.length < 2) {
+        try {
+          const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000');
+          if (c._buildVer !== myVer) return;
+          if (r.ok) {
+            const klines = await r.json();
+            rawData = klines.map(_parseKline);
+            // BTC_DAILY array update karo taaki agli baar directly mile
+            BTC_DAILY.length = 0;
+            rawData.forEach(x => BTC_DAILY.push(x));
+          }
+        } catch(e) {
+          rawData = BTC_DAILY || [];
+        }
+      }
+    } else if (!rawData || !rawData.length) rawData = [];
   } else if (c.asset === BN_ASSET) {
     // BankNifty: always use Angel-injected data (no public Binance equivalent)
     if (!rawData || !rawData.length) rawData = [];
