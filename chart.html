@@ -4519,21 +4519,27 @@ async function buildCellChart(idx) {
   } else if (c.asset === BN_ASSET) {
     // BankNifty: always use Angel-injected data (no public Binance equivalent)
     if (!rawData || !rawData.length) rawData = [];
-  } else if (!rawData || rawData.length < 2) {
-    // BTC intraday: fetch from Binance when pool is genuinely empty
-    try {
-      const iv = _binanceIvFor(c.tf);
-      const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=' + iv + '&limit=1000');
-      // Stale fetch check — agar is beech TF/asset badal gaya to discard karo
-      if (c._buildVer !== myVer) return;
-      if (r.ok) {
-        const klines = await r.json();
-        rawData = klines.map(_parseKline);
-        if (c.tf >= 15) { BTC_15M.length = 0; rawData.forEach(x=>BTC_15M.push(x)); }
-        else { ALLDATA[c.asset] = rawData; }
+  } else {
+    // BTC intraday — seedha sahi pool check karo (bypass _baseDataFor fallback)
+    if (c.tf >= 15) {
+      rawData = (Array.isArray(BTC_15M) && BTC_15M.length) ? BTC_15M : [];
+    } else {
+      rawData = (Array.isArray(ALLDATA[c.asset]) && ALLDATA[c.asset].length) ? ALLDATA[c.asset] : [];
+    }
+    if (!rawData.length) {
+      try {
+        const iv = _binanceIvFor(c.tf);
+        const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=' + iv + '&limit=1000');
+        if (c._buildVer !== myVer) return;
+        if (r.ok) {
+          const klines = await r.json();
+          rawData = klines.map(_parseKline);
+          if (c.tf >= 15) { BTC_15M.length = 0; rawData.forEach(x=>BTC_15M.push(x)); }
+          else { ALLDATA[c.asset] = rawData; }
+        }
+      } catch(e) {
+        rawData = [];
       }
-    } catch(e) {
-      rawData = ALLDATA[c.asset] || [];
     }
   }
   // ── BTC grid cell: ensure live WebSocket is running ──────────────────────
