@@ -4477,17 +4477,37 @@ async function buildCellChart(idx) {
   // Intraday TFs: use pre-loaded pools; only browser-fetch if pool is truly empty.
   let rawData = _baseDataFor(c.asset, c.tf);
   if (c.tf >= 1440) {
-    // Daily+: BTC_DAILY use karo; agar empty hai (Streamlit Cloud) toh browser se fetch karo
+    // Daily+: BTC_DAILY use karo; agar empty/incomplete hai toh paginated browser fetch
     if (c.asset === BTC_ASSET) {
       if (!rawData || !rawData.length) rawData = BTC_DAILY;
-      if (!rawData || rawData.length < 2) {
+      if (!rawData || rawData.length < 100) {
+        // Same pagination logic as rebuildChart — 2017 tak fetch karo
         try {
-          const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000');
-          if (c._buildVer !== myVer) return;
-          if (r.ok) {
-            const klines = await r.json();
-            rawData = klines.map(_parseKline);
-            // BTC_DAILY array update karo taaki agli baar directly mile
+          let endTime   = Date.now();
+          let allKlines = [];
+          let pagesDone = 0;
+          const MAX_PAGES = 40;
+          while (pagesDone < MAX_PAGES) {
+            const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000&endTime=' + endTime;
+            const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
+            if (c._buildVer !== myVer) return;
+            if (!r.ok) break;
+            const chunk = await r.json();
+            if (!chunk.length) break;
+            allKlines = [...chunk, ...allKlines];
+            pagesDone++;
+            if (parseInt(chunk[0][0]) <= BTC_LAUNCH_MS) break;
+            if (chunk.length < 1000) break;
+            endTime = parseInt(chunk[0][0]) - 1;
+            await new Promise(res => setTimeout(res, 80));
+          }
+          if (allKlines.length) {
+            const seen = new Set();
+            rawData = allKlines
+              .map(_parseKline)
+              .filter(b => { if (seen.has(b.time)) return false; seen.add(b.time); return true; })
+              .sort((a, b) => a.time - b.time);
+            // BTC_DAILY cache update karo — baaki cells ko dobara fetch nahi karna padega
             BTC_DAILY.length = 0;
             rawData.forEach(x => BTC_DAILY.push(x));
           }
