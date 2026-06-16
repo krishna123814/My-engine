@@ -157,6 +157,126 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -->
+<!--
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  📋 TABLE OF CONTENTS  (Ctrl+G ya :N se kisi bhi line pe seedha jump karo)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ── CSS ──────────────────────────────────────────────────────────────────────
+  Line  203   Reset + App Shell
+  Line  214   Header (#hdr, #sym-btn, #hdr-price)
+  Line  248   TF Menu Button + TF Dropdown
+  Line  308   Timeframe Bar (#tf-bar, .tf-btn)
+  Line  330   Layout Dropdown Menu (#layout-menu)
+  Line  383   Broker / Fyers Panel (#broker-panel)
+  Line  444   Workspace + Chart Area + Legend (#legend)
+  Line  468   Bottom Bar (#bottom-bar)
+  Line  494   Grid Layout Picker (#grid-picker)
+  Line  700   Indicators Panel (#ind-panel)
+  Line  770   Settings Modal (#settings-modal)
+  Line  910   Drawing Tools Panel + Float Toolbar
+  Line 1026   Advanced Mobile Touch UX (long-press, ripple)
+  Line 1048   TradingView Color Picker
+  Line 1129   Swing S/R + Candle Countdown + Misc overlays
+
+  ── HTML ─────────────────────────────────────────────────────────────────────
+  Line 1373   Header (symbol button, price, TF menu, icons)
+  Line 1406   Timeframe Bar
+  Line 1422   Layout Dropdown Menu
+  Line 1439   Drawing Tools Panel
+  Line 1513   Floating Favourite Bar
+  Line 1522   Drawing Settings Modal + Float Toolbar
+  Line 1584   Broker (Fyers) Panel
+  Line 1641   Single-Chart Workspace + Legend
+  Line 1663   Grid View container
+  Line 1668   Bottom Bar (Indicators, Grid buttons)
+  Line 1678   Go-To-Date Panel
+  Line 1714   Grid Layout Picker
+  Line 1731   TF Dropdown
+  Line 1744   Indicators Panel
+  Line 1832   Settings Modal
+
+  ── JAVASCRIPT ───────────────────────────────────────────────────────────────
+  Line 1967   Safe localStorage Wrapper (_LS)
+  Line 1982   Data Constants — ALLDATA, BTC_ASSET, BN_ASSET, ASSET_NAMES
+  Line 1994   App State Object (S) — sabhi settings ka single source of truth
+  Line 2022   Time Formatting — fmtChartTime(), TZ_MAP
+  Line 2066   Save / Restore State — saveState() [key: btcDashState2]
+  Line 2102   Layout Presets — 5 named slots [key: tvWorkspaces5]
+                saveToActiveLayout(), newLayout(), loadFromSlot(), _deleteLayout()
+  Line 2356   Broker / Fyers Panel — bkConnect(), bkTotpLogin(), toggleBrokerPanel()
+  Line 2541   Grid Cells Array (CELLS[]) + LAYOUTS definitions
+  Line 2628   Sync-in-layout flags (SYNC — crosshair, TF sync)
+  Line 2655   Timeframes — parse, label, fav/hidden, rebuildTfBar(), applyTF()
+  Line 2972   Click Dismiss (outside-tap handler)
+  Line 2988   Cell Selection — selectCell(), SELECTED_CELL
+  Line 3009   Resample Logic — resample(), resampleWorkingDays(), resampleForTF()
+  Line 3034   NSE Holiday List 2017–2026  ⚠️ Har January update karo!
+  Line 3116   isCryptoSymbol(), _isMarketOpen()
+  Line 3155   Indicator Math — emaArr(), smaArr(), toSeries()
+  Line 3172   Chart Options Factory — chartOpts()
+  Line 3207   Future Vertical Line — canvas overlay (vLine)
+  Line 3374   Destroy Main Chart — destroyMainChart()
+  Line 3385   ★ Rebuild Main Chart — rebuildChart()  [SABSE IMPORTANT FUNCTION]
+                Kab call hota hai: asset switch, TF change, layout change, settings
+  Line 3575   Advanced Mobile Touch UX — pinch zoom, pan, long-press
+  Line 3872   Resize Observer
+  Line 3886   Time Scale Sync (cross-chart sync)
+  Line 3901   Header Price Update — updateHeaderPrice() [LTP, change%, OHLC]
+  Line 3938   Grid Layout — setLayout(), buildCellChart(), buildGrid()
+  Line 4519   Indicators Panel (toggle, open/close)
+  Line 4546   Settings Modal — saveSettings(), applySettings()
+  Line 5025   Fullscreen — toggleSelectedCellFS(), toggleTfBar()
+  Line 5083   Candle Countdown Timer — _calcRemaining(), _startCountdown()
+  Line 5309   Live Candle — BTC/USDT via Binance WebSocket
+                _connectBTCWS(), _applyBTCKline(), _btcStartRest(), _btcStopRest()
+  Line 5542   BTC WebSocket — primary + REST fallback (Termux/Android safe)
+  Line 5696   History Loader — _loadBTCHistory()
+  Line 5825   BankNifty History Loader + Live Polling
+                _loadBNHistory(), _applyBNTick(), _startBNPolling(), _stopBNPolling()
+  Line 5911   BN Live Tick via postMessage (Python → JS bridge)
+  Line 6179   postMessage listener (Streamlit parent → chart iframe)
+  Line 6188   BN Live Poll — bn_live.json direct fetch
+  Line 6218   ★ INIT — DOMContentLoaded (state restore, TF bar, chart build)
+  Line 6356   Swing High/Low S&R Indicator (BankNifty)
+                _swingRedraw(), _swingInit(), _swingPresetOnAssetChange()
+  Line 7050   BTC Swing Indicator (BTC ka alag copy — same algorithm)
+  Line 7350   TradingView-Style Color Picker
+  Line 7537   Color Picker Wiring (swing chips, indicator panel, settings)
+  Line 7649   Custom Chart Keyboard (numeric input overlay)
+  Line 7734   ★ Drawing Tools Engine v2
+                Tools: trendline, hline, vline, ray, extended, arrow, rect, text
+                _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
+  Line 8540   TF Chips in Drawing Settings Modal
+  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
+                GD.init(), GD.push(), GD.pull(), GD.signIn()
+  Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ⚠️  BUG-PRONE AREAS — Editing se pehle zaroor padho
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. SYMBOL LABEL MISMATCH  [line 1377 + 1645 vs line 1994 + 6232]
+     HTML default sym-label & leg-sym MUST match S.asset default (BN_ASSET).
+     Default asset badlo toh ye CHAR jagah update karo — warna wrong symbol dikhega.
+
+  2. ASSET SWITCH  [switchAsset() — line 5344]
+     Updates: S.asset, sym-label, leg-sym, hdr-ltp, hdr-chg, live polling.
+     1x1 mein rebuildChart() call karta hai; grid mein saare CELLS[] rebuild karta hai.
+
+  3. BTC WebSocket vs REST  [line 5542]
+     WS primary hai, REST backup hai. Dono ek saath kabhi mat chalao.
+     _btcWsOk flag se guard hai — naya BTC fetch likhne se pehle check karo.
+
+  4. GRID vs 1x1  [S.layout]
+     Bahut se functions mein guard hai: if (S.layout==='1x1') ... else ...
+     Chart-render logic edit karo toh DONO branches handle karo.
+
+  5. NSE HOLIDAY LIST  [line 3034]
+     Har January mein official NSE circular se update karo.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -1374,7 +1494,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <div id="hdr">
   <div id="sym-wrap">
     <button id="sym-btn" onclick="_openAssetPicker(this)">
-      <span id="sym-label">&#x20bf; BTC/USDT</span>
+      <span id="sym-label">📊 BANKNIFTY</span>
     </button>
   </div>
 
@@ -1426,6 +1546,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="lm-close" onclick="toggleLayoutMenu(event)">✕</button>
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
+  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
+    <span id="gd-status" style="font:600 12px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
+    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
+  </div>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
   <div class="lm-divider"></div>
@@ -1638,7 +1762,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <div id="workspace">
   <div id="chart-area">
     <div id="legend">
-      <div class="leg-sym" id="leg-sym">&#x20bf; BTC/USDT<span id="leg-tf"></span></div>
+      <div class="leg-sym" id="leg-sym">📊 BANKNIFTY<span id="leg-tf"></span></div>
       <span id="leg-ohlc-grp">
         <span class="leg-o">O <b id="leg-o">--</b></span>&nbsp;
         <span class="leg-h">H <b id="leg-h">--</b></span>&nbsp;
@@ -6432,11 +6556,11 @@ window.addEventListener('beforeunload', _swingTFSave);
 
 // ── Symbol-aware Presets with Lock feature ────────────────────────────────────
 // Image se liye gaye exact colours:
-// BankNifty: 27D=yellow, 9D=red, 3D=green, 1D=orange, 135m=cyan, 45m=pink, 15m=black, 5m=purple
+// BankNifty: 27D=yellow, 9D=red, 3D=green, 1D=orange, 135m=cyan, 45m=pink, 15m=black, 5m=blue
 // BTCUSDT:   27D=yellow, 9D=red, 3D=green, 1D=orange, 8H=orange, 160m=purple
 const SWING_PRESETS = {
   BN: [
-    { min: 5,     label: '5m',   enabled: true, swingColor: '#9c27b0', candleColor: '#9c27b0' },
+    { min: 5,     label: '5m',   enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
     { min: 15,    label: '15m',  enabled: true, swingColor: '#000000', candleColor: '#000000' },
     { min: 45,    label: '45m',  enabled: true, swingColor: '#ff1493', candleColor: '#ff1493' },
     { min: 135,   label: '135m', enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
@@ -6836,10 +6960,28 @@ function swingDraw() {
     } else {
       xE = chart.timeScale().timeToCoordinate(ln.endTime);
       if (xE == null || xE < 0) {
-        const xPrev = chart.timeScale().timeToCoordinate(ln.startTime - ln.periodSec);
-        const barPx = (xS != null && xPrev != null) ? Math.abs(xS - xPrev) : 10;
-        const candleCount = (ln.endTime - ln.startTime) / ln.periodSec;
-        xE = xS + barPx * candleCount;
+        // Fallback: time duration ko pixels mein convert karo
+        // Kisi bhi 2 visible timestamps ka pixel ratio nikaalo (current TF independent)
+        const durationSec = ln.endTime - ln.startTime;
+        const refT1 = ln.startTime;
+        const refT2 = ln.startTime - ln.periodSec;
+        const xR1 = chart.timeScale().timeToCoordinate(refT1);
+        const xR2 = chart.timeScale().timeToCoordinate(refT2);
+        if (xR1 != null && xR2 != null) {
+          // pixels per second = |xR1 - xR2| / periodSec
+          const pxPerSec = Math.abs(xR1 - xR2) / ln.periodSec;
+          xE = xS + pxPerSec * durationSec;
+        } else {
+          // Last resort: chart ke visible range se px/sec nikaalo
+          const visRange = chart.timeScale().getVisibleRange();
+          if (visRange) {
+            const totalSec = visRange.to - visRange.from;
+            const pxPerSec = _cssW / totalSec;
+            xE = xS + pxPerSec * durationSec;
+          } else {
+            xE = xS + 40; // absolute fallback
+          }
+        }
       }
     }
     if (xS == null || xE <= xS) continue;
@@ -6996,10 +7138,22 @@ function buildCellSwing(idx) {
       } else {
         xE = c.chart.timeScale().timeToCoordinate(ln.endTime);
         if (xE == null || xE < 0) {
-          const xPrev = c.chart.timeScale().timeToCoordinate(ln.startTime - ln.periodSec);
-          const barPx = (xS != null && xPrev != null) ? Math.abs(xS - xPrev) : 10;
-          const candleCount = (ln.endTime - ln.startTime) / ln.periodSec;
-          xE = xS + barPx * candleCount;
+          const durationSec = ln.endTime - ln.startTime;
+          const xR1 = c.chart.timeScale().timeToCoordinate(ln.startTime);
+          const xR2 = c.chart.timeScale().timeToCoordinate(ln.startTime - ln.periodSec);
+          if (xR1 != null && xR2 != null) {
+            const pxPerSec = Math.abs(xR1 - xR2) / ln.periodSec;
+            xE = xS + pxPerSec * durationSec;
+          } else {
+            const visRange = c.chart.timeScale().getVisibleRange();
+            if (visRange) {
+              const totalSec = visRange.to - visRange.from;
+              const pxPerSec = _cssW / totalSec;
+              xE = xS + pxPerSec * durationSec;
+            } else {
+              xE = xS + 40;
+            }
+          }
         }
       }
       if (xS == null || xE <= xS) continue;
@@ -7208,9 +7362,17 @@ function btc2Draw(){
     else{
       xE=chart.timeScale().timeToCoordinate(ln.endTime);
       if(xE==null||xE<0){
-        const xPrev=chart.timeScale().timeToCoordinate(ln.startTime-ln.periodSec);
-        const barPx=(xS!=null&&xPrev!=null)?Math.abs(xS-xPrev):10;
-        xE=xS+barPx*((ln.endTime-ln.startTime)/ln.periodSec);
+        const durationSec=ln.endTime-ln.startTime;
+        const xR1=chart.timeScale().timeToCoordinate(ln.startTime);
+        const xR2=chart.timeScale().timeToCoordinate(ln.startTime-ln.periodSec);
+        if(xR1!=null&&xR2!=null){
+          const pxPerSec=Math.abs(xR1-xR2)/ln.periodSec;
+          xE=xS+pxPerSec*durationSec;
+        } else {
+          const visRange=chart.timeScale().getVisibleRange();
+          if(visRange){xE=xS+(_cssW/(visRange.to-visRange.from))*durationSec;}
+          else{xE=xS+40;}
+        }
       }
     }
     if(xS==null||xE<=xS) continue;
@@ -7261,7 +7423,21 @@ function buildCellBtc2(idx){
       const xS=ln.isInfinite?(x0==null||x0<0?0:x0):x0;
       let xE;
       if(ln.isInfinite){xE=_cssW;}
-      else{xE=c.chart.timeScale().timeToCoordinate(ln.endTime);if(xE==null||xE<0){const xPrev=c.chart.timeScale().timeToCoordinate(ln.startTime-ln.periodSec);const barPx=(xS!=null&&xPrev!=null)?Math.abs(xS-xPrev):10;xE=xS+barPx*((ln.endTime-ln.startTime)/ln.periodSec);}}
+      else{
+        xE=c.chart.timeScale().timeToCoordinate(ln.endTime);
+        if(xE==null||xE<0){
+          const durationSec=ln.endTime-ln.startTime;
+          const xR1=c.chart.timeScale().timeToCoordinate(ln.startTime);
+          const xR2=c.chart.timeScale().timeToCoordinate(ln.startTime-ln.periodSec);
+          if(xR1!=null&&xR2!=null){
+            xE=xS+Math.abs(xR1-xR2)/ln.periodSec*durationSec;
+          } else {
+            const vr=c.chart.timeScale().getVisibleRange();
+            if(vr){xE=xS+(_cssW/(vr.to-vr.from))*durationSec;}
+            else{xE=xS+40;}
+          }
+        }
+      }
       if(xS==null||xE<=xS) continue;
       ctx.save();ctx.beginPath();ctx.moveTo(xS,y);ctx.lineTo(xE,y);ctx.strokeStyle=ln.color;ctx.lineWidth=BTC2_LINE_WIDTH;ctx.globalAlpha=1.0;ctx.setLineDash([]);ctx.stroke();ctx.restore();
     }
@@ -8719,6 +8895,410 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
   if (e.target === document.getElementById('dt-settings-overlay')) _dtCloseSettings();
 });
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
+// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
+// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
+// ════════════════════════════════════════════════════════════════════════════
+const GD = (function () {
+  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
+  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE_NAME = 'banknifty-layout-sync.json';
+  const AUTH_FLAG = 'gdAuthed';
+
+  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
+  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  function _setStatus(txt, color) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+  function _showBtn(label, show) {
+    const b = document.getElementById('gd-btn');
+    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
+  }
+  function _toast(msg, color) {
+    let t = document.getElementById('gd-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'gd-toast';
+      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
+        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
+        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
+        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
+      document.body.appendChild(t);
+    }
+    t.style.background = color || '#26a69a';
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._iv);
+    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
+  }
+  function _now() {
+    try {
+      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } catch (_) { return ''; }
+  }
+
+  // ── localStorage snapshot / apply (captures every key = all features) ──────
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (k === AUTH_FLAG) continue;
+        if (localStorage.getItem(k) !== data[k]) {
+          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
+          changed = true;
+        }
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  // ── OAuth token handling ───────────────────────────────────────────────────
+  function _onToken(resp) {
+    if (resp && resp.access_token) {
+      accessToken = resp.access_token;
+      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
+      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
+      const cb = _pending; _pending = null; if (cb) cb(true);
+    } else {
+      const cb = _pending; _pending = null; if (cb) cb(false);
+    }
+  }
+  function _onTokenErr() {
+    const cb = _pending; _pending = null;
+    _setStatus('☁ Cloud: tap to sign in', '#f23645');
+    _showBtn('Sign in', true);
+    if (cb) cb(false);
+  }
+
+  // ── Popup-based OAuth (iframe-safe, GIS bypass) ───────────────────────────
+  // GIS token client iframe mein kaam nahi karta (origin=null error)
+  // Isliye hum seedha Google OAuth2 implicit flow popup use karte hain
+  // Redirect URI: https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app
+  // (Google Cloud Console mein "Authorized redirect URIs" mein yeh add hona chahiye)
+
+  const REDIRECT_URI = 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app';
+  let _popupWin = null, _popupTimer = null;
+
+  function _openAuthPopup(cb) {
+    // GIS bypass — seedha Google OAuth2 implicit flow
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:              CLIENT_ID,
+      redirect_uri:           REDIRECT_URI,
+      response_type:          'token',
+      scope:                  SCOPE,
+      include_granted_scopes: 'true',
+      prompt:                 'consent',
+    });
+
+    const w = 480, h = 600;
+    const left = Math.max(0, (screen.width  - w) / 2);
+    const top  = Math.max(0, (screen.height - h) / 2);
+
+    _popupWin = window.open(
+      authUrl, 'gdauth',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
+    );
+
+    if (!_popupWin || _popupWin.closed) {
+      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
+      _showBtn('Sign in', true);
+      if (cb) cb(false);
+      return;
+    }
+
+    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
+
+    // Popup ke URL mein access_token aane ka wait karo
+    clearInterval(_popupTimer);
+    _popupTimer = setInterval(() => {
+      try {
+        // Jab popup redirect_uri pe aa jaaye tab uska hash read kar sakte hain
+        const href = _popupWin.location.href;
+        if (href && href.startsWith(REDIRECT_URI) && href.includes('access_token')) {
+          clearInterval(_popupTimer);
+          const hash = _popupWin.location.hash || _popupWin.location.search;
+          _popupWin.close();
+          // Hash: #access_token=...&expires_in=3599&...
+          // Search (agar hash nahi): ?access_token=...
+          const str = hash.startsWith('#') ? hash.substring(1) : hash.startsWith('?') ? hash.substring(1) : hash;
+          const p     = new URLSearchParams(str);
+          const token = p.get('access_token');
+          const exp   = parseInt(p.get('expires_in') || '3600', 10);
+          if (token) {
+            _onToken({ access_token: token, expires_in: exp });
+            if (cb) cb(true);
+          } else {
+            _setStatus('☁ Token nahi mila', '#f23645');
+            _showBtn('Sign in', true);
+            if (cb) cb(false);
+          }
+        }
+      } catch (_) {
+        // Popup abhi Google ke domain pe hai — cross-origin, wait karo
+      }
+
+      // Agar popup band kar diya user ne
+      try {
+        if (_popupWin.closed) {
+          clearInterval(_popupTimer);
+          if (!accessToken) {
+            _setStatus('☁ Sign-in cancel hua', '#f23645');
+            _showBtn('Sign in', true);
+            if (cb) cb(false);
+          }
+        }
+      } catch(_) {}
+    }, 600);
+  }
+
+  function _requestToken(interactive, cb) {
+    _pending = cb;
+    if (interactive) {
+      // Hamesha popup use karo — GIS bypass
+      _openAuthPopup(ok => {
+        _pending = null;
+        if (cb) cb(ok);
+      });
+      return;
+    }
+    // Silent refresh — GIS token client try karo (background, no popup)
+    if (tokenClient) {
+      try { tokenClient.requestAccessToken({ prompt: '' }); return; }
+      catch (_) {}
+    }
+    if (cb) cb(false);
+  }
+  function _withToken(cb) {
+    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
+    _requestToken(false, cb);
+  }
+
+  // ── Drive REST helpers ──────────────────────────────────────────────────────
+  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
+  function _findFile(cb) {
+    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
+      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
+      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
+    fetch(url, { headers: _hdr() })
+      .then(r => r.json())
+      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
+      .catch(() => cb(null));
+  }
+  function _download(cb) {
+    if (!fileId) { cb(null); return; }
+    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
+      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
+  }
+  function _uploadMedia(payload, cb) {
+    if (fileId) {
+      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+        method: 'PATCH',
+        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
+        body: payload,
+      }).then(r => cb(r.ok)).catch(() => cb(false));
+    } else {
+      const boundary = 'gdsync' + Date.now();
+      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
+      const body =
+        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(meta) + '\r\n' +
+        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
+        payload + '\r\n--' + boundary + '--';
+      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST',
+        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
+        body: body,
+      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
+        .catch(() => cb(false));
+    }
+  }
+
+  // ── Public: push (save) ──────────────────────────────────────────────────────
+  function push(showToast) {
+    if (localStorage.getItem(AUTH_FLAG) !== '1') {
+      if (showToast) _toast('Sign in to Google first', '#f23645');
+      return;
+    }
+    _withToken(ok => {
+      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
+      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
+      const doUpload = () => _uploadMedia(payload, okk => {
+        if (okk) {
+          _dirty = false;
+          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
+          if (showToast) _toast('☁ Saved to Google Cloud');
+        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
+      });
+      if (fileId) doUpload(); else _findFile(() => doUpload());
+    });
+  }
+
+  // ── Public: pull (restore) ───────────────────────────────────────────────────
+  function pull(after) {
+    _withToken(ok => {
+      if (!ok) { if (after) after(false, false); return; }
+      _findFile(id => {
+        if (!id) { if (after) after(false, false); return; }
+        _download(obj => {
+          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
+          else if (after) after(false, false);
+        });
+      });
+    });
+  }
+
+  // ── Boot: silent auto-login + restore on page open ──────────────────────────
+  function _boot() {
+    if (_booted) return; _booted = true;
+    if (localStorage.getItem(AUTH_FLAG) !== '1') {
+      _setStatus('☁ Cloud: not signed in');
+      _showBtn('Sign in', true);
+      return;
+    }
+    _setStatus('☁ Cloud: connecting…');
+    _showBtn('', false);
+    _requestToken(false, ok => {
+      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
+      _showBtn('', false);
+      // Show "restore completed" once after a reload triggered by restore
+      if (sessionStorage.getItem('gdJustRestored') === '1') {
+        sessionStorage.removeItem('gdJustRestored');
+        _toast('✓ Restore completed');
+      }
+      if (sessionStorage.getItem('gdRestored') === '1') {
+        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
+        return;
+      }
+      _setStatus('☁ Cloud: restoring…');
+      pull((found, changed) => {
+        sessionStorage.setItem('gdRestored', '1');
+        if (found && changed) {
+          sessionStorage.setItem('gdJustRestored', '1');
+          _toast('✓ Restore completed');
+          setTimeout(() => location.reload(), 950);
+        } else if (found) {
+          _setStatus('☁ Cloud: restored ✓', '#26a69a');
+          _toast('✓ Restore completed');
+        } else {
+          _setStatus('☁ Cloud: connected', '#26a69a');
+          push(false); // first-time upload of current local state
+        }
+      });
+    });
+  }
+
+  // ── Manual sign-in (first time) ──────────────────────────────────────────────
+  function signIn() {
+    _setStatus('☁ Cloud: opening Google…');
+    _requestToken(true, ok => {
+      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
+      _showBtn('', false);
+      sessionStorage.removeItem('gdRestored');
+      _setStatus('☁ Cloud: restoring…');
+      pull((found, changed) => {
+        sessionStorage.setItem('gdRestored', '1');
+        if (found) {
+          _toast('✓ Restore completed');
+          if (changed) {
+            sessionStorage.setItem('gdJustRestored', '1');
+            setTimeout(() => location.reload(), 950);
+          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
+        } else {
+          _setStatus('☁ Cloud: connected', '#26a69a');
+          push(true); // nothing on Drive yet → upload current
+        }
+      });
+    });
+  }
+
+  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
+  let _origSetItem = null;
+  function _initAutoSave() {
+    try {
+      _origSetItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function (k, v) {
+        _origSetItem(k, v);
+        if (k !== '__ls_test__' && k !== AUTH_FLAG) { _dirty = true; _schedule(); }
+      };
+    } catch (_) {}
+  }
+  function _schedule() {
+    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
+    clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 4000);
+  }
+
+  // ── Load Google Identity Services SDK, then init token client ────────────────
+  function _waitGIS() {
+    if (window.google && google.accounts && google.accounts.oauth2) {
+      try {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: CLIENT_ID, scope: SCOPE,
+          callback: _onToken, error_callback: _onTokenErr,
+        });
+      } catch (_) {}
+      _boot();
+    } else { setTimeout(_waitGIS, 200); }
+  }
+  function init() {
+    _initAutoSave();
+    if (document.getElementById('gis-sdk')) { _waitGIS(); return; }
+    const s = document.createElement('script');
+    s.id = 'gis-sdk';
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = _waitGIS;
+    s.onerror = () => { _setStatus('☁ Cloud: offline (load failed)', '#f23645'); _showBtn('Retry', true); };
+    document.head.appendChild(s);
+  }
+
+  // Save on tab hide / close (best-effort)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && _dirty) push(false);
+  });
+
+  return { init, push, pull, signIn };
+})();
+
+// Global handler for the menu button
+function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
+
+// Hook the existing 💾 Save Layout (and ＋ New Layout) so one tap = local + cloud save
+(function () {
+  const _origSave = window.saveToActiveLayout;
+  window.saveToActiveLayout = function () {
+    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
+    try { GD.push(true); } catch (_) {}
+  };
+  const _origNew = window.newLayout;
+  window.newLayout = function () {
+    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
+    try { GD.push(true); } catch (_) {}
+  };
+})();
+
+// Start cloud sync once DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => GD.init());
+} else {
+  GD.init();
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // KEEP-ALIVE — ping Streamlit server every 4 min to prevent Replit sleep
