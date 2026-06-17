@@ -45,7 +45,7 @@ BN_LIVE_FILE      = "bn_live.json"
 DAILY_CACHE_FILE  = "btc_daily_cache.json"
 BN_DAILY_CACHE    = "bn_daily_cache.json"
 CHART_STATE_FILE  = "chart_state.json"   # server-side chart layout/settings save (Google ke bina)
-DAILY_CACHE_TTL   = 86400
+DAILY_CACHE_TTL   = 300        # 5 min — aaj ki candle bhi update rahe
 HIST_CACHE_TTL    = 300       # seconds for intraday cache (5 min — reduces API load)
 
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
@@ -484,8 +484,11 @@ def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
     return []
 
 def fetch_bn_intraday(interval_mins: int) -> list:
-    today = _ist_now().strftime("%Y-%m-%d")
-    from_d = (_ist_now() - datetime.timedelta(days=95)).strftime("%Y-%m-%d")
+    # Fyers TF ke hisaab se max safe range:
+    # 1m  → 10 days, 5m → 30 days, 15m → 60 days, 45m → 90 days
+    _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
+    today  = _ist_now().strftime("%Y-%m-%d")
+    from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
     return _fyers_history(str(interval_mins), from_d, today)
 
 def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
