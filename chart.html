@@ -3552,7 +3552,10 @@ function _openMainChartSettings(btn) {
     `<div class="csp-row"><span>Future Line</span>`+
       `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="S.vLine.enabled=this.checked;_vlDraw();saveState();"><span class="sl"></span></label></div>`+
     `<div class="csp-row"><span>Color</span>`+
-      `<button class="tv-clr-btn-lg" data-color="${vl.color}" style="background:${vl.color};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>{S.vLine.color=v;_vlDraw();saveState();})"></button></div>`+
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#2962ff'?'#fff':'#444'};background:#2962ff;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLine.color='#2962ff';_setVLineColor(S.asset,S.tf,'#2962ff');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Blue"></button>`+
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#f23645'?'#fff':'#444'};background:#f23645;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLine.color='#f23645';_setVLineColor(S.asset,S.tf,'#f23645');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>`+
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#26a69a'?'#fff':'#444'};background:#26a69a;cursor:pointer" onclick="event.stopPropagation();S.vLine.color='#26a69a';_setVLineColor(S.asset,S.tf,'#26a69a');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Green"></button>`+
+    `</div>`+
     `<div class="csp-row"><span>Width</span>`+
       `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="S.vLine.width=+this.value;_vlDraw();saveState();"></div>`+
     `<div class="csp-row"><span>Offset (candles)</span>`+
@@ -3757,6 +3760,7 @@ function rebuildChart() {
   applyLegendVisibility();
   swingAfterRebuild();
   _mainVLTime = data.length ? data[data.length - 1].time : null;
+  _applyVLineColor(S.asset, S.tf, S.vLine);
   _vlCreateCanvas();
   chart.timeScale().subscribeVisibleLogicalRangeChange(_vlDraw);
   // RAF-throttle vlDraw on crosshair move — prevents double-paint with legend RAF
@@ -4661,6 +4665,7 @@ async function buildCellChart(idx) {
   _applyCrosshairAxisLabels();
   setTimeout(()=>{ buildCellSwing(idx); }, 60);
   if (!c.vLine) c.vLine = { ...S.vLine };
+  _applyVLineColor(c.asset, c.tf, c.vLine);
   c._vlTime = data.length ? data[data.length - 1].time : null;
   _vlCreateCellCanvas(idx);
   c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _vlDrawCell(idx));
@@ -5151,7 +5156,10 @@ function _openCellSettings(idx, btn) {
       `<div class="csp-row" style="border-top:1px solid #2a2e39;margin-top:2px"><span style="font-weight:700;color:#9598a1">Future Line</span>`+
         `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="CELLS[${idx}].vLine.enabled=this.checked;_vlDrawCell(${idx});saveState();"><span class="sl"></span></label></div>`+
       `<div class="csp-row"><span>Color</span>`+
-        `<button class="tv-clr-btn-lg" data-color="${vl.color}" style="background:${vl.color};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>{CELLS[${idx}].vLine.color=v;_vlDrawCell(${idx});saveState();})"></button></div>`+
+        `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#2962ff'?'#fff':'#444'};background:#2962ff;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();CELLS[${idx}].vLine.color='#2962ff';_setVLineColor(CELLS[${idx}].asset,CELLS[${idx}].tf,'#2962ff');_vlDrawCell(${idx});saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Blue"></button>`+
+        `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#f23645'?'#fff':'#444'};background:#f23645;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();CELLS[${idx}].vLine.color='#f23645';_setVLineColor(CELLS[${idx}].asset,CELLS[${idx}].tf,'#f23645');_vlDrawCell(${idx});saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>`+
+        `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#26a69a'?'#fff':'#444'};background:#26a69a;cursor:pointer" onclick="event.stopPropagation();CELLS[${idx}].vLine.color='#26a69a';_setVLineColor(CELLS[${idx}].asset,CELLS[${idx}].tf,'#26a69a');_vlDrawCell(${idx});saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Green"></button>`+
+      `</div>`+
       `<div class="csp-row"><span>Width</span>`+
         `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="CELLS[${idx}].vLine.width=+this.value;_vlDrawCell(${idx});saveState();"></div>`+
       `<div class="csp-row"><span>Offset (candles)</span>`+
@@ -6612,6 +6620,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(()=>{ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); _applyTimerVisibility(); }, 900);
 
   _loadTfColors();
+  _loadVLineColors();
   _swingTFLoad();
   _renderSwingChips();
   setTimeout(initSwingIndicator, 600);
@@ -6651,6 +6660,34 @@ const _SWING_TF_DEFAULTS = [];  // user adds their own — no defaults
 let SWING_TF_LIST = [];
 
 const _SWING_STORE_KEY = 'swingTFList2';
+
+// ── Per Asset+TF future-line color — { "ASSET_tfMin": '#hex' } ──────────────
+// Default: '#2962ff' (blue). User can set red/green per asset+TF combination.
+let _VLINE_COLORS = {};
+const _VLINE_COLORS_KEY = 'vlineColors1';
+function _loadVLineColors() {
+  try { const s = _LS.getItem(_VLINE_COLORS_KEY); if (s) _VLINE_COLORS = JSON.parse(s) || {}; } catch(_) {}
+  try { const s = window.parent._LS.getItem(_VLINE_COLORS_KEY); if (s) _VLINE_COLORS = JSON.parse(s) || {}; } catch(_) {}
+}
+function _saveVLineColors() {
+  const val = JSON.stringify(_VLINE_COLORS);
+  try { _LS.setItem(_VLINE_COLORS_KEY, val); } catch(_) {}
+  try { window.parent._LS.setItem(_VLINE_COLORS_KEY, val); } catch(_) {}
+}
+function _vlineColorKey(asset, tf) { return (asset || '') + '_' + (tf || 0); }
+function _getVLineColor(asset, tf) {
+  return _VLINE_COLORS[_vlineColorKey(asset, tf)] || '#2962ff';
+}
+function _setVLineColor(asset, tf, color) {
+  _VLINE_COLORS[_vlineColorKey(asset, tf)] = color;
+  _saveVLineColors();
+}
+// Apply saved color to a vLine object and redraw
+function _applyVLineColor(asset, tf, vLineObj, drawFn) {
+  if (!vLineObj) return;
+  vLineObj.color = _getVLineColor(asset, tf);
+  if (drawFn) drawFn();
+}
 
 // ── Per-TF color overrides — { [tfMin]: { swing:'#hex', candle:'#hex' } } ──
 let _TF_COLORS = {};
@@ -6724,7 +6761,7 @@ const SWING_PRESETS = {
   ],
   BTC: [
     { min: 160,   label: '160m', enabled: true, swingColor: '#9c27b0', candleColor: '#9c27b0' },
-    { min: 480,   label: '8H',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
+    { min: 480,   label: '8H',   enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
     { min: 1440,  label: '1D',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
     { min: 4320,  label: '3D',   enabled: true, swingColor: '#4caf50', candleColor: '#4caf50' },
     { min: 12960, label: '9D',   enabled: true, swingColor: '#f23645', candleColor: '#f23645' },
