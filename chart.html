@@ -2155,7 +2155,9 @@ const ALLDATA     = { '\u20bf BTC/USDT': __BTC_CANDLES__, '\ud83d\udcca BANKNIFT
 // 15m candles — used as base for 15m–12H resampling
 const BTC_15M     = __BTC_15M__;
 const BTC_DAILY   = __BTC_DAILY__;
+const BN_5M       = __BN_5M__;
 const BN_15M      = __BN_15M__;
+const BN_45M      = __BN_45M__;
 const BN_DAILY    = __BN_DAILY__;
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
@@ -3596,12 +3598,16 @@ function destroyCharts() {
 // ════════════════════════════════════════════════════════════════════════════
 // Pick the right base dataset for a timeframe.
 // ≥ 1D  → full daily history (server-injected, geo-block proof)
-// 15m–12H → 15m candles (500 bars ≈ 5 days); gives 31–166 resampled bars
-// < 15m  → 1m candles (500 bars ≈ 8h)
+// 45m–12H → 45m candles (native from Fyers)
+// 15m–44m → 15m candles (native from Fyers)
+// 5m–14m  → 5m candles  (native from Fyers)
+// < 5m    → 1m candles
 function _baseDataFor(asset, tfMin) {
   if (asset === BN_ASSET) {
     if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
+    if (tfMin >= 45   && Array.isArray(BN_45M)   && BN_45M.length)   return BN_45M;
     if (tfMin >= 15   && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
+    if (tfMin >= 5    && Array.isArray(BN_5M)    && BN_5M.length)    return BN_5M;
     return ALLDATA[asset] || [];
   }
   if (tfMin >= 1440 && Array.isArray(BTC_DAILY) && BTC_DAILY.length) return BTC_DAILY;
@@ -6090,8 +6096,8 @@ async function _loadBNHistory(tfMin) {
     // ── API fallback: if server-injected data is empty, fetch from /api/bn_history ──
     if (!rawBars.length) {
       try {
-        const res  = tfMin >= 1440 ? '1D' : tfMin >= 15 ? '15' : '1';
-        const days = tfMin >= 1440 ? 365  : tfMin >= 15 ? 60   : 10;
+        const res  = tfMin >= 1440 ? '1D' : tfMin >= 45 ? '45' : tfMin >= 15 ? '15' : tfMin >= 5 ? '5' : '1';
+        const days = tfMin >= 1440 ? 365  : tfMin >= 45 ? 90   : tfMin >= 15 ? 60   : tfMin >= 5 ? 30 : 10;
         const r    = await fetch(`/api/bn_history?resolution=${res}&days=${days}`,
                                  { signal: AbortSignal.timeout(15000) });
         if (r.ok) {
@@ -6106,11 +6112,15 @@ async function _loadBNHistory(tfMin) {
               close:  c.close,
               volume: c.volume || 0,
             }));
-            // Seed into ALLDATA / BN_15M / BN_DAILY
+            // Seed into appropriate array
             if (tfMin >= 1440) {
               BN_DAILY.length = 0; fetched.forEach(c => BN_DAILY.push(c));
+            } else if (tfMin >= 45) {
+              BN_45M.length = 0; fetched.forEach(c => BN_45M.push(c));
             } else if (tfMin >= 15) {
               BN_15M.length = 0; fetched.forEach(c => BN_15M.push(c));
+            } else if (tfMin >= 5) {
+              BN_5M.length = 0; fetched.forEach(c => BN_5M.push(c));
             } else {
               const arr = ALLDATA[BN_ASSET]; arr.length = 0;
               fetched.forEach(c => arr.push(c));
@@ -6185,26 +6195,34 @@ function _bnUpdateRaw(latest) {
   } else if (!arr.length || arr[arr.length-1].time < latest.time) {
     arr.push({ ...latest });
   }
-  // BN_15M bhi update karo agar 15m+ TF active hai
-  if (Array.isArray(BN_15M) && BN_15M.length) {
-    const b15sec = 15 * 60;
-    const b15 = Math.floor(latest.time / b15sec) * b15sec;
-    const last15 = BN_15M[BN_15M.length - 1];
-    if (last15 && last15.time === b15) {
-      last15.high  = Math.max(last15.high,  latest.high);
-      last15.low   = Math.min(last15.low,   latest.low);
-      last15.close = latest.close;
-    } else if (!last15 || last15.time < b15) {
-      BN_15M.push({ time: b15, open: latest.open, high: latest.high,
-                    low: latest.low, close: latest.close, volume: 0 });
+
+  // ── Helper: kisi bhi TF array ko live 1m tick se update karo ──
+  function _updateTfArr(tfArr, tfSec) {
+    if (!Array.isArray(tfArr) || !tfArr.length) return;
+    const bucket = Math.floor(latest.time / tfSec) * tfSec;
+    const last = tfArr[tfArr.length - 1];
+    if (last && last.time === bucket) {
+      last.high  = Math.max(last.high,  latest.high);
+      last.low   = Math.min(last.low,   latest.low);
+      last.close = latest.close;
+    } else if (!last || last.time < bucket) {
+      tfArr.push({ time: bucket, open: latest.open, high: latest.high,
+                   low: latest.low, close: latest.close, volume: 0 });
     }
   }
-  // BN_DAILY bhi update karo
+
+  // BN_5M update
+  _updateTfArr(BN_5M,  5  * 60);
+  // BN_15M update
+  _updateTfArr(BN_15M, 15 * 60);
+  // BN_45M update
+  _updateTfArr(BN_45M, 45 * 60);
+
+  // BN_DAILY bhi update karo (IST midnight aligned)
   if (Array.isArray(BN_DAILY) && BN_DAILY.length) {
     const dayMs  = 86400;
-    // BN ka daily candle IST date se align hota hai (UTC+5:30 = 19800 sec offset)
     const istSec = latest.time + 19800;
-    const dayKey = Math.floor(istSec / dayMs) * dayMs - 19800; // IST midnight → UTC
+    const dayKey = Math.floor(istSec / dayMs) * dayMs - 19800;
     const lastD  = BN_DAILY[BN_DAILY.length - 1];
     if (lastD && lastD.time === dayKey) {
       lastD.high  = Math.max(lastD.high,  latest.high);
@@ -6240,12 +6258,14 @@ function _bnGetBar(latest, tfMin) {
 
   // Bucket change hua? → purana candle close, naya shuru
   if (_bnBucket.time !== bucket || _bnBucket.tf !== tfMin) {
-    // Purana closed candle → BN_DAILY/BN_15M mein save karo
+    // Purana closed candle → sahi array mein save karo
     if (_bnBucket.time && _bnBucket.tf === tfMin && _bnBucket.open !== null) {
       const closed = { time: _bnBucket.time, open: _bnBucket.open,
                        high: _bnBucket.high, low: _bnBucket.low, close: _bnBucket.close };
       const tgt = tfMin >= 1440 && Array.isArray(BN_DAILY) ? BN_DAILY
+                : tfMin >= 45   && Array.isArray(BN_45M)   ? BN_45M
                 : tfMin >= 15   && Array.isArray(BN_15M)   ? BN_15M
+                : tfMin >= 5    && Array.isArray(BN_5M)    ? BN_5M
                 : ALLDATA[BN_ASSET];
       if (tgt) {
         if (tgt.length && tgt[tgt.length-1].time === closed.time) tgt[tgt.length-1] = closed;

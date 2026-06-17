@@ -1116,12 +1116,14 @@ def _get_chart_data(sess: bool, _tok: str = ""):
     btc_15m  = fetch_btc("15m", 1000)
     btc_day  = load_btc_daily()
     bn_1m    = fetch_bn_intraday(1)  if sess else []
+    bn_5m    = fetch_bn_intraday(5)  if sess else []
     bn_15m   = fetch_bn_intraday(15) if sess else []
+    bn_45m   = fetch_bn_intraday(45) if sess else []
     bn_day   = load_bn_daily()       if sess else []
-    return btc_1m, btc_15m, btc_day, bn_1m, bn_15m, bn_day
+    return btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day
 
 _tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
-btc_1m, btc_15m, btc_day, bn_1m, bn_15m, bn_day = _get_chart_data(sess_active, _tok_hint)
+btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(sess_active, _tok_hint)
 
 # ─── TOTP error notification (from iframe-triggered auto-login failure) ────────
 if "totp_err" in st.session_state:
@@ -1135,7 +1137,7 @@ if "totp_err" in st.session_state:
 # ─── Chart HTML builder — injects live data directly into chart.html ──────────
 def _build_chart_html(
     btc_1m, btc_15m, btc_day,
-    bn_1m,  bn_15m,  bn_day,
+    bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
     sess_active: bool
 ) -> str:
     """Read chart.html and replace all __PLACEHOLDERS__ with real data."""
@@ -1183,7 +1185,9 @@ def _build_chart_html(
     html = html.replace("__BTC_15M__",     _to_lwc(btc_15m))
     html = html.replace("__BTC_DAILY__",   _to_lwc(btc_day))
     html = html.replace("__BN_CANDLES__",  _to_lwc(bn_1m))
+    html = html.replace("__BN_5M__",       _to_lwc(bn_5m))
     html = html.replace("__BN_15M__",      _to_lwc(bn_15m))
+    html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
     html = html.replace("__FYERS_STATUS__", status)
     html = html.replace("__FYERS_APP_ID__", app_id)
@@ -1243,7 +1247,7 @@ if sess_active or _btc_only:
         st.info("📊 BTC Chart mode — BankNifty data available nahi (Fyers login nahi hai)")
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
-        bn_1m,  bn_15m,  bn_day,
+        bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
         sess_active,
     )
     components.html(_chart_html, height=950, scrolling=False)
