@@ -2158,6 +2158,47 @@ const BTC_DAILY   = __BTC_DAILY__;
 const BN_5M       = __BN_5M__;
 const BN_15M      = __BN_15M__;
 const BN_45M      = __BN_45M__;
+
+// ════════ TEMP DEBUG — 135m grouping checker (delete after testing) ════════
+window.addEventListener('DOMContentLoaded', function(){
+  try{
+    var IST_OFF=5.5*3600, byDay={};
+    BN_45M.forEach(function(r){
+      var dk=Math.floor((r.time+IST_OFF)/86400);
+      (byDay[dk]=byDay[dk]||[]).push(r);
+    });
+    var days=Object.keys(byDay).sort().slice(-6);
+    var out='BN_45M total candles: '+BN_45M.length+'\n\n';
+    days.forEach(function(dk){
+      var arr=byDay[dk];
+      var dateStr=new Date(arr[0].time*1000).toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'});
+      out += dateStr+' -> '+arr.length+' candles\n   times: '+
+        arr.map(function(c){return new Date(c.time*1000).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false});}).join(', ')+'\n';
+      for(var i=0;i<arr.length;i+=3){
+        var ch=arr.slice(i,i+3);
+        var span=Math.round((ch[ch.length-1].time-ch[0].time)/60)+45;
+        out += '   grp start='+new Date(ch[0].time*1000).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false})+
+          ' count='+ch.length+' span='+span+'min'+((ch.length<3||span!==135)?' <-- BROKEN':'')+'\n';
+      }
+    });
+    var box=document.createElement('pre');
+    box.id='_debug135box';
+    box.style.cssText='position:fixed;top:0;left:0;right:0;max-height:60vh;overflow:auto;background:#000;color:#0f0;font-size:10px;z-index:999999;padding:8px;margin:0;white-space:pre-wrap;';
+    box.textContent=out;
+    var closeBtn=document.createElement('button');
+    closeBtn.textContent='✕ Close Debug';
+    closeBtn.style.cssText='position:fixed;top:0;right:0;z-index:1000000;background:#f23645;color:#fff;border:none;padding:6px 10px;font-size:11px;';
+    closeBtn.onclick=function(){ box.remove(); closeBtn.remove(); };
+    document.body.appendChild(box);
+    document.body.appendChild(closeBtn);
+  }catch(e){
+    var box=document.createElement('pre');
+    box.style.cssText='position:fixed;top:0;left:0;background:red;color:#fff;z-index:999999;padding:8px;';
+    box.textContent='DEBUG ERR: '+e.message;
+    document.body.appendChild(box);
+  }
+});
+// ════════ END TEMP DEBUG ════════
 const BN_DAILY    = __BN_DAILY__;
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
@@ -3216,15 +3257,117 @@ document.getElementById('tf-bar').addEventListener('click', e => {
 // ════════════════════════════════════════════════════════════════════════════
 // RESAMPLE
 // ════════════════════════════════════════════════════════════════════════════
-function resample(rows, tfMin) {
+function resample(rows, tfMin, asset) {
   if (!rows || !rows.length) return [];
   // Always return a new array — never the original reference — so each
   // timeframe's computation operates on its own isolated copy of the data.
   if (tfMin <= 1) return rows.slice();
   const sec = tfMin * 60;
+  const isNSE = asset && !isCryptoSymbol(asset);
+
+  // ── Detect input granularity (median gap between consecutive candles) ─────
+  // Fyers pre-aggregated pools: BN_5M=5m, BN_15M=15m, BN_45M=45m.
+  // _baseDataFor() returns these directly — e.g. for tfMin=135 it gives BN_45M.
+  // We detect the base granularity so we can choose the right merge strategy.
+  let inputGranMin = 1; // default: assume 1m
+  if (rows.length >= 3) {
+    const sampleSize = Math.min(rows.length - 1, 30);
+    const gaps = [];
+    for (let i = rows.length - sampleSize - 1; i < rows.length - 1; i++) {
+      const gap = (rows[i+1].time - rows[i].time) / 60;
+      if (gap > 0 && gap < 1440) gaps.push(gap); // skip overnight/holiday gaps
+    }
+    if (gaps.length > 0) {
+      gaps.sort((a, b) => a - b);
+      inputGranMin = gaps[Math.floor(gaps.length / 2)]; // median gap
+    }
+  }
+
+  // ── NSE pre-aggregated → N-candle count merge ────────────────────────────
+  // When input is already 5m/15m/45m candles (not raw 1m), and tfMin is an
+  // exact multiple of inputGranMin, we simply count N consecutive candles and
+  // merge them into one bar. No timestamp math, no minOfDay calculations.
+  //
+  // Key insight: Fyers 45m data is already session-filtered (no overnight
+  // candles). So we just need to reset our counter at each new IST trading day.
+  // 135m = 3 × 45m  ✅  (N=3, exact fit — 3 candles per day)
+  // 75m  = 5 × 15m  ✅  (N=5)
+  // 25m  = 5 × 5m   ✅  (N=5)
+  if (isNSE && tfMin < 1440 && inputGranMin > 1.5) {
+    const N = Math.round(tfMin / inputGranMin); // how many input candles per output candle
+    const IST_OFFSET_SEC = 5.5 * 3600;
+
+    // Group input candles by IST trading day first, then count N per bucket
+    // This ensures day boundaries never bleed into each other.
+    const byDay = {};
+    rows.forEach(r => {
+      const istSec  = r.time + IST_OFFSET_SEC;
+      const dayKey  = Math.floor(istSec / 86400); // IST day index (integer)
+      if (!byDay[dayKey]) byDay[dayKey] = [];
+      byDay[dayKey].push(r);
+    });
+
+    const out = [];
+    Object.keys(byDay).sort().forEach(dk => {
+      const dayCandles = byDay[dk];
+      // Merge every N candles into one output candle
+      for (let i = 0; i < dayCandles.length; i += N) {
+        const chunk = dayCandles.slice(i, i + N);
+        if (!chunk.length) continue;
+        out.push({
+          time:   chunk[0].time,                          // open time of first candle in chunk
+          open:   chunk[0].open,
+          high:   Math.max(...chunk.map(c => c.high)),
+          low:    Math.min(...chunk.map(c => c.low)),
+          close:  chunk[chunk.length - 1].close,
+          volume: chunk.reduce((s, c) => s + (c.volume || 0), 0),
+        });
+      }
+    });
+    return out; // already sorted (day order → candle order within day)
+  }
+
+  // ── NSE intraday: session-boundary aware resample (1m input) ─────────────
+  // For raw 1m candles: compute each candle's position in IST minutes since
+  // 9:15am of that day, then divide by tfMin to get the bucket index.
+  // This guarantees every day starts at 9:15am regardless of tfMin.
+  if (isNSE && tfMin < 1440) {
+    const IST_OFFSET_SEC = 5.5 * 3600;
+    const SESSION_START  = 9 * 60 + 15;   // 555 min = 9:15 AM
+    const SESSION_END    = 15 * 60 + 30;  // 930 min = 3:30 PM
+
+    const buckets = {};
+    rows.forEach(r => {
+      const istSec    = r.time + IST_OFFSET_SEC;
+      const dayStart  = istSec - (istSec % 86400);
+      const minOfDay  = Math.floor((istSec % 86400) / 60);
+
+      if (minOfDay < SESSION_START || minOfDay >= SESSION_END) return;
+
+      const minSinceOpen   = minOfDay - SESSION_START;
+      const bucketIdx      = Math.floor(minSinceOpen / tfMin);
+      const bucketStartMin = SESSION_START + bucketIdx * tfMin;
+      const key = (dayStart - IST_OFFSET_SEC) + bucketStartMin * 60;
+
+      if (!buckets[key]) {
+        buckets[key] = { time:key, open:r.open, high:r.high, low:r.low,
+                         close:r.close, volume:r.volume||0 };
+      } else {
+        const b = buckets[key];
+        b.high   = Math.max(b.high, r.high);
+        b.low    = Math.min(b.low,  r.low);
+        b.close  = r.close;
+        b.volume += (r.volume||0);
+      }
+    });
+    return Object.values(buckets).sort((a, b) => a.time - b.time);
+  }
+
+  // ── Crypto / Daily+: UTC-midnight anchor resample ────────────────────────
+  const anchor = 0;
   const buckets = {};
   rows.forEach(r => {
-    const key = Math.floor(r.time / sec) * sec;
+    const key = Math.floor((r.time - anchor) / sec) * sec + anchor;
     if (!buckets[key]) {
       buckets[key] = { time:key, open:r.open, high:r.high, low:r.low,
                        close:r.close, volume:r.volume||0 };
@@ -3354,10 +3497,10 @@ function resampleForTF(rows, tfMin, asset) {
   if (tfMin > 1440) {
     const nDays = Math.round(tfMin / 1440);
     return isCryptoSymbol(asset)
-      ? resample(rows, tfMin)                  // BTC/USDT: all calendar days
+      ? resample(rows, tfMin, asset)                  // BTC/USDT: all calendar days
       : resampleWorkingDays(rows, nDays);       // NSE: trading days only
   }
-  return resample(rows, tfMin);
+  return resample(rows, tfMin, asset);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -6037,7 +6180,7 @@ async function _loadBTCHistory(tfMin) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const klines = await r.json();
       const rawBars = klines.map(_parseKline);
-      bars = (tfMin > ivMin) ? resample(rawBars, tfMin) : rawBars;
+      bars = (tfMin > ivMin) ? resample(rawBars, tfMin, BTC_ASSET) : rawBars;
     }
 
     // Cache intraday results so grid cells benefit. Never overwrite with daily
