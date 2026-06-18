@@ -234,7 +234,9 @@
   Line 5696   History Loader — _loadBTCHistory()
   Line 5825   BankNifty History Loader + Live Polling
                 _loadBNHistory(), _applyBNTick(), _startBNPolling(), _stopBNPolling()
-  Line 5911   BN Live Tick via postMessage (Python → JS bridge)
+  Line 5911   BN Lazy Scroll — _extendBNHistory(), _attachBNLazyScroll()
+                Infinite scroll: fetches older chunks from /api/bn_history when
+                user scrolls left past the oldest loaded bar (30-bar trigger).
   Line 6179   postMessage listener (Streamlit parent → chart iframe)
   Line 6188   BN Live Poll — bn_live.json direct fetch
   Line 6218   ★ INIT — DOMContentLoaded (state restore, TF bar, chart build)
@@ -1115,25 +1117,15 @@ select.s-select{
 }
 .cell-goto-btn:active{background:#2a2e39;border-color:#2962ff;color:#fff}
 
-/* ── Per-cell candle countdown timer (right-side price-line widget) ── */
+/* ── Per-cell countdown chip — sits just below the native price badge ── */
 .cell-timer-badge{
   position:absolute;right:0;z-index:60;
-  pointer-events:none;display:none;
-  flex-direction:column;align-items:stretch;visibility:hidden;
+  pointer-events:none;display:none;visibility:hidden;
+  font:bold 5px/8px monospace;color:#d1d4dc;background:#1a1e2d;
+  border:1px solid #2f3241;padding:1px 3px;text-align:right;
+  border-radius:0 0 2px 2px;white-space:nowrap;
 }
-.cell-timer-badge.timer-on{display:flex}
-.ctb-price{
-  background:#26a69a;color:#fff;
-  font:bold 6px/9px monospace;padding:1px 3px;
-  text-align:right;border-radius:2px 0 0 2px;white-space:nowrap;
-}
-.ctb-timer{
-  background:#1a1e2d;color:#d1d4dc;
-  font:bold 5px/8px monospace;padding:1px 3px;
-  text-align:right;border:1px solid #2f3241;
-  border-top:none;border-right:none;
-  border-radius:0 0 0 2px;white-space:nowrap;
-}
+.cell-timer-badge.timer-on{display:block}
 
 /* ── WS status ────────────────────────────────────────────────────── */
 #ws-dot{
@@ -2159,46 +2151,6 @@ const BN_5M       = __BN_5M__;
 const BN_15M      = __BN_15M__;
 const BN_45M      = __BN_45M__;
 
-// ════════ TEMP DEBUG — 135m grouping checker (delete after testing) ════════
-window.addEventListener('DOMContentLoaded', function(){
-  try{
-    var IST_OFF=5.5*3600, byDay={};
-    BN_45M.forEach(function(r){
-      var dk=Math.floor((r.time+IST_OFF)/86400);
-      (byDay[dk]=byDay[dk]||[]).push(r);
-    });
-    var days=Object.keys(byDay).sort().slice(-6);
-    var out='BN_45M total candles: '+BN_45M.length+'\n\n';
-    days.forEach(function(dk){
-      var arr=byDay[dk];
-      var dateStr=new Date(arr[0].time*1000).toLocaleDateString('en-IN',{timeZone:'Asia/Kolkata'});
-      out += dateStr+' -> '+arr.length+' candles\n   times: '+
-        arr.map(function(c){return new Date(c.time*1000).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false});}).join(', ')+'\n';
-      for(var i=0;i<arr.length;i+=3){
-        var ch=arr.slice(i,i+3);
-        var span=Math.round((ch[ch.length-1].time-ch[0].time)/60)+45;
-        out += '   grp start='+new Date(ch[0].time*1000).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour12:false})+
-          ' count='+ch.length+' span='+span+'min'+((ch.length<3||span!==135)?' <-- BROKEN':'')+'\n';
-      }
-    });
-    var box=document.createElement('pre');
-    box.id='_debug135box';
-    box.style.cssText='position:fixed;top:0;left:0;right:0;max-height:60vh;overflow:auto;background:#000;color:#0f0;font-size:10px;z-index:999999;padding:8px;margin:0;white-space:pre-wrap;';
-    box.textContent=out;
-    var closeBtn=document.createElement('button');
-    closeBtn.textContent='✕ Close Debug';
-    closeBtn.style.cssText='position:fixed;top:0;right:0;z-index:1000000;background:#f23645;color:#fff;border:none;padding:6px 10px;font-size:11px;';
-    closeBtn.onclick=function(){ box.remove(); closeBtn.remove(); };
-    document.body.appendChild(box);
-    document.body.appendChild(closeBtn);
-  }catch(e){
-    var box=document.createElement('pre');
-    box.style.cssText='position:fixed;top:0;left:0;background:red;color:#fff;z-index:999999;padding:8px;';
-    box.textContent='DEBUG ERR: '+e.message;
-    document.body.appendChild(box);
-  }
-});
-// ════════ END TEMP DEBUG ════════
 const BN_DAILY    = __BN_DAILY__;
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
@@ -2603,6 +2555,7 @@ function toggleLayoutMenu(e) {
 
 // ══ BROKER (FYERS) PANEL LOGIC ═══════════════════════════════════════════════
 const _BK_STATUS = '__FYERS_STATUS__'; // injected by Python: 'connected' | 'disconnected'
+const _API_PORT  = __API_PORT__;       // injected by Python: side HTTP server port (e.g. 8502), 0 = not ready
 
 function _bkInitStatus() {
   const dot  = document.getElementById('bk-dot');
@@ -3265,72 +3218,19 @@ function resample(rows, tfMin, asset) {
   const sec = tfMin * 60;
   const isNSE = asset && !isCryptoSymbol(asset);
 
-  // ── Detect input granularity (median gap between consecutive candles) ─────
-  // Fyers pre-aggregated pools: BN_5M=5m, BN_15M=15m, BN_45M=45m.
-  // _baseDataFor() returns these directly — e.g. for tfMin=135 it gives BN_45M.
-  // We detect the base granularity so we can choose the right merge strategy.
-  let inputGranMin = 1; // default: assume 1m
-  if (rows.length >= 3) {
-    const sampleSize = Math.min(rows.length - 1, 30);
-    const gaps = [];
-    for (let i = rows.length - sampleSize - 1; i < rows.length - 1; i++) {
-      const gap = (rows[i+1].time - rows[i].time) / 60;
-      if (gap > 0 && gap < 1440) gaps.push(gap); // skip overnight/holiday gaps
-    }
-    if (gaps.length > 0) {
-      gaps.sort((a, b) => a - b);
-      inputGranMin = gaps[Math.floor(gaps.length / 2)]; // median gap
-    }
-  }
-
-  // ── NSE pre-aggregated → N-candle count merge ────────────────────────────
-  // When input is already 5m/15m/45m candles (not raw 1m), and tfMin is an
-  // exact multiple of inputGranMin, we simply count N consecutive candles and
-  // merge them into one bar. No timestamp math, no minOfDay calculations.
-  //
-  // Key insight: Fyers 45m data is already session-filtered (no overnight
-  // candles). So we just need to reset our counter at each new IST trading day.
-  // 135m = 3 × 45m  ✅  (N=3, exact fit — 3 candles per day)
-  // 75m  = 5 × 15m  ✅  (N=5)
-  // 25m  = 5 × 5m   ✅  (N=5)
-  if (isNSE && tfMin < 1440 && inputGranMin > 1.5) {
-    const N = Math.round(tfMin / inputGranMin); // how many input candles per output candle
-    const IST_OFFSET_SEC = 5.5 * 3600;
-
-    // Group input candles by IST trading day first, then count N per bucket
-    // This ensures day boundaries never bleed into each other.
-    const byDay = {};
-    rows.forEach(r => {
-      const istSec  = r.time + IST_OFFSET_SEC;
-      const dayKey  = Math.floor(istSec / 86400); // IST day index (integer)
-      if (!byDay[dayKey]) byDay[dayKey] = [];
-      byDay[dayKey].push(r);
-    });
-
-    const out = [];
-    Object.keys(byDay).sort().forEach(dk => {
-      const dayCandles = byDay[dk];
-      // Merge every N candles into one output candle
-      for (let i = 0; i < dayCandles.length; i += N) {
-        const chunk = dayCandles.slice(i, i + N);
-        if (!chunk.length) continue;
-        out.push({
-          time:   chunk[0].time,                          // open time of first candle in chunk
-          open:   chunk[0].open,
-          high:   Math.max(...chunk.map(c => c.high)),
-          low:    Math.min(...chunk.map(c => c.low)),
-          close:  chunk[chunk.length - 1].close,
-          volume: chunk.reduce((s, c) => s + (c.volume || 0), 0),
-        });
-      }
-    });
-    return out; // already sorted (day order → candle order within day)
-  }
-
-  // ── NSE intraday: session-boundary aware resample (1m input) ─────────────
-  // For raw 1m candles: compute each candle's position in IST minutes since
-  // 9:15am of that day, then divide by tfMin to get the bucket index.
-  // This guarantees every day starts at 9:15am regardless of tfMin.
+  // ── NSE intraday: session-boundary aware resample (works for ANY input
+  // granularity — raw 1m, or pre-aggregated 5m/15m/45m from Fyers) ──────────
+  // Each candle is bucketed by its OWN start-time's position in IST minutes
+  // since 9:15am of that trading day, then divided by tfMin to get the
+  // bucket index. This guarantees every output candle starts at a true
+  // 9:15-anchored boundary regardless of tfMin AND regardless of whether the
+  // upstream source candles (e.g. Fyers' native "45" resolution) happen to
+  // be aligned to 9:15 themselves. Previously, pre-aggregated input (45m →
+  // 135m) was merged by blindly counting 3 candles/day and trusting Fyers'
+  // own boundary — if Fyers' 45m candle didn't start exactly at 9:15, that
+  // misalignment leaked straight into the 135m chart (e.g. candles starting
+  // 10:00 instead of 9:15/11:30/13:45). Bucketing by real clock position
+  // fixes that at the source.
   if (isNSE && tfMin < 1440) {
     const IST_OFFSET_SEC = 5.5 * 3600;
     const SESSION_START  = 9 * 60 + 15;   // 555 min = 9:15 AM
@@ -4418,23 +4318,61 @@ function wireSync(){
   }
 
   // ── Crosshair sync ──────────────────────────────────────────────────────
+  // Permanent fix for two long-standing issues:
+  //  1) Stutter ("atak atak"): previously every raw mousemove fired N-1
+  //     synchronous setCrosshairPosition() calls (one per other cell) with
+  //     no throttling — on a grid with several cells this floods the main
+  //     thread on every pointer event. Now we just record the latest param
+  //     and flush once per animation frame (rAF), so only one batch of
+  //     cross-cell updates happens per actual screen refresh, no matter how
+  //     fast the mouse fires move events.
+  //  2) Vertical misalignment: _floorTime() (binary search for the nearest
+  //     bar ≤ srcTime) was defined above but never actually used — raw
+  //     param.time was sent straight to other cells, which only lines up
+  //     when every cell happens to share the same timeframe. The first
+  //     attempt at fixing this used d.series.data() to get each
+  //     destination's bars — but lightweight-charts v4.2 doesn't expose
+  //     .data() on the series API (confirmed by the existing comment on
+  //     the mobile lpMoveCrosshair() path below — "NOTE: .data() not in
+  //     v4.2 — use ALLDATA cache"), so it silently threw every time and the
+  //     mapping never ran. Switched to the same working pattern already
+  //     used there: re-derive each destination cell's bars via
+  //     _baseDataFor()+resampleForTF(), then floor-match against that.
   if(SYNC.crosshair){
+    let _xhRAF = null, _xhParam = null, _xhSrcIdx = -1;
+
+    function _flushCrosshairSync(){
+      _xhRAF = null;
+      const si = _xhSrcIdx, param = _xhParam;
+      if(si < 0) return;
+      const src = CELLS[si];
+      if(!src || !src.chart || !src.series) return;
+      if(_syncing) return; _syncing = true;
+      try {
+        if(!param || param.time === undefined || !param.point){
+          CELLS.forEach((d, di)=>{ if(di !== si && d.chart){ try{ d.chart.clearCrosshairPosition(); }catch(_){} } });
+        } else {
+          const bar = param.seriesData.get(src.series);
+          const price = bar ? (bar.close ?? bar.value ?? 0) : 0;
+          CELLS.forEach((d, di)=>{
+            if(di === si || !d.chart || !d.series) return;
+            try{
+              const destRaw     = _baseDataFor(d.asset, d.tf);
+              const destData    = resampleForTF(destRaw, d.tf, d.asset);
+              const mappedTime  = _floorTime(destData, param.time);
+              if(mappedTime !== null) d.chart.setCrosshairPosition(price, mappedTime, d.series);
+              else d.chart.clearCrosshairPosition();
+            }catch(_){}
+          });
+        }
+      } finally { _syncing = false; }
+    }
+
     CELLS.forEach((src, si)=>{
       if(!src.chart || !src.series) return;
       src._chHandler = param => {
-        if(_syncing) return; _syncing = true;
-        try {
-          if(!param || param.time === undefined || !param.point){
-            CELLS.forEach((d, di)=>{ if(di !== si && d.chart){ try{ d.chart.clearCrosshairPosition(); }catch(_){} } });
-          } else {
-            const bar = param.seriesData.get(src.series);
-            const price = bar ? (bar.close ?? bar.value ?? 0) : 0;
-            CELLS.forEach((d, di)=>{
-              if(di === si || !d.chart || !d.series) return;
-              try{ d.chart.setCrosshairPosition(price, param.time, d.series); }catch(_){}
-            });
-          }
-        } finally { _syncing = false; }
+        _xhParam = param; _xhSrcIdx = si;
+        if(_xhRAF === null) _xhRAF = requestAnimationFrame(_flushCrosshairSync);
       };
       src.chart.subscribeCrosshairMove(src._chHandler);
     });
@@ -4576,11 +4514,10 @@ function buildGrid(key) {
       e.stopPropagation();
     };
 
-    // Per-cell price+timer widget — right side, follows price line
+    // Small countdown chip — sits just below each cell's native price badge
     const timerBadge=document.createElement('div');
     timerBadge.className='cell-timer-badge';
     timerBadge.dataset.cellIdx=i;
-    timerBadge.innerHTML='<div class="ctb-price">—</div><div class="ctb-timer">—</div>';
     if (S.showTimer!==false) timerBadge.classList.add('timer-on');
     chartDiv.style.position='relative';
 
@@ -4772,19 +4709,28 @@ async function buildCellChart(idx) {
     kineticScroll:{mouse:true,touch:true},
   });
 
+  // Hide this cell's timer chip while its crosshair is active, so the
+  // native crosshair price label (canvas-drawn, above our DOM chip) stays visible.
+  try{
+    c.chart.subscribeCrosshairMove(param => {
+      const badge=document.querySelector('.cell-timer-badge[data-cell-idx="'+idx+'"]');
+      if (badge) badge.style.opacity = (param && param.point) ? '0' : '1';
+    });
+  }catch(_){}
+
   // --- 2. DYNAMIC CHART TYPES & COLORS (Applies cell settings) ---
   const upClr = c.upColor || S.upColor || '#26a69a';
   const dnClr = c.dnColor || S.dnColor || '#ef5350';
   const cType = c.chartType || 'candle';
 
   if (cType === 'candle') {
-    c.series = c.chart.addCandlestickSeries({ upColor: upClr, downColor: dnClr, borderUpColor: upClr, borderDownColor: dnClr, wickUpColor: upClr, wickDownColor: dnClr, priceLineVisible: true });
+    c.series = c.chart.addCandlestickSeries({ upColor: upClr, downColor: dnClr, borderUpColor: upClr, borderDownColor: dnClr, wickUpColor: upClr, wickDownColor: dnClr, priceLineVisible: true, lastValueVisible: true });
   } else if (cType === 'bar') {
     c.series = c.chart.addBarSeries({ upColor: upClr, downColor: dnClr, thinBars: false });
   } else if (cType === 'line') {
-    c.series = c.chart.addLineSeries({ color: upClr, lineWidth: 2, priceLineVisible: true });
+    c.series = c.chart.addLineSeries({ color: upClr, lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
   } else {
-    c.series = c.chart.addAreaSeries({ topColor: upClr + '44', bottomColor: upClr + '00', lineColor: upClr, lineWidth: 2, priceLineVisible: true });
+    c.series = c.chart.addAreaSeries({ topColor: upClr + '44', bottomColor: upClr + '00', lineColor: upClr, lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
   }
 
   if (data.length) {
@@ -4801,6 +4747,10 @@ async function buildCellChart(idx) {
     clearTimeout(c._zoomTid);
     c._zoomTid = setTimeout(() => _saveZoom(c.asset, c.tf, r), 600);
   });
+  // Lazy history extension for BN grid cells
+  if (c.asset === BN_ASSET) {
+    _attachBNLazyScroll(c.chart, c.series, c.tf);
+  }
   c.chart.subscribeClick(()=>selectCell(idx));
   c._followLive = true;
   el.addEventListener('pointerdown', ()=>{ c._followLive = false; }, {passive:true});
@@ -5017,14 +4967,17 @@ function applySettings() {
 
 // Fix 7: apply timer visibility
 function _applyTimerVisibility() {
-  // Single-chart timer widget
-  const w = document.getElementById('candle-timer-widget');
-  if (w) w.style.display = (S.showTimer===false)?'none':'';
-  // Grid cell timer badges
-  document.querySelectorAll('.cell-timer-badge').forEach(b => {
-    if (S.showTimer===false) b.classList.remove('timer-on');
-    else b.classList.add('timer-on');
-  });
+  if (S.showTimer===false) {
+    if (_timerEl) _timerEl.style.visibility='hidden';
+    document.querySelectorAll('.cell-timer-badge').forEach(b => {
+      b.classList.remove('timer-on');
+      b.style.visibility='hidden';
+    });
+  } else {
+    document.querySelectorAll('.cell-timer-badge').forEach(b => b.classList.add('timer-on'));
+    _tickTimer();
+    _tickCellTimers();
+  }
 }
 
 // Fix 12: apply crosshair line style to all charts (strictly called on every rebuild)
@@ -5574,20 +5527,16 @@ function _calcRemaining(tfSec, asset) {
     const posInCandle = tradingDayCount % Math.round(tfDays); // 0-based day within current N-day candle
     const daysLeft    = Math.round(tfDays) - 1 - posInCandle; // trading days remaining after today
 
+    // ── PLAIN trading-day count — no calendar rollover, no weekend/holiday
+    // walking. daysLeft is already "kitne trading days bache hain" (e.g.
+    // today = 10th day of 27 → daysLeft = 17). Just show that flat number
+    // + leftover time today, instead of converting it into real calendar
+    // duration (which used to inflate the count because of weekends).
     if (daysLeft === 0) {
       // Last trading day of this candle → time until 15:30 today
       return tilCloseSec;
     } else {
-      // Count remaining trading days → find close time on last day
-      let ms = _nextTradingDayStart(todayMidnightIst);
-      let dFound = 0;
-      for (let i = 0; i < 30 && dFound < daysLeft - 1; i++, ms = _nextTradingDayStart(ms)) {
-        dFound++;
-      }
-      // ms is now midnight IST of the last trading day of this candle
-      const lastDayCloseSec = ms / 1000 - 5.5 * 3600 + mktCloseSec;
-      const nowSec = Date.now() / 1000;
-      return Math.max(0, Math.round(lastDayCloseSec - nowSec));
+      return daysLeft * 86400 + tilCloseSec;
     }
   }
 }
@@ -5618,52 +5567,59 @@ function _fmtRemaining(remaining, tfSec) {
   return parts.join(' ');
 }
 
-// ── Grid cell countdown timers — right-side price-line widget ─────────────
+// ── Grid cell countdown — attached to each cell's native price label ──────
 let _cellTimerIv=null;
-function _tickCellTimers() {
+// Text-only update (countdown digits) — once per second
+function _tickCellTimersText() {
   document.querySelectorAll('.cell-timer-badge.timer-on').forEach(badge => {
     const idx=parseInt(badge.dataset.cellIdx)||0;
-    const c=CELLS[idx]; if(!c) return;
+    const c=CELLS[idx]; if(!c||!c.series) return;
     const tfSec=(c.tf||1)*60;
-    const timerDiv=badge.querySelector('.ctb-timer');
-    if (timerDiv) {
-      const remaining = _calcRemaining(tfSec, c.asset);
-      if (remaining === null) {
-        timerDiv.textContent='Closed';
-      } else {
-        timerDiv.textContent=_fmtRemaining(remaining, tfSec);
-      }
-    }
-    const priceDiv=badge.querySelector('.ctb-price');
-    // Position along price line
-    if (c.series && c._lastLTP != null) {
-      const y=c.series.priceToCoordinate(c._lastLTP);
-      if (y != null) {
-        const wh=badge.offsetHeight||27;
-        badge.style.top=Math.round(y-wh/2)+'px';
-        badge.style.visibility='visible';
-        if (priceDiv) {
-          priceDiv.textContent=c._lastLTP.toLocaleString('en-US',
-            {minimumFractionDigits:2,maximumFractionDigits:2});
-          const co=c._candleOpen??c._lastLTP;
-          priceDiv.style.background=c._lastLTP>=co?'#089981':'#f23645';
-        }
-      }
+    const remaining = _calcRemaining(tfSec, c.asset);
+    badge.textContent = (remaining === null) ? 'Closed' : _fmtRemaining(remaining, tfSec);
+  });
+}
+// Position-only update — every animation frame so chips stay glued to price
+// with zero perceptible lag, independent of the 1s text tick.
+function _positionCellTimers() {
+  document.querySelectorAll('.cell-timer-badge.timer-on').forEach(badge => {
+    const idx=parseInt(badge.dataset.cellIdx)||0;
+    const c=CELLS[idx]; if(!c||!c.series||c._lastLTP==null) return;
+    const y=c.series.priceToCoordinate(c._lastLTP);
+    if (y != null) {
+      badge.style.top=Math.round(y+8)+'px';
+      badge.style.visibility='visible';
     }
   });
 }
+// Backward-compatible alias
+function _tickCellTimers(){ _tickCellTimersText(); _positionCellTimers(); }
+
+let _cellTimerRafId=0;
 function _startCellTimers() {
   if (_cellTimerIv) clearInterval(_cellTimerIv);
-  _cellTimerIv=setInterval(_tickCellTimers, 1000);
-  _tickCellTimers();
+  if (_cellTimerRafId) cancelAnimationFrame(_cellTimerRafId);
+  _cellTimerIv=setInterval(_tickCellTimersText, 1000);
+  _tickCellTimersText();
+  const posLoop=()=>{
+    _positionCellTimers();
+    _cellTimerRafId=requestAnimationFrame(posLoop);
+  };
+  _cellTimerRafId=requestAnimationFrame(posLoop);
 }
+
+let _timerRafId=0;
 
 function initCandleTimer() {
   if (_timerEl){_timerEl.remove();_timerEl=null;}
   if (_timerIv){clearInterval(_timerIv);_timerIv=null;}
+  if (_timerRafId){cancelAnimationFrame(_timerRafId);_timerRafId=0;}
   _lastLTP=null;
   if (S.layout!=='1x1'||!mainSeries) return;
-  try{mainSeries.applyOptions({lastValueVisible:false});}catch(_){}
+  // Keep TradingView/LightweightCharts' own native price badge + dashed
+  // price-line exactly as-is — just glue a small countdown chip directly
+  // underneath it (vertically stacked), instead of beside it.
+  try{mainSeries.applyOptions({lastValueVisible:true, priceLineVisible:true, title:''});}catch(_){}
   const mainEl=document.getElementById('main-chart');
   if (!mainEl) return;
   mainEl.style.position='relative';
@@ -5671,46 +5627,53 @@ function initCandleTimer() {
   _timerEl.id='candle-timer-widget';
   _timerEl.style.cssText=
     'position:absolute;right:0;z-index:60;pointer-events:none;'+
-    'display:flex;flex-direction:column;align-items:stretch;visibility:hidden;';
-  _timerEl.innerHTML=
-    '<div id="ct-price" style="background:#26a69a;color:#fff;'+
-      'font:bold 6px/9px monospace;padding:1px 3px;text-align:right;'+
-      'border-radius:2px 0 0 2px;white-space:nowrap;">—</div>'+
-    '<div id="ct-timer" style="background:#1a1e2d;color:#d1d4dc;'+
-      'font:bold 5px/8px monospace;padding:1px 3px;text-align:right;'+
-      'border:1px solid #2f3241;border-top:none;border-right:none;'+
-      'border-radius:0 0 0 2px;white-space:nowrap;">—:——</div>';
+    'font:bold 5px/8px monospace;color:#d1d4dc;background:#1a1e2d;'+
+    'border:1px solid #2f3241;padding:1px 3px;text-align:right;'+
+    'border-radius:0 0 2px 2px;white-space:nowrap;visibility:hidden;';
   mainEl.appendChild(_timerEl);
-  _timerIv=setInterval(_tickTimer,1000);
-  _tickTimer();
+  _timerIv=setInterval(_tickTimerText,1000);
+  _tickTimerText();
+  const posLoop=()=>{
+    _positionTimerEl();
+    _timerRafId=requestAnimationFrame(posLoop);
+  };
+  _timerRafId=requestAnimationFrame(posLoop);
+  // Hide the chip while the crosshair is active so its native price label
+  // (drawn on the canvas, above our DOM overlay) stays fully readable.
+  try{
+    chart.subscribeCrosshairMove(param => {
+      if (!_timerEl) return;
+      _timerEl.style.opacity = (param && param.point) ? '0' : '1';
+    });
+  }catch(_){}
 }
 
 const _candleOpen={};
 
-function _tickTimer() {
+// Updates only the countdown text — runs once per second
+function _tickTimerText() {
   if (!_timerEl||!mainSeries||S.layout!=='1x1') return;
+  if (S.showTimer===false) return;
   const tfSec=(S.tf||1)*60;
-  const timerEl=document.getElementById('ct-timer');
   const remaining = _calcRemaining(tfSec, S.asset);
-  if (remaining === null) {
-    if (timerEl) timerEl.textContent='Closed';
-  } else {
-    if (timerEl) timerEl.textContent=_fmtRemaining(remaining, tfSec);
-  }
+  _timerEl.textContent = (remaining === null) ? 'Closed' : _fmtRemaining(remaining, tfSec);
+}
+
+// Updates only the vertical position — runs every animation frame so the
+// chip stays glued to the price badge with zero perceptible lag.
+function _positionTimerEl() {
+  if (!_timerEl||!mainSeries||S.layout!=='1x1') return;
+  if (S.showTimer===false){ _timerEl.style.visibility='hidden'; return; }
   if (_lastLTP===null) return;
   const y=mainSeries.priceToCoordinate(_lastLTP);
   if (y==null) return;
-  const priceEl=document.getElementById('ct-price');
-  if (priceEl) {
-    priceEl.textContent=_lastLTP.toLocaleString('en-US',
-      {minimumFractionDigits:2,maximumFractionDigits:2});
-    const co=_candleOpen[S.asset]??_lastLTP;
-    priceEl.style.background=_lastLTP>=co?'#26a69a':'#ef5350';
-  }
-  const wh=_timerEl.offsetHeight||38;
-  _timerEl.style.top=Math.round(y-wh/2)+'px';
+  // Native price badge is roughly 16px tall centered on y — sit flush below it
+  _timerEl.style.top=Math.round(y+8)+'px';
   _timerEl.style.visibility='visible';
 }
+
+// Backward-compatible alias (older call sites may still reference _tickTimer)
+function _tickTimer(){ _tickTimerText(); _positionTimerEl(); }
 
 // ════════════════════════════════════════════════════════════════════════════
 // LIVE CANDLE — BTC/USDT via Binance WebSocket (tick-by-tick)
@@ -6315,6 +6278,213 @@ async function _loadBNHistory(tfMin) {
     });
   } catch(_) {}
   _setLoadingLabel('');
+
+  // ── Lazy history extension: subscribe after data is loaded ───────────────
+  _attachBNLazyScroll(chart, mainSeries, tfMin);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LAZY / INFINITE SCROLL — BN HISTORY EXTENSION
+//
+// Trigger: user scrolls left until logicalRange.from < _LAZY_BUFFER_BARS
+//   (meaning fewer than N candle-slots remain to the LEFT of the viewport).
+//   logicalRange.from is negative when left whitespace is showing, so this
+//   fires naturally as the user approaches/crosses the oldest bar.
+//
+// API: Python spins a ThreadingTCPServer on _API_PORT (written to .api_port).
+//   URL built with _bnHistoryUrl() using window.location.hostname + port.
+//   Dates converted to IST (Fyers uses IST dates).
+// ════════════════════════════════════════════════════════════════════════════
+
+const _bnOldestLoaded = {};  // key=String(tfMin) → oldest epoch-sec fetched so far
+let   _bnExtendInFlight = false;
+let   _lazyScrollTid    = null;
+const _LAZY_BUFFER_BARS = 20;  // trigger when within 20 bars of left edge
+
+function _bnResolutionFor(tfMin) {
+  if (tfMin >= 1440) return { res: '1D', chunkDays: 365 };
+  if (tfMin >=   45) return { res: '45', chunkDays:  90 };
+  if (tfMin >=   15) return { res: '15', chunkDays:  60 };
+  if (tfMin >=    5) return { res: '5',  chunkDays:  30 };
+  return                    { res: '1',  chunkDays:  10 };
+}
+
+function _bnArrayFor(tfMin) {
+  if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
+  if (tfMin >=   45 && Array.isArray(BN_45M)   && BN_45M.length)   return BN_45M;
+  if (tfMin >=   15 && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
+  if (tfMin >=    5 && Array.isArray(BN_5M)    && BN_5M.length)    return BN_5M;
+  return ALLDATA[BN_ASSET] || [];
+}
+
+// Convert epoch-seconds to YYYY-MM-DD in IST (Fyers needs IST dates)
+function _epochToIST(sec) {
+  const d    = new Date((sec + 19800) * 1000);
+  const yyyy = d.getUTCFullYear();
+  const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd   = String(d.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Build URL for the side-port HTTP server injected by Python.
+// If _API_PORT is 0 (server not ready at page-build time), probe ports 8502-8510.
+let _resolvedApiPort = (typeof _API_PORT !== 'undefined' && _API_PORT > 0) ? _API_PORT : 0;
+
+async function _probeApiPort() {
+  if (_resolvedApiPort > 0) return _resolvedApiPort;
+  const host = window.location.hostname || 'localhost';
+  for (let p = 8502; p <= 8510; p++) {
+    try {
+      const r = await fetch(`http://${host}:${p}/api/bn_history?resolution=D&days=1`,
+                            { signal: AbortSignal.timeout(1500) });
+      if (r.ok || r.status === 401) { _resolvedApiPort = p; return p; }
+    } catch(_) {}
+  }
+  return 0;
+}
+
+function _bnHistoryUrl(res, fromDate, toDate) {
+  const path = `/api/bn_history?resolution=${res}&from=${fromDate}&to=${toDate}`;
+  if (_resolvedApiPort > 0) {
+    return `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}${path}`;
+  }
+  return path;  // same-origin fallback
+}
+
+async function _extendBNHistory(tfMin, seriesRef, chartRef) {
+  if (_bnExtendInFlight) return;
+
+  // Ensure we know the API port before fetching
+  if (_resolvedApiPort === 0) {
+    await _probeApiPort();
+    if (_resolvedApiPort === 0) {
+      console.warn('[BN lazy] API server not reachable yet — retry later');
+      return;
+    }
+  }
+
+  const arr = _bnArrayFor(tfMin);
+  if (!arr.length) return;
+
+  const oldestTs = arr[0].time;
+  const key      = String(tfMin);
+
+  // Guard: _bnOldestLoaded[key] holds the oldest ts we've already fetched.
+  // If we've already fetched down to or beyond oldestTs → nothing more to do.
+  if (_bnOldestLoaded[key] !== undefined && _bnOldestLoaded[key] >= oldestTs) return;
+
+  _bnExtendInFlight = true;
+  _setLoadingLabel('⏳ Loading older history…');
+
+  try {
+    const { res, chunkDays } = _bnResolutionFor(tfMin);
+    const toEpoch   = oldestTs - 1;
+    const fromEpoch = toEpoch  - chunkDays * 86400;
+    const toDate    = _epochToIST(toEpoch);
+    const fromDate  = _epochToIST(fromEpoch);
+    const url       = _bnHistoryUrl(res, fromDate, toDate);
+
+    console.log(`[BN lazy] Fetching tf=${tfMin} from=${fromDate} to=${toDate} url=${url}`);
+
+    let newBars = [];
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
+      if (r.ok) {
+        const d = await r.json();
+        if (d && Array.isArray(d.candles)) newBars = d.candles;
+      } else {
+        console.warn('[BN lazy] HTTP', r.status);
+      }
+    } catch(fe) {
+      console.warn('[BN lazy] fetch error:', fe.message);
+    }
+
+    if (!newBars.length) {
+      _bnOldestLoaded[key] = oldestTs;  // mark: nothing older exists
+      _setLoadingLabel('');
+      _bnExtendInFlight = false;
+      return;
+    }
+
+    const existingSet = new Set(arr.map(b => b.time));
+    const fresh = newBars
+      .filter(b => b.time < oldestTs && !existingSet.has(b.time))
+      .sort((a, b) => a.time - b.time);
+
+    if (!fresh.length) {
+      _bnOldestLoaded[key] = oldestTs;
+      _setLoadingLabel('');
+      _bnExtendInFlight = false;
+      return;
+    }
+
+    arr.unshift(...fresh);
+    _bnOldestLoaded[key] = arr[0].time;
+    console.log(`[BN lazy] +${fresh.length} bars. Total arr=${arr.length}`);
+
+    // Re-render preserving the exact visible time window
+    if (seriesRef && chartRef) {
+      let savedRange = null;
+      try { savedRange = chartRef.timeScale().getVisibleRange(); } catch(_) {}
+
+      const resampled = resampleForTF(arr, tfMin, BN_ASSET);
+      if (resampled.length) {
+        seriesRef.setData([]);
+        if (S.chartType === 'line' || S.chartType === 'area')
+          seriesRef.setData(resampled.map(b => ({ time: b.time, value: b.close })));
+        else
+          seriesRef.setData(resampled);
+        if (savedRange) {
+          try { chartRef.timeScale().setVisibleRange(savedRange); } catch(_) {}
+        }
+      }
+    }
+
+    // Sync all grid cells for same asset+tf
+    CELLS.forEach((c, i) => {
+      if (c.asset !== BN_ASSET || c.tf !== tfMin || !c.series || !c.chart) return;
+      if (c.series === seriesRef) return;
+      try {
+        let ctr = null;
+        try { ctr = c.chart.timeScale().getVisibleRange(); } catch(_) {}
+        const rd = resampleForTF(_bnArrayFor(tfMin), tfMin, BN_ASSET);
+        if (!rd.length) return;
+        c.series.setData([]);
+        if (S.chartType === 'line' || S.chartType === 'area')
+          c.series.setData(rd.map(b => ({ time: b.time, value: b.close })));
+        else
+          c.series.setData(rd);
+        if (ctr) { try { c.chart.timeScale().setVisibleRange(ctr); } catch(_) {} }
+        updateCellPrice(i, rd);
+      } catch(_) {}
+    });
+
+  } catch(e) {
+    console.warn('[BN lazy] extend error:', e);
+  }
+
+  _setLoadingLabel('');
+  _bnExtendInFlight = false;
+}
+
+function _attachBNLazyScroll(chartRef, seriesRef, tfMin) {
+  if (!chartRef || !seriesRef) return;
+  try {
+    chartRef.timeScale().subscribeVisibleLogicalRangeChange(function() {
+      let lr = null;
+      try { lr = chartRef.timeScale().getVisibleLogicalRange(); } catch(_) { return; }
+      if (!lr) return;
+      // lr.from < _LAZY_BUFFER_BARS: user is near (or past) the left edge of data
+      if (lr.from < _LAZY_BUFFER_BARS) {
+        clearTimeout(_lazyScrollTid);
+        _lazyScrollTid = setTimeout(function() {
+          _extendBNHistory(tfMin, seriesRef, chartRef);
+        }, 300);
+      }
+    });
+  } catch(e) {
+    console.warn('[BN lazy] attach error:', e);
+  }
 }
 
 // ── BN live — postMessage bridge (Streamlit iframe safe) ──────────────────
@@ -6379,6 +6549,24 @@ function _bnUpdateRaw(latest) {
 }
 
 // Per-TF bucket: BTC ke _btcBucket jaisa — daily/custom TF ke liye candle accumulate karo
+
+// ── Session-anchored bucket for LIVE/forming candles (5m/15m/45m/135m etc) ──
+// Same 9:15am-anchor math as resample() — used here so the still-forming
+// candle lines up with the historical (closed) candles instead of using a
+// raw UTC-epoch modulo, which used to misalign tfMins like 135 (candle
+// boundaries landing at 10:00/12:15 IST instead of 9:15/11:30/13:45).
+function _bnSessionBucket(timeSec, tfMin) {
+  const IST_OFFSET_SEC = 5.5 * 3600;
+  const SESSION_START  = 9 * 60 + 15;   // 9:15 AM
+  const istSec   = timeSec + IST_OFFSET_SEC;
+  const dayStart = istSec - (istSec % 86400);
+  const minOfDay = Math.floor((istSec % 86400) / 60);
+  const minSinceOpen   = Math.max(0, minOfDay - SESSION_START);
+  const bucketIdx      = Math.floor(minSinceOpen / tfMin);
+  const bucketStartMin = SESSION_START + bucketIdx * tfMin;
+  return (dayStart - IST_OFFSET_SEC) + bucketStartMin * 60;
+}
+
 function _bnGetBar(latest, tfMin) {
   const tfSec = tfMin * 60;
 
@@ -6396,7 +6584,7 @@ function _bnGetBar(latest, tfMin) {
       bucket = hist.length ? hist[hist.length-1].time : dayKey;
     }
   } else {
-    bucket = Math.floor(latest.time / tfSec) * tfSec;
+    bucket = _bnSessionBucket(latest.time, tfMin);
   }
 
   // Bucket change hua? → purana candle close, naya shuru
@@ -6464,7 +6652,7 @@ function _bnGetCellBar(c, latest) {
       bucket = hist.length ? hist[hist.length-1].time : dayKey;
     }
   } else {
-    bucket = Math.floor(latest.time / tfSec) * tfSec;
+    bucket = _bnSessionBucket(latest.time, tfMin);
   }
 
   if (!c._bnBkt || c._bnBkt.time !== bucket || c._bnBkt.tf !== tfMin) {
@@ -6604,6 +6792,41 @@ window.addEventListener('message', function(evt) {
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
+
+// ── Fast direct tick poll — talks straight to the local side-port HTTP
+// server (the same one /api/bn_history already uses) instead of going
+// through Streamlit's 1s @st.fragment rerun + postMessage relay chain.
+// That chain was the main source of the 2-3s lag: Python only reruns the
+// pusher fragment once/sec, then Streamlit has to tear down and remount a
+// fresh iframe each time before anything can be pushed. This polls the
+// in-memory tick (_get_live_payload — no disk I/O) directly every 300ms,
+// with a sub-second float ts so same-second ticks no longer get deduped
+// away. The bn_live.json poll + postMessage listener above stay as
+// fallbacks for any environment where the side port isn't reachable.
+let _bnFastTickTs = 0;
+let _bnFastPollIv = null;
+
+async function _pollBNTickFast() {
+  if (_resolvedApiPort === 0) { await _probeApiPort(); }
+  if (_resolvedApiPort === 0) return;  // side port not reachable here — fallbacks will cover it
+  try {
+    const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/bn_tick`;
+    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(1200) });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d && d.candle && d.ts && d.ts !== _bnFastTickTs) {
+      _bnFastTickTs = d.ts;
+      _applyBNLiveTick(d);
+    }
+  } catch(_) {}
+}
+
+function _startBNFastPolling() {
+  if (_bnFastPollIv) return;
+  _pollBNTickFast();
+  _bnFastPollIv = setInterval(_pollBNTickFast, 300);
+}
+_startBNFastPolling();
 
 // BN Live Poll — bn_live.json direct fetch (Streamlit mein /api/bn_live exist nahi)
 let _bnLastTs = 0;
@@ -7172,10 +7395,25 @@ function swingCompute(bars, tfMin) {
 
   let pGreen = false, pRed = false, pHigh = 0, pLow = 0;
 
+  // ── Overnight/session-gap guard (intraday TFs only) ──────────────────────
+  // Minute TFs (5/15/45/135m) ka pehla candle har trading day 9:15 par ek
+  // gap ke baad shuru hota hai (overnight gap). Pichhle din ke last candle
+  // se bani lines, agle din ke pehle candle ki narrow range mein bahut kam
+  // touch hoti hain — jo unhe galat tarike se turant delete kar deta tha.
+  // Fix: jab cur candle naye IST trading day ka pehla candle ho, validation
+  // (touch-check + delete) us round ke liye skip karo — line bina judge hue
+  // aage carry hoti hai, aur normal intraday candle (gap ke baad) par judge
+  // hoti hai. Daily+ TFs (1D/3D/9D/27D) is guard se affected nahi — unka
+  // har candle hi ek "naya din" hota hai, wo gap koi anomaly nahi hai.
+  const IST_OFFSET_SEC = 5.5 * 3600;
+  const _istDayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
+
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
+    const isSessionGap = tfMin < 1440 && i >= 1 &&
+                          _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
 
     // ── Step 1: Validate ALL active candle lines with current bar ───────
     const validateLines = (arr) => {
@@ -7195,8 +7433,12 @@ function swingCompute(bars, tfMin) {
         }
       }
     };
-    validateLines(chLines);
-    validateLines(clLines);
+    if (!isSessionGap) {
+      validateLines(chLines);
+      validateLines(clLines);
+    }
+    // isSessionGap === true: skip judging this round — lines carry forward
+    // untouched, to be validated against the next (intraday) candle instead.
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
     if (i >= 1 && pGreen && curRed) {
@@ -7415,15 +7657,17 @@ function swingComputeMultiTF(asset, currentTf) {
     }
   }
 
-  // ── Same-price dedup: agar multiple timeframes ka SR level exact same
-  // price par hai, to sirf sabse bade (highest) levelTf wali line rakho,
-  // baki same-price wali chhoti TF lines hide kar do.
-  const byPrice = new Map();
-  for (const line of allLines) {
-    const existing = byPrice.get(line.price);
-    if (!existing || line.levelTf > existing.levelTf) byPrice.set(line.price, line);
-  }
-  return Array.from(byPrice.values());
+  // ── No same-price dedup ───────────────────────────────────────────────
+  // PREVIOUSLY: agar multiple timeframes ka SR level exact same price par
+  // tha, to sirf sabse bade (highest) levelTf wali line rakhi jaati thi,
+  // baki same-price wali chhoti TF lines hide ho jaati thi.
+  // ISSUE: 1D/3D/9D/27D ke highs/lows ek-doosre se exact derive hote hain
+  // (27D high = max of 9D highs = max of 3D highs = max of 1D highs), to
+  // ye TFs minute charts (135m/45m/15m/5m) par bahut baar same price par
+  // collide karte the — sirf 1 line (sabse badi TF) bachti thi, baki
+  // discard ho jaati thi. Ab sab TFs ki lines independently return hoti
+  // hain, chahe price match kyun na ho.
+  return allLines;
 }
 
 function initSwingIndicator() {

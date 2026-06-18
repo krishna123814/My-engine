@@ -695,14 +695,19 @@ def _on_ws_connect():
     except Exception:
         pass
 
-def _write_live_json():
+def _get_live_payload():
+    """Build the latest live-tick payload straight from in-memory state — no
+    disk I/O, so this is as fresh as the WS thread's last update. ts is a
+    float (sub-second precision) so multiple ticks arriving within the same
+    wall-clock second don't collapse into one (previously ts was int(time.time())
+    which made the JS-side dedupe drop intra-second ticks)."""
     with _LIVE_LOCK:
         snap = dict(_LIVE)
     if snap["ltp"] is None:
-        return
+        return None
     ltp = snap["ltp"]
-    now_sec      = int(time.time())
-    minute_epoch = (now_sec // 60) * 60
+    now        = time.time()
+    minute_epoch = int(now // 60) * 60
     with _CANDLE_LOCK:
         if _CANDLE["minute"] == minute_epoch and _CANDLE["open"] is not None:
             o = _CANDLE["open"]
@@ -710,18 +715,23 @@ def _write_live_json():
             l = _CANDLE["low"]
         else:
             o = h = l = ltp
+    return {
+        "ts":  now,
+        "ltp": ltp,
+        "candle": {
+            "time":  minute_epoch,
+            "open":  o,
+            "high":  h,
+            "low":   l,
+            "close": ltp,
+        },
+    }
+
+def _write_live_json():
+    payload = _get_live_payload()
+    if payload is None:
+        return
     try:
-        payload = {
-            "ts":  now_sec,
-            "ltp": ltp,
-            "candle": {
-                "time":  minute_epoch,
-                "open":  o,
-                "high":  h,
-                "low":   l,
-                "close": ltp,
-            },
-        }
         # bn_live.json = fallback file (Streamlit file server se nahi milti)
         with open(BN_LIVE_FILE, "w") as f:
             json.dump(payload, f)
@@ -801,6 +811,147 @@ def _ensure_live_threads():
     if "FyersTokenMonitor" not in names:
         threading.Thread(target=_token_monitor_loop, name="FyersTokenMonitor", daemon=True).start()
     _start_ws()
+    _register_api_route()
+
+# ─── Tornado /api/bn_history handler — lazy historical data endpoint ──────────
+# Streamlit internally uses Tornado. We inject our own route so chart.html's
+# infinite-scroll loader can fetch older BN candles on demand without a page reload.
+
+_HIST_ENDPOINT_REGISTERED = False
+_HIST_ENDPOINT_LOCK = threading.Lock()
+
+# In-memory cache per (resolution, from_date, to_date) — avoids repeat Fyers calls
+_HIST_CACHE: dict = {}
+_HIST_CACHE_TTL = 300  # 5 min
+
+
+def _hist_cache_key(resolution: str, from_date: str, to_date: str) -> str:
+    return f"{resolution}|{from_date}|{to_date}"
+
+
+def _bn_history_handler_data(resolution: str, from_date: str, to_date: str) -> dict:
+    """Fetch BN history (with in-memory cache). Returns {candles, cached, error}."""
+    key = _hist_cache_key(resolution, from_date, to_date)
+    now = time.time()
+    if key in _HIST_CACHE:
+        entry = _HIST_CACHE[key]
+        if now - entry["ts"] < _HIST_CACHE_TTL:
+            return {"candles": entry["data"], "cached": True}
+    candles = _fyers_history(resolution, from_date, to_date)
+    if candles is None:
+        candles = []
+    converted = []
+    for c in candles:
+        try:
+            converted.append({
+                "time":   int(c[0]) // 1000,
+                "open":   round(float(c[1]), 2),
+                "high":   round(float(c[2]), 2),
+                "low":    round(float(c[3]), 2),
+                "close":  round(float(c[4]), 2),
+                "volume": round(float(c[5]), 2) if len(c) > 5 else 0,
+            })
+        except Exception:
+            continue
+    _HIST_CACHE[key] = {"ts": now, "data": converted}
+    return {"candles": converted, "cached": False}
+
+
+def _register_api_route():
+    """Start a lightweight HTTP server on _API_PORT for /api/bn_history.
+
+    Streamlit runs on port 8501 by default but its internal Tornado server
+    is hard to hook into reliably across versions.  Instead we spin up our
+    own plain HTTP server on a dedicated side-port (8502) inside the same
+    Python process.  chart.html auto-detects the port at runtime.
+    """
+    global _HIST_ENDPOINT_REGISTERED
+    with _HIST_ENDPOINT_LOCK:
+        if _HIST_ENDPOINT_REGISTERED:
+            return
+        _HIST_ENDPOINT_REGISTERED = True   # set before thread starts — idempotent
+
+    def _server_loop():
+        import http.server, urllib.parse as _up
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass  # suppress stdout noise
+
+            def do_GET(self):
+                parsed = _up.urlparse(self.path)
+
+                # ── Fast tick endpoint — chart.html polls this directly every
+                # ~300ms instead of waiting on Streamlit's 1s fragment rerun +
+                # postMessage relay (which was the main source of 2-3s lag). ──
+                if parsed.path == "/api/bn_tick":
+                    payload = _get_live_payload()
+                    body = json.dumps(payload if payload is not None else {}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                if parsed.path != "/api/bn_history":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+
+                qs = _up.parse_qs(parsed.query, keep_blank_values=False)
+                def _q(k, d=""): return qs.get(k, [d])[0]
+
+                resolution = _q("resolution", "1")
+                from_date  = _q("from", "")
+                to_date    = _q("to", "")
+                days_str   = _q("days", "10")
+
+                if not from_date:
+                    try:
+                        days = int(days_str)
+                    except ValueError:
+                        days = 10
+                    today_ist = _ist_now()
+                    to_date   = today_ist.strftime("%Y-%m-%d")
+                    from_date = (today_ist - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+
+                creds = load_creds()
+                if not creds.get("access_token"):
+                    body = b'{"error":"not_authenticated"}'
+                    self.send_response(401)
+                else:
+                    result = _bn_history_handler_data(resolution, from_date, to_date)
+                    body   = json.dumps(result).encode()
+                    self.send_response(200)
+
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        # Try ports 8502..8510 — pick whichever is free
+        import socketserver
+        for port in range(8502, 8511):
+            try:
+                srv = socketserver.ThreadingTCPServer(("0.0.0.0", port), _Handler)
+                srv.daemon_threads = True
+                # Write chosen port to a file so chart.html JS can read it via Streamlit component
+                try:
+                    with open(".api_port", "w") as _f:
+                        _f.write(str(port))
+                except Exception:
+                    pass
+                srv.serve_forever()
+                break
+            except OSError:
+                continue   # port in use, try next
+
+    threading.Thread(target=_server_loop, name="BNHistoryAPI", daemon=True).start()
 
 # ─── ZIP export ───────────────────────────────────────────────────────────────
 def _make_zip() -> bytes:
@@ -1195,6 +1346,16 @@ def _build_chart_html(
     html = html.replace("__FYERS_STATUS__", status)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
+
+    # ── Inject side-API port so chart.html knows which port to call ──────────
+    _api_port = 0
+    try:
+        if os.path.exists(".api_port"):
+            with open(".api_port") as _pf:
+                _api_port = int(_pf.read().strip())
+    except Exception:
+        _api_port = 0
+    html = html.replace("__API_PORT__", str(_api_port))
 
     # ── Startup mein last known BN tick inject karo (polling se pehle) ──────
     tick = None
