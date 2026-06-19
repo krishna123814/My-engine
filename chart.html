@@ -7027,6 +7027,10 @@ window.addEventListener('resize', () => {
 
 let swingCanvas = null, swingCtx = null;
 let _swingLines = [];
+// Native (real-plot) SR line-series refs for BankNifty main chart — populated
+// only when S.asset === BN_ASSET. BTC keeps using the canvas-overlay system
+// untouched (swingCanvas/swingDraw).
+let _bnMainSrSeries = [];
 const SWING_STATE = { visible: true };
 
 // ── S/R line width (user-configurable, persisted) ────────────────────────
@@ -7380,13 +7384,34 @@ function swingCompute(bars, tfMin) {
 
   if (!bars || bars.length < 2) return [];
 
-  const periodSec = (tfMin || 1) * 60;
+  const _defaultPeriodSec = (tfMin || 1) * 60;
   const WIN  = 300;
   // Exclude the last (still-running) candle — only fully closed candles used.
   // But if the market is closed, the last candle is ALSO closed (final),
   // so include it too — both Swing H/L and Candle H/L rules use this same data.
   const raw  = bars.length > WIN ? bars.slice(-WIN) : bars.slice();
-  const data = (raw.length > 1 && _isMarketOpen()) ? raw.slice(0, -1) : raw;
+  // Multi-day TF (3D/9D/27D): last bar tab tak forming candle hai jab tak
+  // uske baad N trading days poori na ho jayein. Isliye market open/close
+  // se nahi, balki ek simple rule se judge karo:
+  // "Kya abhi hum us bar ki time-window ke andar hain?"
+  // resampleWorkingDays mein chunk[0].time = bar ki start date hoti hai.
+  // Agar current IST time uss window ke andar hai → still forming → exclude.
+  const _isLastBarForming = (() => {
+    if (!raw.length || raw.length < 2) return false;
+    const last = raw[raw.length - 1];
+    const prev = raw[raw.length - 2];
+    const nDays = tfMin > 1440 ? Math.round(tfMin / 1440) : 0;
+    if (nDays >= 2) {
+      // Last bar ki expected end = last.time + nDays * 86400 (approx, trading days)
+      // Simple check: agar current IST time last bar ke start aur prev bar ke
+      // gap-based expected-end ke beech hai → forming
+      const barDuration = last.time - prev.time; // actual measured duration
+      const nowSec = Math.floor(Date.now() / 1000);
+      return nowSec < (last.time + barDuration);
+    }
+    return _isMarketOpen(); // intraday/daily: existing logic
+  })();
+  const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
 
   let aRes     = [];  // swing highs  { price, startTime, kind:'sh' }
   let aSup     = [];  // swing lows   { price, startTime, kind:'sl' }
@@ -7410,6 +7435,9 @@ function swingCompute(bars, tfMin) {
 
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
+    // Actual candle duration from real data — fixes synthetic TFs like 135m
+    // where tfMin*60 may not match actual candle boundaries after resampling
+    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
     const isSessionGap = tfMin < 1440 && i >= 1 &&
@@ -7459,12 +7487,22 @@ function swingCompute(bars, tfMin) {
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
-    chLines.push({ price: cur.high, startTime: cur.time,
-                   endTime: cur.time + 2 * periodSec,
-                   creationIndex: i, kind: 'ch', periodSec });
-    clLines.push({ price: cur.low,  startTime: cur.time,
-                   endTime: cur.time + 2 * periodSec,
-                   creationIndex: i, kind: 'cl', periodSec });
+    // Agar candle high/low price kisi active swing H/L ki price se match kare
+    // toh candle H/L line push mat karo — swing line already wahan hai
+    const _activeSwingPrices = new Set([
+      ...aRes.map(l => l.price),
+      ...aSup.map(l => l.price)
+    ]);
+    if (!_activeSwingPrices.has(cur.high)) {
+      chLines.push({ price: cur.high, startTime: cur.time,
+                     endTime: cur.time + 2 * periodSec,
+                     creationIndex: i, kind: 'ch', periodSec });
+    }
+    if (!_activeSwingPrices.has(cur.low)) {
+      clLines.push({ price: cur.low,  startTime: cur.time,
+                     endTime: cur.time + 2 * periodSec,
+                     creationIndex: i, kind: 'cl', periodSec });
+    }
 
     // DO NOT USE shift() here! We must not delete surviving lines artificially.
 
@@ -7532,6 +7570,54 @@ function swingRemoveCanvas() {
   if (swingCanvas) { swingCanvas.remove(); swingCanvas = null; swingCtx = null; }
 }
 
+// ── BankNifty-only: REAL native plotting (no overlay canvas) ───────────────
+// Har SR line ko ek asli chart line-series ke roop mein plot karte hain
+// (bilkul jaise TradingView par manual trendline draw karne par hota hai) —
+// sirf do data-points (start, end) diye jaate hain, aur uske baad chart
+// engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
+// render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
+// isliye coordinate-limit ka sawaal hi nahi aata.
+function _bnBuildSRNative(chartObj, lines) {
+  const created = [];
+  if (!chartObj || !lines) return created;
+  for (const ln of lines) {
+    try {
+      const s = chartObj.addLineSeries({
+        color: ln.color,
+        lineWidth: SWING_LINE_WIDTH,
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        // Ye line kabhi bhi price-axis (vertical) ke auto-scale calculation
+        // mein shaamil nahi hogi — sirf asli candle-series hi vertical
+        // scale decide karegi. Isse "squeeze" bilkul nahi ho sakta, chahe
+        // line ki value kuch bhi ho.
+        autoscaleInfoProvider: () => null,
+      });
+      // Infinite (Swing High/Low) lines ke "right edge tak" wale visual ke
+      // liye end-point — line ke apne hi timeframe (levelTf) ke hisaab se,
+      // fixed bar-count (300 bars) jitna aage. Ye current chart ke
+      // visible-range/timing par depend NAHI karta (jo TF-switch ke turant
+      // baad abhi settle nahi hua hota) — isliye result hamesha stable aur
+      // deterministic hai, kabhi bhi balloon/squeeze nahi karega.
+      const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 300) : ln.endTime;
+      s.setData([
+        { time: ln.startTime, value: ln.price },
+        { time: endT,         value: ln.price },
+      ]);
+      created.push(s);
+    } catch (_) {}
+  }
+  return created;
+}
+function _bnClearSRNative(chartObj, arr) {
+  if (chartObj && arr && arr.length) {
+    for (const s of arr) { try { chartObj.removeSeries(s); } catch (_) {} }
+  }
+  return [];
+}
+
 function swingDraw() {
   if (!swingCtx || !swingCanvas) return;
   const _dpr = window.devicePixelRatio || 1;
@@ -7581,10 +7667,12 @@ function swingDraw() {
     }
     if (xS == null || xE <= xS) continue;
 
+    const _xEclip = Math.min(xE, _cssW - 65); // clip before price scale (65px)
+    if (_xEclip <= xS) continue;
     swingCtx.save();
     swingCtx.beginPath();
     swingCtx.moveTo(xS, y);
-    swingCtx.lineTo(xE, y);
+    swingCtx.lineTo(_xEclip, y);
     swingCtx.strokeStyle = ln.color;
     swingCtx.lineWidth   = SWING_LINE_WIDTH;
     swingCtx.globalAlpha = 1.0;
@@ -7657,17 +7745,27 @@ function swingComputeMultiTF(asset, currentTf) {
     }
   }
 
-  // ── No same-price dedup ───────────────────────────────────────────────
-  // PREVIOUSLY: agar multiple timeframes ka SR level exact same price par
-  // tha, to sirf sabse bade (highest) levelTf wali line rakhi jaati thi,
-  // baki same-price wali chhoti TF lines hide ho jaati thi.
-  // ISSUE: 1D/3D/9D/27D ke highs/lows ek-doosre se exact derive hote hain
-  // (27D high = max of 9D highs = max of 3D highs = max of 1D highs), to
-  // ye TFs minute charts (135m/45m/15m/5m) par bahut baar same price par
-  // collide karte the — sirf 1 line (sabse badi TF) bachti thi, baki
-  // discard ho jaati thi. Ab sab TFs ki lines independently return hoti
-  // hain, chahe price match kyun na ho.
-  return allLines;
+  // Step 1: Swing dedup — exact same price → highest TF rakho
+  const _swingByPrice = new Map();
+  // Step 2: Candle dedup — exact same price → latest startTime rakho
+  const _candleByPrice = new Map();
+  for (const line of allLines) {
+    if (line.isInfinite) {
+      const ex = _swingByPrice.get(line.price);
+      if (!ex || line.levelTf > ex.levelTf)
+        _swingByPrice.set(line.price, line);
+    } else {
+      const ex = _candleByPrice.get(line.price);
+      if (!ex || line.startTime > ex.startTime)
+        _candleByPrice.set(line.price, line);
+    }
+  }
+  // Step 3: Agar same price par candle H/L bhi hai aur swing bhi —
+  // candle H/L rakho, swing delete karo
+  for (const price of _candleByPrice.keys()) {
+    _swingByPrice.delete(price);
+  }
+  return [...Array.from(_swingByPrice.values()), ...Array.from(_candleByPrice.values())];
 }
 
 function initSwingIndicator() {
@@ -7680,9 +7778,14 @@ function initSwingIndicator() {
     applySwingPreset(preset, true);
   }
   _swingLines = swingComputeMultiTF(S.asset, S.tf);
-  swingInitCanvas();
-  swingSubscribeChart();
-  swingDraw();
+
+  // Real native plot (chart's own line-series, jaise TradingView manual
+  // trendline) — ab har asset (BankNifty + BTC) ke liye, koi overlay canvas
+  // nahi. Coordinate-limit ka koi sawaal hi nahi, kyunki chart engine khud
+  // render/reposition karta hai.
+  swingRemoveCanvas();
+  _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
+  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines);
 }
 
 function buildCellSwing(idx) {
@@ -7690,96 +7793,19 @@ function buildCellSwing(idx) {
   const el = document.getElementById('cell-chart-' + idx);
   if (!c || !c.chart || !c.series || !el) return;
 
-  // Remove old canvas for this cell
+  // Remove old canvas for this cell (BTC path)
   if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} }
   c.swing = null;
+  // Remove old native series for this cell (BankNifty path)
+  c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
 
   if (!SWING_STATE.visible) return;
 
   const lines = swingComputeMultiTF(c.asset, c.tf);
 
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:5';
-  el.appendChild(canvas);
-  { const _d=window.devicePixelRatio||1;
-    canvas.width=el.clientWidth*_d; canvas.height=el.clientHeight*_d;
-    canvas.style.width=el.clientWidth+'px'; canvas.style.height=el.clientHeight+'px'; }
-  const ctx = canvas.getContext('2d');
-
-  const draw = () => {
-    if (!ctx || !canvas || !SWING_STATE.visible || !c.chart || !c.series) {
-      if (ctx) { ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); }
-      return;
-    }
-    // Auto-resize canvas with DPR awareness
-    const _dpr = window.devicePixelRatio || 1;
-    const _cw = el.clientWidth * _dpr, _ch = el.clientHeight * _dpr;
-    if (canvas.width !== _cw || canvas.height !== _ch) {
-      canvas.width  = _cw; canvas.height = _ch;
-      canvas.style.width  = el.clientWidth  + 'px';
-      canvas.style.height = el.clientHeight + 'px';
-    }
-    const _cssW = canvas.width / _dpr, _cssH = canvas.height / _dpr;
-    ctx.setTransform(1,0,0,1,0,0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(_dpr,0,0,_dpr,0,0);
-    for (const ln of lines) {
-      const y = c.series.priceToCoordinate(ln.price);
-      if (y == null || y < 0 || y > _cssH) continue;
-      const x0 = c.chart.timeScale().timeToCoordinate(ln.startTime);
-      const xS = ln.isInfinite ? (x0 == null || x0 < 0 ? 0 : x0) : x0;
-
-      let xE;
-      if (ln.isInfinite) {
-        xE = _cssW;
-      } else {
-        xE = c.chart.timeScale().timeToCoordinate(ln.endTime);
-        if (xE == null || xE < 0) {
-          const durationSec = ln.endTime - ln.startTime;
-          const xR1 = c.chart.timeScale().timeToCoordinate(ln.startTime);
-          const xR2 = c.chart.timeScale().timeToCoordinate(ln.startTime - ln.periodSec);
-          if (xR1 != null && xR2 != null) {
-            const pxPerSec = Math.abs(xR1 - xR2) / ln.periodSec;
-            xE = xS + pxPerSec * durationSec;
-          } else {
-            const visRange = c.chart.timeScale().getVisibleRange();
-            if (visRange) {
-              const totalSec = visRange.to - visRange.from;
-              const pxPerSec = _cssW / totalSec;
-              xE = xS + pxPerSec * durationSec;
-            } else {
-              xE = xS + 40;
-            }
-          }
-        }
-      }
-      if (xS == null || xE <= xS) continue;
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(xS, y);
-      ctx.lineTo(xE, y);
-      ctx.strokeStyle = ln.color;
-      ctx.lineWidth   = SWING_LINE_WIDTH;
-      ctx.globalAlpha = 1.0;
-      ctx.setLineDash([]);
-      ctx.stroke();
-      ctx.restore();
-    }
-  };
-
-  c.swing = { canvas, ctx, lines, draw };
-
-  c.chart.timeScale().subscribeVisibleLogicalRangeChange(draw);
-  // RAF-throttle swing draw on crosshair move in grid cell
-  let _csRAF = null;
-  c.chart.subscribeCrosshairMove(() => {
-    if (_csRAF) return;
-    _csRAF = requestAnimationFrame(() => { _csRAF = null; draw(); });
-  });
-  try { c.series.priceScale().subscribeVisiblePriceRangeChange(draw); } catch(_) {}
-
-  draw();
+  // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
+  // canvas nahi, koi coordinate-limit ka sawaal nahi.
+  c.srSeries = _bnBuildSRNative(c.chart, lines);
 }
 
 function swingAfterRebuild() {
@@ -7860,21 +7886,41 @@ function _btc2ComputeMultiTF(asset, currentTf) {
       allLines.push(...htfLines.filter(l=>currentTf<=l.levelTf));
     }
   }
-  // Same-price dedup: exact same price par jo bhi TFs ka level ho,
-  // sirf sabse bade levelTf wali line rakho.
-  const byPrice = new Map();
+  // Swing dedup — exact same price → highest TF rakho
+  // Candle dedup — exact same price → latest startTime rakho
+  const _btcSwingByPrice  = new Map();
+  const _btcCandleByPrice = new Map();
   for (const line of allLines) {
-    const existing = byPrice.get(line.price);
-    if (!existing || line.levelTf > existing.levelTf) byPrice.set(line.price, line);
+    if (line.isInfinite) {
+      const ex = _btcSwingByPrice.get(line.price);
+      if (!ex || line.levelTf > ex.levelTf)
+        _btcSwingByPrice.set(line.price, line);
+    } else {
+      const ex = _btcCandleByPrice.get(line.price);
+      if (!ex || line.startTime > ex.startTime)
+        _btcCandleByPrice.set(line.price, line);
+    }
   }
-  return Array.from(byPrice.values());
+  // Agar same price par candle H/L bhi hai aur swing bhi —
+  // candle H/L rakho, swing delete karo
+  for (const price of _btcCandleByPrice.keys()) {
+    _btcSwingByPrice.delete(price);
+  }
+  return [...Array.from(_btcSwingByPrice.values()), ...Array.from(_btcCandleByPrice.values())];
 }
 function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
   if(!bars||bars.length<2) return [];
   const periodSec=(tfMin||1)*60;
   const WIN=300;
   const raw=bars.length>WIN?bars.slice(-WIN):bars.slice();
-  const data=(raw.length>1 && _isMarketOpen())?raw.slice(0,-1):raw;
+  const _isLastBarForming2=(()=>{
+    if(!raw.length||raw.length<2) return false;
+    const last=raw[raw.length-1]; const prev=raw[raw.length-2];
+    const nDays=tfMin>1440?Math.round(tfMin/1440):0;
+    if(nDays>=2){ const bd=last.time-prev.time; const nowSec=Math.floor(Date.now()/1000); return nowSec<(last.time+bd); }
+    return _isMarketOpen();
+  })();
+  const data=(raw.length>1&&_isLastBarForming2)?raw.slice(0,-1):raw;
   let aRes=[],aSup=[],chLines=[],clLines=[];
   let pGreen=false,pRed=false,pHigh=0,pLow=0;
   for(let i=0;i<data.length;i++){
@@ -7901,8 +7947,10 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
       aSup=aSup.filter(l=>l.price>=sPrice); aRes=aRes.filter(l=>l.price>=sPrice);
       aSup.push({price:sPrice,startTime:sTime,kind:'sl'});
     }
-    chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'ch',periodSec});
-    clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'cl',periodSec});
+    // Agar candle high/low price kisi active swing H/L se match kare → push mat karo
+    const _btcSwingPrices=new Set([...aRes.map(l=>l.price),...aSup.map(l=>l.price)]);
+    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'ch',periodSec});}
+    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'cl',periodSec});}
     pGreen=curGreen; pRed=curRed; pHigh=cur.high; pLow=cur.low;
   }
   const out=[];
@@ -7972,8 +8020,9 @@ function btc2Draw(){
         }
       }
     }
-    if(xS==null||xE<=xS) continue;
-    btc2Ctx.save(); btc2Ctx.beginPath(); btc2Ctx.moveTo(xS,y); btc2Ctx.lineTo(xE,y);
+    const _xEclip3=Math.min(xE,_cssW-65); // clip before price scale
+    if(xS==null||_xEclip3<=xS) continue;
+    btc2Ctx.save(); btc2Ctx.beginPath(); btc2Ctx.moveTo(xS,y); btc2Ctx.lineTo(_xEclip3,y);
     btc2Ctx.strokeStyle=ln.color; btc2Ctx.lineWidth=BTC2_LINE_WIDTH;
     btc2Ctx.globalAlpha=1.0; btc2Ctx.setLineDash([]); btc2Ctx.stroke(); btc2Ctx.restore();
   }
@@ -8035,8 +8084,9 @@ function buildCellBtc2(idx){
           }
         }
       }
-      if(xS==null||xE<=xS) continue;
-      ctx.save();ctx.beginPath();ctx.moveTo(xS,y);ctx.lineTo(xE,y);ctx.strokeStyle=ln.color;ctx.lineWidth=BTC2_LINE_WIDTH;ctx.globalAlpha=1.0;ctx.setLineDash([]);ctx.stroke();ctx.restore();
+      const _xEclip4=Math.min(xE,_cssW-65); // clip before price scale
+      if(xS==null||_xEclip4<=xS) continue;
+      ctx.save();ctx.beginPath();ctx.moveTo(xS,y);ctx.lineTo(_xEclip4,y);ctx.strokeStyle=ln.color;ctx.lineWidth=BTC2_LINE_WIDTH;ctx.globalAlpha=1.0;ctx.setLineDash([]);ctx.stroke();ctx.restore();
     }
   };
   c.btc2={canvas,ctx,lines,draw};
@@ -8109,8 +8159,10 @@ function onSwingToggle(cb) {
     }
   } else {
     swingRemoveCanvas();
+    _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
     CELLS.forEach(c => {
       if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} c.swing = null; }
+      c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
     });
   }
 }
