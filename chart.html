@@ -1075,6 +1075,16 @@ select.s-select{
   line-height:1;transition:color .15s;
 }
 .cell-settings-btn:hover{color:#d1d4dc;background:#2a2e3966}
+/* ── Screen counter badge (e.g. 1:6) — left of settings icon ─── */
+.cell-screen-badge{
+  position:absolute;top:3px;right:19px;z-index:20;
+  width:14px;height:14px;border-radius:2px;
+  background:transparent;border:none;
+  color:#555;font-size:7px;cursor:default;
+  display:flex;align-items:center;justify-content:center;
+  line-height:1;font-weight:600;letter-spacing:-0.3px;
+  pointer-events:none;white-space:nowrap;
+}
 .cell-settings-panel{
   display:none;position:fixed;z-index:10000;
   background:#1e222d;border:1px solid #363c4e;border-radius:6px;
@@ -2383,6 +2393,7 @@ function fmtChartTime(t) {
 // ════════════════════════════════════════════════════════════════════════════
 const _STATE_KEY = 'btcDashState2';
 let _savedCells  = null;
+let _savedCellsLayout = null;   // which layout _savedCells was saved under ('stack', '4-grid', '1x1', etc.) — see buildStack()
 
 function saveState() {
   try {
@@ -3330,8 +3341,15 @@ function buildStack() {
   const sc = document.getElementById('stack-container');
   sc.innerHTML = '';
 
-  // Resolve each slot's TF + asset, in priority order:
-  //  1) _savedCells   — page-load restore buffer (last actual state before close)
+  // Resolve each slot's TF + asset, in priority order for TF only:
+  //  1) _savedCells   — page-load restore buffer (last actual state before
+  //                     close), but ONLY if that saved state was itself
+  //                     Stack View for this SAME symbol. Otherwise it could
+  //                     be a leftover grid-mode session (often all same TF,
+  //                     e.g. all "1D") or a different symbol's stack —
+  //                     using it here was the cause of every slot showing
+  //                     the same timeframe instead of each slot's own
+  //                     Settings default.
   //  2) _liveSnapshot — this symbol's own charts as they were a moment ago
   //                     (e.g. Settings "Done" was just pressed — existing
   //                     slots keep whatever TF the user last actually set)
@@ -3339,27 +3357,42 @@ function buildStack() {
   //     existed before (newly added by raising "Total screens")
   // This matches the confirmed rule: manually-set TFs persist; Settings
   // defaults only ever apply to brand-new slots.
-  const priorSource = (_savedCells && _savedCells.length) ? _savedCells : _liveSnapshot;
+  //
+  // Asset is NOT taken from priorSource — every stack slot always shows
+  // the CURRENT global S.asset (all stack charts share one symbol, only
+  // their timeframes differ; S.asset itself is force-reset to BankNifty
+  // on every reload, see the DOMContentLoaded restore flow). Using a
+  // per-slot saved asset here was the cause of the symbol-label vs
+  // candle-data mismatch after reload.
+  const _savedWasThisStackSymbol =
+    _savedCells && _savedCells.length &&
+    _savedCellsLayout === 'stack' &&
+    _savedCells.every(c => !c || !c.asset || c.asset === S.asset);
+  const priorSource = _savedWasThisStackSymbol ? _savedCells : _liveSnapshot;
   const tfMins = [];
   const assets = [];
   for (let i = 0; i < total; i++) {
+    // prior slot only use karo agar woh isi symbol ka tha —
+    // dusre symbol ka _liveSnapshot BTC→BN ya BN→BTC switch par
+    // galat TFs inject karta tha (e.g. BN ke 8 slots BTC ke 6 slots mein).
     const prior = priorSource && priorSource[i];
-    if (prior && typeof prior.tf === 'number') {
+    const priorMatchesAsset = prior && (!prior.asset || prior.asset === S.asset);
+    assets.push(S.asset);
+    if (priorMatchesAsset && typeof prior.tf === 'number') {
       tfMins.push(prior.tf);
-      assets.push((prior.asset && ASSET_NAMES.includes(prior.asset)) ? prior.asset : S.asset);
     } else {
       const raw = (cfg.tfs && cfg.tfs[i]) || '';
       const parsed = parseTfStr(raw);
       tfMins.push(parsed || 1440);
-      assets.push(S.asset);
     }
   }
 
   for (let i = 0; i < total; i++) {
     const prior = priorSource && priorSource[i];
+    const priorOk = prior && (!prior.asset || prior.asset === S.asset);
     const cellObj = {
       asset: assets[i], tf: tfMins[i], chart:null, series:null, el:null,
-      vLine: (prior && prior.vLine) ? { ...prior.vLine } : null,
+      vLine: (priorOk && prior.vLine) ? { ...prior.vLine } : null,
     };
     STACK_CELLS.push(cellObj);
     CELLS.push(cellObj);   // buildCellChart/wireSync/selectCell all key off CELLS[idx]
@@ -3385,6 +3418,12 @@ function buildStack() {
     csetBtn.textContent = '⚙';
     csetBtn.onclick = function(e){ _openCellSettings(i, csetBtn); e.stopPropagation(); };
     cell.appendChild(csetBtn);
+
+    // Screen counter badge: "1:6", "2:6" etc. — left of settings icon
+    const screenBadge = document.createElement('span');
+    screenBadge.className = 'cell-screen-badge';
+    screenBadge.textContent = (i + 1) + ':' + total;
+    cell.appendChild(screenBadge);
 
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
@@ -5034,7 +5073,7 @@ function _parseAreas(areas) {
   return {rows, cols, names, tmpl, n:names.length};
 }
 
-function _cellTfLabel(tf){ const t=CELL_TFS.find(x=>x.tf===tf); return t?t.label:(tf+'m'); }
+function _cellTfLabel(tf){ const t=CELL_TFS.find(x=>x.tf===tf); return t?t.label:tfMinToLabel(tf); }
 function _cellAssetShort(a){ return a===BN_ASSET?'\ud83d\udcca BN':'\u20bf BTC'; }
 function refreshCellHeaders(){
   CELLS.forEach((c,i)=>{
@@ -5305,6 +5344,12 @@ function buildGrid(key) {
     csetBtn.textContent='⚙';
     csetBtn.onclick=function(e){ _openCellSettings(i, csetBtn); e.stopPropagation(); };
     cell.appendChild(csetBtn);
+
+    // Screen counter badge: "1:4", "2:4" etc. — left of settings icon
+    const screenBadge=document.createElement('span');
+    screenBadge.className='cell-screen-badge';
+    screenBadge.textContent=(i+1)+':'+(cellDefs.length);
+    cell.appendChild(screenBadge);
 
     // Overlay — symbol + price shown inside chart top-left
     const overlay=document.createElement('div');
@@ -6544,6 +6589,19 @@ function switchAsset(name) {
     rebuildChart();
     if (name === BTC_ASSET) _loadBTCHistory(S.tf);
     else if (name === BN_ASSET) _loadBNHistory(S.tf);
+  } else if (S.layout === 'stack') {
+    // Stack View: switching symbol means a DIFFERENT screen-count and TF
+    // set entirely (BTC: 6 screens, BankNifty: 8 screens, each with its
+    // own default TFs) — so rebuild the whole stack from Settings for the
+    // new symbol, rather than patching the existing CELLS in place (which
+    // would keep the old symbol's screen-count and TFs).
+    _savedCells = null; _savedCellsLayout = null;   // don't let old-symbol saved state leak in
+    buildStack();
+    setTimeout(_startCellTimers, 200);
+    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+    if (name === BTC_ASSET) {
+      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
+    }
   } else {
     CELLS.forEach(c => c.asset = name);
     CELLS.forEach((_, i) => buildCellChart(i));
@@ -7707,7 +7765,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof st.grid     ==='boolean') S.grid=st.grid;
       if (st.vLine && typeof st.vLine.offset==='number') Object.assign(S.vLine, st.vLine);
       S.chartType='candle';   // always candle; type switcher removed
-      if (Array.isArray(st.cells)&&st.cells.length) _savedCells=st.cells;
+      if (Array.isArray(st.cells)&&st.cells.length) { _savedCells=st.cells; _savedCellsLayout = st.layout||'1x1'; }
       _applyRestoredUI(st);
       // Migrate legacy layout keys (pre-grid-template-areas) to the nearest new one
       const _LEGACY={'2x1':'2-cols','1x2':'2-rows','2x2':'4-grid','3x2':'6-3x2',
@@ -7735,6 +7793,7 @@ document.addEventListener('DOMContentLoaded', () => {
         _savedCells = slotToLoad.cells && slotToLoad.cells.length ? slotToLoad.cells : _savedCells;
         let slotLayout = slotToLoad.layout || layout;
         if (_LEGACY[slotLayout]) slotLayout = _LEGACY[slotLayout];
+        if (slotToLoad.cells && slotToLoad.cells.length) _savedCellsLayout = slotLayout;
         layout = slotLayout;
       }
 
@@ -7750,6 +7809,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setLayout('1x1',null);
       }
       _savedCells=null;
+      _savedCellsLayout=null;
     } else {
       // First-time user, no saved state at all — Stack View is ON by default.
       if (_stackOnOff) selectStackView();
