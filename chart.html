@@ -5348,7 +5348,7 @@ function buildGrid(key) {
     // Screen counter badge: "1:4", "2:4" etc. — left of settings icon
     const screenBadge=document.createElement('span');
     screenBadge.className='cell-screen-badge';
-    screenBadge.textContent=(i+1)+':'+(cellDefs.length);
+    screenBadge.textContent=(i+1)+':'+n;
     cell.appendChild(screenBadge);
 
     // Overlay — symbol + price shown inside chart top-left
@@ -8465,16 +8465,17 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines) {
+function _bnBuildSRNative(chartObj, lines, _preRange) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
-  // TimeScale range pehle save karo — SR series add karte waqt lightweight-charts
-  // apne-aap timeScale ko "fit" kar leta hai taaki 300-bar future wale data points
-  // bhi visible rahein. Isse asli candles left mein screen se bahar chali jaati hain.
-  // Fix: series add karne se pehle range save karo, baad mein wapas restore karo.
-  let _savedRange = null;
-  try { _savedRange = chartObj.timeScale().getVisibleLogicalRange(); } catch(_) {}
+  // TimeScale range pehle save karo — agar caller ne pehle se save karke bheja hai
+  // toh woh use karo (is case mein chart clear ho chuka tha toh internal get null deta).
+  // Agar nahi bheja toh ab try karo.
+  let _savedRange = _preRange || null;
+  if (!_savedRange) {
+    try { _savedRange = chartObj.timeScale().getVisibleLogicalRange(); } catch(_) {}
+  }
 
   for (const ln of lines) {
     try {
@@ -8678,14 +8679,21 @@ function initSwingIndicator() {
   // nahi. Coordinate-limit ka koi sawaal hi nahi, kyunki chart engine khud
   // render/reposition karta hai.
   swingRemoveCanvas();
+  let _mainPreRange = null;
+  try { _mainPreRange = chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
   _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
-  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines);
+  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange);
 }
 
 function buildCellSwing(idx) {
   const c  = CELLS[idx];
   const el = document.getElementById('cell-chart-' + idx);
   if (!c || !c.chart || !c.series || !el) return;
+
+  // Range PEHLE save karo — clear karne se pehle, warna chart khali
+  // hone par getVisibleLogicalRange() null deta hai aur scrollToRealTime() fire hota hai
+  let _preRange = null;
+  try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
 
   // Remove old canvas for this cell (BTC path)
   if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} }
@@ -8699,7 +8707,7 @@ function buildCellSwing(idx) {
 
   // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
   // canvas nahi, koi coordinate-limit ka sawaal nahi.
-  c.srSeries = _bnBuildSRNative(c.chart, lines);
+  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange);
 }
 
 function swingAfterRebuild() {
