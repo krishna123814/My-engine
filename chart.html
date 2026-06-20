@@ -707,37 +707,34 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #stack-container{
   flex:1;display:flex;flex-direction:column;
   background:#2a2e39;overflow-y:auto;min-height:0;
-  -webkit-overflow-scrolling:touch;
-  scroll-behavior:smooth;
+  touch-action:none;   /* no touch gesture scrolls this — only the ▲▼ buttons' animated scroll does */
 }
 .stack-cell{
   flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
   position:relative;
   display:flex;flex-direction:column;
 }
-/* The chart/candle area itself must NEVER scroll the outer stack —
-   only pan/zoom inside the chart. touch-action:none (already set on
-   .cell-chart) keeps the browser from treating it as a scroll surface;
-   we additionally stop propagation in JS for safety (see _stackWireScrollZones). */
-.stack-cell .cell-chart{ touch-action:none; }
-
-/* Top trigger strip — reuses the existing symbol/TF/letter overlay line,
-   just makes it touch-capturing instead of pass-through, and tall enough
-   to comfortably catch a finger (min 32px tap zone per mobile-first rules). */
+/* The candle/grid area itself must NEVER trigger a page/stack scroll —
+   that's handled by #stack-container's own touch-action:none (its parent),
+   which blocks the browser's scroll-gesture recognition without touching
+   this element. We deliberately do NOT set touch-action:none here, because
+   that would also interfere with the chart library's own pan/zoom touch
+   handling inside the candle area, making drag/pinch-zoom feel jerky. */
+/* Top strip — reuses the existing symbol/TF/letter overlay line.
+   Purely visual now: pointer-events:none so touches pass straight through
+   to the chart underneath (no more touch capture / drag-to-scroll here). */
 .stack-cell .cell-overlay{
-  pointer-events:auto;
-  touch-action:none;
+  pointer-events:none;
   min-height:28px;
-  cursor:grab;
 }
 .stack-cell .cell-overlay > *{ pointer-events:none; } /* children stay visual-only */
 
-/* Right price-scale trigger strip — transparent strip pinned to the right
-   edge of the chart, sized to roughly match the library's own price-scale
-   width, sitting above the chart canvas to intercept drag for stack-scroll. */
+/* Right price-scale strip — purely visual marker now (no touch capture).
+   pointer-events:none lets all chart pan/zoom/price-scale-drag gestures
+   pass straight through to the chart canvas underneath. */
 .stack-pricescale-zone{
   position:absolute; top:0; right:0; bottom:0; width:58px;
-  z-index:15; touch-action:none; cursor:grab;
+  z-index:15; pointer-events:none;
   /* background:rgba(255,0,0,.15);  ← uncomment while debugging zone bounds */
 }
 
@@ -750,7 +747,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .cell-price{display:none}
 .cell-chg{display:none}
 .grid-cell.cell-selected{outline:2px solid #2962ff;outline-offset:-1px}
-.cell-chart{flex:1;min-height:0;touch-action:none;position:relative;will-change:transform;transform:translateZ(0)}
+.cell-chart{flex:1;min-height:0;touch-action:manipulation;overflow:hidden;position:relative;will-change:transform;transform:translateZ(0)}
 
 /* ── In-chart overlay (replaces removed header bar) ─────────────── */
 .cell-overlay{
@@ -1028,6 +1025,7 @@ select.s-select{
   background:transparent;border:1px solid #2a2e39;border-radius:3px;
   color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
 }
 #stack-up-btn:active,#stack-down-btn:active{background:#2a2e39;color:#fff}
 
@@ -3447,10 +3445,10 @@ function buildStack() {
       wireSync(); saveState(); e.stopPropagation();
     });
 
-    // Top overlay + right price-scale strip still drag-scroll, as before.
-    // Up/down step jump is now in the global bottom toolbar, not per-cell.
-    _stackWireDragZone(overlay, sc);
-    _stackWireDragZone(priceZone, sc);
+    // Top overlay + right price-scale strip are now purely visual (symbol/
+    // price display) — they no longer capture touch. Up/down step jump is
+    // handled exclusively by the global bottom toolbar buttons, so chart
+    // panning/zooming on these zones is never hijacked.
   }
 
   requestAnimationFrame(() => selectCell(0));
@@ -3491,9 +3489,43 @@ function _stackCurrentStep(containerEl) {
   return Math.max(1, cfg.step || 1);
 }
 
+// Custom smooth-scroll animation. The browser's built-in
+// scrollTo({behavior:'smooth'}) relies on native, hardware-accelerated
+// scrolling — but #stack-container has touch-action:none (so no finger
+// gesture can scroll it), and on many mobile browsers that also makes the
+// native smooth-scroll animation itself feel janky/stepped, since it's no
+// longer running on the same compositor path as touch-driven scrolling.
+// Driving it manually via requestAnimationFrame with an easing curve gives
+// consistently smooth motion regardless of that.
+let _stackScrollAnim = null;   // current in-flight animation, so a new tap can cancel/replace it
+
+function _stackEaseOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function _stackAnimateScrollTo(containerEl, targetTop, durationMs) {
+  if (_stackScrollAnim) { cancelAnimationFrame(_stackScrollAnim.raf); _stackScrollAnim = null; }
+  const startTop = containerEl.scrollTop;
+  const delta = targetTop - startTop;
+  if (Math.abs(delta) < 0.5) { containerEl.scrollTop = targetTop; return; }
+  const startTime = performance.now();
+  const anim = { raf: 0 };
+  const step = (now) => {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / durationMs);
+    containerEl.scrollTop = startTop + delta * _stackEaseOutCubic(t);
+    if (t < 1) {
+      anim.raf = requestAnimationFrame(step);
+    } else {
+      containerEl.scrollTop = targetTop;   // land exactly on target, no rounding drift
+      _stackScrollAnim = null;
+    }
+  };
+  anim.raf = requestAnimationFrame(step);
+  _stackScrollAnim = anim;
+}
+
 function _stackSnapTo(containerEl, targetTop) {
   const max = containerEl.scrollHeight - containerEl.clientHeight;
-  containerEl.scrollTo({ top: Math.max(0, Math.min(max, targetTop)), behavior: 'smooth' });
+  _stackAnimateScrollTo(containerEl, Math.max(0, Math.min(max, targetTop)), 280);
 }
 
 // Tap-button jump: moves exactly `step` charts (Stack Settings) in the given
@@ -3601,12 +3633,18 @@ function _stackWireDragZone(zoneEl, containerEl) {
   });
 }
 
-// Safety net: the candle area already has touch-action:none (set in CSS),
-// which stops the browser's native scroll gesture from starting there at
-// all. We additionally stop propagation on touchmove so no other listener
-// up the tree (e.g. a future wrapper) can reinterpret it as a stack-scroll.
+// The candle/grid area's own chart pan/zoom (dragging candles, pinch-zoom)
+// must keep working — so we do NOT intercept touchmove here with
+// preventDefault(), since that would also block the chart library's own
+// gesture handling. Instead this relies purely on the CSS touch-action:none
+// rule (see .cell-chart in <style>), which tells the browser "don't use
+// this area to scroll the page" without touching the library's own
+// pointer-event-based pan/zoom logic at all. Kept as a no-op hook in case
+// a future, more targeted fix is needed (e.g. distinguishing a vertical-only
+// drag from the library's own gesture) — currently does nothing extra.
 function _stackBlockCandleAreaScroll(chartDiv) {
-  chartDiv.addEventListener('touchmove', (e) => { e.stopPropagation(); }, { passive: true });
+  // intentionally empty — CSS touch-action:none on .cell-chart is the only
+  // mechanism in play here; see notes above.
 }
 
 
