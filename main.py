@@ -1417,76 +1417,46 @@ if sess_active or _btc_only:
     components.html(_chart_html, height=950, scrolling=False)
 
     # ── BN Live Tick → postMessage pusher ────────────────────────────────────
-    # @st.fragment se sirf yeh component rerun hoga — chart flicker nahi karega.
-    # Har 1s pe latest tick iframe ko postMessage se milega.
-    # chart.html ka _applyBNLiveTick() + resampleForTF() automatically
-    # 1m/15m/45m/135m/1d/3d/9d — sab TFs pe live candle update karta hai.
+    # ARCHITECTURE — refreshless design:
+    #
+    # chart.html mein do JS pollers pehle se chal rahe hain:
+    #   _pollBNTickFast()  → /api/bn_tick   har 300ms (side-port, in-memory)
+    #   _pollBNLive()      → bn_live.json   har 800ms (fallback)
+    # Dono _applyBNLiveTick() call karte hain — bina Streamlit se kuch maange.
+    #
+    # Isliye @st.fragment(run_every=N) ki ZAROORAT NAHI.
+    # Pehle tha run_every=1 → Streamlit har second rerun → components.html
+    # remount → layout recalculate → chart iframe 20-25s mein jerk karta tha.
+    #
+    # Fix: sirf ek baar page load pe ek tiny JS inject karo.
+    # Woh JS apna setInterval khud set karta hai (800ms).
+    # Streamlit side ZERO reruns — chart kabhi disturb nahi hoga.
     if sess_active:
-        @st.fragment(run_every=1)
-        def _bn_tick_pusher():
-            with _LAST_TICK_LOCK:
-                _tick_json = _LAST_TICK_JS["json"]
-
-            # Agar WS/REST se abhi tak tick nahi aaya to bn_live.json fallback
-            if not _tick_json and os.path.exists(BN_LIVE_FILE):
-                try:
-                    with open(BN_LIVE_FILE) as _tf:
-                        _tick_json = json.dumps(json.load(_tf))
-                except Exception:
-                    _tick_json = ""
-
-            if not _tick_json:
-                return  # koi tick nahi — kuch mat karo
-
-            # Yeh JS snippet:
-            # 1. Pehli baar: setInterval setup karta hai jo har 800ms iframe ko push karta hai
-            # 2. Baad mein: window._bnLastTick update karta hai — interval khud push kar deta hai
-            _script = f"""
+        _pusher_bootstrap = """
 <script>
-(function() {{
-  var tick = {_tick_json};
+(function() {
+  if (window._bnPusherReady) return;
+  window._bnPusherReady = true;
+  window._bnLastSentTs  = 0;
 
-  // Global tick store update karo
-  window._bnLastTick = tick;
-
-  // Pehli baar interval setup karo (duplicate safe)
-  if (!window._bnPusherReady) {{
-    window._bnPusherReady = true;
-    window._bnLastSentTs  = 0;
-
-    setInterval(function() {{
-      var t = window._bnLastTick;
-      if (!t || t.ts === window._bnLastSentTs) return;
-      var frames = window.parent.document.querySelectorAll('iframe');
-      for (var i = 0; i < frames.length; i++) {{
-        try {{
-          frames[i].contentWindow.postMessage(
-            JSON.stringify({{ type: 'bn_live', data: t }}), '*'
-          );
-        }} catch(e) {{}}
-      }}
-      window._bnLastSentTs = t.ts;
-    }}, 800);
-  }}
-
-  // Turant push karo (naya tick aaya hai)
-  if (tick.ts !== window._bnLastSentTs) {{
+  // Har 800ms: agar naya tick aaya ho to chart iframe ko push karo
+  setInterval(function() {
+    var t = window._bnLastTick;
+    if (!t || t.ts === window._bnLastSentTs) return;
     var frames = window.parent.document.querySelectorAll('iframe');
-    for (var i = 0; i < frames.length; i++) {{
-      try {{
+    for (var i = 0; i < frames.length; i++) {
+      try {
         frames[i].contentWindow.postMessage(
-          JSON.stringify({{ type: 'bn_live', data: tick }}), '*'
+          JSON.stringify({ type: 'bn_live', data: t }), '*'
         );
-      }} catch(e) {{}}
-    }}
-    window._bnLastSentTs = tick.ts;
-  }}
-}})();
+      } catch(e) {}
+    }
+    window._bnLastSentTs = t.ts;
+  }, 800);
+})();
 </script>
 """
-            components.html(_script, height=0, scrolling=False)
-
-        _bn_tick_pusher()
+        components.html(_pusher_bootstrap, height=0, scrolling=False)
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
