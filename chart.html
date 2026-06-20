@@ -5471,6 +5471,7 @@ function _resizeCellChart(idx) {
     if (c.swing.draw) c.swing.draw();
   }
   _vlResizeCellCanvas(idx); _vlDrawCell(idx);
+  _pdotResizeCellCanvas(idx); _pdotDraw(idx);
 }
 
 async function buildCellChart(idx) {
@@ -5628,6 +5629,9 @@ async function buildCellChart(idx) {
   _applyCrosshairStyle();
   _applyCrosshairAxisLabels();
   setTimeout(()=>{ buildCellSwing(idx); }, 60);
+  _pdotCreateCellCanvas(idx);
+  setTimeout(()=>{ _pdotDraw(idx); }, 80);
+  c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _pdotDraw(idx));
   if (!c.vLine) c.vLine = { ...S.vLine };
   _applyVLineColor(c.asset, c.tf, c.vLine);
   c._vlTime = data.length ? data[data.length - 1].time : null;
@@ -5640,6 +5644,7 @@ async function buildCellChart(idx) {
     _cVlRAF = requestAnimationFrame(() => {
       _cVlRAF = null;
       _vlDrawCell(idx);
+      _pdotDraw(idx);
       
       // Update main header + top-left OHLC legend with crosshair data in grid mode
       if (S.hdrOhlc && param?.seriesData?.size) {
@@ -6135,7 +6140,8 @@ function _openCellSettings(idx, btn) {
         `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">`+
           `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="CELLS[${idx}].vLine.style=this.checked?'solid':'dashed';_vlDrawCell(${idx});saveState();">`+
           `<span class="sl"></span></label></div>`;
-    })();
+    })()+
+    _pdotSettingsHTML(idx);
 
   // Smart positioning: prefer above-left of button, clamp to viewport
   document.body.appendChild(panel);
@@ -6274,6 +6280,7 @@ document.addEventListener('fullscreenchange',()=>{
       CELLS.forEach((c,i)=>{
         if(c.chart) try { c.chart.resize(c.el.clientWidth, c.el.clientHeight); } catch(_){}
         _vlResizeCellCanvas(i); _vlDrawCell(i);
+        _pdotResizeCellCanvas(i); _pdotDraw(i);
       });
     } else {
       if (chart) try { chart.resize(document.getElementById('main-chart').clientWidth, document.getElementById('main-chart').clientHeight); } catch(_) {}
@@ -6664,6 +6671,8 @@ function _applyBTCKline(k) {
       }, 300);
     }
     _btcBucket.tf=S.tf; _btcBucket.time=bucket;
+    // Parent dot update — new bucket = new candle closed, dot may shift
+    _pdotOnLiveTick();
     // For large synthetic TFs (e.g. 27D) the current bucket already contains
     // many past days of historical data.  Seeding only from the incoming 1m
     // kline would collapse that data into a tiny bar — causing a sudden gap.
@@ -6766,6 +6775,7 @@ function _applyBTCKline(k) {
           try{c.chart.timeScale().scrollToRealTime();}catch(_){}
         }
         const _ci = CELLS.indexOf(c); c._vlTime = c._btcBkt.time; _vlDrawCell(_ci);
+        _pdotDraw(_ci);
         c._lastLTP=c._btcBkt.close;
         c._candleOpen=c._btcBkt.open;
         const cell=document.querySelector('.grid-cell[data-idx="'+_ci+'"]');
@@ -7632,6 +7642,7 @@ function _applyBNLiveTick(d) {
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
         }
         const _ci2 = CELLS.indexOf(c); c._vlTime = cellBar.time; _vlDrawCell(_ci2);
+        _pdotDraw(_ci2);
         c._lastLTP = cellBar.close;
         const cell2 = document.querySelector('.grid-cell[data-idx="'+ci+'"]');
         if (cell2) {
@@ -7660,6 +7671,8 @@ function _applyBNLiveTick(d) {
     if (st && S.asset === BN_ASSET)
       st.innerHTML = '<span id="ws-dot" class="live"></span>Live';
   }
+  // ── Parent dot live update (throttled — only on new candle) ──────────────
+  if (isNewCandle) _pdotOnLiveTick();
 }
 
 // Listen for postMessage from Streamlit parent (Python pushes tick every ~1s)
@@ -8720,6 +8733,249 @@ function swingAfterRebuildBtc2() {
   if (!BTC2_SWING_STATE.visible) return;
   btc2RemoveCanvas();
   setTimeout(() => { initBtc2Indicator(); }, 0);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// PARENT DOT SYSTEM  — 3× rule marker
+// Har cell par uske parent TF ki first candle ka dot dikhata hai.
+// Dot candle ke low ke niche fixed gap par hota hai.
+// Running (latest) candle par dot live update hota hai.
+// ════════════════════════════════════════════════════════════════════════════
+
+const _PDOT_KEY = 'parentDotCfg1';
+
+// Per-asset parent TF mapping: child TF → parent TF (minutes)
+// BTC: 160m→480, 480→1440, 1440→4320, 4320→12960, 12960→38880
+// BN:  5→15, 15→45, 45→135, 135→1440, 1440→4320, 4320→12960, 12960→38880
+const _PDOT_PARENT = {
+  [BTC_ASSET]: { 160:480, 480:1440, 1440:4320, 4320:12960, 12960:38880 },
+  // BN_ASSET is resolved at runtime (string with emoji)
+};
+function _pdotParentMap(asset) {
+  if (asset === BTC_ASSET) return _PDOT_PARENT[BTC_ASSET];
+  // BankNifty
+  return { 5:15, 15:45, 45:135, 135:1440, 1440:4320, 4320:12960, 12960:38880 };
+}
+
+// Default settings per cell (saved in localStorage)
+const _pdotDefaults = () => ({ enabled: true, color: '#e53935', size: 1, opacity: 2 });
+// Size level → actual marker radius in CSS pixels (micro-level control via canvas)
+const _PDOT_SIZE_MAP    = { 1: 1, 2: 2, 3: 3, 4: 4 };
+// Opacity level → alpha value
+const _PDOT_OPACITY_MAP = { 1: 0.25, 2: 0.50, 3: 0.75, 4: 1.0 };
+
+// Load/save
+function _pdotLoadCfg() {
+  try {
+    const raw = _LS.getItem(_PDOT_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch(_) { return {}; }
+}
+function _pdotSaveCfg() {
+  try { _LS.setItem(_PDOT_KEY, JSON.stringify(_pdotCfg)); } catch(_) {}
+}
+let _pdotCfg = _pdotLoadCfg();  // keyed by "asset|childTfMin"
+
+function _pdotCfgKey(asset, childTf) { return asset + '|' + childTf; }
+
+function _pdotGetCfg(asset, childTf) {
+  const k = _pdotCfgKey(asset, childTf);
+  if (!_pdotCfg[k]) _pdotCfg[k] = _pdotDefaults();
+  return _pdotCfg[k];
+}
+
+// Get resampled data for a given asset+tfMin (same logic as buildCellChart)
+function _pdotGetData(asset, tfMin) {
+  let raw = _baseDataFor(asset, tfMin);
+  if (tfMin >= 1440 && asset === BTC_ASSET) {
+    raw = (Array.isArray(BTC_DAILY) && BTC_DAILY.length) ? BTC_DAILY : raw;
+  }
+  return resampleForTF(raw, tfMin, asset);
+}
+
+// Find the first child bar that belongs to a given parent candle.
+// parentBar.time = start of parent candle (unix seconds).
+// childData = sorted array of {time, open, high, low, close}.
+// Returns the child bar index (in childData) or -1.
+function _pdotFindFirstChildBar(parentBarTime, childData) {
+  // First child bar whose time >= parentBarTime
+  // (parent candle start = first moment child bar starts in that window)
+  for (let i = 0; i < childData.length; i++) {
+    if (childData[i].time >= parentBarTime) return i;
+  }
+  return -1;
+}
+
+// Per-cell canvas overlay for the parent dot — transparent canvas, pointer-events:none,
+// koi background/patti nahi, sirf ek micro circle draw hota hai (pixel-level size control).
+function _pdotCreateCellCanvas(idx) {
+  _pdotRemoveCellCanvas(idx);
+  const c = CELLS[idx]; if (!c) return;
+  const el = document.getElementById('cell-chart-' + idx);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;background:transparent;pointer-events:none;z-index:6;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._pdotCanvas = canvas; c._pdotCtx = canvas.getContext('2d');
+}
+function _pdotRemoveCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c) return;
+  if (c._pdotCanvas) { c._pdotCanvas.remove(); c._pdotCanvas = null; c._pdotCtx = null; }
+}
+function _pdotResizeCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c || !c._pdotCanvas) return;
+  const el = document.getElementById('cell-chart-' + idx); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._pdotCanvas.width  = el.clientWidth  * dpr;
+  c._pdotCanvas.height = el.clientHeight * dpr;
+  c._pdotCanvas.style.width  = el.clientWidth  + 'px';
+  c._pdotCanvas.style.height = el.clientHeight + 'px';
+}
+function _pdotClearCell(idx) {
+  const c = CELLS[idx]; if (!c || !c._pdotCtx || !c._pdotCanvas) return;
+  c._pdotCtx.setTransform(1, 0, 0, 1, 0, 0);
+  c._pdotCtx.clearRect(0, 0, c._pdotCanvas.width, c._pdotCanvas.height);
+}
+
+// Draw (or update) dot for one cell.
+// Canvas overlay par seedha micro circle draw karta hai — koi library marker size
+// limitation nahi, full pixel control (1/2/3/4 px radius).
+function _pdotDraw(idx) {
+  const c = CELLS[idx];
+  if (!c || !c.chart || !c.series) return;
+  if (!c._pdotCanvas || !c._pdotCtx) _pdotCreateCellCanvas(idx);
+  if (!c._pdotCanvas || !c._pdotCtx) return;
+
+  _pdotClearCell(idx);
+
+  const cfg = _pdotGetCfg(c.asset, c.tf);
+  if (!cfg.enabled) return;
+
+  const parentMap = _pdotParentMap(c.asset);
+  const parentTf = parentMap[c.tf];
+  if (!parentTf) return;  // No parent — no dot (e.g. 27D, or 160m in BN which is not in stack)
+
+  // Get latest parent candle's start time
+  const parentData = _pdotGetData(c.asset, parentTf);
+  if (!parentData || !parentData.length) return;
+  const latestParent = parentData[parentData.length - 1];
+
+  // Get child data (this cell's TF)
+  const childData = _pdotGetData(c.asset, c.tf);
+  if (!childData || !childData.length) return;
+
+  // Find first child bar at or after latestParent.time
+  const dotIdx = _pdotFindFirstChildBar(latestParent.time, childData);
+  if (dotIdx < 0) return;
+
+  const dotBar = childData[dotIdx];
+
+  // For running (last) candle: use live low if available, else bar low
+  let dotLow = dotBar.low;
+  if (dotIdx === childData.length - 1) {
+    // Last candle — use live LTP if lower (BTC live)
+    if (c._lastLTP != null && c._lastLTP < dotLow) dotLow = c._lastLTP;
+  }
+
+  // Gap below low — 0.1% of price as visual gap
+  const gap = dotLow * 0.0008;
+
+  // x,y coordinates on chart (CSS pixels)
+  const x = c.chart.timeScale().timeToCoordinate(dotBar.time);
+  const y = c.series.priceToCoordinate(dotLow - gap);
+  if (x == null || y == null) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = c._pdotCanvas.width / dpr, cssH = c._pdotCanvas.height / dpr;
+  if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) return;
+
+  // Convert hex color + opacity level to rgba
+  const alpha = _PDOT_OPACITY_MAP[cfg.opacity] ?? 0.25;
+  const hex = cfg.color.replace('#','');
+  const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+  const dotColor = `rgba(${r},${g},${b},${alpha})`;
+
+  const radiusPx = _PDOT_SIZE_MAP[cfg.size] ?? 2;
+
+  c._pdotCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c._pdotCtx.save();
+  c._pdotCtx.fillStyle = dotColor;
+  c._pdotCtx.beginPath();
+  c._pdotCtx.arc(x, y, radiusPx, 0, 2 * Math.PI);
+  c._pdotCtx.fill();
+  c._pdotCtx.restore();
+}
+
+// Draw dots for all cells
+function _pdotDrawAll() {
+  CELLS.forEach((_, i) => _pdotDraw(i));
+}
+
+// Called on every live tick (BTC WS / BN poll) to update running dot
+function _pdotOnLiveTick() {
+  CELLS.forEach((c, i) => {
+    if (!c || !c.series) return;
+    const parentMap = _pdotParentMap(c.asset);
+    if (!parentMap[c.tf]) return;  // no parent = no dot
+    _pdotDraw(i);
+  });
+}
+
+// Settings panel rows for parent dot — appended inside _openCellSettings
+function _pdotSettingsHTML(idx) {
+  const c = CELLS[idx]; if (!c) return '';
+  const cfg = _pdotGetCfg(c.asset, c.tf);
+  const parentMap = _pdotParentMap(c.asset);
+  const parentTf = parentMap[c.tf];
+  if (!parentTf) return '';  // no parent = no setting to show
+
+  const ptLabel = tfMinToLabel(parentTf);
+  return `<div class="csp-row" style="border-top:1px solid #2a2e39;margin-top:2px">` +
+    `<span style="font-weight:700;color:#9598a1">Parent Dot (${ptLabel})</span>` +
+    `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">` +
+      `<input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="_pdotSetEnabled(${idx},this.checked)">` +
+      `<span class="sl"></span></label></div>` +
+    `<div class="csp-row"><span>Color</span>` +
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${cfg.color==='#e53935'?'#fff':'#444'};background:#e53935;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();_pdotSetColor(${idx},'#e53935');this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>` +
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${cfg.color==='#ff9800'?'#fff':'#444'};background:#ff9800;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();_pdotSetColor(${idx},'#ff9800');this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Orange"></button>` +
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${cfg.color==='#ffffff'?'#fff':'#444'};background:#ffffff;cursor:pointer" onclick="event.stopPropagation();_pdotSetColor(${idx},'#ffffff');this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="White"></button>` +
+    `</div>` +
+    `<div class="csp-row"><span>Size</span>` +
+      `<div style="display:flex;gap:4px">${[1,2,3,4].map(v=>
+        `<button style="width:20px;height:20px;border-radius:3px;border:1.5px solid ${cfg.size===v?'#2962ff':'#363c4e'};background:${cfg.size===v?'#2962ff22':'transparent'};color:${cfg.size===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_pdotSetSize(${idx},${v});this.closest('.csp-row').querySelectorAll('button').forEach(b=>{b.style.borderColor='#363c4e';b.style.background='transparent';b.style.color='#787b86'});this.style.borderColor='#2962ff';this.style.background='#2962ff22';this.style.color='#2962ff'">${v}</button>`
+      ).join('')}</div>` +
+    `</div>` +
+    `<div class="csp-row"><span>Opacity</span>` +
+      `<div style="display:flex;gap:4px">${[1,2,3,4].map(v=>
+        `<button style="width:20px;height:20px;border-radius:3px;border:1.5px solid ${(cfg.opacity||1)===v?'#2962ff':'#363c4e'};background:${(cfg.opacity||1)===v?'#2962ff22':'transparent'};color:${(cfg.opacity||1)===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_pdotSetOpacity(${idx},${v});this.closest('.csp-row').querySelectorAll('button').forEach(b=>{b.style.borderColor='#363c4e';b.style.background='transparent';b.style.color='#787b86'});this.style.borderColor='#2962ff';this.style.background='#2962ff22';this.style.color='#2962ff'">${v}</button>`
+      ).join('')}</div>` +
+    `</div>`;
+}
+
+function _pdotSetEnabled(idx, val) {
+  const c = CELLS[idx]; if (!c) return;
+  _pdotGetCfg(c.asset, c.tf).enabled = val;
+  _pdotSaveCfg(); _pdotDraw(idx);
+}
+function _pdotSetColor(idx, color) {
+  const c = CELLS[idx]; if (!c) return;
+  _pdotGetCfg(c.asset, c.tf).color = color;
+  _pdotSaveCfg(); _pdotDraw(idx);
+}
+function _pdotSetSize(idx, size) {
+  const c = CELLS[idx]; if (!c) return;
+  _pdotGetCfg(c.asset, c.tf).size = Math.max(1, Math.min(4, size));
+  _pdotSaveCfg(); _pdotDraw(idx);
+}
+function _pdotSetOpacity(idx, level) {
+  const c = CELLS[idx]; if (!c) return;
+  _pdotGetCfg(c.asset, c.tf).opacity = Math.max(1, Math.min(4, level));
+  _pdotSaveCfg(); _pdotDraw(idx);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
