@@ -648,10 +648,99 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .gp-switch.on{background:#2962ff}
 .gp-switch.on::after{transform:translateX(18px);background:#fff}
 
+/* ── Stack View: layout-picker row + settings panel (Step 1) ───────────── */
+.gp-stack-row{display:flex;align-items:center;gap:8px;padding:10px 2px;
+  border-bottom:1px solid #2a2e3955;cursor:pointer}
+.gp-stack-row .gp-stack-icon{font-size:18px;flex-shrink:0}
+.gp-stack-row .gp-stack-label{font-size:13px;color:#d1d4dc;font-weight:600;flex:1}
+.gp-stack-row.active{background:#2962ff22}
+.gp-stack-row.active .gp-stack-label{color:#2962ff}
+.gp-stack-gear{background:transparent;border:1px solid #363c4e;border-radius:6px;
+  width:30px;height:30px;flex-shrink:0;color:#9598a1;font-size:15px;cursor:pointer}
+.gp-stack-gear:active{background:#363c4e}
+
+#stack-settings-panel{
+  display:none;position:fixed;z-index:10002;
+  left:8px;right:8px;bottom:30px;max-height:78vh;
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 8px 32px #0009;overflow-y:auto;padding:14px 14px 16px;
+}
+#stack-settings-panel.open{display:block}
+.ss-title{font-size:13px;font-weight:700;color:#d1d4dc;margin-bottom:10px;
+  display:flex;align-items:center;justify-content:space-between}
+.ss-title button{background:transparent;border:none;color:#9598a1;font-size:18px;
+  cursor:pointer;padding:0 4px}
+.ss-section{margin-bottom:14px}
+.ss-section-title{font-size:11px;color:#787b86;text-transform:uppercase;
+  letter-spacing:.6px;margin-bottom:8px;font-weight:700}
+.ss-row{display:flex;align-items:center;justify-content:space-between;
+  padding:6px 0;gap:8px}
+.ss-row span{font-size:12.5px;color:#d1d4dc;flex:1}
+.ss-row input[type=number]{
+  width:56px;background:#2a2e39;color:#d1d4dc;border:1px solid #363c4e;
+  border-radius:5px;padding:5px 6px;font-size:12.5px;text-align:center;
+}
+.ss-tf-grid{display:flex;flex-direction:column;gap:6px}
+.ss-tf-slot{display:flex;align-items:center;gap:8px}
+.ss-tf-slot .ss-tf-letter{width:20px;flex-shrink:0;color:#787b86;font-size:11.5px;
+  font-weight:700;text-align:center}
+.ss-tf-slot input[type=text]{
+  flex:1;background:#2a2e39;color:#d1d4dc;border:1px solid #363c4e;
+  border-radius:5px;padding:6px 8px;font-size:12.5px;
+}
+.ss-asset-tabs{display:flex;gap:6px;margin-bottom:10px}
+.ss-asset-tab{flex:1;text-align:center;padding:7px 0;background:#2a2e39;
+  border:1px solid #363c4e;border-radius:6px;font-size:12px;color:#9598a1;cursor:pointer}
+.ss-asset-tab.active{background:#2962ff22;border-color:#2962ff;color:#2962ff;font-weight:700}
+.ss-done-btn{width:100%;margin-top:6px;padding:10px 0;background:#2962ff;
+  color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer}
+.ss-done-btn:active{background:#1e4fd6}
+
 /* ── Grid View ───────────────────────────────────────────────────── */
 #grid-view{display:none;flex:1;overflow:hidden;min-height:0;}
 #grid-view.active{display:flex;flex-direction:column}
 #grid-container{flex:1;display:grid;gap:0;background:#2a2e39;overflow:hidden;min-height:0;}
+
+/* ── Stack View (Step 2: static vertical stack, scroll added in Step 3) ── */
+#stack-view{display:none;flex:1;overflow:hidden;min-height:0;}
+#stack-view.active{display:flex;flex-direction:column}
+#stack-container{
+  flex:1;display:flex;flex-direction:column;
+  background:#2a2e39;overflow-y:auto;min-height:0;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+}
+.stack-cell{
+  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
+  position:relative;
+  display:flex;flex-direction:column;
+}
+/* The chart/candle area itself must NEVER scroll the outer stack —
+   only pan/zoom inside the chart. touch-action:none (already set on
+   .cell-chart) keeps the browser from treating it as a scroll surface;
+   we additionally stop propagation in JS for safety (see _stackWireScrollZones). */
+.stack-cell .cell-chart{ touch-action:none; }
+
+/* Top trigger strip — reuses the existing symbol/TF/letter overlay line,
+   just makes it touch-capturing instead of pass-through, and tall enough
+   to comfortably catch a finger (min 32px tap zone per mobile-first rules). */
+.stack-cell .cell-overlay{
+  pointer-events:auto;
+  touch-action:none;
+  min-height:28px;
+  cursor:grab;
+}
+.stack-cell .cell-overlay > *{ pointer-events:none; } /* children stay visual-only */
+
+/* Right price-scale trigger strip — transparent strip pinned to the right
+   edge of the chart, sized to roughly match the library's own price-scale
+   width, sitting above the chart canvas to intercept drag for stack-scroll. */
+.stack-pricescale-zone{
+  position:absolute; top:0; right:0; bottom:0; width:58px;
+  z-index:15; touch-action:none; cursor:grab;
+  /* background:rgba(255,0,0,.15);  ← uncomment while debugging zone bounds */
+}
+
 .grid-cell{
   background:#131722;display:flex;flex-direction:column;
   min-height:0;overflow:hidden;position:relative;
@@ -932,6 +1021,15 @@ select.s-select{
 }
 #auto-btn:active{background:#2a2e39;color:#d1d4dc}
 #auto-btn:hover{border-color:#26a69a;color:#26a69a}
+
+/* Global up/down step-jump buttons (replaces old per-cell black strip) */
+#stack-up-btn,#stack-down-btn{
+  height:18px;width:22px;padding:0;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+}
+#stack-up-btn:active,#stack-down-btn:active{background:#2a2e39;color:#fff}
 
 /* ── Fix 2: Go-to-date button & popup ──────────────────────────── */
 #goto-date-btn{
@@ -1826,6 +1924,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="grid-container"></div>
 </div>
 
+<!-- ═══ STACK VIEW (scrollable multi-chart stack) ═══════════════════════ -->
+<div id="stack-view">
+  <div id="stack-container"></div>
+</div>
+
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
@@ -1834,6 +1937,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
+  <div class="bot-sep"></div>
+  <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
+  <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -1875,6 +1981,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ GRID LAYOUT PICKER ══════════════════════════════════════════════ -->
 <div id="grid-picker">
   <div id="gp-scroll">
+    <div class="gp-section-title">Scroll layout</div>
+    <div id="gp-stack-row" class="gp-stack-row">
+      <span class="gp-stack-icon">📜</span>
+      <span class="gp-stack-label">Stack View (scrollable)</span>
+      <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
+      <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
+    </div>
+    <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
     <div id="gp-layouts"></div>
     <div class="gp-divider"></div>
@@ -1888,6 +2002,45 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </div>
   </div>
 </div>
+
+<!-- ═══ STACK VIEW SETTINGS PANEL ═══════════════════════════════════════ -->
+<div id="stack-settings-panel">
+  <div class="ss-title">
+    <span>📜 Stack View Settings</span>
+    <button onclick="closeStackSettings()">✕</button>
+  </div>
+
+  <div class="ss-asset-tabs">
+    <div class="ss-asset-tab active" id="ss-tab-btc" onclick="ssSwitchAssetTab('btc')">₿ BTC</div>
+    <div class="ss-asset-tab" id="ss-tab-bn" onclick="ssSwitchAssetTab('bn')">📊 BankNifty</div>
+    <div class="ss-asset-tab" id="ss-tab-3" onclick="ssSwitchAssetTab('third')">+ 3rd Symbol</div>
+  </div>
+
+  <div class="ss-section">
+    <div class="ss-section-title">Screens</div>
+    <div class="ss-row">
+      <span>Total screens</span>
+      <input type="number" id="ss-total-count" min="1" max="16" value="6">
+    </div>
+    <div class="ss-row">
+      <span>Visible at once</span>
+      <input type="number" id="ss-visible-count" min="1" max="8" value="4">
+    </div>
+    <div class="ss-row">
+      <span>Step count (per drag)</span>
+      <input type="number" id="ss-step-count" min="1" max="4" value="1">
+    </div>
+  </div>
+
+  <div class="ss-section">
+    <div class="ss-section-title">Timeframe per slot</div>
+    <div class="ss-tf-grid" id="ss-tf-grid"><!-- filled by JS --></div>
+  </div>
+
+  <button class="ss-done-btn" onclick="ssApplyAndClose()">Done</button>
+</div>
+
+
 
 <!-- ═══ TF DROPDOWN ══════════════════════════════════════════════════════ -->
 <div id="tf-dropdown">
@@ -2284,7 +2437,7 @@ function _currentSnapshot(name) {
   return {
     name:        name || ('Layout ' + (_activeSlot >= 0 ? _activeSlot + 1 : 1)),
     layout:      S.layout,
-    layoutLabel: S.layout === '1x1' ? '1-Chart' : S.layout,
+    layoutLabel: S.layout === '1x1' ? '1-Chart' : (S.layout === 'stack' ? 'Stack View' : S.layout),
     tf:          S.tf,
     asset:       S.asset,
     bgColor:     S.bgColor,
@@ -2903,7 +3056,560 @@ const DEFAULT_TFS = [
 ];
 const DEFAULT_FAVS = [5, 15, 45, 135, 160, 480, 1440, 4320, 12960, 38880];
 
-// Parse '45'→45, '2H'→120, '3D'→4320, '1W'→10080, '1M'→43200 (minutes).
+// ════════════════════════════════════════════════════════════════════════════
+// STACK VIEW  (scrollable multi-chart stack, per-symbol chart count + TFs)
+// Step 1: settings model + panel only. Rendering comes in a later step.
+// ════════════════════════════════════════════════════════════════════════════
+const _STACK_KEY = 'btcStackCfg1';
+
+// Letters used as per-slot ids, A.. up to 16 charts max.
+const STACK_LETTERS = 'ABCDEFGHIJKLMNOP'.split('');
+
+// Default per-symbol configs, exactly as specified.
+function _stackDefaults() {
+  return {
+    btc: {
+      total:   6,
+      visible: 4,
+      step:    1,
+      tfs: ['160m', '8H', '1D', '3D', '9D', '27D'],
+    },
+    bn: {
+      total:   8,
+      visible: 4,
+      step:    1,
+      tfs: ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
+    },
+    third: {
+      total:   0,        // no 3rd symbol configured yet
+      visible: 4,
+      step:    1,
+      tfs: [],
+      symbolName: '',    // filled in once a 3rd symbol exists
+    },
+  };
+}
+
+let STACK = _stackDefaults();
+let _stackActive = false;   // is Stack View the current layout mode RIGHT NOW?
+
+// ── Stack View ON/OFF preference ────────────────────────────────────────
+// This is the user's persisted CHOICE (default ON), separate from
+// _stackActive (which just tracks whether it's the currently-rendered mode).
+// On page load, if this is ON, Stack View is what gets built; if OFF, the
+// normal grid/1x1 system behaves exactly as before this feature existed.
+const _STACK_ONOFF_KEY = 'btcStackOnOff1';
+function _loadStackOnOff() {
+  try {
+    const raw = _LS.getItem(_STACK_ONOFF_KEY);
+    if (raw === null) return true;   // default ON
+    return raw === '1';
+  } catch(_) { return true; }
+}
+function _saveStackOnOff(on) {
+  try { _LS.setItem(_STACK_ONOFF_KEY, on ? '1' : '0'); } catch(_) {}
+}
+let _stackOnOff = _loadStackOnOff();
+
+function _renderStackSwitch() {
+  const btn = document.getElementById('gp-stack-switch');
+  if (btn) btn.classList.toggle('on', _stackOnOff);
+}
+
+// Switch flipped ON  → activate Stack View now (and remember the choice).
+// Switch flipped OFF → go back to whatever the normal grid/1x1 layout was.
+function toggleStackOnOff() {
+  _stackOnOff = !_stackOnOff;
+  _saveStackOnOff(_stackOnOff);
+  _renderStackSwitch();
+  if (_stackOnOff) {
+    selectStackView();
+  } else {
+    // Fall back to the last non-stack layout choice (or 1x1 if none saved).
+    let fallback = '1x1';
+    try {
+      const saved = _LS.getItem('tvLayout');
+      if (saved && saved !== 'stack' && LAYOUTS[saved]) fallback = saved;
+    } catch(_) {}
+    setLayout(fallback, null);
+  }
+}
+
+function _loadStackCfg() {
+  try {
+    const raw = _LS.getItem(_STACK_KEY);
+    if (!raw) return _stackDefaults();
+    const parsed = JSON.parse(raw);
+    // Merge over defaults so any newly-added fields are never missing.
+    const def = _stackDefaults();
+    return {
+      btc:   Object.assign({}, def.btc,   parsed.btc   || {}),
+      bn:    Object.assign({}, def.bn,    parsed.bn    || {}),
+      third: Object.assign({}, def.third, parsed.third || {}),
+    };
+  } catch(_) { return _stackDefaults(); }
+}
+
+function _saveStackCfg() {
+  try { _LS.setItem(_STACK_KEY, JSON.stringify(STACK)); } catch(_) {}
+}
+
+STACK = _loadStackCfg();
+
+// Map current S.asset → STACK config key ('btc' | 'bn' | 'third')
+function _stackKeyForAsset(assetName) {
+  if (assetName === BN_ASSET) return 'bn';
+  if (assetName === ASSET_NAMES[1] && BN_ASSET !== ASSET_NAMES[1]) return 'bn';
+  if (assetName === (typeof BTC_ASSET !== 'undefined' ? BTC_ASSET : ASSET_NAMES[0])) return 'btc';
+  // Anything else encountered = the configurable 3rd-symbol slot
+  return 'third';
+}
+
+// ── Settings panel: which asset tab is currently being edited ──────────────
+let _ssTab = 'btc';
+
+function ssSwitchAssetTab(tab) {
+  _ssTab = tab;
+  document.querySelectorAll('.ss-asset-tab').forEach(el => el.classList.remove('active'));
+  const map = { btc: 'ss-tab-btc', bn: 'ss-tab-bn', third: 'ss-tab-3' };
+  const el = document.getElementById(map[tab]);
+  if (el) el.classList.add('active');
+  _ssRenderForTab();
+}
+
+function _ssRenderForTab() {
+  const cfg = STACK[_ssTab] || STACK.btc;
+  document.getElementById('ss-total-count').value   = cfg.total   ?? 6;
+  document.getElementById('ss-visible-count').value = cfg.visible ?? 4;
+  document.getElementById('ss-step-count').value    = cfg.step    ?? 1;
+  _ssRenderTfGrid(cfg);
+}
+
+function _ssRenderTfGrid(cfg) {
+  const grid = document.getElementById('ss-tf-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const total = Math.max(1, Math.min(16, parseInt(cfg.total, 10) || 0));
+  for (let i = 0; i < total; i++) {
+    const letter = STACK_LETTERS[i];
+    const tfVal  = (cfg.tfs && cfg.tfs[i] != null) ? cfg.tfs[i] : '';
+    const row = document.createElement('div');
+    row.className = 'ss-tf-slot';
+    row.innerHTML =
+      '<span class="ss-tf-letter">' + letter + '</span>' +
+      '<input type="text" data-slot-idx="' + i + '" value="' + tfVal + '" placeholder="e.g. 15m, 1D, 3D">';
+    grid.appendChild(row);
+  }
+}
+
+// Re-render the TF slot list whenever "Total screens" changes,
+// keeping whatever the user already typed for the slots that still exist.
+function _ssOnTotalChange() {
+  const cfg = STACK[_ssTab] || STACK.btc;
+  const newTotal = Math.max(1, Math.min(16, parseInt(document.getElementById('ss-total-count').value, 10) || cfg.total));
+  const existing = _ssReadTfInputs();
+  cfg.total = newTotal;
+  cfg.tfs   = existing.slice(0, newTotal);
+  _ssRenderTfGrid(cfg);
+}
+
+function _ssReadTfInputs() {
+  const out = [];
+  document.querySelectorAll('#ss-tf-grid input[data-slot-idx]').forEach(inp => {
+    out[parseInt(inp.dataset.slotIdx, 10)] = inp.value.trim();
+  });
+  return out;
+}
+
+function openStackSettings() {
+  // Default the tab to whichever symbol is currently active on the chart.
+  _ssTab = _stackKeyForAsset(S.asset);
+  if (_ssTab === 'third' && (!STACK.third || !STACK.third.total)) {
+    // No 3rd symbol configured — still allow viewing/editing the slot,
+    // but don't force-select it over btc/bn by surprise.
+    _ssTab = (S.asset === BN_ASSET) ? 'bn' : 'btc';
+  }
+  ssSwitchAssetTab(_ssTab);
+
+  document.getElementById('ss-total-count').oninput   = _ssOnTotalChange;
+  document.getElementById('ss-visible-count').oninput = null;
+  document.getElementById('ss-step-count').oninput    = null;
+
+  document.getElementById('stack-settings-panel').classList.add('open');
+  // Settings panel sits above everything — close the layout picker behind it.
+  const gp = document.getElementById('grid-picker');
+  if (gp) gp.classList.remove('open');
+}
+
+function closeStackSettings() {
+  document.getElementById('stack-settings-panel').classList.remove('open');
+}
+
+function ssApplyAndClose() {
+  const cfg = STACK[_ssTab] || STACK.btc;
+  cfg.total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss-total-count').value, 10) || cfg.total));
+  cfg.visible = Math.max(1, Math.min(cfg.total, parseInt(document.getElementById('ss-visible-count').value, 10) || cfg.visible));
+  cfg.step    = Math.max(1, Math.min(4, parseInt(document.getElementById('ss-step-count').value, 10) || cfg.step));
+  cfg.tfs     = _ssReadTfInputs();
+  STACK[_ssTab] = cfg;
+  _saveStackCfg();
+  closeStackSettings();
+
+  // If Stack View is already showing this same symbol, rebuild immediately
+  // so the new total/visible/step counts take effect without re-selecting
+  // it manually. buildStack() itself preserves existing slots' live TFs —
+  // only newly-added slots (e.g. total raised 6→8) get the Settings default.
+  if (_stackActive && _ssTab === _stackKeyForCurrentAsset()) {
+    buildStack();
+    setTimeout(_startCellTimers, 200);
+    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+  }
+}
+
+// ── Stack View: build & activate the scrollable multi-chart stack ──────────
+const STACK_CELLS = [];      // parallel to CELLS[], one entry per stack slot
+let _stackResizeObs = null;
+
+function _stackKeyForCurrentAsset() {
+  return _stackKeyForAsset(S.asset);
+}
+
+function destroyStackCells() {
+  unwireSync();
+  if (_stackResizeObs) { try{_stackResizeObs.disconnect();}catch(_){} _stackResizeObs=null; }
+  STACK_CELLS.forEach(c => {
+    try{ c.chart.remove(); }catch(_){}
+    const ci = CELLS.indexOf(c);
+    if (ci !== -1) CELLS.splice(ci, 1);
+  });
+  STACK_CELLS.length = 0;
+  const sc = document.getElementById('stack-container');
+  if (sc) sc.innerHTML = '';
+}
+
+// Activates Stack View as the current layout mode (parallel to setLayout('4-grid') etc.)
+function selectStackView() {
+  document.getElementById('grid-picker').classList.remove('open');
+  document.querySelectorAll('.gp-layout').forEach(b => b.classList.remove('active'));
+  const row = document.getElementById('gp-stack-row');
+  if (row) row.classList.add('active');
+
+  _stackActive = true;
+  _stackOnOff  = true;
+  _saveStackOnOff(true);
+  _renderStackSwitch();
+  S.layout = 'stack';
+  try { _LS.setItem('tvLayout', 'stack'); } catch(_) {}
+
+  const wsEl = document.getElementById('workspace');
+  const gv   = document.getElementById('grid-view');
+  const sv   = document.getElementById('stack-view');
+  const cmBtn = document.getElementById('cell-maximize-btn');
+
+  wsEl.style.display = 'none';
+  gv.classList.remove('active');
+  sv.classList.add('active');
+  document.getElementById('grid-btn').classList.add('active');
+  if (cmBtn) cmBtn.style.display = 'none';   // per-cell fullscreen not wired for stack yet
+
+  destroyCharts();
+  destroyGridCells();
+  buildStack();
+  setTimeout(_startCellTimers, 200);
+  setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+}
+
+// Build all of a symbol's stack slots (Step 2: static, all rendered, no snap-scroll yet).
+function buildStack() {
+  // Snapshot whatever is currently live (e.g. user just changed Settings while
+  // Stack View was already open) BEFORE destroyStackCells() wipes STACK_CELLS.
+  const _liveSnapshot = STACK_CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null }));
+
+  destroyStackCells();
+  const cfgKey = _stackKeyForCurrentAsset();
+  const cfg = STACK[cfgKey] || STACK.btc;
+  const total = Math.max(1, cfg.total || 1);
+  const sc = document.getElementById('stack-container');
+  sc.innerHTML = '';
+
+  // Resolve each slot's TF + asset, in priority order:
+  //  1) _savedCells   — page-load restore buffer (last actual state before close)
+  //  2) _liveSnapshot — this symbol's own charts as they were a moment ago
+  //                     (e.g. Settings "Done" was just pressed — existing
+  //                     slots keep whatever TF the user last actually set)
+  //  3) Stack Settings default TF string — ONLY for slots beyond what
+  //     existed before (newly added by raising "Total screens")
+  // This matches the confirmed rule: manually-set TFs persist; Settings
+  // defaults only ever apply to brand-new slots.
+  const priorSource = (_savedCells && _savedCells.length) ? _savedCells : _liveSnapshot;
+  const tfMins = [];
+  const assets = [];
+  for (let i = 0; i < total; i++) {
+    const prior = priorSource && priorSource[i];
+    if (prior && typeof prior.tf === 'number') {
+      tfMins.push(prior.tf);
+      assets.push((prior.asset && ASSET_NAMES.includes(prior.asset)) ? prior.asset : S.asset);
+    } else {
+      const raw = (cfg.tfs && cfg.tfs[i]) || '';
+      const parsed = parseTfStr(raw);
+      tfMins.push(parsed || 1440);
+      assets.push(S.asset);
+    }
+  }
+
+  for (let i = 0; i < total; i++) {
+    const prior = priorSource && priorSource[i];
+    const cellObj = {
+      asset: assets[i], tf: tfMins[i], chart:null, series:null, el:null,
+      vLine: (prior && prior.vLine) ? { ...prior.vLine } : null,
+    };
+    STACK_CELLS.push(cellObj);
+    CELLS.push(cellObj);   // buildCellChart/wireSync/selectCell all key off CELLS[idx]
+
+    const cell = document.createElement('div');
+    cell.className = 'grid-cell stack-cell';
+    cell.dataset.idx = i;
+    // Each slot's height = container height / visible-count, so exactly
+    // `visible` whole charts show at once (Step 3 adds the scroll-snap).
+    cell.style.height = 'calc(100% / ' + Math.max(1, cfg.visible || 4) + ')';
+
+    const hdr = document.createElement('div');
+    hdr.className = 'cell-hdr';
+    hdr.innerHTML =
+      '<button class="cell-sym" data-idx="'+i+'">'+_cellAssetShort(cellObj.asset)+' '+tfMinToLabel(tfMins[i])+'</button>'+
+      '<span class="cell-price up">--</span>'+
+      '<span class="cell-chg" style="color:#555">--</span>';
+    cell.appendChild(hdr);
+
+    const csetBtn = document.createElement('button');
+    csetBtn.className = 'cell-settings-btn';
+    csetBtn.title = 'Cell Settings';
+    csetBtn.textContent = '⚙';
+    csetBtn.onclick = function(e){ _openCellSettings(i, csetBtn); e.stopPropagation(); };
+    cell.appendChild(csetBtn);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cell-overlay';
+    overlay.innerHTML =
+      '<span class="co-sym">'+_cellAssetShort(cellObj.asset)+'</span>'+
+      '<span class="co-tf"> \u00b7 '+tfMinToLabel(tfMins[i])+' \u00b7 '+STACK_LETTERS[i]+'</span>'+
+      '<span class="co-price up">--</span>'+
+      '<span class="co-chg" style="color:#555">--</span>'+
+      '<span class="co-ohlc-grp">'+
+        '<span class="co-o">O <b class="co-ov">--</b></span> '+
+        '<span class="co-h">H <b class="co-hv">--</b></span> '+
+        '<span class="co-l">L <b class="co-lv">--</b></span> '+
+        '<span class="co-c">C <b class="co-cv">--</b></span>'+
+      '</span>';
+
+    const chartDiv = document.createElement('div');
+    chartDiv.className = 'cell-chart';
+    chartDiv.id = 'cell-chart-' + i;
+    chartDiv.style.position = 'relative';
+    _stackBlockCandleAreaScroll(chartDiv);
+
+    // Right-edge strip overlaying the library's price-scale — a scroll
+    // trigger zone, not a real price-scale control (Step 3 requirement).
+    const priceZone = document.createElement('div');
+    priceZone.className = 'stack-pricescale-zone';
+    priceZone.dataset.idx = i;
+
+    const gotoBtn = document.createElement('button');
+    gotoBtn.className = 'cell-goto-btn';
+    gotoBtn.title = 'Go to latest candle';
+    gotoBtn.textContent = '\u23ED';
+    gotoBtn.onclick = function(e){
+      const c2 = CELLS[i]; if (c2 && c2.chart) try{ c2.chart.timeScale().scrollToRealTime(); }catch(_){}
+      e.stopPropagation();
+    };
+
+    const timerBadge = document.createElement('div');
+    timerBadge.className = 'cell-timer-badge';
+    timerBadge.dataset.cellIdx = i;
+    if (S.showTimer !== false) timerBadge.classList.add('timer-on');
+
+    cell.appendChild(overlay);
+    cell.appendChild(chartDiv);
+    chartDiv.appendChild(timerBadge);
+    chartDiv.appendChild(priceZone);
+    cell.appendChild(gotoBtn);
+    sc.appendChild(cell);
+    cellObj.el = chartDiv;
+
+    cell.addEventListener('pointerdown', () => selectCell(i));
+
+    hdr.querySelector('.cell-sym').addEventListener('click', e => {
+      const idx2 = +e.currentTarget.dataset.idx;
+      const cur = CELL_TFS.findIndex(t => t.tf === CELLS[idx2].tf);
+      const next = CELL_TFS[(cur + 1) % CELL_TFS.length];
+      CELLS[idx2].tf = next.tf;
+      buildCellChart(idx2);
+      wireSync(); saveState(); e.stopPropagation();
+    });
+
+    // Top overlay + right price-scale strip still drag-scroll, as before.
+    // Up/down step jump is now in the global bottom toolbar, not per-cell.
+    _stackWireDragZone(overlay, sc);
+    _stackWireDragZone(priceZone, sc);
+  }
+
+  requestAnimationFrame(() => selectCell(0));
+  requestAnimationFrame(() => {
+    CELLS.forEach((_, i) => buildCellChart(i));
+    requestAnimationFrame(() => requestAnimationFrame(() => wireSync()));
+    if (_stackResizeObs) { try{_stackResizeObs.disconnect();}catch(_){} }
+    _stackResizeObs = new ResizeObserver(() => {
+      CELLS.forEach((c, i) => {
+        if (!c.chart) return;
+        const el = document.getElementById('cell-chart-' + i);
+        if (!el) return;
+        c.chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      });
+    });
+    _stackResizeObs.observe(sc);
+  });
+}
+
+// ── Step 3: drag-to-scroll wiring for the 3 permitted trigger zones ────────
+// Behavior:
+//  • Slow drag + release  → settle on the NEAREST chart boundary (1 chart).
+//  • Quick flick + release → jump `cfg.step` charts in the flick direction
+//    (the "Step count" setting from Stack Settings).
+// Each zone (top overlay / right price-scale strip / bottom strip) shares
+// this same logic; the candle area is untouched by any of it.
+const _STACK_FLICK_VELOCITY = 0.5;   // px/ms — above this, treat release as a flick
+const _STACK_FLICK_WINDOW   = 120;   // ms — how recent a touchmove must be to count for velocity
+
+function _stackChartHeight(containerEl) {
+  const first = containerEl.querySelector('.stack-cell');
+  return first ? first.getBoundingClientRect().height : containerEl.clientHeight;
+}
+
+function _stackCurrentStep(containerEl) {
+  const cfgKey = _stackKeyForCurrentAsset();
+  const cfg = STACK[cfgKey] || STACK.btc;
+  return Math.max(1, cfg.step || 1);
+}
+
+function _stackSnapTo(containerEl, targetTop) {
+  const max = containerEl.scrollHeight - containerEl.clientHeight;
+  containerEl.scrollTo({ top: Math.max(0, Math.min(max, targetTop)), behavior: 'smooth' });
+}
+
+// Tap-button jump: moves exactly `step` charts (Stack Settings) in the given
+// direction (-1 = up/earlier, +1 = down/later), rounded from the nearest
+// chart boundary so repeated taps compound cleanly — same target math as
+// a flick, just triggered by a button press instead of gesture velocity.
+function _stackStepJump(containerEl, dir) {
+  const chartH = _stackChartHeight(containerEl);
+  if (!chartH) return;
+  const step = _stackCurrentStep(containerEl);
+  const nearest = Math.round(containerEl.scrollTop / chartH);
+  const target = (nearest + dir * step) * chartH;
+  _stackSnapTo(containerEl, target);
+}
+
+function _stackWireDragZone(zoneEl, containerEl) {
+  if (!zoneEl || !containerEl) return;
+  let startY = 0, startScroll = 0, dragging = false;
+  let lastY = 0, lastT = 0;
+  let _moveHistory = [];   // [{y, t}] — short rolling window for robust velocity/direction
+
+  const onStart = (y) => {
+    dragging = true;
+    startY = y; lastY = y; lastT = performance.now();
+    startScroll = containerEl.scrollTop;
+    _moveHistory = [{ y, t: lastT }];
+    containerEl.style.scrollBehavior = 'auto';   // direct 1:1 tracking while finger is down
+  };
+
+  const onMove = (y) => {
+    if (!dragging) return;
+    const now = performance.now();
+    lastY = y; lastT = now;
+    containerEl.scrollTop = startScroll - (y - startY);
+
+    // Keep only recent samples (last ~80ms) so a mid-gesture reversal
+    // (finger goes up, then immediately back down, same touch) is judged
+    // by its most recent direction, not the gesture's overall average.
+    _moveHistory.push({ y, t: now });
+    while (_moveHistory.length > 1 && now - _moveHistory[0].t > 80) _moveHistory.shift();
+  };
+
+  const onEnd = () => {
+    if (!dragging) return;
+    dragging = false;
+    containerEl.style.scrollBehavior = 'smooth';
+
+    const chartH = _stackChartHeight(containerEl);
+    if (!chartH) return;
+    const step = _stackCurrentStep(containerEl);
+
+    // Velocity from the recent window only (most recent ~80ms of motion),
+    // so the LAST direction the finger was actually moving wins — this is
+    // what makes "drag up then immediately reverse down, same gesture"
+    // settle in the down direction, not the up direction it started with.
+    let velocity = 0;
+    if (_moveHistory.length >= 2) {
+      const first = _moveHistory[0], last = _moveHistory[_moveHistory.length - 1];
+      const dt = last.t - first.t;
+      if (dt > 0) velocity = (last.y - first.y) / dt;   // px per ms, sign = direction
+    }
+
+    const isFlick = Math.abs(velocity) > _STACK_FLICK_VELOCITY;
+    const current = containerEl.scrollTop;
+
+    let target;
+    if (isFlick) {
+      // Flick: jump `step` charts in the flick direction, rounded from the
+      // nearest boundary so repeated flicks compound cleanly.
+      const nearest = Math.round(current / chartH);
+      const dir = velocity < 0 ? 1 : -1;   // finger moved up → content scrolls down → forward
+      target = (nearest + dir * step) * chartH;
+    } else {
+      // Slow drag: just settle on the single nearest chart boundary.
+      target = Math.round(current / chartH) * chartH;
+    }
+    _stackSnapTo(containerEl, target);
+  };
+
+  zoneEl.addEventListener('touchstart', (e) => {
+    if (!e.touches || !e.touches.length) return;
+    onStart(e.touches[0].clientY);
+  }, { passive: true });
+
+  zoneEl.addEventListener('touchmove', (e) => {
+    if (!e.touches || !e.touches.length) return;
+    onMove(e.touches[0].clientY);
+    e.preventDefault();   // stop page rubber-banding while actively dragging a zone
+  }, { passive: false });
+
+  zoneEl.addEventListener('touchend',    onEnd, { passive: true });
+  zoneEl.addEventListener('touchcancel', onEnd, { passive: true });
+
+  // Mouse fallback (desktop testing only — app is touch-first per file header).
+  zoneEl.addEventListener('mousedown', (e) => {
+    onStart(e.clientY);
+    const onMouseMove = (ev) => onMove(ev.clientY);
+    const onMouseUp = () => {
+      onEnd();
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  });
+}
+
+// Safety net: the candle area already has touch-action:none (set in CSS),
+// which stops the browser's native scroll gesture from starting there at
+// all. We additionally stop propagation on touchmove so no other listener
+// up the tree (e.g. a future wrapper) can reinterpret it as a stack-scroll.
+function _stackBlockCandleAreaScroll(chartDiv) {
+  chartDiv.addEventListener('touchmove', (e) => { e.stopPropagation(); }, { passive: true });
+}
+
+
 // CASE-SENSITIVE: lowercase 'm' = minutes (5m), capital 'M' = month (1M).
 // H/D/W are case-insensitive; 'MO'/'MON'/'MONTH' also mean month.
 const _MONTH_MIN = 43200;   // 30-day approximation, matches the fixed-bucket model
@@ -4477,6 +5183,14 @@ function setLayout(key, btn) {
   document.getElementById('grid-picker').classList.remove('open');
   document.querySelectorAll('.gp-layout').forEach(b =>
     b.classList.toggle('active', b.dataset.layout===key));
+  document.getElementById('gp-stack-row')?.classList.remove('active');
+  _stackActive = false;
+  _stackOnOff  = false;
+  _saveStackOnOff(false);
+  _renderStackSwitch();
+  const sv=document.getElementById('stack-view');
+  if (sv) sv.classList.remove('active');
+  destroyStackCells();
   S.layout = key;
   try{_LS.setItem('tvLayout',key);}catch(_){}
   const ws=document.getElementById('workspace');
@@ -6986,7 +7700,11 @@ document.addEventListener('DOMContentLoaded', () => {
         layout = slotLayout;
       }
 
-      if (layout!=='1x1'&&LAYOUTS[layout]) {
+      if (_stackOnOff) {
+        selectStackView();
+        const sc=st.selCell||0;
+        requestAnimationFrame(()=>requestAnimationFrame(()=>selectCell(sc)));
+      } else if (layout!=='1x1'&&LAYOUTS[layout]) {
         setLayout(layout,null);
         const sc=st.selCell||0;
         requestAnimationFrame(()=>requestAnimationFrame(()=>selectCell(sc)));
@@ -6995,7 +7713,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       _savedCells=null;
     } else {
-      rebuildChart();
+      // First-time user, no saved state at all — Stack View is ON by default.
+      if (_stackOnOff) selectStackView();
+      else rebuildChart();
     }
   } catch(_) { rebuildChart(); }
 
@@ -7016,6 +7736,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Render workspace slots bar
   _renderWsBar();
+  // Sync Stack View ON/OFF switch visual with the loaded preference
+  _renderStackSwitch();
 
   // Rebuild TF bar with current S.tf and any favorited custom TFs
   rebuildTfBar();
@@ -7649,6 +8371,13 @@ function _bnBuildSRNative(chartObj, lines) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
+  // TimeScale range pehle save karo — SR series add karte waqt lightweight-charts
+  // apne-aap timeScale ko "fit" kar leta hai taaki 300-bar future wale data points
+  // bhi visible rahein. Isse asli candles left mein screen se bahar chali jaati hain.
+  // Fix: series add karne se pehle range save karo, baad mein wapas restore karo.
+  let _savedRange = null;
+  try { _savedRange = chartObj.timeScale().getVisibleLogicalRange(); } catch(_) {}
+
   for (const ln of lines) {
     try {
       const s = chartObj.addLineSeries({
@@ -7667,6 +8396,13 @@ function _bnBuildSRNative(chartObj, lines) {
       ]);
       created.push(s);
     } catch (_) {}
+  }
+
+  // TimeScale range wapas restore karo
+  if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
+    try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
+  } else {
+    try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
 
   return created;
