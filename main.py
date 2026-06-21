@@ -8,6 +8,7 @@ import zipfile
 import requests
 import pyotp
 import streamlit as st
+import supabase_client as _supa
 import streamlit.components.v1 as components
 import datetime
 
@@ -373,15 +374,37 @@ def _token_monitor_loop():
             # Reset session cache so sidebar reflects truth
             if not still_active:
                 _sess_cache.update({"active": False, "ts": 0.0})
+
+                # ── Try automatic re-login first (TOTP-based, no human needed) ──
+                relogin_ok = False
+                if creds.get("totp_secret"):
+                    try:
+                        relogin_ok, _msg, _log = auto_fyers_login()
+                    except Exception:
+                        relogin_ok = False
+
+                if relogin_ok:
+                    # Fresh token saved inside auto_fyers_login(); clear expired state
+                    with _TOKEN_STATUS_LOCK:
+                        _TOKEN_STATUS["expired"] = False
+                    _sess_cache.update({"active": True, "ts": time.time()})
+                    try:
+                        if os.path.exists(".token_expired_flag"):
+                            os.remove(".token_expired_flag")
+                    except Exception:
+                        pass
+                    time.sleep(300)
+                    continue
+
                 # Write sentinel so next rerun clears _force_active
                 try:
                     with open(".token_expired_flag", "w") as _f:
                         _f.write("1")
                 except Exception:
                     pass
-                # Send SMS alert (once per hour max)
+                # Auto re-login failed (or TOTP not configured) — alert human (once per hour max)
                 _send_sms_alert(
-                    "BankNifty Dashboard Alert: Fyers token expired! "
+                    "BankNifty Dashboard Alert: Fyers token expired and auto re-login failed! "
                     "Please re-login at your dashboard to restore live data."
                 )
 
@@ -477,8 +500,13 @@ def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
             headers=headers, params=params, timeout=15,
         ).json()
         if res.get("s") == "ok":
-            return [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]]
+            candles = [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]]
                     for c in res.get("candles", [])]
+            try:
+                _supa.upsert_historical_candles("NSE:NIFTYBANK-INDEX", resolution, candles)
+            except Exception:
+                pass
+            return candles
     except Exception:
         pass
     return []
@@ -489,7 +517,11 @@ def fetch_bn_intraday(interval_mins: int) -> list:
     _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
     today  = _ist_now().strftime("%Y-%m-%d")
     from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
-    return _fyers_history(str(interval_mins), from_d, today)
+    candles = _fyers_history(str(interval_mins), from_d, today)
+    if not candles:
+        # Fyers fetch failed — fall back to whatever Supabase already has
+        candles = _supa.fetch_historical_candles("NSE:NIFTYBANK-INDEX", str(interval_mins), limit=3000)
+    return candles
 
 def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
     """Same as _fyers_history but doesn't read creds again (for chunked calls)."""
@@ -548,6 +580,12 @@ def load_bn_daily() -> list:
 
     all_candles.sort(key=lambda x: x[0])
 
+    if not all_candles:
+        # Fyers fetch fully failed (token expired etc.) — fall back to Supabase
+        fallback = _supa.fetch_historical_candles("NSE:NIFTYBANK-INDEX", "D", limit=3000)
+        if fallback:
+            return fallback
+
     if all_candles:
         try:
             with open(BN_DAILY_CACHE, "w") as f:
@@ -564,10 +602,18 @@ def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
             f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
             timeout=10,
         ).json()
-        return [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
+        candles = [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
                  float(x[4]), float(x[5])] for x in r]
+        if candles:
+            try:
+                _supa.upsert_historical_candles("BTCUSDT", interval, candles)
+            except Exception:
+                pass
+        else:
+            candles = _supa.fetch_historical_candles("BTCUSDT", interval, limit=limit)
+        return candles
     except Exception:
-        return []
+        return _supa.fetch_historical_candles("BTCUSDT", interval, limit=limit)
 
 def load_btc_daily() -> list:
     """Fetch BTC daily candles 2017->now in yearly chunks (same as BankNifty pattern)."""
@@ -627,7 +673,17 @@ def load_btc_daily() -> list:
 
     all_candles.sort(key=lambda x: x[0])
 
+    if not all_candles:
+        # Binance fetch fully failed — fall back to Supabase
+        fallback = _supa.fetch_historical_candles("BTCUSDT", "1d", limit=3000)
+        if fallback:
+            return fallback
+
     if all_candles:
+        try:
+            _supa.upsert_historical_candles("BTCUSDT", "1d", all_candles)
+        except Exception:
+            pass
         try:
             with open(DAILY_CACHE_FILE, "w") as f:
                 json.dump({"ts": time.time(), "data": all_candles}, f)
@@ -704,6 +760,16 @@ def _get_live_payload():
     with _LIVE_LOCK:
         snap = dict(_LIVE)
     if snap["ltp"] is None:
+        # Nothing in memory yet — try Supabase's last known tick
+        fb = _supa.fetch_latest_live_tick("NSE:NIFTYBANK-INDEX")
+        if fb and fb.get("ltp") is not None:
+            ltp = fb["ltp"]
+            now = time.time()
+            return {
+                "ts":  now,
+                "ltp": ltp,
+                "candle": {"time": int(now // 60) * 60, "open": ltp, "high": ltp, "low": ltp, "close": ltp},
+            }
         return None
     ltp = snap["ltp"]
     now        = time.time()
@@ -727,6 +793,8 @@ def _get_live_payload():
         },
     }
 
+_SUPA_LAST_PUSH = {"ts": 0.0}
+
 def _write_live_json():
     payload = _get_live_payload()
     if payload is None:
@@ -738,6 +806,20 @@ def _write_live_json():
         # postMessage store — Streamlit injector yahan se padh ke iframe ko bhejta hai
         with _LAST_TICK_LOCK:
             _LAST_TICK_JS["json"] = json.dumps(payload)
+    except Exception:
+        pass
+
+    # ── Push live tick to Supabase (snapshot every tick, log throttled to 1/sec) ──
+    try:
+        with _LIVE_LOCK:
+            ltp        = _LIVE.get("ltp")
+            prev_close = _LIVE.get("prev_close")
+        if ltp is not None:
+            _supa.upsert_live_tick("NSE:NIFTYBANK-INDEX", ltp, prev_close)
+            now = time.time()
+            if now - _SUPA_LAST_PUSH["ts"] >= 1.0:
+                _SUPA_LAST_PUSH["ts"] = now
+                _supa.insert_live_tick_log("NSE:NIFTYBANK-INDEX", ltp, prev_close)
     except Exception:
         pass
 
