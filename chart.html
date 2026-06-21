@@ -8937,11 +8937,25 @@ function swingCompute(bars, tfMin) {
   const IST_OFFSET_SEC = 5.5 * 3600;
   const _istDayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
 
+  // ── Fixed periodSec for synthetic TFs (135m / 160m / 8h) ─────────────────
+  // These TFs are built by resampling smaller candles, so the real gap
+  // between consecutive resampled bars (cur.time - prev.time) can come out
+  // short/irregular at session boundaries or when a source bucket is
+  // missing. That made candle H/L line length inconsistent. Fixing periodSec
+  // to the TF's true duration removes that dependency entirely.
+  const _FIXED_PERIOD_SEC = { 135: 8100, 160: 9600, 480: 28800 };
+  const _isSyntheticTF = Object.prototype.hasOwnProperty.call(_FIXED_PERIOD_SEC, tfMin);
+
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
     // Actual candle duration from real data — fixes synthetic TFs like 135m
-    // where tfMin*60 may not match actual candle boundaries after resampling
-    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
+    // where tfMin*60 may not match actual candle boundaries after resampling.
+    // EXCEPTION: for 135m/160m/8h we now use a fixed period instead (see
+    // _FIXED_PERIOD_SEC above) since the dynamic gap itself was the source
+    // of the inconsistency for these three TFs.
+    const periodSec = _isSyntheticTF
+      ? _FIXED_PERIOD_SEC[tfMin]
+      : ((i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec);
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
     const isSessionGap = tfMin < 1440 && i >= 1 &&
@@ -8957,8 +8971,17 @@ function swingCompute(bars, tfMin) {
         let isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         
         if (isTouched) {
-          // TOUCHED — re-extend 1 candle ahead from the current bar
-          ln.endTime = cur.time + 2 * periodSec;
+          // TOUCHED — re-extend from the current bar.
+          // Synthetic TFs (135m/160m/8h): growing multiplier per touch —
+          //   touch 1 → 8x, touch 2 → 12x, touch 3 → 16x ... (+4x each time)
+          // All other TFs: unchanged behavior — flat 2x re-extend.
+          if (_isSyntheticTF) {
+            ln.touchCount = (ln.touchCount || 0) + 1;
+            const mult = 4 * (ln.touchCount + 1); // touch1=8x, touch2=12x, ...
+            ln.endTime = cur.time + mult * periodSec;
+          } else {
+            ln.endTime = cur.time + 2 * periodSec;
+          }
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
@@ -8997,15 +9020,18 @@ function swingCompute(bars, tfMin) {
       ...aRes.map(l => l.price),
       ...aSup.map(l => l.price)
     ]);
+    // Initial draw length: synthetic TFs (135m/160m/8h) get 4x; all other
+    // TFs keep the original 2x (unchanged behavior).
+    const _initMult = _isSyntheticTF ? 4 : 2;
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
-                     creationIndex: i, kind: 'ch', periodSec });
+                     endTime: cur.time + _initMult * periodSec,
+                     creationIndex: i, kind: 'ch', periodSec, touchCount: 0 });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
-                     creationIndex: i, kind: 'cl', periodSec });
+                     endTime: cur.time + _initMult * periodSec,
+                     creationIndex: i, kind: 'cl', periodSec, touchCount: 0 });
     }
 
     // DO NOT USE shift() here! We must not delete surviving lines artificially.
