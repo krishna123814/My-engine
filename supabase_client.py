@@ -168,7 +168,7 @@ def fetch_historical_candles(symbol: str, timeframe: str, limit: int = 2000) -> 
         return []
 
 
-def fetch_latest_live_tick(symbol: str) -> dict | None:
+def fetch_latest_live_tick(symbol: str):
     """Returns {'ltp':..., 'prev_close':..., 'updated_at':...} or None."""
     if not SUPABASE_KEY:
         return None
