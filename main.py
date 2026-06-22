@@ -522,16 +522,11 @@ def _bg_refresh_bn_intraday(interval_mins: int):
         pass
 
 def fetch_bn_intraday(interval_mins: int) -> list:
-    """Supabase = primary source (instant read). Fyers fetch happens in background
-    and keeps writing fresh candles to Supabase for the NEXT call/rerun.
-    NOTE: Blocking fallback hataya gaya — app startup par freeze nahi hogi."""
-    candles = _supa.fetch_historical_candles("NSE:NIFTYBANK-INDEX", str(interval_mins), limit=3000)
-    threading.Thread(
-        target=_bg_refresh_bn_intraday, args=(interval_mins,),
-        name=f"BNRefresh{interval_mins}", daemon=True,
-    ).start()
-    return candles
-
+    """Seedha Fyers se fetch karo — no Supabase dependency."""
+    _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
+    today  = _ist_now().strftime("%Y-%m-%d")
+    from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
+    return _fyers_history(str(interval_mins), from_d, today)
 def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
     """Same as _fyers_history but doesn't read creds again (for chunked calls)."""
     creds = load_creds()
@@ -587,13 +582,23 @@ def _bg_refresh_bn_daily():
         pass
 
 def load_bn_daily() -> list:
-    """Supabase = primary source (instant read). Fyers chunked fetch happens
-    in background and refreshes Supabase for the NEXT call/rerun.
-    NOTE: Blocking fallback hataya gaya — pehli baar Supabase empty hone par bhi
-    app freeze nahi hogi. Background thread data fill karega, next rerun pe milega."""
-    candles = _supa.fetch_historical_candles("NSE:NIFTYBANK-INDEX", "D", limit=3000)
-    threading.Thread(target=_bg_refresh_bn_daily, name="BNDailyRefresh", daemon=True).start()
-    return candles
+    """Seedha Fyers se daily candles fetch karo — no Supabase dependency."""
+    today_str = _ist_now().strftime("%Y-%m-%d")
+    all_candles = []
+    seen = set()
+    for yr in range(2020, _ist_now().year + 1):
+        for (from_d, to_d) in [(f"{yr}-01-01", f"{yr}-06-30"), (f"{yr}-07-01", f"{yr}-12-31")]:
+            if from_d > today_str:
+                break
+            actual_to = min(to_d, today_str)
+            chunk = _fyers_history_chunk("D", from_d, actual_to)
+            for c in chunk:
+                if c[0] not in seen:
+                    seen.add(c[0])
+                    all_candles.append(c)
+            time.sleep(0.1)
+    all_candles.sort(key=lambda x: x[0])
+    return all_candles
 
 # ─── BTC (Binance) ────────────────────────────────────────────────────────────
 def _bg_refresh_btc(interval: str, limit: int):
@@ -611,27 +616,17 @@ def _bg_refresh_btc(interval: str, limit: int):
         pass
 
 def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
-    """Supabase = primary source (instant read). Binance fetch happens in
-    background and refreshes Supabase for the NEXT call/rerun.
-    Agar Supabase empty ho toh seedha Binance se le lo (BTC ko Fyers ki zaroorat nahi)."""
-    candles = _supa.fetch_historical_candles("BTCUSDT", interval, limit=limit)
-    threading.Thread(
-        target=_bg_refresh_btc, args=(interval, limit),
-        name=f"BTCRefresh{interval}", daemon=True,
-    ).start()
-    if not candles:
-        # Supabase empty — seedha Binance se lo (fast, no auth needed)
-        try:
-            r = requests.get(
-                f"https://api.binance.com/api/v3/klines"
-                f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
-                timeout=10,
-            ).json()
-            candles = [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
-                     float(x[4]), float(x[5])] for x in r]
-        except Exception:
-            pass
-    return candles
+    """Seedha Binance se fetch karo — no Supabase dependency."""
+    try:
+        r = requests.get(
+            f"https://api.binance.com/api/v3/klines"
+            f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
+            timeout=10,
+        ).json()
+        return [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
+                 float(x[4]), float(x[5])] for x in r]
+    except Exception:
+        return []
 
 def _bg_refresh_btc_daily():
     try:
@@ -681,13 +676,37 @@ def _bg_refresh_btc_daily():
         pass
 
 def load_btc_daily() -> list:
-    """Supabase = primary source (instant read). Binance chunked fetch happens
-    in background and refreshes Supabase for the NEXT call/rerun.
-    NOTE: Blocking fallback hataya gaya — pehli baar Supabase empty hone par bhi
-    app freeze nahi hogi. Background thread data fill karega, next rerun pe milega."""
-    candles = _supa.fetch_historical_candles("BTCUSDT", "1d", limit=3000)
-    threading.Thread(target=_bg_refresh_btc_daily, name="BTCDailyRefresh", daemon=True).start()
-    return candles
+    """Seedha Binance se daily candles fetch karo — no Supabase dependency."""
+    today_str = _ist_now().strftime("%Y-%m-%d")
+    all_candles = []
+    seen = set()
+    for yr in range(2017, _ist_now().year + 1):
+        for (from_d, to_d) in [(f"{yr}-01-01", f"{yr}-06-30"), (f"{yr}-07-01", f"{yr}-12-31")]:
+            if from_d > today_str:
+                break
+            actual_to = min(to_d, today_str)
+            from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
+                tzinfo=datetime.timezone.utc).timestamp() * 1000)
+            to_ms = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
+                tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
+            try:
+                r = requests.get(
+                    f"https://api.binance.com/api/v3/klines"
+                    f"?symbol=BTCUSDT&interval=1d&startTime={from_ms}&endTime={to_ms}&limit=1000",
+                    timeout=15,
+                ).json()
+                if isinstance(r, list):
+                    for x in r:
+                        ts = int(x[0])
+                        if ts not in seen:
+                            seen.add(ts)
+                            all_candles.append([ts, float(x[1]), float(x[2]),
+                                                float(x[3]), float(x[4]), float(x[5])])
+            except Exception:
+                pass
+            time.sleep(0.05)
+    all_candles.sort(key=lambda x: x[0])
+    return all_candles
 
 # ─── OHLC converter ───────────────────────────────────────────────────────────
 def to_ohlc(bars: list) -> list:
