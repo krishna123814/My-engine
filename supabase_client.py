@@ -17,8 +17,8 @@ Set these in Streamlit secrets / .env before running.
 import os
 import requests
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://cbnwmqmwmvyxqulgbtst.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY", "sb_secret_hyUXWwH3L1dULHmY6EVATQ_rcjGF13C")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SECRET_KEY", "")
 
 REST_BASE = f"{SUPABASE_URL}/rest/v1"
 

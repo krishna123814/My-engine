@@ -8,6 +8,7 @@ import zipfile
 import requests
 import pyotp
 import streamlit as st
+import supabase_client as _supa
 import streamlit.components.v1 as components
 import datetime
 
@@ -373,15 +374,37 @@ def _token_monitor_loop():
             # Reset session cache so sidebar reflects truth
             if not still_active:
                 _sess_cache.update({"active": False, "ts": 0.0})
+
+                # ── Try automatic re-login first (TOTP-based, no human needed) ──
+                relogin_ok = False
+                if creds.get("totp_secret"):
+                    try:
+                        relogin_ok, _msg, _log = auto_fyers_login()
+                    except Exception:
+                        relogin_ok = False
+
+                if relogin_ok:
+                    # Fresh token saved inside auto_fyers_login(); clear expired state
+                    with _TOKEN_STATUS_LOCK:
+                        _TOKEN_STATUS["expired"] = False
+                    _sess_cache.update({"active": True, "ts": time.time()})
+                    try:
+                        if os.path.exists(".token_expired_flag"):
+                            os.remove(".token_expired_flag")
+                    except Exception:
+                        pass
+                    time.sleep(300)
+                    continue
+
                 # Write sentinel so next rerun clears _force_active
                 try:
                     with open(".token_expired_flag", "w") as _f:
                         _f.write("1")
                 except Exception:
                     pass
-                # Send SMS alert (once per hour max)
+                # Auto re-login failed (or TOTP not configured) — alert human (once per hour max)
                 _send_sms_alert(
-                    "BankNifty Dashboard Alert: Fyers token expired! "
+                    "BankNifty Dashboard Alert: Fyers token expired and auto re-login failed! "
                     "Please re-login at your dashboard to restore live data."
                 )
 
@@ -477,19 +500,37 @@ def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
             headers=headers, params=params, timeout=15,
         ).json()
         if res.get("s") == "ok":
-            return [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]]
+            candles = [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]]
                     for c in res.get("candles", [])]
+            try:
+                _supa.upsert_historical_candles("NSE:NIFTYBANK-INDEX", resolution, candles)
+            except Exception:
+                pass
+            return candles
     except Exception:
         pass
     return []
 
+def _bg_refresh_bn_intraday(interval_mins: int):
+    """Background: pull fresh candles from Fyers and push to Supabase. No return value."""
+    try:
+        _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
+        today  = _ist_now().strftime("%Y-%m-%d")
+        from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
+        _fyers_history(str(interval_mins), from_d, today)  # already upserts to Supabase internally
+    except Exception:
+        pass
+
 def fetch_bn_intraday(interval_mins: int) -> list:
-    # Fyers TF ke hisaab se max safe range:
-    # 1m  → 10 days, 5m → 30 days, 15m → 60 days, 45m → 90 days
-    _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
-    today  = _ist_now().strftime("%Y-%m-%d")
-    from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
-    return _fyers_history(str(interval_mins), from_d, today)
+    """Supabase = primary source (instant read). Fyers fetch happens in background
+    and keeps writing fresh candles to Supabase for the NEXT call/rerun.
+    NOTE: Blocking fallback hataya gaya — app startup par freeze nahi hogi."""
+    candles = _supa.fetch_historical_candles("NSE:NIFTYBANK-INDEX", str(interval_mins), limit=3000)
+    threading.Thread(
+        target=_bg_refresh_bn_intraday, args=(interval_mins,),
+        name=f"BNRefresh{interval_mins}", daemon=True,
+    ).start()
+    return candles
 
 def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
     """Same as _fyers_history but doesn't read creds again (for chunked calls)."""
@@ -510,130 +551,131 @@ def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
         pass
     return []
 
+def _bg_refresh_bn_daily():
+    """Background: pull full daily history chunks from Fyers, push to Supabase."""
+    try:
+        today = _ist_now()
+        today_str = today.strftime("%Y-%m-%d")
+        start_year = 2020
+        cur_year   = today.year
+        chunks: list[tuple[str, str]] = []
+        for yr in range(start_year, cur_year + 1):
+            chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
+            chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+        all_candles: list = []
+        seen_times: set = set()
+        for i, (from_d, to_d) in enumerate(chunks):
+            if from_d > today_str:
+                break
+            actual_to = min(to_d, today_str)
+            if i > 0:
+                time.sleep(0.25)
+            chunk = _fyers_history_chunk("D", from_d, actual_to)
+            for c in chunk:
+                if c[0] not in seen_times:
+                    seen_times.add(c[0])
+                    all_candles.append(c)
+        all_candles.sort(key=lambda x: x[0])
+        if all_candles:
+            _supa.upsert_historical_candles("NSE:NIFTYBANK-INDEX", "D", all_candles)
+            try:
+                with open(BN_DAILY_CACHE, "w") as f:
+                    json.dump({"ts": time.time(), "data": all_candles}, f)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 def load_bn_daily() -> list:
-    """Fetch BankNifty daily candles 2020→now in yearly chunks (~1200 bars)."""
-    if os.path.exists(BN_DAILY_CACHE):
-        try:
-            with open(BN_DAILY_CACHE) as f:
-                cache = json.load(f)
-            if time.time() - cache.get("ts", 0) < DAILY_CACHE_TTL:
-                return cache.get("data", [])
-        except Exception:
-            pass
-
-    today = _ist_now()
-    today_str = today.strftime("%Y-%m-%d")
-    start_year = 2020
-    cur_year   = today.year
-
-    # Build half-year chunks (Fyers allows max ~1yr range)
-    chunks: list[tuple[str, str]] = []
-    for yr in range(start_year, cur_year + 1):
-        chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
-        chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
-
-    all_candles: list = []
-    seen_times: set  = set()
-    for i, (from_d, to_d) in enumerate(chunks):
-        if from_d > today_str:
-            break
-        actual_to = min(to_d, today_str)
-        if i > 0:
-            time.sleep(0.25)  # avoid Fyers rate-limit on rapid chunk calls
-        chunk = _fyers_history_chunk("D", from_d, actual_to)
-        for c in chunk:
-            if c[0] not in seen_times:
-                seen_times.add(c[0])
-                all_candles.append(c)
-
-    all_candles.sort(key=lambda x: x[0])
-
-    if all_candles:
-        try:
-            with open(BN_DAILY_CACHE, "w") as f:
-                json.dump({"ts": time.time(), "data": all_candles}, f)
-        except Exception:
-            pass
-    return all_candles
+    """Supabase = primary source (instant read). Fyers chunked fetch happens
+    in background and refreshes Supabase for the NEXT call/rerun.
+    NOTE: Blocking fallback hataya gaya — pehli baar Supabase empty hone par bhi
+    app freeze nahi hogi. Background thread data fill karega, next rerun pe milega."""
+    candles = _supa.fetch_historical_candles("NSE:NIFTYBANK-INDEX", "D", limit=3000)
+    threading.Thread(target=_bg_refresh_bn_daily, name="BNDailyRefresh", daemon=True).start()
+    return candles
 
 # ─── BTC (Binance) ────────────────────────────────────────────────────────────
-def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
+def _bg_refresh_btc(interval: str, limit: int):
     try:
         r = requests.get(
             f"https://api.binance.com/api/v3/klines"
             f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
             timeout=10,
         ).json()
-        return [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
+        candles = [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
                  float(x[4]), float(x[5])] for x in r]
+        if candles:
+            _supa.upsert_historical_candles("BTCUSDT", interval, candles)
     except Exception:
-        return []
+        pass
+
+def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
+    """Supabase = primary source (instant read). Binance fetch happens in
+    background and refreshes Supabase for the NEXT call/rerun.
+    NOTE: Blocking fallback hataya gaya — app startup par freeze nahi hogi."""
+    candles = _supa.fetch_historical_candles("BTCUSDT", interval, limit=limit)
+    threading.Thread(
+        target=_bg_refresh_btc, args=(interval, limit),
+        name=f"BTCRefresh{interval}", daemon=True,
+    ).start()
+    return candles
+
+def _bg_refresh_btc_daily():
+    try:
+        today_str = _ist_now().strftime("%Y-%m-%d")
+        start_year = 2017
+        cur_year   = _ist_now().year
+        chunks: list[tuple[str, str]] = []
+        for yr in range(start_year, cur_year + 1):
+            chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
+            chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+        all_candles: list = []
+        seen_times: set = set()
+        for i, (from_d, to_d) in enumerate(chunks):
+            if from_d > today_str:
+                break
+            actual_to = min(to_d, today_str)
+            from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
+                tzinfo=datetime.timezone.utc).timestamp() * 1000)
+            to_ms   = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
+                tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
+            try:
+                r = requests.get(
+                    f"https://api.binance.com/api/v3/klines"
+                    f"?symbol=BTCUSDT&interval=1d&startTime={from_ms}&endTime={to_ms}&limit=1000",
+                    timeout=15,
+                ).json()
+                if isinstance(r, list):
+                    for x in r:
+                        ts = int(x[0])
+                        if ts not in seen_times:
+                            seen_times.add(ts)
+                            all_candles.append([ts, float(x[1]), float(x[2]),
+                                                float(x[3]), float(x[4]), float(x[5])])
+            except Exception:
+                pass
+            if i > 0:
+                time.sleep(0.1)
+        all_candles.sort(key=lambda x: x[0])
+        if all_candles:
+            _supa.upsert_historical_candles("BTCUSDT", "1d", all_candles)
+            try:
+                with open(DAILY_CACHE_FILE, "w") as f:
+                    json.dump({"ts": time.time(), "data": all_candles}, f)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def load_btc_daily() -> list:
-    """Fetch BTC daily candles 2017->now in yearly chunks (same as BankNifty pattern)."""
-    today_str = _ist_now().strftime("%Y-%m-%d")
-    if os.path.exists(DAILY_CACHE_FILE):
-        try:
-            with open(DAILY_CACHE_FILE) as f:
-                c = json.load(f)
-            data = c.get("data", [])
-            cache_ok = time.time() - c.get("ts", 0) < DAILY_CACHE_TTL
-            if cache_ok and data:
-                last_ts = data[-1][0] // 1000
-                last_date = datetime.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d")
-                if last_date < today_str:
-                    cache_ok = False
-            if cache_ok:
-                return data
-        except Exception:
-            pass
-
-    start_year = 2017
-    cur_year   = _ist_now().year
-
-    chunks: list[tuple[str, str]] = []
-    for yr in range(start_year, cur_year + 1):
-        chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
-        chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
-
-    all_candles: list = []
-    seen_times: set   = set()
-
-    for i, (from_d, to_d) in enumerate(chunks):
-        if from_d > today_str:
-            break
-        actual_to = min(to_d, today_str)
-        from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
-            tzinfo=datetime.timezone.utc).timestamp() * 1000)
-        to_ms   = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
-            tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
-        try:
-            r = requests.get(
-                f"https://api.binance.com/api/v3/klines"
-                f"?symbol=BTCUSDT&interval=1d&startTime={from_ms}&endTime={to_ms}&limit=1000",
-                timeout=15,
-            ).json()
-            if isinstance(r, list):
-                for x in r:
-                    ts = int(x[0])
-                    if ts not in seen_times:
-                        seen_times.add(ts)
-                        all_candles.append([ts, float(x[1]), float(x[2]),
-                                            float(x[3]), float(x[4]), float(x[5])])
-        except Exception:
-            pass
-        if i > 0:
-            time.sleep(0.1)
-
-    all_candles.sort(key=lambda x: x[0])
-
-    if all_candles:
-        try:
-            with open(DAILY_CACHE_FILE, "w") as f:
-                json.dump({"ts": time.time(), "data": all_candles}, f)
-        except Exception:
-            pass
-    return all_candles
+    """Supabase = primary source (instant read). Binance chunked fetch happens
+    in background and refreshes Supabase for the NEXT call/rerun.
+    NOTE: Blocking fallback hataya gaya — pehli baar Supabase empty hone par bhi
+    app freeze nahi hogi. Background thread data fill karega, next rerun pe milega."""
+    candles = _supa.fetch_historical_candles("BTCUSDT", "1d", limit=3000)
+    threading.Thread(target=_bg_refresh_btc_daily, name="BTCDailyRefresh", daemon=True).start()
+    return candles
 
 # ─── OHLC converter ───────────────────────────────────────────────────────────
 def to_ohlc(bars: list) -> list:
@@ -704,6 +746,16 @@ def _get_live_payload():
     with _LIVE_LOCK:
         snap = dict(_LIVE)
     if snap["ltp"] is None:
+        # Nothing in memory yet — try Supabase's last known tick
+        fb = _supa.fetch_latest_live_tick("NSE:NIFTYBANK-INDEX")
+        if fb and fb.get("ltp") is not None:
+            ltp = fb["ltp"]
+            now = time.time()
+            return {
+                "ts":  now,
+                "ltp": ltp,
+                "candle": {"time": int(now // 60) * 60, "open": ltp, "high": ltp, "low": ltp, "close": ltp},
+            }
         return None
     ltp = snap["ltp"]
     now        = time.time()
@@ -727,6 +779,8 @@ def _get_live_payload():
         },
     }
 
+_SUPA_LAST_PUSH = {"ts": 0.0}
+
 def _write_live_json():
     payload = _get_live_payload()
     if payload is None:
@@ -738,6 +792,20 @@ def _write_live_json():
         # postMessage store — Streamlit injector yahan se padh ke iframe ko bhejta hai
         with _LAST_TICK_LOCK:
             _LAST_TICK_JS["json"] = json.dumps(payload)
+    except Exception:
+        pass
+
+    # ── Push live tick to Supabase (snapshot every tick, log throttled to 1/sec) ──
+    try:
+        with _LIVE_LOCK:
+            ltp        = _LIVE.get("ltp")
+            prev_close = _LIVE.get("prev_close")
+        if ltp is not None:
+            _supa.upsert_live_tick("NSE:NIFTYBANK-INDEX", ltp, prev_close)
+            now = time.time()
+            if now - _SUPA_LAST_PUSH["ts"] >= 1.0:
+                _SUPA_LAST_PUSH["ts"] = now
+                _supa.insert_live_tick_log("NSE:NIFTYBANK-INDEX", ltp, prev_close)
     except Exception:
         pass
 
@@ -804,12 +872,38 @@ def _rest_live_loop():
                     pass
         time.sleep(1)
 
+# ─── Background BTC live poller — keeps Supabase continuously updated ───────
+# (Browser still shows live price via fast direct Binance WebSocket. This loop
+# runs independently in the backend so Supabase never has a gap, even if the
+# browser tab is closed or the WebSocket drops for a while.)
+_BTC_LIVE_LAST_PUSH = {"ts": 0.0}
+
+def _btc_live_loop():
+    while True:
+        try:
+            r = requests.get(
+                "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
+                timeout=5,
+            ).json()
+            price = float(r.get("price")) if r.get("price") else None
+            if price is not None:
+                _supa.upsert_live_tick("BTCUSDT", price, None)
+                now = time.time()
+                if now - _BTC_LIVE_LAST_PUSH["ts"] >= 1.0:
+                    _BTC_LIVE_LAST_PUSH["ts"] = now
+                    _supa.insert_live_tick_log("BTCUSDT", price, None)
+        except Exception:
+            pass
+        time.sleep(1)
+
 def _ensure_live_threads():
     names = {t.name for t in threading.enumerate()}
     if "FyersRESTPoller" not in names:
         threading.Thread(target=_rest_live_loop, name="FyersRESTPoller", daemon=True).start()
     if "FyersTokenMonitor" not in names:
         threading.Thread(target=_token_monitor_loop, name="FyersTokenMonitor", daemon=True).start()
+    if "BTCLivePoller" not in names:
+        threading.Thread(target=_btc_live_loop, name="BTCLivePoller", daemon=True).start()
     _start_ws()
     _register_api_route()
 
@@ -887,6 +981,18 @@ def _register_api_route():
                 if parsed.path == "/api/bn_tick":
                     payload = _get_live_payload()
                     body = json.dumps(payload if payload is not None else {}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                if parsed.path == "/api/btc_tick":
+                    tick = _supa.fetch_latest_live_tick("BTCUSDT")
+                    body = json.dumps(tick if tick else {}).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
