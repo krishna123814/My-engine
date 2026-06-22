@@ -1583,6 +1583,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   touch-action:none;cursor:grab;
 }
 .dt-handle:active{cursor:grabbing;background:#1a53e0}
+
+/* ── Custom Canvas Crosshair ─────────────────────────────────── */
+.cc-canvas{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  pointer-events:none;z-index:49;
+  will-change:transform;transform:translateZ(0);
+}
+
 </style>
 </head>
 <body>
@@ -2274,9 +2282,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           <option value="3">3 px</option>
         </select>
       </div>
-      <div class="settings-sec">Top-Left Legend</div>
       <div class="ind-row">
-        <span class="ind-name">Hide axis price/time labels on crosshair</span>
+        <span class="ind-name">Show Price / Time Labels on Crosshair</span>
         <label class="toggle"><input type="checkbox" id="s-hide-axis-labels" checked><span class="sl"></span></label>
       </div>
       <button class="apply-btn" onclick="applySettings()">Apply</button>
@@ -2337,7 +2344,8 @@ const S = {
   legOhlc:   true,
   legChg:    true,
   legStatus: true,
-  hdrOhlc:   true,  // Show OHLC in top-left header on crosshair
+  hdrOhlc:      true,    // Show OHLC in top-left header on crosshair
+  hideAxisLabels: false,  // false = show price/time labels on crosshair
   bgColor:   '#ffffff',
   textColor: '#131722',
   vLine:     { enabled: true, color: '#2962ff', width: 1, offset: 5, style: 'solid' },
@@ -2417,6 +2425,10 @@ function saveState() {
       activeSlot: _activeSlot,
       cells:     CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
       vLine:     { ...S.vLine },
+      crossColor:      S.crossColor,
+      crossStyle:      S.crossStyle,
+      crossWidth:      S.crossWidth,
+      hideAxisLabels:  S.hideAxisLabels,
     }));
   } catch(_) {}
 }
@@ -2461,6 +2473,10 @@ function _currentSnapshot(name) {
     swingLineW:  SWING_LINE_WIDTH,
     swingTFList: JSON.parse(JSON.stringify(SWING_TF_LIST || [])),
     tfColors:    JSON.parse(JSON.stringify(_TF_COLORS || {})),
+    crossColor:      S.crossColor,
+    crossStyle:      S.crossStyle,
+    crossWidth:      S.crossWidth,
+    hideAxisLabels:  S.hideAxisLabels,
   };
 }
 
@@ -2621,6 +2637,12 @@ function loadFromSlot(idx) {
 
   // Restore future vertical line config
   if (slot.vLine) Object.assign(S.vLine, slot.vLine);
+
+  // Restore CC crosshair settings
+  if (typeof slot.crossColor     === 'string')  S.crossColor     = slot.crossColor;
+  if (typeof slot.crossStyle     === 'number')  S.crossStyle     = slot.crossStyle;
+  if (typeof slot.crossWidth     === 'number')  S.crossWidth     = slot.crossWidth;
+  if (typeof slot.hideAxisLabels === 'boolean') S.hideAxisLabels = slot.hideAxisLabels;
 
   // Restore favourite TFs
   if (slot.favTFs && Array.isArray(slot.favTFs)) {
@@ -4241,9 +4263,9 @@ function chartOpts(el, h) {
     layout: { background:{type:'solid',color:S.bgColor}, textColor:S.textColor, fontSize:7 },
     grid:   { vertLines:{color:'transparent'}, horzLines:{color:'transparent'} },
     crosshair: {
-      mode: 0,
-      vertLine:{color:_col, width:_width, style:_style, labelBackgroundColor:'#131722', labelVisible:true},
-      horzLine:{color:_col, width:_width, style:_style, labelBackgroundColor:'#131722', labelVisible:true},
+      mode: 2,  // Hidden — custom canvas crosshair used instead
+      vertLine:{color:'transparent', width:0, style:0, labelBackgroundColor:'#131722', labelVisible:false},
+      horzLine:{color:'transparent', width:0, style:0, labelBackgroundColor:'#131722', labelVisible:false},
     },
     rightPriceScale: {
       borderColor:'#2a2e39', mode: S.log ? 1 : 0,
@@ -4581,6 +4603,8 @@ function rebuildChart() {
 
   const _fmtLeg = v => v!=null
     ? v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '--';
+  // Expose globally so CC engine (defined before rebuildChart) can call it
+  window._fmtLegGlobal = _fmtLeg;
   function _resetLegToLatest() {
     if (!_latestBar) return;
     const b = _latestBar;
@@ -4610,9 +4634,13 @@ function rebuildChart() {
       }
     }
   }
+  // Expose globally so CC engine can call on deactivate
+  window._resetLegToLatestGlobal = _resetLegToLatest;
   // ── RAF-throttled crosshair legend update ──────────────────────────────────
   let _legRAF = null;
   chart.subscribeCrosshairMove(param => {
+    // CC canvas crosshair is active — it handles header/legend updates directly
+    if (typeof CC !== 'undefined' && CC.isActive()) return;
     if (_legRAF) return;
     _legRAF = requestAnimationFrame(() => {
       _legRAF = null;
@@ -4655,6 +4683,11 @@ function rebuildChart() {
   // Apply cursor settings to newly rebuilt chart
   setTimeout(()=>{ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 50);
   bindPriceScaleTouchZoom();
+  // Register main chart with custom canvas crosshair engine
+  if (typeof CC !== 'undefined') {
+    const _ccMain = document.getElementById('main-chart');
+    if (_ccMain && chart) CC.register(_ccMain, chart, () => mainSeries, -1);
+  }
   bindMainResize();
   initCandleTimer();
   applyLegendVisibility();
@@ -5566,7 +5599,7 @@ async function buildCellChart(idx) {
     width:el.clientWidth||200, height:el.clientHeight||200,
     layout:{background:{type:'solid',color:S.bgColor},textColor:S.textColor,fontSize:7},
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
-    crosshair:{mode:0, vertLine:{labelVisible:true}, horzLine:{labelVisible:true}},  // always Normal (free) for grid cells — never Magnet
+    crosshair:{mode:2, vertLine:{color:'transparent',width:0,labelVisible:false}, horzLine:{color:'transparent',width:0,labelVisible:false}},  // Hidden — custom canvas crosshair used instead
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
     timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:Math.max(3,(S.vLine&&S.vLine.offset||5)+1),barSpacing:4,minBarSpacing:1},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
@@ -5622,7 +5655,7 @@ async function buildCellChart(idx) {
   el.addEventListener('pointerdown', ()=>{ c._followLive = false; }, {passive:true});
   el.addEventListener('wheel', ()=>{ c._followLive = false; }, {passive:true});
   if (c._mobTouchCleanup) { c._mobTouchCleanup(); c._mobTouchCleanup = null; }
-  c._mobTouchCleanup = attachMobileTouchUX(el, c.chart, () => c.series);
+  c._mobTouchCleanup = attachMobileTouchUX(el, c.chart, () => c.series, idx);
   updateCellPrice(idx, data);
   applyLegendVisibility();
   // Apply crosshair settings to this cell (color, style, width + axis labels)
@@ -5640,6 +5673,7 @@ async function buildCellChart(idx) {
   // RAF-throttle vl draw on crosshair move for grid cells
   let _cVlRAF = null;
   c.chart.subscribeCrosshairMove((param) => {
+    if (typeof CC !== 'undefined' && CC.isActive()) return;
     if (_cVlRAF) return;
     _cVlRAF = requestAnimationFrame(() => {
       _cVlRAF = null;
@@ -5684,6 +5718,7 @@ async function buildCellChart(idx) {
   // Also handle crosshair-leave to reset header to latest
   let _cLeaveRAF = null;
   c.chart.subscribeCrosshairMove((param) => {
+    if (typeof CC !== 'undefined' && CC.isActive()) return;
     if (!param?.seriesData?.size && S.hdrOhlc && _latestBar) {
       _hdrXActive = false;
       if (_cLeaveRAF) return;
@@ -5711,6 +5746,11 @@ async function buildCellChart(idx) {
   // Double-RAF ensures ALL cells in the grid have finished their own buildCell()
   // before we subscribe crosshair handlers — so every cell gets a handler.
   requestAnimationFrame(()=>requestAnimationFrame(()=>wireSync()));
+  // Register this cell with custom canvas crosshair engine
+  if (typeof CC !== 'undefined') {
+    const _ccEl = CELLS[idx]?.el;
+    if (_ccEl && c.chart) CC.register(_ccEl, c.chart, () => c.series, idx);
+  }
 }
 
 function updateCellPrice(idx, data) {
@@ -5789,8 +5829,9 @@ function toggleSettings() {
     if(csEl) csEl.value=String(S.crossStyle != null ? S.crossStyle : 0);
     const cwEl=document.getElementById('s-cross-width');
     if(cwEl) cwEl.value=String(S.crossWidth||1);
-    // Fix 4: sync axis-label toggle
-    set('s-hide-axis-labels', S.hideAxisLabels!==false);
+    // Fix 4: sync axis-label toggle (checked=show labels, hideAxisLabels=false)
+    const halEl=document.getElementById('s-hide-axis-labels');
+    if(halEl) halEl.checked = (S.hideAxisLabels !== true);
     // Sync active bg swatch
     document.querySelectorAll('.bg-swatch').forEach(b=>{
       const oc=b.getAttribute('onclick')||'';
@@ -5827,9 +5868,9 @@ function applySettings() {
   if(csEl){ S.crossStyle=+csEl.value; }
   if(cwEl){ S.crossWidth=+cwEl.value; }
   _applyCrosshairStyle();
-  // Fix 4: axis label visibility
+  // Fix 4: axis label visibility (now controls CC canvas labels)
   const halEl=document.getElementById('s-hide-axis-labels');
-  if(halEl){ S.hideAxisLabels=halEl.checked; _applyCrosshairAxisLabels(); }
+  if(halEl){ S.hideAxisLabels=!halEl.checked; }  // checked=show → hideAxisLabels=false
   toggleSettings(); saveState(); applyBgToPage(); rebuildChart();
   if(S.layout!=='1x1') CELLS.forEach((_,k)=>buildCellChart(k));
   applyLegendVisibility();
@@ -5850,41 +5891,574 @@ function _applyTimerVisibility() {
   }
 }
 
-// Fix 12: apply crosshair line style to all charts (strictly called on every rebuild)
+// Fix 12: apply crosshair line style — stored in S for custom canvas use, library crosshair stays hidden
 function _applyCrosshairStyle() {
-  const col   = S.crossColor  || '#758696';
-  const style = (S.crossStyle != null) ? +S.crossStyle : 0;  // 0=Solid, 1=Dotted, 2=Dashed, 3=LargeDashed
-  const width = S.crossWidth  || 1;
-  const mode  = 0   ?? 0;
-  const opts  = { crosshair:{
-    mode,
-    vertLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
-    horzLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
+  // Library crosshair stays hidden (mode:2) — custom canvas cursor uses S.crossColor/Width/Style
+  const hiddenOpts = { crosshair:{
+    mode: 2,
+    vertLine:{color:'transparent', width:0, style:0, labelBackgroundColor:'#131722', labelVisible:false},
+    horzLine:{color:'transparent', width:0, style:0, labelBackgroundColor:'#131722', labelVisible:false},
   }};
-  if(chart)  try{chart.applyOptions(opts);}catch(_){}
-  // Grid cells always use mode 0 (Normal/free) — always Normal mode
-  const cellOpts = { crosshair:{ mode:0,
-    vertLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
-    horzLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
-  }};
-  CELLS.forEach(c=>{ if(c.chart) try{c.chart.applyOptions(cellOpts);}catch(_){} });
-  // Also apply to overlay charts
+  if(chart)  try{chart.applyOptions(hiddenOpts);}catch(_){}
+  CELLS.forEach(c=>{ if(c.chart) try{c.chart.applyOptions(hiddenOpts);}catch(_){} });
   _overlayPanels.forEach(p=>{
     const body=p.querySelector('.ovl-panel-body');
-    if(body&&body._ovlChart) try{body._ovlChart.applyOptions(opts);}catch(_){}
+    if(body&&body._ovlChart) try{body._ovlChart.applyOptions(hiddenOpts);}catch(_){}
   });
 }
 
-// Fix 4: hide axis price/time labels when crosshair is active
+// Fix 4: axis label visibility handled by custom canvas cursor — library crosshair is hidden
 function _applyCrosshairAxisLabels() {
-  const hide = S.hideAxisLabels === true;   // default = false → labels visible
-  const opts = { crosshair:{
-    vertLine:{labelVisible:!hide},
-    horzLine:{labelVisible:!hide},
-  }};
-  if(chart) try{chart.applyOptions(opts);}catch(_){}
-  CELLS.forEach(c=>{ if(c.chart) try{c.chart.applyOptions(opts);}catch(_){} });
+  // No-op: library crosshair is mode:2 (Hidden). Custom canvas draws its own price/time labels.
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// CUSTOM CANVAS CROSSHAIR ENGINE (CC)
+// Pure RAF-based — zero library dependency. Replaces built-in crosshair.
+//
+// Architecture:
+//   • One <canvas class="cc-canvas"> per chart container (main + every grid cell)
+//   • Long-press (230ms) activates crosshair on that container
+//   • On touchmove → RAF-throttled draw: clear + 2 lines + axis labels + tooltip
+//   • Finger lift → clear canvas + hide tooltip
+//   • Multi-grid sync: when crosshair active on one cell, all other cells draw
+//     a sync line at the same time-mapped position (no library setCrosshairPosition)
+//   • Settings: color, line style (solid/dashed/dotted), width from S.cross*
+// ════════════════════════════════════════════════════════════════════════════
+const CC = (() => {
+  // Map: containerEl → { canvas, ctx, chartInst, seriesGetter, cellIdx }
+  const _entries = new Map();
+  let _raf = null;
+  // Active state: which entry is being touched
+  let _active = null;   // entry ref
+  let _cx = 0, _cy = 0; // current finger coords (client)
+
+  // ── Register a chart container ────────────────────────────────────────
+  function register(containerEl, chartInst, seriesGetter, cellIdx) {
+    if (!containerEl || !chartInst) return;
+    // Remove old canvas if re-registering
+    unregister(containerEl);
+    const canvas = document.createElement('canvas');
+    canvas.className = 'cc-canvas';
+    containerEl.style.position = 'relative';
+    containerEl.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+    const entry = { canvas, ctx, chartInst, seriesGetter, cellIdx: cellIdx ?? -1 };
+    _entries.set(containerEl, entry);
+    _resizeCanvas(entry, containerEl);
+    // ResizeObserver keeps canvas sized to container
+    const ro = new ResizeObserver(() => _resizeCanvas(entry, containerEl));
+    ro.observe(containerEl);
+    entry._ro = ro;
+    return entry;
+  }
+
+  function unregister(containerEl) {
+    const e = _entries.get(containerEl);
+    if (!e) return;
+    if (e._ro) e._ro.disconnect();
+    if (e.canvas && e.canvas.parentNode) e.canvas.parentNode.removeChild(e.canvas);
+    _entries.delete(containerEl);
+  }
+
+  function _resizeCanvas(entry, el) {
+    const w = el.clientWidth || 1, h = el.clientHeight || 1;
+    if (entry.canvas.width !== w || entry.canvas.height !== h) {
+      entry.canvas.width  = w;
+      entry.canvas.height = h;
+    }
+  }
+
+  // ── Draw helpers ──────────────────────────────────────────────────────
+  function _getStyle() {
+    return {
+      col:   S.crossColor  || '#758696',
+      width: (S.crossWidth || 1) * 0.5,  // half: settings 1→0.5px, 2→1px, 3→1.5px
+      style: (S.crossStyle != null) ? +S.crossStyle : 0,
+    };
+  }
+
+  function _setDash(ctx, style, width) {
+    if   (style === 1) ctx.setLineDash([width*1.5, width*3]);       // dotted
+    else if (style === 2) ctx.setLineDash([width*6,  width*4]);     // dashed
+    else if (style === 3) ctx.setLineDash([width*12, width*4]);     // large dashed
+    else                  ctx.setLineDash([]);                       // solid
+  }
+
+  function _fmtPrice(p) {
+    if (p == null) return '--';
+    return p.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+
+  function _fmtTime(t, chartInst) {
+    if (!t) return '';
+    try {
+      // t is unix timestamp (seconds) from LW charts
+      const ts = typeof t === 'number' ? t : (t.timestamp || 0);
+      const d  = new Date(ts * 1000);
+      // Format: DD/MM/YYYY  HH:MM
+      const pad = n => String(n).padStart(2, '0');
+      const datePart = pad(d.getDate()) + '/' + pad(d.getMonth()+1) + '/' + d.getFullYear();
+      const timePart = pad(d.getHours()) + ':' + pad(d.getMinutes());
+      return datePart + '  ' + timePart;
+    } catch(_) { return ''; }
+  }
+
+  // Draw crosshair lines + axis labels on one entry at pixel (px, py)
+  function _drawEntry(entry, px, py, isSync) {
+    const { canvas, ctx, chartInst } = entry;
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (px < 0 || py < 0 || px > w || py > h) return;
+
+    const st = _getStyle();
+    ctx.save();
+    ctx.strokeStyle = st.col;
+    ctx.lineWidth   = st.width;
+    ctx.globalAlpha = 1;
+    _setDash(ctx, st.style, st.width);
+
+    // Vertical line
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+    // Horizontal line
+    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(w, py); ctx.stroke();
+
+    // Don't draw axis labels on sync entries (they'd be mis-mapped)
+    if (!isSync && !S.hideAxisLabels) {
+      _drawAxisLabels(entry, px, py, w, h, st.col);
+    }
+    ctx.restore();
+  }
+
+  function _drawAxisLabels(entry, px, py, w, h, col) {
+    const { ctx, chartInst, seriesGetter } = entry;
+    ctx.setLineDash([]);
+
+    // Price label (right axis)
+    let price = null;
+    try {
+      const s = typeof seriesGetter === 'function' ? seriesGetter() : seriesGetter;
+      if (s) price = s.coordinateToPrice(py);
+    } catch(_) {}
+
+    // Time label (bottom axis)
+    let time = null;
+    try { time = chartInst.timeScale().coordinateToTime(px); } catch(_) {}
+
+    const FONT  = '10px sans-serif';
+    const PAD_X = 4, PAD_Y = 3;
+    const RAD   = 3;
+    ctx.font = FONT;
+
+    // ── Price label (right side) ──────────────────────────────────
+    if (price != null) {
+      const label = _fmtPrice(price);
+      const tw    = ctx.measureText(label).width;
+      const boxW  = tw + PAD_X * 2;
+      const boxH  = 14;
+      // Right-edge of canvas = price scale edge
+      const bx = w - boxW - 1;
+      const by = py - boxH / 2;
+      ctx.fillStyle = col;
+      _roundRect(ctx, bx, by, boxW, boxH, RAD);
+      ctx.fill();
+      ctx.fillStyle = '#131722';
+      ctx.fillText(label, bx + PAD_X, by + boxH - PAD_Y - 1);
+    }
+
+    // ── Time label (bottom) ───────────────────────────────────────
+    if (time != null) {
+      const label = _fmtTime(time, chartInst);
+      if (label) {
+        const TFONT = '9px sans-serif';
+        ctx.font = TFONT;
+        const tw    = ctx.measureText(label).width;
+        const boxW  = tw + PAD_X * 2 + 2;
+        const boxH  = 15;
+        const bx    = px - boxW / 2;
+        const by    = h - boxH - 1;
+        ctx.fillStyle = col;
+        _roundRect(ctx, Math.max(0, Math.min(bx, w - boxW)), by, boxW, boxH, RAD);
+        ctx.fill();
+        ctx.fillStyle = '#131722';
+        ctx.fillText(label, Math.max(PAD_X, Math.min(bx + PAD_X, w - boxW + PAD_X)), by + boxH - PAD_Y - 1);
+        // Restore main font
+        ctx.font = FONT;
+      }
+    }
+  }
+
+  function _roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y,     x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x,     y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x,     y,     x + r, y);
+    ctx.closePath();
+  }
+
+  // Clear one entry's canvas
+  function _clearEntry(entry) {
+    const { canvas, ctx } = entry;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // ── RAF flush: draw active entry + sync all others ────────────────────
+  function _flush() {
+    _raf = null;
+    if (!_active) return;
+
+    const { canvas, chartInst, seriesGetter, cellIdx } = _active;
+    const r   = canvas.parentElement.getBoundingClientRect();
+    const px  = _cx - r.left;
+    const py  = _cy - r.top;
+
+    // Draw on active entry
+    _drawEntry(_active, px, py, false);
+
+    // ── Point 8: Update top-left header + legend OHLC ─────────────────
+    try {
+      const time = chartInst.timeScale().coordinateToTime(px);
+      if (time != null && S.hdrOhlc) {
+        const asset = cellIdx >= 0 ? (CELLS[cellIdx]?.asset || S.asset) : S.asset;
+        const tf    = cellIdx >= 0 ? (CELLS[cellIdx]?.tf    || S.tf)    : S.tf;
+        const raw   = _baseDataFor(asset, tf);
+        const data  = resampleForTF(raw, tf, asset);
+        let bar = null;
+        if (data && data.length) {
+          let lo = 0, hi = data.length - 1;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (data[mid].time <= time) { bar = data[mid]; lo = mid + 1; }
+            else hi = mid - 1;
+          }
+        }
+        if (bar) {
+          const o = bar.open ?? bar.value, h = bar.high ?? bar.value;
+          const l = bar.low  ?? bar.value, c = bar.close ?? bar.value;
+          const chg = c - o, pct = o ? (chg/o*100).toFixed(2) : 0;
+          const fmt = v => v != null ? v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '--';
+          const fmtLeg = (typeof window._fmtLegGlobal === 'function') ? window._fmtLegGlobal : fmt;
+          // Header top price + change
+          const hdrLtp = document.getElementById('hdr-ltp');
+          if (hdrLtp) hdrLtp.textContent = fmt(c);
+          const hdrChg = document.getElementById('hdr-chg');
+          if (hdrChg) { hdrChg.textContent = (chg>=0?'+':'')+fmt(chg)+' ('+pct+'%)'; hdrChg.className = chg>=0?'up':'dn'; }
+          // Top-left legend OHLC group (single chart mode)
+          _hdrXActive = true;
+          const grp = document.getElementById('leg-ohlc-grp');
+          if (grp) {
+            grp.style.display = 'inline';
+            const lo2 = document.getElementById('leg-o'); if(lo2) lo2.textContent = fmtLeg(o);
+            const lh  = document.getElementById('leg-h'); if(lh)  lh.textContent  = fmtLeg(h);
+            const ll  = document.getElementById('leg-l'); if(ll)  ll.textContent  = fmtLeg(l);
+            const lc  = document.getElementById('leg-c'); if(lc)  lc.textContent  = fmtLeg(c);
+            const lchg= document.getElementById('leg-chg');
+            if (lchg) { lchg.style.color = chg>=0?'#26a69a':'#ef5350'; lchg.textContent=(chg>=0?'+':'')+fmtLeg(chg)+' ('+pct+'%)'; if(!S.legChg) lchg.style.display='none'; }
+          }
+          // Grid cell co-ohlc-grp
+          if (cellIdx >= 0) {
+            const cellEl = document.querySelector('.grid-cell[data-idx="'+cellIdx+'"]');
+            if (cellEl) {
+              const cGrp = cellEl.querySelector('.co-ohlc-grp');
+              if (cGrp) {
+                cGrp.style.display = 'block';
+                const ov=cGrp.querySelector('.co-ov'); if(ov) ov.textContent=fmt(o);
+                const hv=cGrp.querySelector('.co-hv'); if(hv) hv.textContent=fmt(h);
+                const lv=cGrp.querySelector('.co-lv'); if(lv) lv.textContent=fmt(l);
+                const cv=cGrp.querySelector('.co-cv'); if(cv) cv.textContent=fmt(c);
+              }
+            }
+          }
+        }
+      }
+    } catch(_) {}
+
+    // Sync all other registered entries (grid cells)
+    _entries.forEach((entry, el) => {
+      if (entry === _active) return;
+      _syncDraw(entry);
+    });
+  }
+
+  // Draw crosshair on a non-active (sync) entry at time-mapped x
+  function _syncDraw(entry) {
+    if (!_active) { _clearEntry(entry); return; }
+    try {
+      const srcCanvas = _active.canvas;
+      const srcEl     = srcCanvas.parentElement;
+      const srcR      = srcEl.getBoundingClientRect();
+      const srcPx     = _cx - srcR.left;
+      const srcPy     = _cy - srcR.top;
+
+      // Map time from source to destination
+      const srcTime  = _active.chartInst.timeScale().coordinateToTime(srcPx);
+      if (srcTime == null) { _clearEntry(entry); return; }
+
+      // Floor-match time in dest cell's data
+      const di     = entry.cellIdx;
+      const dAsset = di >= 0 ? (CELLS[di]?.asset || S.asset) : S.asset;
+      const dTf    = di >= 0 ? (CELLS[di]?.tf    || S.tf)    : S.tf;
+      const dRaw   = _baseDataFor(dAsset, dTf);
+      const dData  = resampleForTF(dRaw, dTf, dAsset);
+      let   tTime  = null;
+      if (dData && dData.length) {
+        let lo = 0, hi = dData.length - 1;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (dData[mid].time <= srcTime) { tTime = dData[mid].time; lo = mid + 1; }
+          else hi = mid - 1;
+        }
+      }
+      let destPx = null;
+      if (tTime != null) {
+        destPx = entry.chartInst.timeScale().timeToCoordinate(tTime);
+      }
+      // Proportional Y mapping
+      const srcH  = srcCanvas.height || 1;
+      const ratio = srcH ? srcPy / srcH : 0.5;
+      const destH = entry.canvas.height || 1;
+      const destPy = ratio * destH;
+
+      if (destPx == null) { _clearEntry(entry); return; }
+      _drawEntry(entry, destPx, destPy, true);
+    } catch(_) { _clearEntry(entry); }
+  }
+
+  // ── Public: activate crosshair on a container ─────────────────────────
+  function activate(containerEl, clientX, clientY) {
+    _active = _entries.get(containerEl) || null;
+    if (!_active) return;
+    _cx = clientX; _cy = clientY;
+    // Hide candle timer badge on active cell
+    try {
+      const idx = _active.cellIdx;
+      if (idx >= 0) {
+        const badge = document.querySelector('.cell-timer-badge[data-cell-idx="'+idx+'"]');
+        if (badge) badge.style.opacity = '0';
+      }
+    } catch(_) {}
+    _scheduleFlush();
+  }
+
+  function move(clientX, clientY) {
+    if (!_active) return;
+    _cx = clientX; _cy = clientY;
+    _scheduleFlush();
+  }
+
+  function deactivate() {
+    // Restore timer badge
+    try {
+      if (_active && _active.cellIdx >= 0) {
+        const badge = document.querySelector('.cell-timer-badge[data-cell-idx="'+_active.cellIdx+'"]');
+        if (badge) badge.style.opacity = '1';
+      }
+    } catch(_) {}
+    _active = null;
+    _raf = null;
+    _entries.forEach(e => _clearEntry(e));
+    // Reset header + legend back to latest live bar
+    try {
+      _hdrXActive = false;
+      const grp = document.getElementById('leg-ohlc-grp');
+      if (grp && !S.legOhlc) grp.style.display = 'none';
+      if (typeof window._resetLegToLatestGlobal === 'function') window._resetLegToLatestGlobal();
+    } catch(_) {}
+  }
+
+  function isActive() { return !!_active; }
+  function getCurX()  { return _cx; }
+  function getCurY()  { return _cy; }
+
+  function _scheduleFlush() {
+    if (_raf) return;
+    _raf = requestAnimationFrame(_flush);
+  }
+
+  // ── Refresh all canvases on settings change ───────────────────────────
+  function refreshAll() {
+    if (!_active) {
+      _entries.forEach(e => _clearEntry(e));
+    } else {
+      _scheduleFlush();
+    }
+  }
+
+  return { register, unregister, activate, move, deactivate, isActive, getCurX, getCurY, refreshAll };
+})();
+
+// ── Wire CC into the long-press touch UX ─────────────────────────────────────
+// Patch attachMobileTouchUX so every call also registers with CC and routes
+// long-press events through CC instead of library setCrosshairPosition
+(function _patchMobileTouchUX() {
+  const _orig = window.attachMobileTouchUX;
+  window.attachMobileTouchUX = function(container, chartInst, seriesGetter, _cellIdx) {
+    // Register this container with CC
+    CC.register(container, chartInst, seriesGetter, _cellIdx ?? -1);
+    // Call original (handles pinch, double-tap, ps/ts drag etc.)
+    const cleanup = _orig.call(this, container, chartInst, seriesGetter);
+
+    // Intercept touchmove to route CC when long-press is active
+    // We listen at capture phase AFTER original so we see lpOn state via CC.isActive
+    let _ccMoveRAF = null;
+    function _ccMove(e) {
+      if (!CC.isActive()) return;
+      if (e.touches.length !== 1) return;
+      const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+      if (_ccMoveRAF) return;
+      _ccMoveRAF = requestAnimationFrame(() => {
+        _ccMoveRAF = null;
+        CC.move(cx, cy);
+      });
+    }
+    container.addEventListener('touchmove', _ccMove, {passive:true, capture:false});
+
+    // Cleanup
+    const origCleanup = cleanup;
+    return function() {
+      container.removeEventListener('touchmove', _ccMove, {passive:true, capture:false});
+      CC.unregister(container);
+      if (typeof origCleanup === 'function') origCleanup();
+    };
+  };
+})();
+
+// ── Patch lpActivate and lpDeactivate to drive CC ────────────────────────────
+// Original lpActivate/lpDeactivate are closure-local in attachMobileTouchUX,
+// so we intercept at the container touchstart level via a global hook that
+// the touch handler calls at the right moment.
+// Strategy: override attachMobileTouchUX (already done above). We also need
+// to call CC.activate on long-press fire and CC.deactivate on lift.
+// Patch: wrap bindPriceScaleTouchZoom to re-register main chart CC after rebuild.
+(function() {
+  const _origBind = window.bindPriceScaleTouchZoom;
+  window.bindPriceScaleTouchZoom = function() {
+    if (typeof _origBind === 'function') _origBind.apply(this, arguments);
+    // Re-register main chart (rebuildChart creates new chart instance)
+    const container = document.getElementById('main-chart');
+    if (container && chart) {
+      CC.register(container, chart, () => mainSeries, -1);
+    }
+  };
+})();
+
+// Hook CC.activate/deactivate into the long-press mechanism.
+// We patch attachMobileTouchUX's internal lpActivate/lpDeactivate by wrapping
+// the touch handler's setTimeout callback via a global event.
+// Simplest: dispatch a custom event from the long-press timer, listen globally.
+(function _ccLPHook() {
+  // Monkey-patch setTimeout so we can intercept LP timer callbacks
+  // This is fragile — instead we use a simpler approach:
+  // Override container-level touchstart to start our own LP-activate call
+  // synced to the same 230ms as the original.
+
+  const LP_MS = 230;
+  let _lpTimer = null, _lpContainer = null, _lpCX = 0, _lpCY = 0, _lpMoved = false;
+  // Hold mode: cursor frozen at A, finger B controls via relative offset
+  let _holdMode   = false;
+  let _holdCurX   = 0, _holdCurY = 0;  // frozen cursor position (client coords)
+  let _holdFinX   = 0, _holdFinY = 0;  // finger position when hold mode started
+
+  document.addEventListener('touchstart', function(e) {
+    if (e.touches.length !== 1) { _cancelLP(); return; }
+    if (typeof _DT !== 'undefined' && _DT.tool) { _cancelLP(); return; }
+    const panelsOpen = ['draw-panel','settings-modal','broker-panel','ind-panel','grid-picker','layout-menu']
+      .some(id => { const el=document.getElementById(id); return el && (el.classList.contains('open') || el.style.display==='block' || el.classList.contains('active')); });
+    if (panelsOpen) { _cancelLP(); return; }
+
+    const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+
+    if (_holdMode && CC.isActive()) {
+      // New finger down in hold mode:
+      // Record where finger landed — cursor stays at _holdCurX/_holdCurY
+      // Drag will move cursor by DELTA from this finger start
+      _holdFinX = cx; _holdFinY = cy;
+      _lpMoved = false;
+      return;
+    }
+
+    // Normal: find which CC container this touch is in
+    let matched = null;
+    _lpCX = cx; _lpCY = cy;
+    document.querySelectorAll('.cc-canvas').forEach(canvas => {
+      const el = canvas.parentElement;
+      const r  = el.getBoundingClientRect();
+      if (_lpCX >= r.left && _lpCX <= r.right && _lpCY >= r.top && _lpCY <= r.bottom) {
+        matched = el;
+      }
+    });
+    if (!matched) { _cancelLP(); return; }
+    _lpContainer = matched; _lpMoved = false;
+    _cancelLP();
+    _lpTimer = setTimeout(function() {
+      _lpTimer = null;
+      if (!_lpMoved && !(typeof _DT !== 'undefined' && _DT.tool)) {
+        CC.activate(_lpContainer, _lpCX, _lpCY);
+      }
+    }, LP_MS);
+  }, {passive:true, capture:true});
+
+  document.addEventListener('touchmove', function(e) {
+    if (e.touches.length !== 1) return;
+    const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+
+    if (_holdMode && CC.isActive()) {
+      // Relative drag: cursor moves by delta from where finger first landed
+      const dx = cx - _holdFinX;
+      const dy = cy - _holdFinY;
+      CC.move(_holdCurX + dx, _holdCurY + dy);
+      return;
+    }
+
+    if (Math.abs(cx - _lpCX) > 5 || Math.abs(cy - _lpCY) > 5) {
+      _lpMoved = true;
+      if (!CC.isActive()) _cancelLP();
+    }
+  }, {passive:true, capture:true});
+
+  document.addEventListener('touchend', function() {
+    _cancelLP();
+    if (!CC.isActive()) return;
+
+    if (!_holdMode) {
+      // First lift: enter hold mode — cursor freezes at current position
+      _holdMode = true;
+      _holdCurX = CC.getCurX();   // save frozen cursor coords
+      _holdCurY = CC.getCurY();
+      // Do NOT deactivate
+    } else {
+      // Second lift: exit hold mode, deactivate
+      _holdMode = false;
+      CC.deactivate();
+    }
+  }, {passive:true, capture:true});
+
+  document.addEventListener('touchcancel', function() {
+    _cancelLP();
+    _holdMode = false;
+    if (CC.isActive()) CC.deactivate();
+  }, {passive:true, capture:true});
+
+  function _cancelLP() {
+    if (_lpTimer) { clearTimeout(_lpTimer); _lpTimer = null; }
+  }
+})();
+
+// ── Update _applyCrosshairStyle to also refresh CC ────────────────────────────
+(function() {
+  const _origApply = _applyCrosshairStyle;
+  const _patchedApply = function() {
+    _origApply.apply(this, arguments);
+    if (typeof CC !== 'undefined') CC.refreshAll();
+  };
+  window._applyCrosshairStyle = _patchedApply;
+})();
 
 // Fix 1: Auto-fit chart — reset barSpacing to default and fitContent
 function autoFitChart() {
@@ -6054,7 +6628,7 @@ function _buildOverlayChart(bodyEl, idx, tf) {
     width:bodyEl.clientWidth||300, height:bodyEl.clientHeight||200,
     layout:{background:{type:'solid',color:S.bgColor},textColor:S.textColor,fontSize:7},
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
-    crosshair:{mode:0,vertLine:{color:S.crossColor||'#758696',width:S.crossWidth||1,style:(S.crossStyle!=null?+S.crossStyle:1),labelBackgroundColor:'#131722'},horzLine:{color:S.crossColor||'#758696',width:S.crossWidth||1,style:(S.crossStyle!=null?+S.crossStyle:1),labelBackgroundColor:'#131722'}},
+    crosshair:{mode:2,vertLine:{color:'transparent',width:0,style:0,labelBackgroundColor:'#131722',labelVisible:false},horzLine:{color:'transparent',width:0,style:0,labelBackgroundColor:'#131722',labelVisible:false}},
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
     timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,barSpacing:6,rightOffset:5},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
@@ -6074,6 +6648,11 @@ function _buildOverlayChart(bodyEl, idx, tf) {
   const ro=new ResizeObserver(()=>{ try{ch.resize(bodyEl.clientWidth,bodyEl.clientHeight);}catch(_){} });
   ro.observe(bodyEl);
   bodyEl._ovlResizeObs=ro;
+  // Register overlay chart with CC crosshair engine
+  if (typeof CC !== 'undefined') CC.register(bodyEl, ch, () => ser, -1);
+  // Attach mobile touch UX (pinch, long-press, etc.)
+  if (bodyEl._ovlTouchCleanup) { bodyEl._ovlTouchCleanup(); bodyEl._ovlTouchCleanup = null; }
+  bodyEl._ovlTouchCleanup = attachMobileTouchUX(bodyEl, ch, () => ser, -1);
 }
 function _ovlGotoLatest(panel) {
   const body=panel.querySelector('.ovl-panel-body');
@@ -6651,11 +7230,31 @@ function _applyBTCKline(k) {
     if (_btcBucket.time && _btcBucket.tf===S.tf) {
       const closed={time:_btcBucket.time, open:_btcBucket.open,
                     high:_btcBucket.high, low:_btcBucket.low, close:_btcBucket.close};
-      // Pick the same array _baseDataFor() will use for the current TF
       const tf=S.tf||1;
-      const arr = tf>=1440 && Array.isArray(BTC_DAILY) ? BTC_DAILY
-                : tf>=15   && Array.isArray(BTC_15M)   ? BTC_15M
-                : ALLDATA[BTC_ASSET];
+
+      // IMPORTANT: Only push closed bar into a raw base array if the TF
+      // EXACTLY matches that array's native granularity.
+      // e.g. 160m is a SYNTHETIC TF — its resampled bars must NOT be pushed
+      // into BTC_15M (which holds raw 15m candles). Doing so corrupts future
+      // resample() calls and causes last 2-3 candles to change on every reload.
+      //
+      // Native granularity mapping:
+      //   BTC_DAILY → 1440m only
+      //   BTC_15M   → 15m only
+      //   ALLDATA   → 1m only
+      // Synthetic TFs (e.g. 160m, 45m, 135m, 8H, 3D, 9D, 27D) are computed
+      // by resample() at read-time — they should never be persisted back.
+      const isNativeDaily = tf >= 1440 && Array.isArray(BTC_DAILY) && BTC_DAILY.length;
+      const isNative15M   = tf === 15  && Array.isArray(BTC_15M)   && BTC_15M.length;
+      const isNative1M    = tf === 1;
+
+      let arr = null;
+      if      (isNativeDaily) arr = BTC_DAILY;
+      else if (isNative15M)   arr = BTC_15M;
+      else if (isNative1M)    arr = ALLDATA[BTC_ASSET];
+      // For all other synthetic TFs (5m,45m,160m,135m,8H etc.) arr stays null
+      // — resample() will recompute correctly from raw base data on next call.
+
       if (arr) {
         if (arr.length && arr[arr.length-1].time===closed.time) {
           arr[arr.length-1]=closed;       // update existing last bar
@@ -7776,6 +8375,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof st.bgColor  ==='string')  S.bgColor=st.bgColor;
       if (typeof st.textColor==='string')  S.textColor=st.textColor;
       if (typeof st.grid     ==='boolean') S.grid=st.grid;
+      if (typeof st.crossColor     ==='string')  S.crossColor=st.crossColor;
+      if (typeof st.crossStyle     ==='number')  S.crossStyle=st.crossStyle;
+      if (typeof st.crossWidth     ==='number')  S.crossWidth=st.crossWidth;
+      if (typeof st.hideAxisLabels ==='boolean') S.hideAxisLabels=st.hideAxisLabels;
       if (st.vLine && typeof st.vLine.offset==='number') Object.assign(S.vLine, st.vLine);
       S.chartType='candle';   // always candle; type switcher removed
       if (Array.isArray(st.cells)&&st.cells.length) { _savedCells=st.cells; _savedCellsLayout = st.layout||'1x1'; }
@@ -8300,15 +8903,16 @@ function swingCompute(bars, tfMin) {
   const _isLastBarForming = (() => {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
-    const prev = raw[raw.length - 2];
     const nDays = tfMin > 1440 ? Math.round(tfMin / 1440) : 0;
     if (nDays >= 2) {
-      // Last bar ki expected end = last.time + nDays * 86400 (approx, trading days)
-      // Simple check: agar current IST time last bar ke start aur prev bar ke
-      // gap-based expected-end ke beech hai → forming
-      const barDuration = last.time - prev.time; // actual measured duration
+      // Trading days ko calendar days mein convert karo (1 trading week = 7 cal days)
+      // 3D = 3 trading days ≈ 3 * (7/5) = 4.2 cal days → use 5 cal days buffer
+      // 9D = 9 trading days ≈ 9 * (7/5) = 12.6 cal days → use 13 cal days
+      // 27D = 27 trading days ≈ 27 * (7/5) = 37.8 cal days → use 38 cal days
+      const calDays = Math.ceil(nDays * 7 / 5);
+      const barDurationSec = calDays * 86400;
       const nowSec = Math.floor(Date.now() / 1000);
-      return nowSec < (last.time + barDuration);
+      return nowSec < (last.time + barDurationSec);
     }
     return _isMarketOpen(); // intraday/daily: existing logic
   })();
@@ -8334,11 +8938,25 @@ function swingCompute(bars, tfMin) {
   const IST_OFFSET_SEC = 5.5 * 3600;
   const _istDayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
 
+  // ── Fixed periodSec for synthetic TFs (135m / 160m / 8h) ─────────────────
+  // These TFs are built by resampling smaller candles, so the real gap
+  // between consecutive resampled bars (cur.time - prev.time) can come out
+  // short/irregular at session boundaries or when a source bucket is
+  // missing. That made candle H/L line length inconsistent. Fixing periodSec
+  // to the TF's true duration removes that dependency entirely.
+  const _FIXED_PERIOD_SEC = { 135: 8100, 160: 9600, 480: 28800 };
+  const _isSyntheticTF = Object.prototype.hasOwnProperty.call(_FIXED_PERIOD_SEC, tfMin);
+
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
     // Actual candle duration from real data — fixes synthetic TFs like 135m
-    // where tfMin*60 may not match actual candle boundaries after resampling
-    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
+    // where tfMin*60 may not match actual candle boundaries after resampling.
+    // EXCEPTION: for 135m/160m/8h we now use a fixed period instead (see
+    // _FIXED_PERIOD_SEC above) since the dynamic gap itself was the source
+    // of the inconsistency for these three TFs.
+    const periodSec = _isSyntheticTF
+      ? _FIXED_PERIOD_SEC[tfMin]
+      : ((i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec);
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
     const isSessionGap = tfMin < 1440 && i >= 1 &&
@@ -8354,8 +8972,17 @@ function swingCompute(bars, tfMin) {
         let isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         
         if (isTouched) {
-          // TOUCHED — re-extend 1 candle ahead from the current bar
-          ln.endTime = cur.time + 2 * periodSec;
+          // TOUCHED — re-extend from the current bar.
+          // Synthetic TFs (135m/160m/8h): growing multiplier per touch —
+          //   touch 1 → 8x, touch 2 → 12x, touch 3 → 16x ... (+4x each time)
+          // All other TFs: unchanged behavior — flat 2x re-extend.
+          if (_isSyntheticTF) {
+            ln.touchCount = (ln.touchCount || 0) + 1;
+            const mult = 4 * (ln.touchCount + 1); // touch1=8x, touch2=12x, ...
+            ln.endTime = cur.time + mult * periodSec;
+          } else {
+            ln.endTime = cur.time + 2 * periodSec;
+          }
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
@@ -8394,15 +9021,18 @@ function swingCompute(bars, tfMin) {
       ...aRes.map(l => l.price),
       ...aSup.map(l => l.price)
     ]);
+    // Initial draw length: synthetic TFs (135m/160m/8h) get 4x; all other
+    // TFs keep the original 2x (unchanged behavior).
+    const _initMult = _isSyntheticTF ? 4 : 2;
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
-                     creationIndex: i, kind: 'ch', periodSec });
+                     endTime: cur.time + _initMult * periodSec,
+                     creationIndex: i, kind: 'ch', periodSec, touchCount: 0 });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
-                     creationIndex: i, kind: 'cl', periodSec });
+                     endTime: cur.time + _initMult * periodSec,
+                     creationIndex: i, kind: 'cl', periodSec, touchCount: 0 });
     }
 
     // DO NOT USE shift() here! We must not delete surviving lines artificially.
@@ -9073,9 +9703,9 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
   const raw=bars.length>WIN?bars.slice(-WIN):bars.slice();
   const _isLastBarForming2=(()=>{
     if(!raw.length||raw.length<2) return false;
-    const last=raw[raw.length-1]; const prev=raw[raw.length-2];
+    const last=raw[raw.length-1];
     const nDays=tfMin>1440?Math.round(tfMin/1440):0;
-    if(nDays>=2){ const bd=last.time-prev.time; const nowSec=Math.floor(Date.now()/1000); return nowSec<(last.time+bd); }
+    if(nDays>=2){ const calDays=Math.ceil(nDays*7/5); const nowSec=Math.floor(Date.now()/1000); return nowSec<(last.time+calDays*86400); }
     return _isMarketOpen();
   })();
   const data=(raw.length>1&&_isLastBarForming2)?raw.slice(0,-1):raw;
