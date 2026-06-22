@@ -613,12 +613,24 @@ def _bg_refresh_btc(interval: str, limit: int):
 def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
     """Supabase = primary source (instant read). Binance fetch happens in
     background and refreshes Supabase for the NEXT call/rerun.
-    NOTE: Blocking fallback hataya gaya — app startup par freeze nahi hogi."""
+    Agar Supabase empty ho toh seedha Binance se le lo (BTC ko Fyers ki zaroorat nahi)."""
     candles = _supa.fetch_historical_candles("BTCUSDT", interval, limit=limit)
     threading.Thread(
         target=_bg_refresh_btc, args=(interval, limit),
         name=f"BTCRefresh{interval}", daemon=True,
     ).start()
+    if not candles:
+        # Supabase empty — seedha Binance se lo (fast, no auth needed)
+        try:
+            r = requests.get(
+                f"https://api.binance.com/api/v3/klines"
+                f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
+                timeout=10,
+            ).json()
+            candles = [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
+                     float(x[4]), float(x[5])] for x in r]
+        except Exception:
+            pass
     return candles
 
 def _bg_refresh_btc_daily():
