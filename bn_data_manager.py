@@ -21,59 +21,33 @@ VERSION  = 1
 BIN_FILE = os.path.join(os.path.dirname(__file__), "bn_1m.bin.gz")
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 
-# ─── Google Drive Config ──────────────────────────────────────────────────────
-# Yahan apna Google Drive File ID daalo (share link se milta hai)
-# Format: https://drive.google.com/file/d/FILE_ID_YAHAN/view
-GDRIVE_FILE_ID = os.environ.get("BN_GDRIVE_FILE_ID", "1fEC-AMsI3Ke-he2M7bak31TUeLIjVwQ3")
+# ─── GitHub Raw URL Config ────────────────────────────────────────────────────
+GITHUB_URL = "https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz"
 
 
-def download_from_gdrive(file_id: str = "", dest: str = "") -> bool:
+def download_from_github(url: str = "", dest: str = "") -> bool:
     """
-    Google Drive se bn_1m.bin.gz download karo agar local file nahi hai.
-    file_id: Google Drive file ID (share link wala)
+    GitHub raw URL se bn_1m.bin.gz download karo agar local file nahi hai.
+    url:  GitHub raw URL (default: GITHUB_URL)
     dest: local save path (default: BIN_FILE)
     Returns True if download successful.
     """
-    fid  = file_id or GDRIVE_FILE_ID
+    src  = url or GITHUB_URL
     path = dest or BIN_FILE
 
-    if not fid:
-        log.warning("GDRIVE_FILE_ID set nahi hai — download skip")
-        return False
-
     if os.path.exists(path):
-        log.info(f"bn_1m.bin.gz already exists locally — skip download")
+        log.info("bn_1m.bin.gz already exists locally — skip download")
         return True
 
-    log.info(f"Google Drive se download ho raha hai... (file_id={fid[:12]}...)")
-
-    # Google Drive direct download URL
-    url = f"https://drive.google.com/uc?export=download&id={fid}&confirm=t"
+    log.info(f"GitHub se download ho raha hai... ({src})")
 
     try:
-        session = requests.Session()
-        resp = session.get(url, stream=True, timeout=60)
-
-        # Large file ke liye confirm token handle karo
-        if "Content-Disposition" not in resp.headers:
-            # Confirmation page mili — token dhundho
-            for key, val in resp.cookies.items():
-                if "download_warning" in key.lower() or key.startswith("download_warning"):
-                    url = f"https://drive.google.com/uc?export=download&id={fid}&confirm={val}"
-                    resp = session.get(url, stream=True, timeout=120)
-                    break
-            else:
-                # Token cookies mein nahi mila — direct try karo
-                url2 = f"https://drive.google.com/uc?export=download&id={fid}&confirm=1"
-                resp2 = session.get(url2, stream=True, timeout=120)
-                if resp2.status_code == 200 and len(resp2.content) > 1000:
-                    resp = resp2
+        resp = requests.get(src, stream=True, timeout=120)
 
         if resp.status_code != 200:
-            log.error(f"Drive download failed: HTTP {resp.status_code}")
+            log.error(f"GitHub download failed: HTTP {resp.status_code}")
             return False
 
-        # File save karo
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         total = 0
         with open(path, "wb") as f:
@@ -84,25 +58,25 @@ def download_from_gdrive(file_id: str = "", dest: str = "") -> bool:
 
         size_mb = total / 1024 / 1024
         log.info(f"✅ Downloaded {size_mb:.1f} MB → {path}")
-        print(f"✅ Google Drive se download complete: {size_mb:.1f} MB")
+        print(f"✅ GitHub se download complete: {size_mb:.1f} MB")
         return True
 
     except Exception as e:
-        log.error(f"Google Drive download error: {e}")
+        log.error(f"GitHub download error: {e}")
         if os.path.exists(path):
             os.remove(path)  # Incomplete file delete karo
         return False
 
 
-def ensure_bin_file(gdrive_file_id: str = "") -> bool:
+def ensure_bin_file() -> bool:
     """
-    Replay/chart mode ke liye: local file check karo, nahi hai to Drive se lao.
+    Replay/chart mode ke liye: local file check karo, nahi hai to GitHub se lao.
     Returns True if file available hai.
     """
     if os.path.exists(BIN_FILE):
         return True
-    log.info("Local bn_1m.bin.gz nahi mili — Google Drive se try kar raha hai...")
-    return download_from_gdrive(file_id=gdrive_file_id)
+    log.info("Local bn_1m.bin.gz nahi mili — GitHub se try kar raha hai...")
+    return download_from_github()
 
 
 # ─── Core read/write ──────────────────────────────────────────────────────────
@@ -148,12 +122,12 @@ def _decode(data: bytes) -> list:
 def load_bin(auto_download: bool = True) -> list:
     """
     Load from .bin.gz → [[ts_ms, O, H, L, C], ...]
-    auto_download=True: local file nahi hai to Google Drive se download karo.
+    auto_download=True: local file nahi hai to GitHub se download karo.
     """
     if not os.path.exists(BIN_FILE):
-        if auto_download and GDRIVE_FILE_ID:
-            log.info("bn_1m.bin.gz nahi mili — Drive se download try...")
-            download_from_gdrive()
+        if auto_download:
+            log.info("bn_1m.bin.gz nahi mili — GitHub se download try...")
+            download_from_github()
         if not os.path.exists(BIN_FILE):
             return []
     with open(BIN_FILE, 'rb') as f:
@@ -333,19 +307,19 @@ if __name__ == "__main__":
         print(get_stats())
     elif len(sys.argv) == 2 and sys.argv[1] == "download":
         # python bn_data_manager.py download
-        ok = download_from_gdrive()
-        print("✅ Download OK" if ok else "❌ Download failed (GDRIVE_FILE_ID check karo)")
+        ok = download_from_github()
+        print("✅ Download OK" if ok else "❌ Download failed (GitHub URL check karo)")
         if ok:
             print(get_stats())
     elif len(sys.argv) == 3 and sys.argv[1] == "download":
-        # python bn_data_manager.py download FILE_ID
-        ok = download_from_gdrive(file_id=sys.argv[2])
+        # python bn_data_manager.py download CUSTOM_URL
+        ok = download_from_github(url=sys.argv[2])
         print("✅ Download OK" if ok else "❌ Download failed")
         if ok:
             print(get_stats())
     else:
         print("Usage:")
         print("  python bn_data_manager.py bank-nifty-1m-data.txt   # CSV → bin.gz")
-        print("  python bn_data_manager.py download                  # Drive se download")
-        print("  python bn_data_manager.py download FILE_ID          # Specific file")
+        print("  python bn_data_manager.py download                  # GitHub se download")
+        print("  python bn_data_manager.py download CUSTOM_URL       # Custom URL se")
         print("Stats:", get_stats())
