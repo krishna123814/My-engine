@@ -250,8 +250,6 @@
                 Tools: trendline, hline, vline, ray, extended, arrow, rect, text
                 _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
   Line 8540   TF Chips in Drawing Settings Modal
-  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
-                GD.init(), GD.push(), GD.pull(), GD.signIn()
   Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1625,15 +1623,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
-    <button class="hdr-icon-btn" id="gh-save-btn" 
-      onclick="GH.push(true)" 
-      oncontextmenu="event.preventDefault(); GH.reset();"
-      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
-      ontouchend="clearTimeout(this._ghLong)"
-      title="Save to GitHub (Long-press to reset token)" 
-      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
-      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-    </button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
@@ -1662,51 +1651,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
   
-  <!-- GitHub Sync Buttons (Moved to Top) -->
-  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
-    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
-    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
-      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
-      PULL (Restore)
-    </button>
-    <button onclick="GH.reset()" 
-      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
-      Reset
-    </button>
-  </div>
 
-  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
-    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
-    <!-- Auto-save toggle -->
-    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
-      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
-             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
-             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
-      title="Auto-save on/off">⚡ Auto</button>
-    <!-- Cloud on/off toggle -->
-    <button id="gd-toggle" onclick="gdToggle()"
-      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
-             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
-      title="Cloud sync on/off">🟢</button>
-    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
-  </div>
 
   <!-- Manual token paste — popup URL copy karke yahan paste karo -->
-  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
-    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
-    <div style="display:flex;gap:6px;">
-      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
-        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
-               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
-      <button onclick="gdManualToken()"
-        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
-               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
-        ✓ OK
-      </button>
-    </div>
-  </div>
-  <!-- ss-status hidden — sirf internal use -->
-  <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
 </div>
@@ -1956,6 +1903,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
+  <div class="bot-sep"></div>
+  <button id="replay-open-btn" onclick="Replay.open()" title="Replay mode">⏪ Replay</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -8166,6 +8115,12 @@ function _bnGetCellBar(c, latest) {
 function _applyBNLiveTick(d) {
   // d = { ts, ltp, candle: {time, open, high, low, close} }
   if (!d || !d.candle) return;
+
+  // ── Market-hours guard: market band ho to stale ticks chart update na karein ──
+  // Iske bina market close ke baad bhi last known price bar-bar update hota tha,
+  // jisse second chart mein SR lines galat jagah draw ho jaate the.
+  if (!_isMarketOpen(BN_ASSET)) return;
+
   const latest = {
     time:   d.candle.time,
     open:   d.candle.open,
@@ -11334,707 +11289,9 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
-// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
-// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
-// ════════════════════════════════════════════════════════════════════════════
-const GD = (function () {
-  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
-  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
-  const FILE_NAME = 'banknifty-layout-sync.json';
-  const AUTH_FLAG = 'gdAuthed';
-
-  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
-  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
-
-  // ── UI helpers ────────────────────────────────────────────────────────────
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-  function _showBtn(label, show) {
-    const b = document.getElementById('gd-btn');
-    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
-    // Manual paste row bhi sign in button ke saath dikhao
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = show ? '' : 'none';
-  }
-  function _toast(msg, color) {
-    let t = document.getElementById('gd-toast');
-    if (!t) {
-      t = document.createElement('div');
-      t.id = 'gd-toast';
-      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
-        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
-        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
-        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
-      document.body.appendChild(t);
-    }
-    t.style.background = color || '#26a69a';
-    t.textContent = msg;
-    t.style.opacity = '1';
-    clearTimeout(t._iv);
-    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
-  }
-  function _now() {
-    try {
-      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    } catch (_) { return ''; }
-  }
-
-  // ── localStorage snapshot / apply (captures every key = all features) ──────
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === AUTH_FLAG) continue;
-        if (localStorage.getItem(k) !== data[k]) {
-          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
-          changed = true;
-        }
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  // ── OAuth token handling ───────────────────────────────────────────────────
-  function _onToken(resp) {
-    if (resp && resp.access_token) {
-      accessToken = resp.access_token;
-      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
-      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
-      const cb = _pending; _pending = null; if (cb) cb(true);
-    } else {
-      const cb = _pending; _pending = null; if (cb) cb(false);
-    }
-  }
-  function _onTokenErr() {
-    const cb = _pending; _pending = null;
-    _setStatus('☁ Cloud: tap to sign in', '#f23645');
-    _showBtn('Sign in', true);
-    if (cb) cb(false);
-  }
-
-  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
-  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
-  // Google Cloud Console mein dono register honi chahiye:
-  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
-  //   http://localhost:8501/?gd_cb=1
-
-  function _getRedirectURI() {
-    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
-    try {
-      const origin = window.parent !== window
-        ? document.referrer
-          ? new URL(document.referrer).origin
-          : window.location.origin
-        : window.location.origin;
-      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
-    } catch(_) {}
-    // Fallback: Streamlit URL
-    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
-  }
-
-  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
-
-  // postMessage listener — callback page token bhejta hai yahan
-  window.addEventListener('message', function(e) {
-    try {
-      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-      if (d && d.type === 'gd_oauth_token' && d.access_token) {
-        clearInterval(_popupTimer);
-        clearInterval(_lsPollIv);
-        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
-      }
-    } catch(_) {}
-  });
-
-  // localStorage polling fallback (agar postMessage cross-origin block ho)
-  function _startLSPoll(cb) {
-    clearInterval(_lsPollIv);
-    _lsPollIv = setInterval(() => {
-      try {
-        const raw = localStorage.getItem('_gd_oauth_pending');
-        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
-        if (raw && (Date.now() - ts) < 60000) {
-          clearInterval(_lsPollIv);
-          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
-          const d = JSON.parse(raw);
-          if (d && d.access_token) {
-            clearInterval(_popupTimer);
-            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-            if (cb) cb(true);
-          }
-        }
-      } catch(_) {}
-    }, 800);
-    setTimeout(() => clearInterval(_lsPollIv), 120000);
-  }
-
-  function _openAuthPopup(cb) {
-    _oauthCb = cb;
-    const REDIRECT_URI = _getRedirectURI();
-
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id:              CLIENT_ID,
-      redirect_uri:           REDIRECT_URI,
-      response_type:          'token',
-      scope:                  SCOPE,
-      include_granted_scopes: 'true',
-      prompt:                 'consent',
-    });
-
-    const w = 480, h = 620;
-    const left = Math.max(0, (screen.width  - w) / 2);
-    const top  = Math.max(0, (screen.height - h) / 2);
-
-    _popupWin = window.open(
-      authUrl, 'gdauth',
-      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
-    );
-
-    if (!_popupWin || _popupWin.closed) {
-      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
-      _showBtn('Sign in', true);
-      _oauthCb = null;
-      if (cb) cb(false);
-      return;
-    }
-
-    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
-
-    // localStorage fallback polling
-    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
-
-    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
-    clearInterval(_popupTimer);
-    _popupTimer = setInterval(() => {
-      try {
-        if (_popupWin && _popupWin.closed) {
-          clearInterval(_popupTimer);
-          setTimeout(() => {
-            if (_oauthCb) {
-              clearInterval(_lsPollIv);
-              _setStatus('☁ Sign-in cancel hua', '#f23645');
-              _showBtn('Sign in', true);
-              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
-            }
-          }, 2000);
-          return;
-        }
-        // Same-origin check — jab popup redirect_uri pe aa jaaye
-        try {
-          const href = _popupWin.location.href;
-          const fragment = _popupWin.location.hash;
-          if (href && fragment && fragment.includes('access_token')) {
-            // Fragment mil gaya — Streamlit strip karne se pehle
-            clearInterval(_popupTimer);
-            clearInterval(_lsPollIv);
-            const p = new URLSearchParams(fragment.substring(1));
-            const token = p.get('access_token');
-            const exp   = parseInt(p.get('expires_in') || '3600', 10);
-            try { _popupWin.close(); } catch(_) {}
-            if (token) {
-              // localStorage mein bhi save karo backup ke liye
-              try {
-                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
-                localStorage.setItem('_gd_oauth_pending', msg);
-                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
-              } catch(_) {}
-              _onToken({ access_token: token, expires_in: exp });
-              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
-            }
-          }
-        } catch(crossOriginErr) {
-          // Popup abhi Google ke domain pe hai — normal, wait karo
-        }
-      } catch(_) {}
-    }, 300);
-  }
-
-  function _requestToken(interactive, cb) {
-    _pending = cb;
-    if (interactive) {
-      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
-      return;
-    }
-    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
-    if (cb) cb(false);
-  }
-  function _withToken(cb) {
-    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
-    _requestToken(false, cb);
-  }
-
-  // ── Drive REST helpers ──────────────────────────────────────────────────────
-  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
-  function _findFile(cb) {
-    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
-      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
-      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
-    fetch(url, { headers: _hdr() })
-      .then(r => r.json())
-      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
-      .catch(() => cb(null));
-  }
-  function _download(cb) {
-    if (!fileId) { cb(null); return; }
-    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
-      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
-  }
-  function _uploadMedia(payload, cb) {
-    if (fileId) {
-      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
-        method: 'PATCH',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
-        body: payload,
-      }).then(r => cb(r.ok)).catch(() => cb(false));
-    } else {
-      const boundary = 'gdsync' + Date.now();
-      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
-      const body =
-        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(meta) + '\r\n' +
-        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
-        payload + '\r\n--' + boundary + '--';
-      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-        method: 'POST',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
-        body: body,
-      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
-        .catch(() => cb(false));
-    }
-  }
-
-  // ── Public: push (save) ──────────────────────────────────────────────────────
-  function push(showToast) {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      if (showToast) _toast('Sign in to Google first', '#f23645');
-      return;
-    }
-    _withToken(ok => {
-      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
-      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-      const doUpload = () => _uploadMedia(payload, okk => {
-        if (okk) {
-          _dirty = false;
-          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
-          if (showToast) _toast('☁ Saved to Google Cloud');
-        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
-      });
-      if (fileId) doUpload(); else _findFile(() => doUpload());
-    });
-  }
-
-  // ── Public: pull (restore) ───────────────────────────────────────────────────
-  function pull(after) {
-    _withToken(ok => {
-      if (!ok) { if (after) after(false, false); return; }
-      _findFile(id => {
-        if (!id) { if (after) after(false, false); return; }
-        _download(obj => {
-          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
-          else if (after) after(false, false);
-        });
-      });
-    });
-  }
-
-  // ── Boot: silent auto-login + restore on page open ──────────────────────────
-  function _boot() {
-    if (_booted) return; _booted = true;
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      _setStatus('☁ Cloud: not signed in');
-      _showBtn('Sign in', true);
-      return;
-    }
-    _setStatus('☁ Cloud: connecting…');
-    _showBtn('', false);
-    _requestToken(false, ok => {
-      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      // Show "restore completed" once after a reload triggered by restore
-      if (sessionStorage.getItem('gdJustRestored') === '1') {
-        sessionStorage.removeItem('gdJustRestored');
-        _toast('✓ Restore completed');
-      }
-      if (sessionStorage.getItem('gdRestored') === '1') {
-        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
-        return;
-      }
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found && changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          _toast('✓ Restore completed');
-          setTimeout(() => location.reload(), 950);
-        } else if (found) {
-          _setStatus('☁ Cloud: restored ✓', '#26a69a');
-          _toast('✓ Restore completed');
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(false); // first-time upload of current local state
-        }
-      });
-    });
-  }
-
-  // ── Manual sign-in (first time) ──────────────────────────────────────────────
-  function signIn() {
-    _setStatus('☁ Cloud: opening Google…');
-    _requestToken(true, ok => {
-      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      sessionStorage.removeItem('gdRestored');
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found) {
-          _toast('✓ Restore completed');
-          if (changed) {
-            sessionStorage.setItem('gdJustRestored', '1');
-            setTimeout(() => location.reload(), 950);
-          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(true); // nothing on Drive yet → upload current
-        }
-      });
-    });
-  }
-
-  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
-  let _origSetItem = null;
-  function _initAutoSave() {
-    try {
-      _origSetItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = function (k, v) {
-        _origSetItem(k, v);
-        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
-          _dirty = true;
-          _schedule();
-        }
-      };
-    } catch (_) {}
-  }
-  function _schedule() {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
-    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
-    const autoOn = localStorage.getItem('gdAutoSave') === '1';
-    if (!autoOn) return;
-    clearTimeout(_pushTimer);
-    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
-  }
-
-  // Public: force push (manual Save Layout button ke liye)
-  function pushNow() { push(true); }
-
-  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
-  // (GIS iframe mein origin=null error deta hai)
-  function _waitGIS() { _boot(); } // GIS skip, seedha boot
-  function init() {
-    _initAutoSave();
-    _boot(); // GIS SDK load nahi karo
-  }
-
-  // Manual token inject (URL paste se)
-  function _manualToken(token, exp) {
-    _onToken({ access_token: token, expires_in: exp || 3600 });
-    _showBtn('', false);
-    sessionStorage.removeItem('gdRestored');
-    _setStatus('☁ Cloud: restoring…');
-    pull((found, changed) => {
-      sessionStorage.setItem('gdRestored', '1');
-      if (found) {
-        _toast('✓ Restore completed');
-        if (changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          setTimeout(() => location.reload(), 950);
-        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-      } else {
-        _setStatus('☁ Cloud: connected', '#26a69a');
-        push(true);
-      }
-    });
-  }
-
-  // Save on tab hide / close (best-effort)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && _dirty) push(false);
-  });
-
-  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
-})();
-
-// Global handler for the menu button
-function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
-
-// Manual token paste — popup URL se token extract karo
-function gdManualToken() {
-  const inp = document.getElementById('gd-token-inp');
-  if (!inp) return;
-  const raw = inp.value.trim();
-  if (!raw) return;
-
-  // URL mein se fragment nikalo: #access_token=...
-  let fragment = '';
-  try {
-    const hashIdx = raw.indexOf('#');
-    if (hashIdx !== -1) {
-      fragment = raw.substring(hashIdx + 1);
-    } else if (raw.includes('access_token')) {
-      // Sirf fragment part paste kiya hoga
-      fragment = raw;
-    }
-  } catch(_) {}
-
-  if (!fragment) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  const p     = new URLSearchParams(fragment);
-  const token = p.get('access_token');
-  const exp   = parseInt(p.get('expires_in') || '3600', 10);
-
-  if (!token) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  // Token mil gaya — GD ko dedo
-  inp.value = '';
-  const row = document.getElementById('gd-manual-row');
-  if (row) row.style.display = 'none';
-  try { GD._manualToken(token, exp); } catch(_) {}
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// SERVER SAVE  (Streamlit server file — Google Drive ke bina)
-// Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
-// snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
-// Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
-// ════════════════════════════════════════════════════════════════════════════
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// GITHUB SYNC (Gist API)
-// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
-// ════════════════════════════════════════════════════════════════════════════
-const GH = (function () {
-  const GIST_NAME = 'banknifty-layout-sync.json';
-  const TOKEN_KEY = 'gh_token';
-  const GIST_ID_KEY = 'gh_gist_id';
-
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status'); // Reuse GD status for now
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-
-  function _toast(msg, color) {
-    if (window.GD && GD._toast) GD._toast(msg, color);
-    else alert(msg);
-  }
-
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        // Force overwrite even if it looks the same, to be sure
-        localStorage.setItem(k, data[k]);
-        changed = true;
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  async function push(showToast) {
-    // Force save current state to localStorage first
-    if (window.saveState) saveState();
-    if (window.saveToActiveLayout) saveToActiveLayout();
-    
-    let token = localStorage.getItem(TOKEN_KEY);
-    if (!token || token.length < 5) {
-      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
-      if (token && token.trim().length > 5) {
-        token = token.trim();
-        localStorage.setItem(TOKEN_KEY, token);
-      } else {
-        _setStatus('🐙 GitHub: Token required', '#f23645');
-        return;
-      }
-    }
-
-    _setStatus('🐙 GitHub: saving...', '#f0b429');
-    let gistId = localStorage.getItem(GIST_ID_KEY);
-    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json'
-    };
-
-    try {
-      let url = 'https://api.github.com/gists';
-      let method = 'POST';
-      let body = {
-        description: 'BankNifty Layout Sync',
-        public: false,
-        files: { [GIST_NAME]: { content: payload } }
-      };
-
-      if (gistId) {
-        url = `https://api.github.com/gists/${gistId}`;
-        method = 'PATCH';
-      }
-
-      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
-      const json = await resp.json();
-
-      if (resp.ok) {
-        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
-        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
-        if (showToast) _toast('☁ Saved to GitHub Gist');
-      } else {
-        console.error('GH Save Error:', json);
-        const errMsg = json.message || 'Save Failed';
-        
-        if (resp.status === 409) {
-          // Conflict error - force update by creating a new one or trying to pull first
-          console.warn('409 Conflict, retrying as new gist...');
-          localStorage.removeItem(GIST_ID_KEY);
-          return push(showToast);
-        }
-
-        if (resp.status === 404) {
-          localStorage.removeItem(GIST_ID_KEY);
-          const msg = "GitHub Error 404: Not Found.\n\n" +
-                      "This usually means your Token is missing 'gist' permission.\n" +
-                      "Please check 'gist' scope in GitHub Token settings.";
-          alert(msg);
-          _setStatus('🐙 GitHub: 404 Error', '#f23645');
-          return;
-        }
-
-        if (resp.status === 401) {
-          localStorage.removeItem(TOKEN_KEY);
-          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
-          _toast('Invalid Token: ' + errMsg, '#f23645');
-        } else {
-          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
-          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
-        }
-      }
-    } catch (err) {
-      _setStatus('🐙 GitHub: error', '#f23645');
-      _toast('GitHub Error: ' + err.message, '#f23645');
-    }
-  }
-
-  function reset() {
-    if (confirm("Reset GitHub Token and Gist ID?")) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(GIST_ID_KEY);
-      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
-      _toast('GitHub settings reset. Tap again to enter new token.');
-    }
-  }
-
-  async function pull(after) {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (!token || !gistId) { if (after) after(false, false); return; }
-
-    _setStatus('🐙 GitHub: restoring...', '#f0b429');
-    const headers = {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json'
-    };
-
-    try {
-      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
-      const json = await resp.json();
-
-      if (resp.ok && json.files[GIST_NAME]) {
-        const content = JSON.parse(json.files[GIST_NAME].content);
-        const changed = _apply(content.data);
-        if (after) after(true, changed);
-      } else {
-        if (after) after(false, false);
-      }
-    } catch (err) {
-      if (after) after(false, false);
-    }
-  }
-
-  function init() {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (token && gistId) {
-      // Check if we just restored to avoid infinite loop
-      if (sessionStorage.getItem('gh_just_restored') === '1') {
-        sessionStorage.removeItem('gh_just_restored');
-        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
-        _toast('✓ GitHub Restore completed');
-        return;
-      }
-
-      _setStatus('🐙 GitHub: checking...', '#f0b429');
-      pull((found, changed) => {
-        if (found && changed) {
-          sessionStorage.setItem('gh_just_restored', '1');
-          _toast('✓ GitHub Restore completed');
-          setTimeout(() => location.reload(), 800);
-        } else if (found) {
-          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
-        } else {
-          _setStatus('🐙 GitHub: connected', '#787b86');
-        }
-      });
-    }
-  }
-
-  return { push, pull, init, reset };
-})();
-
-// Auto-init GitHub
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => GH.init());
-} else {
-  GH.init();
-}
-
 const SS = (function () {
   function _setStatus(txt, color) {
     const s = document.getElementById('ss-status');
@@ -12162,14 +11419,11 @@ const SS = (function () {
   window.saveToActiveLayout = function () {
     if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
-    // Cloud sync bhi karo (agar enabled ho)
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
   const _origNew2 = window.newLayout;
   window.newLayout = function () {
     if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
 })();
 
@@ -12179,90 +11433,8 @@ if (document.readyState === 'loading') {
   SS.init();
 }
 
-// Auto-save toggle
-function gdAutoSaveToggle() {
-  const cur = localStorage.getItem('gdAutoSave') === '1';
-  const next = !cur;
-  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
-  _updateAutoSaveUI();
-  if (next && _gdEnabled) {
-    // Turant ek push karo
-    try { GD.pushNow(); } catch(_) {}
-  }
-}
-function _updateAutoSaveUI() {
-  const btn = document.getElementById('gd-autosave-btn');
-  if (!btn) return;
-  const on = localStorage.getItem('gdAutoSave') === '1';
-  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
-  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
-  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
-  btn.style.color         = on ? '#26a69a' : '#787b86';
-}
-let _gdEnabled = (() => {
-  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
-})();
 
-function gdToggle() {
-  _gdEnabled = !_gdEnabled;
-  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
-  _updateGdToggleUI();
-  if (_gdEnabled) {
-    // _booted flag reset karo taaki GD dobara connect kar sake
-    try { GD._resetBoot(); } catch(_) {}
-    GD.init();
-  } else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    const b = document.getElementById('gd-btn');
-    if (b) b.style.display = 'none';
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = 'none';
-  }
-}
-function _updateGdToggleUI() {
-  const tog = document.getElementById('gd-toggle');
-  if (!tog) return;
-  tog.textContent = _gdEnabled ? '🟢' : '⚫';
-  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
-}
 
-// Hook GD save with toggle check
-(function () {
-  const _origSave = window.saveToActiveLayout;
-  window.saveToActiveLayout = function () {
-    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-  const _origNew = window.newLayout;
-  window.newLayout = function () {
-    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-})();
-
-// Start cloud sync once DOM is ready (only if enabled)
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    _updateGdToggleUI();
-    _updateAutoSaveUI();
-    if (_gdEnabled) GD.init();
-    else {
-      const s = document.getElementById('gd-status');
-      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    }
-  });
-} else {
-  _updateGdToggleUI();
-  _updateAutoSaveUI();
-  if (_gdEnabled) GD.init();
-  else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 // KEEP-ALIVE — ping Streamlit server every 4 min to prevent Replit sleep
 // ════════════════════════════════════════════════════════════════════════════
 (function _keepAlive() {
@@ -12278,6 +11450,521 @@ if (document.readyState === 'loading') {
     if (document.visibilityState === 'visible') ping();
   });
 })();
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     REPLAY MODE — Step 1-2: Data layer (Python-injected) + Engine + UI
+     Self-contained module. Does not touch existing chart/grid/drawing code.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<style>
+#replay-screen{
+  position:fixed; inset:0; z-index:20000; background:#131722;
+  display:none; flex-direction:column; touch-action:none;
+}
+#replay-screen.open{ display:flex; }
+#replay-top{
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  background:#1e222d; border-bottom:1px solid #2a2e3e; flex-shrink:0;
+  min-height:44px;
+}
+#replay-top .rp-close{
+  background:none; border:none; color:#d1d4dc; font-size:18px;
+  width:36px; height:36px; flex-shrink:0;
+}
+.rp-asset-toggle{ display:flex; background:#131722; border-radius:8px; overflow:hidden; flex-shrink:0; }
+.rp-asset-toggle button{
+  border:none; background:transparent; color:#787b86; font-size:12px; font-weight:700;
+  padding:8px 12px; min-height:36px;
+}
+.rp-asset-toggle button.active{ background:#1a73e8; color:#fff; }
+#replay-range-btn{
+  background:#2a2e3e; color:#d1d4dc; border:none; border-radius:8px;
+  font-size:11px; padding:8px 10px; flex:1; min-height:36px; text-align:left;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+#replay-stack{
+  flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  display:flex; flex-direction:column; gap:1px; background:#0c0e15;
+}
+.rp-tf-row{ position:relative; flex-shrink:0; width:100%; background:#131722; }
+.rp-tf-label{
+  position:absolute; top:4px; left:6px; z-index:5; color:#d1d4dc;
+  font-size:11px; font-weight:700; background:#1e222dcc; padding:2px 6px;
+  border-radius:4px; pointer-events:none;
+}
+.rp-tf-chart{ width:100%; height:100%; }
+#replay-bottombar{
+  flex-shrink:0; background:#1e222d; border-top:1px solid #2a2e3e;
+  padding:8px 10px; display:flex; flex-direction:column; gap:6px;
+}
+.rp-controls-row{ display:flex; align-items:center; gap:8px; }
+.rp-ctrl-btn{
+  background:#2a2e3e; color:#d1d4dc; border:none; border-radius:8px;
+  font-size:14px; width:44px; height:44px; flex-shrink:0;
+}
+.rp-ctrl-btn.primary{ background:#1a73e8; color:#fff; }
+#replay-speed{ flex:1; }
+#replay-speed-label{ color:#787b86; font-size:11px; width:38px; flex-shrink:0; text-align:center; }
+#replay-time-label{ color:#9598a1; font-size:11px; flex:1; text-align:right; white-space:nowrap; overflow:hidden; }
+.rp-indbar{
+  display:flex; gap:6px; overflow-x:auto; padding-top:2px;
+}
+.rp-indbar button{
+  background:#131722; color:#9598a1; border:1px solid #2a2e3e; border-radius:6px;
+  font-size:11px; padding:6px 10px; flex-shrink:0; min-height:32px;
+}
+.rp-indbar button.active{ background:#1a73e8; color:#fff; border-color:#1a73e8; }
+.rp-tf-row.h-compact{ height:110px; }
+.rp-tf-row.h-normal{ height:170px; }
+.rp-tf-row.h-large{ height:260px; }
+#replay-range-modal{
+  position:fixed; inset:0; z-index:20001; background:#000000aa;
+  display:none; align-items:center; justify-content:center;
+}
+#replay-range-modal.open{ display:flex; }
+.rp-range-card{
+  background:#1e222d; border-radius:14px; padding:18px; width:min(90vw,360px);
+}
+.rp-range-card label{ color:#9598a1; font-size:11px; display:block; margin:10px 0 4px; }
+.rp-range-card input[type=date]{
+  width:100%; background:#131722; color:#d1d4dc; border:1px solid #2a2e3e;
+  border-radius:8px; padding:10px; font-size:13px;
+}
+.rp-range-card .rp-range-btns{ display:flex; gap:8px; margin-top:16px; }
+.rp-range-card .rp-range-btns button{
+  flex:1; border:none; border-radius:8px; padding:11px; font-size:13px; font-weight:700;
+}
+.rp-range-go{ background:#1a73e8; color:#fff; }
+.rp-range-cancel{ background:#2a2e3e; color:#d1d4dc; }
+.rp-range-card .rp-range-title{ color:#d1d4dc; font-size:15px; font-weight:700; }
+#replay-loading{
+  position:absolute; inset:0; z-index:6; display:none; align-items:center; justify-content:center;
+  background:#131722cc; color:#9598a1; font-size:12px;
+}
+#replay-loading.show{ display:flex; }
+</style>
+
+<div id="replay-screen">
+  <div id="replay-top">
+    <button class="rp-close" onclick="Replay.close()">✕</button>
+    <div class="rp-asset-toggle">
+      <button id="rp-tab-bn" onclick="Replay.switchAsset('BANKNIFTY')">BankNifty</button>
+      <button id="rp-tab-btc" onclick="Replay.switchAsset('BTCUSDT')">BTC</button>
+    </div>
+    <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Select date range</button>
+  </div>
+
+  <div id="replay-stack"><!-- TF rows injected by JS --></div>
+
+  <div id="replay-bottombar">
+    <div class="rp-controls-row">
+      <button class="rp-ctrl-btn primary" id="rp-play-btn" onclick="Replay.togglePlay()">▶</button>
+      <input type="range" id="replay-speed" min="1" max="60" value="1" step="1" oninput="Replay.setSpeed(this.value)">
+      <div id="replay-speed-label">1×</div>
+      <div id="replay-time-label">—</div>
+    </div>
+    <div class="rp-indbar" id="rp-indbar-bn" style="display:none">
+      <button onclick="Replay.toggleSMA(20)" id="rp-sma20-bn">SMA 20</button>
+      <button onclick="Replay.toggleSMA(50)" id="rp-sma50-bn">SMA 50</button>
+      <button onclick="Replay.cycleRowHeight()">⊞ Layout</button>
+      <button onclick="Replay.fitAll()">⊡ Fit</button>
+    </div>
+    <div class="rp-indbar" id="rp-indbar-btc" style="display:none">
+      <button onclick="Replay.toggleSMA(20)" id="rp-sma20-btc">SMA 20</button>
+      <button onclick="Replay.toggleSMA(50)" id="rp-sma50-btc">SMA 50</button>
+      <button onclick="Replay.cycleRowHeight()">⊞ Layout</button>
+      <button onclick="Replay.fitAll()">⊡ Fit</button>
+    </div>
+  </div>
+</div>
+
+<div id="replay-range-modal">
+  <div class="rp-range-card">
+    <div class="rp-range-title">Select Replay Range</div>
+    <label>Start date</label>
+    <input type="date" id="rp-start-date">
+    <label>End date</label>
+    <input type="date" id="rp-end-date">
+    <div class="rp-range-btns">
+      <button class="rp-range-cancel" onclick="Replay.closeRangeModal()">Cancel</button>
+      <button class="rp-range-go" onclick="Replay.requestLoad()">Load</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════
+// REPLAY ENGINE — Step 2
+// Reads window.__REPLAY_DATA__ = {
+//   BANKNIFTY: {base:[[ts_ms,o,h,l,c],...], tfs:{...}, meta:{...}} | null,
+//   BTCUSDT:   {base:[...], tfs:{...}, meta:{...}} | null
+// }
+// (injected server-side by Python in Step 3 — placeholder for now)
+// ════════════════════════════════════════════════════════════════════════
+window.__REPLAY_DATA__ = window.__REPLAY_DATA__ || { BANKNIFTY: null, BTCUSDT: null };
+
+const REPLAY_TF_DEFS = {
+  BANKNIFTY: [
+    {tf:'5m',   type:'minute', mins:5},
+    {tf:'15m',  type:'minute', mins:15},
+    {tf:'45m',  type:'minute', mins:45},
+    {tf:'135m', type:'minute', mins:135},
+    {tf:'1d',   type:'day',    days:1},
+    {tf:'3d',   type:'day',    days:3},
+    {tf:'9d',   type:'day',    days:9},
+    {tf:'27d',  type:'day',    days:27},
+  ],
+  BTCUSDT: [
+    {tf:'160m', type:'minute', mins:160},
+    {tf:'8h',   type:'minute', mins:480},
+    {tf:'1d',   type:'day',    days:1},
+    {tf:'3d',   type:'day',    days:3},
+    {tf:'9d',   type:'day',    days:9},
+    {tf:'27d',  type:'day',    days:27},
+  ],
+};
+
+function _rpDayKeyIST(ts_ms){
+  const d = new Date(ts_ms + 5.5*3600*1000); // shift to IST
+  return d.getUTCFullYear()+'-'+(d.getUTCMonth()+1)+'-'+d.getUTCDate();
+}
+function _rpDayKeyUTC(ts_ms){
+  const d = new Date(ts_ms);
+  return d.getUTCFullYear()+'-'+(d.getUTCMonth()+1)+'-'+d.getUTCDate();
+}
+
+// ── Streaming resampler: feed 1m rows one at a time, get back
+//    {closed: bar|null, current: bar} after each push.
+function _rpMakeMinuteResampler(mins){
+  const bucketMs = mins*60000;
+  let curBucket=null, o,h,l,c;
+  return function push(row){
+    const [ts,ro,rh,rl,rc] = row;
+    const b = Math.floor(ts/bucketMs)*bucketMs;
+    let closed = null;
+    if (curBucket===null){ curBucket=b; o=ro;h=rh;l=rl;c=rc; }
+    else if (b!==curBucket){
+      closed = [curBucket,o,h,l,c];
+      curBucket=b; o=ro;h=rh;l=rl;c=rc;
+    } else {
+      h=Math.max(h,rh); l=Math.min(l,rl); c=rc;
+    }
+    return {closed, current:[curBucket,o,h,l,c]};
+  };
+}
+function _rpMakeDayResampler(nDays, dayKeyFn){
+  let curKey=null, dayCount=0, groupStart=null, o,h,l,c;
+  return function push(row){
+    const [ts,ro,rh,rl,rc] = row;
+    const k = dayKeyFn(ts);
+    let closed = null;
+    if (curKey===null){
+      curKey=k; dayCount=1; groupStart=ts; o=ro;h=rh;l=rl;c=rc;
+    } else if (k!==curKey){
+      dayCount++;
+      if (dayCount>nDays){
+        closed=[groupStart,o,h,l,c];
+        groupStart=ts; o=ro;h=rh;l=rl;c=rc; dayCount=1;
+      } else {
+        h=Math.max(h,rh); l=Math.min(l,rl); c=rc;
+      }
+      curKey=k;
+    } else {
+      h=Math.max(h,rh); l=Math.min(l,rl); c=rc;
+    }
+    return {closed, current:[groupStart,o,h,l,c]};
+  };
+}
+
+const Replay = {
+  _asset: 'BANKNIFTY',
+  _data: null,          // current asset's {base,tfs,meta}
+  _idx: 0,               // pointer into base[] (next row to consume)
+  _playing: false,
+  _speed: 1,
+  _timer: null,
+  _charts: {},            // tf -> {chart, series, resampler, lastBarTime}
+  _rowHeightClass: 'h-normal',
+  _sma: { 20: false, 50: false },
+  _syncing: false,        // guard against infinite loop while syncing time scales
+
+  open(){
+    document.getElementById('replay-screen').classList.add('open');
+    this.switchAsset(this._asset);
+  },
+  close(){
+    this.pause();
+    document.getElementById('replay-screen').classList.remove('open');
+  },
+
+  switchAsset(asset){
+    this._asset = asset;
+    document.getElementById('rp-tab-bn').classList.toggle('active', asset==='BANKNIFTY');
+    document.getElementById('rp-tab-btc').classList.toggle('active', asset==='BTCUSDT');
+    document.getElementById('rp-indbar-bn').style.display = asset==='BANKNIFTY' ? 'flex':'none';
+    document.getElementById('rp-indbar-btc').style.display = asset==='BTCUSDT' ? 'flex':'none';
+    this.pause();
+    this._loadFromGlobal();
+  },
+
+  openRangeModal(){ document.getElementById('replay-range-modal').classList.add('open'); },
+  closeRangeModal(){ document.getElementById('replay-range-modal').classList.remove('open'); },
+
+  async requestLoad(){
+    const start = document.getElementById('rp-start-date').value;
+    const end   = document.getElementById('rp-end-date').value;
+    if (!start || !end){ alert('Start aur end date dono select karo'); return; }
+    if (start > end){ alert('Start date end date se pehle hona chahiye'); return; }
+    this.closeRangeModal();
+    this._showLoading(true);
+    try {
+      if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort === 0 && typeof _probeApiPort === 'function'){
+        await _probeApiPort();
+      }
+      const host = window.location.hostname || 'localhost';
+      const path = `/api/replay_data?asset=${this._asset}&from=${start}&to=${end}`;
+      const url  = (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0)
+        ? `http://${host}:${_resolvedApiPort}${path}` : path;
+      const resp = await fetch(url, { signal: AbortSignal.timeout(120000) });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      this.setData(this._asset, data);
+    } catch (err) {
+      this._showLoading(false);
+      alert('Replay data load nahi hua: ' + err.message + '\n(BTC ke liye lambi range pehli baar slow ho sakti hai — thodi der wait karke firse try karo)');
+    }
+  },
+
+  // Called by Step 3's Python-injection bridge once new data is ready.
+  setData(asset, data){
+    window.__REPLAY_DATA__[asset] = data;
+    this._showLoading(false);
+    if (asset === this._asset) this._loadFromGlobal();
+  },
+
+  _showLoading(show){
+    let el = document.getElementById('replay-loading');
+    if (!el){
+      el = document.createElement('div');
+      el.id='replay-loading'; el.textContent='Loading replay data…';
+      document.getElementById('replay-stack').appendChild(el);
+    }
+    el.classList.toggle('show', !!show);
+  },
+
+  _loadFromGlobal(){
+    const data = window.__REPLAY_DATA__[this._asset];
+    this._data = data;
+    this._idx = 0;
+    this._buildStack();
+    setTimeout(() => this.fitAll(), 50);
+    if (data && data.meta){
+      document.getElementById('replay-range-btn').textContent =
+        '📅 ' + data.meta.start + ' → ' + data.meta.end;
+    } else {
+      document.getElementById('replay-range-btn').textContent = '📅 Select date range';
+    }
+    this._updateTimeLabel(null);
+  },
+
+  _buildStack(){
+    // teardown old charts
+    Object.values(this._charts).forEach(c => { try{ c.chart.remove(); }catch(_){} });
+    this._charts = {};
+    const stack = document.getElementById('replay-stack');
+    stack.innerHTML = '';
+
+    const defs = REPLAY_TF_DEFS[this._asset];
+    defs.forEach(def => {
+      const row = document.createElement('div');
+      row.className = 'rp-tf-row ' + this._rowHeightClass;
+      const label = document.createElement('div');
+      label.className = 'rp-tf-label';
+      label.textContent = def.tf;
+      const chartDiv = document.createElement('div');
+      chartDiv.className = 'rp-tf-chart';
+      row.appendChild(chartDiv);
+      row.appendChild(label);
+      stack.appendChild(row);
+
+      const chart = LightweightCharts.createChart(chartDiv, {
+        layout:{ background:{color:'#131722'}, textColor:'#787b86' },
+        grid:{ vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
+        timeScale:{ timeVisible:true, secondsVisible:false, borderColor:'#2a2e3e' },
+        rightPriceScale:{ borderColor:'#2a2e3e' },
+        crosshair:{ mode: LightweightCharts.CrosshairMode.Normal },
+        handleScroll:true, handleScale:true,
+      });
+      const series = chart.addCandlestickSeries({
+        upColor:'#26a69a', downColor:'#ef5350',
+        borderUpColor:'#26a69a', borderDownColor:'#ef5350',
+        wickUpColor:'#26a69a', wickDownColor:'#ef5350',
+      });
+
+      const resampler = def.type === 'minute'
+        ? _rpMakeMinuteResampler(def.mins)
+        : _rpMakeDayResampler(def.days, this._asset==='BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
+
+      const smaSeries = {};
+      [20, 50].forEach(p => {
+        smaSeries[p] = chart.addLineSeries({
+          color: p === 20 ? '#f0b429' : '#7e57c2',
+          lineWidth: 1, visible: !!this._sma[p], priceLineVisible:false, lastValueVisible:false,
+        });
+      });
+
+      this._charts[def.tf] = { chart, series, resampler, bars: [], smaSeries };
+
+      new ResizeObserver(() => chart.applyOptions({ width: chartDiv.clientWidth, height: chartDiv.clientHeight })).observe(chartDiv);
+
+      // ── Crosshair sync — moving on one TF shows the same time-point
+      //    marker on all other stacked TFs (live-feel: one clock, all panes). ──
+      chart.subscribeCrosshairMove(param => {
+        if (this._syncing) return;
+        this._syncing = true;
+        Object.entries(this._charts).forEach(([tf, c]) => {
+          if (c.chart === chart) return;
+          if (param.time) c.chart.setCrosshairPosition(0, param.time, c.series);
+          else c.chart.clearCrosshairPosition();
+        });
+        this._syncing = false;
+      });
+    });
+  },
+
+  // ── Playback control ──────────────────────────────────────────────────
+  togglePlay(){
+    if (!this._data || !this._data.base || !this._data.base.length){
+      alert('Pehle date range select karke data load karo');
+      return;
+    }
+    this._playing ? this.pause() : this.play();
+  },
+  play(){
+    if (this._playing) return;
+    this._playing = true;
+    document.getElementById('rp-play-btn').textContent = '⏸';
+    this._rowAccum = 0;
+    this._lastFrameTs = null;
+    this._rafId = requestAnimationFrame(this._frameLoop.bind(this));
+  },
+  pause(){
+    this._playing = false;
+    const btn = document.getElementById('rp-play-btn');
+    if (btn) btn.textContent = '▶';
+    if (this._timer){ clearTimeout(this._timer); this._timer = null; }
+    if (this._rafId){ cancelAnimationFrame(this._rafId); this._rafId = null; }
+  },
+  setSpeed(v){
+    this._speed = parseInt(v, 10) || 1;
+    document.getElementById('replay-speed-label').textContent = this._speed + '×';
+  },
+
+  // ── Speed model ─────────────────────────────────────────────────────────
+  // Spec: at 1x speed, ONE smallest-TF bar (5m for BankNifty = 5 base rows,
+  // 160m for BTC = 160 base rows) should take ~1 real second.
+  // rows/sec = minBarMinutes * speed  →  scales linearly with the slider.
+  _minBarMinutesFor(asset){
+    return asset === 'BTCUSDT' ? 160 : 5;
+  },
+
+  _frameLoop(ts){
+    if (!this._playing) return;
+    if (this._lastFrameTs == null) this._lastFrameTs = ts;
+    const elapsedMs = ts - this._lastFrameTs;
+    this._lastFrameTs = ts;
+
+    const rowsPerSec = this._minBarMinutesFor(this._asset) * this._speed;
+    this._rowAccum += (elapsedMs / 1000) * rowsPerSec;
+
+    let nRows = Math.floor(this._rowAccum);
+    if (nRows > 0){
+      this._rowAccum -= nRows;
+      // Cap per-frame work so a huge speed/long-gap doesn't freeze the tab —
+      // any remainder simply carries over to the next frame.
+      const capped = Math.min(nRows, 2000);
+      this._stepBatch(capped);
+    }
+    if (this._playing && this._idx < (this._data.base ? this._data.base.length : 0)){
+      this._rafId = requestAnimationFrame(this._frameLoop.bind(this));
+    } else if (this._idx >= (this._data.base ? this._data.base.length : 0)){
+      this.pause();
+    }
+  },
+
+  _stepBatch(n){
+    const base = this._data.base;
+    let lastTs = null;
+    for (let i = 0; i < n && this._idx < base.length; i++){
+      const row = base[this._idx++];
+      lastTs = row[0];
+      Object.values(this._charts).forEach(c => {
+        const {closed, current} = c.resampler(row);
+        if (closed){
+          c.series.update(this._toLwc(closed));
+          c.bars.push(closed);
+          if (c.bars.length > 500) c.bars.shift(); // cap memory; SMA50 max needs far less
+          this._updateSMA(c, closed[0]);
+        }
+        c.series.update(this._toLwc(current));
+        this._updateSMA(c, current[0], current);
+      });
+    }
+    if (lastTs != null) this._updateTimeLabel(lastTs);
+  },
+
+  _updateSMA(c, time_ms, liveBar){
+    [20, 50].forEach(p => {
+      if (!this._sma[p]) return;
+      const closes = c.bars.map(b => b[4]);
+      if (liveBar) closes.push(liveBar[4]);
+      if (closes.length < p) return;
+      const slice = closes.slice(-p);
+      const avg = slice.reduce((a,b)=>a+b, 0) / slice.length;
+      c.smaSeries[p].update({ time: Math.floor(time_ms/1000), value: avg });
+    });
+  },
+
+  toggleSMA(period){
+    this._sma[period] = !this._sma[period];
+    const onOff = this._sma[period];
+    ['bn','btc'].forEach(suf => {
+      const btn = document.getElementById(`rp-sma${period}-${suf}`);
+      if (btn) btn.classList.toggle('active', onOff);
+    });
+    Object.values(this._charts).forEach(c => {
+      if (c.smaSeries && c.smaSeries[period]) c.smaSeries[period].applyOptions({ visible: onOff });
+    });
+  },
+
+  cycleRowHeight(){
+    const order = ['h-compact','h-normal','h-large'];
+    const next = order[(order.indexOf(this._rowHeightClass)+1) % order.length];
+    this._rowHeightClass = next;
+    document.querySelectorAll('#replay-stack .rp-tf-row').forEach(row => {
+      order.forEach(c => row.classList.remove(c));
+      row.classList.add(next);
+    });
+  },
+
+  fitAll(){
+    Object.values(this._charts).forEach(c => { try{ c.chart.timeScale().fitContent(); }catch(_){} });
+  },
+
+  _toLwc(bar){
+    return { time: Math.floor(bar[0]/1000), open:bar[1], high:bar[2], low:bar[3], close:bar[4] };
+  },
+
+  _updateTimeLabel(ts_ms){
+    const el = document.getElementById('replay-time-label');
+    if (!el) return;
+    if (ts_ms == null){ el.textContent = '—'; return; }
+    const d = new Date(ts_ms + 5.5*3600*1000); // display IST regardless of asset for consistency
+    const pad = n => String(n).padStart(2,'0');
+    el.textContent = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} IST`;
+  },
+};
 </script>
 </body>
 </html>

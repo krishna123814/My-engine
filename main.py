@@ -14,6 +14,7 @@ from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
     download_from_gdrive, ensure_bin_file, GDRIVE_FILE_ID
 )
+import replay_data as _replay_data
 
 # ─── Fast2SMS API key (hardcoded) ────────────────────────────────────────────
 FAST2SMS_KEY = "TnrcsN4L3xpA8RVeG5dq1KhtWOiSEo7YyPFmlCIQHfjgavMwbU9iH7wDM2yjE5hkrROt06eBboJVa8u1"
@@ -805,6 +806,29 @@ def _bn_history_handler_data(resolution: str, from_date: str, to_date: str) -> d
     return {"candles": converted, "cached": False}
 
 
+# ─── Replay data endpoint — in-memory cache (asset|from|to → data) ────────────
+_REPLAY_CACHE: dict = {}
+_REPLAY_CACHE_LOCK = threading.Lock()
+_REPLAY_CACHE_TTL = 1800  # 30 min — BTC fetch especially is expensive, reuse it
+
+
+def _replay_cache_key(asset: str, from_date: str, to_date: str) -> str:
+    return f"{asset}|{from_date}|{to_date}"
+
+
+def _get_replay_data_cached(asset: str, from_date: str, to_date: str) -> dict:
+    key = _replay_cache_key(asset, from_date, to_date)
+    now = time.time()
+    with _REPLAY_CACHE_LOCK:
+        entry = _REPLAY_CACHE.get(key)
+        if entry and (now - entry["ts"] < _REPLAY_CACHE_TTL):
+            return entry["data"]
+    data = _replay_data.get_replay_data(asset, from_date, to_date)
+    with _REPLAY_CACHE_LOCK:
+        _REPLAY_CACHE[key] = {"ts": now, "data": data}
+    return data
+
+
 def _register_api_route():
     """Start a lightweight HTTP server on _API_PORT for /api/bn_history.
 
@@ -836,6 +860,31 @@ def _register_api_route():
                     payload = _get_live_payload()
                     body = json.dumps(payload if payload is not None else {}).encode()
                     self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                if parsed.path == "/api/replay_data":
+                    qs = _up.parse_qs(parsed.query, keep_blank_values=False)
+                    def _qr(k, d=""): return qs.get(k, [d])[0]
+                    asset = _qr("asset", "BANKNIFTY").upper()
+                    from_date = _qr("from", "")
+                    to_date   = _qr("to", "")
+                    if not from_date or not to_date:
+                        body = json.dumps({"error": "from/to date required"}).encode()
+                        self.send_response(400)
+                    else:
+                        try:
+                            data = _get_replay_data_cached(asset, from_date, to_date)
+                            body = json.dumps(data).encode()
+                            self.send_response(200)
+                        except Exception as e:
+                            body = json.dumps({"error": str(e)}).encode()
+                            self.send_response(500)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Cache-Control", "no-cache")
