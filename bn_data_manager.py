@@ -24,7 +24,7 @@ IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 # ─── Google Drive Config ──────────────────────────────────────────────────────
 # Yahan apna Google Drive File ID daalo (share link se milta hai)
 # Format: https://drive.google.com/file/d/FILE_ID_YAHAN/view
-GDRIVE_FILE_ID = os.environ.get("BN_GDRIVE_FILE_ID", "1Y_AgzGgpk90kjV4XgrKqN6ppJr_jJxxA")
+GDRIVE_FILE_ID = os.environ.get("BN_GDRIVE_FILE_ID", "1fEC-AMsI3Ke-he2M7bak31TUeLIjVwQ3")
 
 
 def download_from_gdrive(file_id: str = "", dest: str = "") -> bool:

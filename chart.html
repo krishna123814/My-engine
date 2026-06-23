@@ -7986,6 +7986,27 @@ function _bnUpdateRaw(latest) {
 
 // Per-TF bucket: BTC ke _btcBucket jaisa — daily/custom TF ke liye candle accumulate karo
 
+// ── Memoized resample cache (replay speed fix) ──────────────────────────────
+// _bnGetBar / _bnGetCellBar used to call resampleForTF() on the FULL base
+// array on every single tick just to read the last bucket's boundary —
+// that's an O(n) rebuild-from-scratch per tick, which crawls once the
+// underlying array (ALLDATA/BN_DAILY) gets large during replay.
+// Fix: cache the resampled result per (asset,tfMin) and only recompute when
+// the source array has actually grown (new candle appended). Source rows
+// are append-only during replay/live, never mutated in place, so comparing
+// .length is a correct and cheap invalidation signal.
+const _resampleCache = {};
+function _resampleCached(rows, tfMin, asset) {
+  const key = asset + '|' + tfMin;
+  const entry = _resampleCache[key];
+  if (entry && entry.srcLen === rows.length && entry.srcRef === rows) {
+    return entry.data;
+  }
+  const data = resampleForTF(rows, tfMin, asset);
+  _resampleCache[key] = { srcLen: rows.length, srcRef: rows, data };
+  return data;
+}
+
 // ── Session-anchored bucket for LIVE/forming candles (5m/15m/45m/135m etc) ──
 // Same 9:15am-anchor math as resample() — used here so the still-forming
 // candle lines up with the historical (closed) candles instead of using a
@@ -8016,7 +8037,7 @@ function _bnGetBar(latest, tfMin) {
       bucket = dayKey;
     } else {
       // Multi-day: BN_DAILY se last bar ka time lo (already aligned by resampleWorkingDays)
-      const hist = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
+      const hist = _resampleCached(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
       bucket = hist.length ? hist[hist.length-1].time : dayKey;
     }
   } else {
@@ -8048,7 +8069,7 @@ function _bnGetBar(latest, tfMin) {
     // Naya bucket seed: historical bar se open/high/low lo
     _bnBucket.tf   = tfMin;
     _bnBucket.time = bucket;
-    const hist2 = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
+    const hist2 = _resampleCached(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
     const hlast  = hist2.length ? hist2[hist2.length-1] : null;
     if (hlast && hlast.time === bucket) {
       _bnBucket.open  = hlast.open;
@@ -8084,7 +8105,7 @@ function _bnGetCellBar(c, latest) {
     if (tfMin === 1440) {
       bucket = dayKey;
     } else {
-      const hist = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
+      const hist = _resampleCached(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
       bucket = hist.length ? hist[hist.length-1].time : dayKey;
     }
   } else {
@@ -8092,7 +8113,7 @@ function _bnGetCellBar(c, latest) {
   }
 
   if (!c._bnBkt || c._bnBkt.time !== bucket || c._bnBkt.tf !== tfMin) {
-    const hist3 = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
+    const hist3 = _resampleCached(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
     const hlast3 = hist3.length ? hist3[hist3.length-1] : null;
     if (hlast3 && hlast3.time === bucket) {
       c._bnBkt = { tf: tfMin, time: bucket, open: hlast3.open,
