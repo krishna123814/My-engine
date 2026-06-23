@@ -12,7 +12,7 @@ import datetime
 # ─── BN Historical Data Manager ──────────────────────────────────────────────
 from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
-    download_from_gdrive, ensure_bin_file, GDRIVE_FILE_ID
+    download_from_github, ensure_bin_file, GITHUB_URL
 )
 import replay_data as _replay_data
 
@@ -1143,21 +1143,21 @@ with st.sidebar:
             st.caption(f"Size: {_stats.get('size_mb','?')} MB")
         else:
             st.error("❌ bn_1m.bin.gz not found")
-            _gdrive_id = st.text_input(
-                "Google Drive File ID",
-                value=GDRIVE_FILE_ID,
-                placeholder="1aBcD...",
-                key="gdrive_id_inp",
+            _github_url = st.text_input(
+                "GitHub Raw URL",
+                value=GITHUB_URL,
+                placeholder="https://raw.githubusercontent.com/...",
+                key="github_url_inp",
             )
-            if st.button("⬇️ Drive se Download", use_container_width=True, key="gdrive_dl_btn"):
-                with st.spinner("Downloading from Google Drive..."):
-                    _ok_dl = download_from_gdrive(file_id=_gdrive_id.strip())
+            if st.button("⬇️ GitHub se Download", use_container_width=True, key="github_dl_btn"):
+                with st.spinner("Downloading from GitHub..."):
+                    _ok_dl = download_from_github(url=_github_url.strip())
                 if _ok_dl:
                     st.success("✅ Download complete!")
                     _get_chart_data.clear()
                     st.rerun()
                 else:
-                    st.error("❌ Download failed — File ID sahi hai? Publicly shared hai?")
+                    st.error("❌ Download failed — GitHub URL sahi hai? File publicly accessible hai?")
 
         if sess_active and _stats.get("exists"):
             if st.button("🔄 Force Update (Fyers)", use_container_width=True, key="hist_force_upd"):
@@ -1506,6 +1506,8 @@ if sess_active or _btc_only:
     # Yeh poora flow bina kisi app restart ke kaam karta hai.
 
     # Step 2: Parent page pe listener inject karo (sirf ek baar, idempotent guard hai)
+    # FIX: sessionStorage Python nahi padh sakta. Ab JS seedha window.parent ka
+    # URL update karta hai query_params ke zariye — Streamlit fragment woh padh leta hai.
     _listener_js = """
 <script>
 (function(){
@@ -1515,39 +1517,21 @@ if sess_active or _btc_only:
     try {
       var msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
       if (!msg || msg.type !== 'rp_request') return;
-      // Temp file mein write karo via fetch to Streamlit's own origin
-      // (same-origin POST — Streamlit custom component trick)
-      // Seedha file write nahi kar sakte JS se, isliye hum
-      // ek hidden iframe trick use karte hain: src URL change karo
-      // taki Streamlit fragment pick up kare via sessionStorage polling.
-      // --- Simplest reliable method: sessionStorage ---
-      window.sessionStorage.setItem('rp_pending', JSON.stringify({
-        asset:  msg.asset,
-        from:   msg.from,
-        to:     msg.to,
-        req_id: msg.req_id || String(Date.now()),
-        ts:     Date.now()
-      }));
+      // Seedha parent window ka URL update karo query_params se
+      // Streamlit fragment yeh params padh leta hai bina page reload ke
+      var params = new URLSearchParams(window.parent.location.search);
+      params.set('rp_asset', msg.asset || 'BANKNIFTY');
+      params.set('rp_from',  msg.from  || '');
+      params.set('rp_to',    msg.to    || '');
+      params.set('rp_req',   msg.req_id || String(Date.now()));
+      // replaceState — page reload NAHI hoga, sirf URL update hoga
+      window.parent.history.replaceState(null, '', '?' + params.toString());
     } catch(e){}
   });
 })();
 </script>
 """
     components.html(_listener_js, height=0, scrolling=False)
-
-    # Step 3: Fragment har 1s pe sessionStorage check karta hai via JS read trick
-    # Kyunki Python seedha sessionStorage nahi padh sakta, hum ek alag approach use
-    # karte hain: JS fragment sessionStorage se padhta hai aur agar pending request hai
-    # to use Streamlit session_state mein dalta hai via st.query_params (SET only, no nav).
-    #
-    # Actually sabse clean approach: fragment ek JS snippet inject karta hai jo
-    # sessionStorage padhta hai aur agar pending hai to woh data SEEDHA Python ko
-    # ek hidden iframe ke zariye bhejta hai — lekin yeh bhi complex hai.
-    #
-    # SIMPLEST WORKING APPROACH: side-port server already /api/replay_data serve
-    # karta hai. chart.html JS seedha wahan se fetch karta hai agar port > 0.
-    # Agar port 0 hai (Streamlit Cloud), to hum query_params use karte hain
-    # LEKIN st.rerun() BILKUL NAHI karte — fragment apne aap 1s mein rerun hota hai.
 
     @st.fragment(run_every=1)
     def _replay_bridge():
