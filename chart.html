@@ -11690,12 +11690,48 @@ const Replay = {
 
   open(){
     document.getElementById('replay-screen').classList.add('open');
-    // Body scroll lock karo taaki Streamlit page scroll na ho
     document.body.style.overflow = 'hidden';
+    // ── Streamlit parent page scroll + scroll position lock ──
     try {
-      // Streamlit iframe ko bhi signal do — parent scroll band
       if (window.parent !== window) {
-        window.parent.document.body.style.overflow = 'hidden';
+        const p = window.parent.document;
+        // Sab scrollable containers band karo
+        p.body.style.overflow = 'hidden';
+        p.documentElement.style.overflow = 'hidden';
+        // Streamlit ke main containers bhi lock karo
+        const containers = p.querySelectorAll(
+          '[data-testid="stAppViewContainer"], [data-testid="stMain"], ' +
+          '.main, .block-container, section.main, #root, .stApp'
+        );
+        containers.forEach(el => {
+          el._rpOldOverflow = el.style.overflow;
+          el._rpOldPosition = el.style.position;
+          el.style.overflow = 'hidden';
+        });
+        // iframe ko viewport 100% height tak stretch karo
+        const iframes = p.querySelectorAll('iframe');
+        iframes.forEach(fr => {
+          if (fr.contentWindow === window) {
+            fr._rpOldHeight   = fr.style.height;
+            fr._rpOldMinH     = fr.style.minHeight;
+            fr._rpOldMaxH     = fr.style.maxHeight;
+            fr._rpOldPosition = fr.style.position;
+            fr._rpOldTop      = fr.style.top;
+            fr._rpOldLeft     = fr.style.left;
+            fr._rpOldWidth    = fr.style.width;
+            fr._rpOldZIndex   = fr.style.zIndex;
+            fr.style.position = 'fixed';
+            fr.style.top      = '0';
+            fr.style.left     = '0';
+            fr.style.width    = '100vw';
+            fr.style.height   = '100dvh';
+            fr.style.maxHeight= '100dvh';
+            fr.style.zIndex   = '99999';
+          }
+        });
+        // Page scroll position save + reset
+        window._rpScrollY = window.parent.scrollY || 0;
+        window.parent.scrollTo(0, 0);
       }
     } catch(_) {}
     this.switchAsset(this._asset);
@@ -11703,11 +11739,38 @@ const Replay = {
   close(){
     this.pause();
     document.getElementById('replay-screen').classList.remove('open');
-    // Scroll restore karo
     document.body.style.overflow = '';
+    // ── Streamlit parent restore ──
     try {
       if (window.parent !== window) {
-        window.parent.document.body.style.overflow = '';
+        const p = window.parent.document;
+        p.body.style.overflow = '';
+        p.documentElement.style.overflow = '';
+        // Containers restore
+        const containers = p.querySelectorAll(
+          '[data-testid="stAppViewContainer"], [data-testid="stMain"], ' +
+          '.main, .block-container, section.main, #root, .stApp'
+        );
+        containers.forEach(el => {
+          if (el._rpOldOverflow !== undefined) el.style.overflow = el._rpOldOverflow;
+        });
+        // iframe original size restore
+        const iframes = p.querySelectorAll('iframe');
+        iframes.forEach(fr => {
+          if (fr.contentWindow === window) {
+            fr.style.position = fr._rpOldPosition || '';
+            fr.style.top      = fr._rpOldTop      || '';
+            fr.style.left     = fr._rpOldLeft     || '';
+            fr.style.width    = fr._rpOldWidth     || '';
+            fr.style.height   = fr._rpOldHeight    || '';
+            fr.style.maxHeight= fr._rpOldMaxH      || '';
+            fr.style.zIndex   = fr._rpOldZIndex    || '';
+          }
+        });
+        // Scroll position restore
+        if (window._rpScrollY !== undefined) {
+          window.parent.scrollTo(0, window._rpScrollY);
+        }
       }
     } catch(_) {}
   },
