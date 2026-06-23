@@ -509,7 +509,7 @@ def load_bn_daily() -> list:
     today_str = _ist_now().strftime("%Y-%m-%d")
     all_candles = []
     seen = set()
-    for yr in range(2020, _ist_now().year + 1):
+    for yr in range(max(2020, _ist_now().year - 2), _ist_now().year + 1):  # Sirf last 3 saal
         for (from_d, to_d) in [(f"{yr}-01-01", f"{yr}-06-30"), (f"{yr}-07-01", f"{yr}-12-31")]:
             if from_d > today_str:
                 break
@@ -543,7 +543,7 @@ def load_btc_daily() -> list:
     today_str = _ist_now().strftime("%Y-%m-%d")
     all_candles = []
     seen = set()
-    for yr in range(2017, _ist_now().year + 1):
+    for yr in range(max(2017, _ist_now().year - 3), _ist_now().year + 1):  # Sirf last 4 saal
         for (from_d, to_d) in [(f"{yr}-01-01", f"{yr}-06-30"), (f"{yr}-07-01", f"{yr}-12-31")]:
             if from_d > today_str:
                 break
@@ -1166,6 +1166,12 @@ with st.sidebar:
                 else:
                     st.warning("Koi naya data nahi mila")
 
+        # Auto-update status dikhao
+        if not _hist_update_result.get("skipped"):
+            _added = _hist_update_result.get("added", 0)
+            if _added > 0:
+                st.info(f"🔁 Auto-updated: +{_added} candles")
+
     st.markdown("---")
 
     # ── SMS Alert Setup ─────────────────────────────────────────────────────
@@ -1270,9 +1276,12 @@ if not _hist_update_result.get("skipped"):
 _hist_file_ts = int(os.path.getmtime("bn_1m.bin.gz")) if os.path.exists("bn_1m.bin.gz") else 0
 
 _tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
-btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(
-    sess_active, _tok_hint, _hist_file_ts
-)
+
+# Cache miss par Fyers + Binance calls slow hoti hain — spinner dikhao
+with st.spinner("📡 Chart data load ho raha hai... (pehli baar 20-30 sec lag sakte hain)"):
+    btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(
+        sess_active, _tok_hint, _hist_file_ts
+    )
 
 # ─── TOTP error notification (from iframe-triggered auto-login failure) ────────
 if "totp_err" in st.session_state:
