@@ -1303,8 +1303,10 @@ def _build_chart_html(
     with open(_html_path, "r", encoding="utf-8") as _f:
         html = _f.read()
 
-    def _to_lwc(candles: list) -> str:
-        """Convert [[epoch_ms, o, h, l, c, v], ...] or [{time,open,...}] to LWC format."""
+    def _to_lwc(candles: list, max_candles: int = 0) -> str:
+        """Convert [[epoch_ms, o, h, l, c, v], ...] or [{time,open,...}] to LWC format.
+        max_candles: 0 = no limit, otherwise keep only last N candles (mobile RAM fix).
+        """
         out = []
         for b in candles:
             try:
@@ -1326,17 +1328,21 @@ def _build_chart_html(
         seen = {}
         for b in out:
             seen[b["time"]] = b
-        return _json.dumps(sorted(seen.values(), key=lambda x: x["time"]))
+        sorted_out = sorted(seen.values(), key=lambda x: x["time"])
+        # Trim to last N candles to prevent mobile browser OOM crash
+        if max_candles > 0 and len(sorted_out) > max_candles:
+            sorted_out = sorted_out[-max_candles:]
+        return _json.dumps(sorted_out)
 
     _creds = load_creds()
     status = "connected" if sess_active else "disconnected"
     app_id  = _creds.get("app_id",    DEFAULT_APP_ID)
     secret  = _creds.get("secret_key", DEFAULT_SECRET)
 
-    html = html.replace("__BTC_CANDLES__", _to_lwc(btc_1m))
+    html = html.replace("__BTC_CANDLES__", _to_lwc(btc_1m, max_candles=10000))  # ~7 days 1m
     html = html.replace("__BTC_15M__",     _to_lwc(btc_15m))
     html = html.replace("__BTC_DAILY__",   _to_lwc(btc_day))
-    html = html.replace("__BN_CANDLES__",  _to_lwc(bn_1m))
+    html = html.replace("__BN_CANDLES__",  _to_lwc(bn_1m,  max_candles=20000))  # ~14 days 1m
     html = html.replace("__BN_5M__",       _to_lwc(bn_5m))
     html = html.replace("__BN_15M__",      _to_lwc(bn_15m))
     html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
