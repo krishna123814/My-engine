@@ -11685,7 +11685,6 @@ const Replay = {
   _timer: null,
   _charts: {},            // tf -> {chart, series, resampler, lastBarTime}
   _rowHeightClass: 'h-normal',
-  _sma: { 20: false, 50: false },
   _syncing: false,        // guard against infinite loop while syncing time scales
 
   open(){
@@ -11776,6 +11775,7 @@ const Replay = {
     stack.innerHTML = '';
 
     const defs = REPLAY_TF_DEFS[this._asset];
+    const asset = this._asset;
     defs.forEach(def => {
       const row = document.createElement('div');
       row.className = 'rp-tf-row ' + this._rowHeightClass;
@@ -11806,15 +11806,7 @@ const Replay = {
         ? _rpMakeMinuteResampler(def.mins)
         : _rpMakeDayResampler(def.days, this._asset==='BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
 
-      const smaSeries = {};
-      [20, 50].forEach(p => {
-        smaSeries[p] = chart.addLineSeries({
-          color: p === 20 ? '#f0b429' : '#7e57c2',
-          lineWidth: 1, visible: !!this._sma[p], priceLineVisible:false, lastValueVisible:false,
-        });
-      });
-
-      this._charts[def.tf] = { chart, series, resampler, bars: [], smaSeries };
+      this._charts[def.tf] = { chart, series, resampler, bars: [], srSeries: [], tfMin: def.mins || (def.days ? def.days * 1440 : 1) };
 
       new ResizeObserver(() => chart.applyOptions({ width: chartDiv.clientWidth, height: chartDiv.clientHeight })).observe(chartDiv);
 
@@ -11830,6 +11822,36 @@ const Replay = {
         });
         this._syncing = false;
       });
+    });
+
+    // ── SR lines draw karo (same as live chart — swingComputeMultiTF + _bnBuildSRNative) ──
+    if (typeof swingComputeMultiTF === 'function' && typeof _bnBuildSRNative === 'function') {
+      setTimeout(() => {
+        Object.entries(this._charts).forEach(([tf, c]) => {
+          try {
+            const tfMin = c.tfMin || 1;
+            const lines = swingComputeMultiTF(asset, tfMin);
+            c.srSeries = _bnBuildSRNative(c.chart, lines, null);
+          } catch(_) {}
+        });
+      }, 100);
+    }
+  },
+
+  // ── SR lines redraw — bars aane ke baad refresh karo ──────────────────
+  _rpRedrawSR(){
+    if (typeof swingComputeMultiTF !== 'function' || typeof _bnBuildSRNative !== 'function') return;
+    if (typeof _bnClearSRNative !== 'function') return;
+    const asset = this._asset;
+    Object.entries(this._charts).forEach(([tf, c]) => {
+      try {
+        const tfMin = c.tfMin || 1;
+        // Clear old SR series
+        c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
+        // Recompute using bars accumulated so far
+        const lines = swingComputeMultiTF(asset, tfMin);
+        c.srSeries = _bnBuildSRNative(c.chart, lines, null);
+      } catch(_) {}
     });
   },
 
@@ -11855,6 +11877,8 @@ const Replay = {
     if (btn) btn.textContent = '▶';
     if (this._timer){ clearTimeout(this._timer); this._timer = null; }
     if (this._rafId){ cancelAnimationFrame(this._rafId); this._rafId = null; }
+    // SR redraw when paused — bars jo aaye unke basis par recalculate
+    try { this._rpRedrawSR(); } catch(_) {}
   },
   setSpeed(v){
     this._speed = parseInt(v, 10) || 1;
@@ -11890,6 +11914,8 @@ const Replay = {
       this._rafId = requestAnimationFrame(this._frameLoop.bind(this));
     } else if (this._idx >= (this._data.base ? this._data.base.length : 0)){
       this.pause();
+      // Replay complete — final SR draw
+      try { this._rpRedrawSR(); } catch(_) {}
     }
   },
 
@@ -11904,39 +11930,15 @@ const Replay = {
         if (closed){
           c.series.update(this._toLwc(closed));
           c.bars.push(closed);
-          if (c.bars.length > 500) c.bars.shift(); // cap memory; SMA50 max needs far less
-          this._updateSMA(c, closed[0]);
+          if (c.bars.length > 500) c.bars.shift();
         }
         c.series.update(this._toLwc(current));
-        this._updateSMA(c, current[0], current);
       });
     }
     if (lastTs != null) this._updateTimeLabel(lastTs);
   },
 
-  _updateSMA(c, time_ms, liveBar){
-    [20, 50].forEach(p => {
-      if (!this._sma[p]) return;
-      const closes = c.bars.map(b => b[4]);
-      if (liveBar) closes.push(liveBar[4]);
-      if (closes.length < p) return;
-      const slice = closes.slice(-p);
-      const avg = slice.reduce((a,b)=>a+b, 0) / slice.length;
-      c.smaSeries[p].update({ time: Math.floor(time_ms/1000), value: avg });
-    });
-  },
 
-  toggleSMA(period){
-    this._sma[period] = !this._sma[period];
-    const onOff = this._sma[period];
-    ['bn','btc'].forEach(suf => {
-      const btn = document.getElementById(`rp-sma${period}-${suf}`);
-      if (btn) btn.classList.toggle('active', onOff);
-    });
-    Object.values(this._charts).forEach(c => {
-      if (c.smaSeries && c.smaSeries[period]) c.smaSeries[period].applyOptions({ visible: onOff });
-    });
-  },
 
   cycleRowHeight(){
     const order = ['h-compact','h-normal','h-large'];
