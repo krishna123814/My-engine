@@ -1,16 +1,19 @@
-import io
 import json
 import os
 import time
 import threading
 import hashlib
-import zipfile
 import requests
 import pyotp
 import streamlit as st
-import supabase_client as _supa
 import streamlit.components.v1 as components
 import datetime
+
+# ─── BN Historical Data Manager ──────────────────────────────────────────────
+from bn_data_manager import (
+    load_bin, update_from_fyers, get_stats, csv_to_bin,
+    download_from_gdrive, ensure_bin_file, GDRIVE_FILE_ID
+)
 
 # ─── Fast2SMS API key (hardcoded) ────────────────────────────────────────────
 FAST2SMS_KEY = "TnrcsN4L3xpA8RVeG5dq1KhtWOiSEo7YyPFmlCIQHfjgavMwbU9iH7wDM2yjE5hkrROt06eBboJVa8u1"
@@ -43,9 +46,6 @@ iframe{border:none!important}
 # ─── Constants ────────────────────────────────────────────────────────────────
 CREDS_FILE        = ".fyers_creds.json"
 BN_LIVE_FILE      = "bn_live.json"
-DAILY_CACHE_FILE  = "btc_daily_cache.json"
-BN_DAILY_CACHE    = "bn_daily_cache.json"
-CHART_STATE_FILE  = "chart_state.json"   # server-side chart layout/settings save (Google ke bina)
 DAILY_CACHE_TTL   = 300        # 5 min — aaj ki candle bhi update rahe
 HIST_CACHE_TTL    = 300       # seconds for intraday cache (5 min — reduces API load)
 
@@ -202,31 +202,14 @@ def fyers_get_access_token(app_id: str, secret_key: str, auth_code: str) -> tupl
             raw = resp.json()
         except Exception:
             raw = {"raw_text": resp.text, "status_code": resp.status_code}
-        # Log to file for debugging
-        _write_login_log(payload, resp.status_code, raw)
         if raw.get("s") == "ok" and "access_token" in raw:
             return True, raw["access_token"], raw
         return False, raw.get("message", str(raw)), raw
     except Exception as e:
         err = {"exception": str(e)}
-        _write_login_log(payload, 0, err)
         return False, str(e), err
 
 
-def _write_login_log(payload: dict, status_code: int, response: dict):
-    """Write login attempt details to login_debug.json for inspection."""
-    try:
-        safe_payload = {k: ("***" if k == "code" else v) for k, v in payload.items()}
-        entry = {
-            "ts": time.strftime("%Y-%m-%d %H:%M:%S IST", time.localtime()),
-            "request": safe_payload,
-            "http_status": status_code,
-            "response": response,
-        }
-        with open("login_debug.json", "w") as f:
-            json.dump(entry, f, indent=2)
-    except Exception:
-        pass
 
 # ─── Fully automated Fyers login (TOTP-based, zero user input) ────────────────
 def auto_fyers_login() -> tuple[bool, str, dict]:
@@ -248,7 +231,6 @@ def auto_fyers_login() -> tuple[bool, str, dict]:
     ok1, rkey = fyers_send_otp(client_id, app_id)
     log["step1_send_otp"] = {"ok": ok1, "result": rkey}
     if not ok1:
-        _write_totp_log(log)
         return False, f"Step1 Send OTP failed: {rkey}", log
 
     # Step 2: Verify TOTP
@@ -257,27 +239,23 @@ def auto_fyers_login() -> tuple[bool, str, dict]:
     ok2, rkey2 = fyers_verify_otp(rkey, totp_code)
     log["step2_verify_otp"] = {"ok": ok2, "result": rkey2}
     if not ok2:
-        _write_totp_log(log)
         return False, f"Step2 TOTP verify failed: {rkey2}", log
 
     # Step 3: Verify PIN/password
     ok3, token = fyers_verify_pin(rkey2, password)
     log["step3_verify_pin"] = {"ok": ok3, "result": token if not ok3 else "***token***"}
     if not ok3:
-        _write_totp_log(log)
         return False, f"Step3 PIN verify failed: {token}", log
 
     # Step 4: Get auth_code
     ok4, auth_code = fyers_get_auth_code(token, client_id, app_id)
     log["step4_get_authcode"] = {"ok": ok4, "result": auth_code[:20] + "..." if ok4 and len(auth_code) > 20 else auth_code}
     if not ok4:
-        _write_totp_log(log)
         return False, f"Step4 Auth code failed: {auth_code}", log
 
     # Step 5: Get access_token
     ok5, access_token, raw5 = fyers_get_access_token(app_id, secret_key, auth_code)
     log["step5_validate_authcode"] = {"ok": ok5, "response": raw5}
-    _write_totp_log(log)
     if not ok5:
         return False, f"Step5 Access token failed: {access_token}", log
 
@@ -288,15 +266,6 @@ def auto_fyers_login() -> tuple[bool, str, dict]:
     # session_state yahan set nahi kar sakte (background thread) — caller karega
     return True, access_token, log
 
-
-def _write_totp_log(log: dict):
-    """Save TOTP auto-login step log to totp_debug.json."""
-    try:
-        log["ts"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-        with open("totp_debug.json", "w") as f:
-            json.dump(log, f, indent=2)
-    except Exception:
-        pass
 
 
 # ─── Token expiry monitor (background) ─────────────────────────────────────────
@@ -502,24 +471,11 @@ def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
         if res.get("s") == "ok":
             candles = [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]]
                     for c in res.get("candles", [])]
-            try:
-                _supa.upsert_historical_candles("NSE:NIFTYBANK-INDEX", resolution, candles)
-            except Exception:
-                pass
             return candles
     except Exception:
         pass
     return []
 
-def _bg_refresh_bn_intraday(interval_mins: int):
-    """Background: pull fresh candles from Fyers and push to Supabase. No return value."""
-    try:
-        _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
-        today  = _ist_now().strftime("%Y-%m-%d")
-        from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
-        _fyers_history(str(interval_mins), from_d, today)  # already upserts to Supabase internally
-    except Exception:
-        pass
 
 def fetch_bn_intraday(interval_mins: int) -> list:
     """Seedha Fyers se fetch karo — no Supabase dependency."""
@@ -546,40 +502,6 @@ def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
         pass
     return []
 
-def _bg_refresh_bn_daily():
-    """Background: pull full daily history chunks from Fyers, push to Supabase."""
-    try:
-        today = _ist_now()
-        today_str = today.strftime("%Y-%m-%d")
-        start_year = 2020
-        cur_year   = today.year
-        chunks: list[tuple[str, str]] = []
-        for yr in range(start_year, cur_year + 1):
-            chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
-            chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
-        all_candles: list = []
-        seen_times: set = set()
-        for i, (from_d, to_d) in enumerate(chunks):
-            if from_d > today_str:
-                break
-            actual_to = min(to_d, today_str)
-            if i > 0:
-                time.sleep(0.25)
-            chunk = _fyers_history_chunk("D", from_d, actual_to)
-            for c in chunk:
-                if c[0] not in seen_times:
-                    seen_times.add(c[0])
-                    all_candles.append(c)
-        all_candles.sort(key=lambda x: x[0])
-        if all_candles:
-            _supa.upsert_historical_candles("NSE:NIFTYBANK-INDEX", "D", all_candles)
-            try:
-                with open(BN_DAILY_CACHE, "w") as f:
-                    json.dump({"ts": time.time(), "data": all_candles}, f)
-            except Exception:
-                pass
-    except Exception:
-        pass
 
 def load_bn_daily() -> list:
     """Seedha Fyers se daily candles fetch karo — no Supabase dependency."""
@@ -601,20 +523,6 @@ def load_bn_daily() -> list:
     return all_candles
 
 # ─── BTC (Binance) ────────────────────────────────────────────────────────────
-def _bg_refresh_btc(interval: str, limit: int):
-    try:
-        r = requests.get(
-            f"https://api.binance.com/api/v3/klines"
-            f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
-            timeout=10,
-        ).json()
-        candles = [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
-                 float(x[4]), float(x[5])] for x in r]
-        if candles:
-            _supa.upsert_historical_candles("BTCUSDT", interval, candles)
-    except Exception:
-        pass
-
 def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
     """Seedha Binance se fetch karo — no Supabase dependency."""
     try:
@@ -628,52 +536,6 @@ def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
     except Exception:
         return []
 
-def _bg_refresh_btc_daily():
-    try:
-        today_str = _ist_now().strftime("%Y-%m-%d")
-        start_year = 2017
-        cur_year   = _ist_now().year
-        chunks: list[tuple[str, str]] = []
-        for yr in range(start_year, cur_year + 1):
-            chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
-            chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
-        all_candles: list = []
-        seen_times: set = set()
-        for i, (from_d, to_d) in enumerate(chunks):
-            if from_d > today_str:
-                break
-            actual_to = min(to_d, today_str)
-            from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
-                tzinfo=datetime.timezone.utc).timestamp() * 1000)
-            to_ms   = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
-                tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
-            try:
-                r = requests.get(
-                    f"https://api.binance.com/api/v3/klines"
-                    f"?symbol=BTCUSDT&interval=1d&startTime={from_ms}&endTime={to_ms}&limit=1000",
-                    timeout=15,
-                ).json()
-                if isinstance(r, list):
-                    for x in r:
-                        ts = int(x[0])
-                        if ts not in seen_times:
-                            seen_times.add(ts)
-                            all_candles.append([ts, float(x[1]), float(x[2]),
-                                                float(x[3]), float(x[4]), float(x[5])])
-            except Exception:
-                pass
-            if i > 0:
-                time.sleep(0.1)
-        all_candles.sort(key=lambda x: x[0])
-        if all_candles:
-            _supa.upsert_historical_candles("BTCUSDT", "1d", all_candles)
-            try:
-                with open(DAILY_CACHE_FILE, "w") as f:
-                    json.dump({"ts": time.time(), "data": all_candles}, f)
-            except Exception:
-                pass
-    except Exception:
-        pass
 
 def load_btc_daily() -> list:
     """Seedha Binance se daily candles fetch karo — no Supabase dependency."""
@@ -752,11 +614,6 @@ def _on_ws_message(msg):
     except Exception:
         pass
 
-def _on_ws_error(msg):
-    pass
-
-def _on_ws_close(msg):
-    pass
 
 def _on_ws_connect():
     try:
@@ -773,20 +630,15 @@ def _get_live_payload():
     disk I/O, so this is as fresh as the WS thread's last update. ts is a
     float (sub-second precision) so multiple ticks arriving within the same
     wall-clock second don't collapse into one (previously ts was int(time.time())
-    which made the JS-side dedupe drop intra-second ticks)."""
+    which made the JS-side dedupe drop intra-second ticks).
+
+    Market band hone ke baad None return karta hai — JS chart stale data se
+    bar-bar update na kare (jo SR lines ko galat draw karta tha)."""
+    if not _is_nse_market_open():
+        return None
     with _LIVE_LOCK:
         snap = dict(_LIVE)
     if snap["ltp"] is None:
-        # Nothing in memory yet — try Supabase's last known tick
-        fb = _supa.fetch_latest_live_tick("NSE:NIFTYBANK-INDEX")
-        if fb and fb.get("ltp") is not None:
-            ltp = fb["ltp"]
-            now = time.time()
-            return {
-                "ts":  now,
-                "ltp": ltp,
-                "candle": {"time": int(now // 60) * 60, "open": ltp, "high": ltp, "low": ltp, "close": ltp},
-            }
         return None
     ltp = snap["ltp"]
     now        = time.time()
@@ -810,33 +662,17 @@ def _get_live_payload():
         },
     }
 
-_SUPA_LAST_PUSH = {"ts": 0.0}
-
 def _write_live_json():
     payload = _get_live_payload()
     if payload is None:
         return
     try:
-        # bn_live.json = fallback file (Streamlit file server se nahi milti)
+        # bn_live.json = fallback file
         with open(BN_LIVE_FILE, "w") as f:
             json.dump(payload, f)
         # postMessage store — Streamlit injector yahan se padh ke iframe ko bhejta hai
         with _LAST_TICK_LOCK:
             _LAST_TICK_JS["json"] = json.dumps(payload)
-    except Exception:
-        pass
-
-    # ── Push live tick to Supabase (snapshot every tick, log throttled to 1/sec) ──
-    try:
-        with _LIVE_LOCK:
-            ltp        = _LIVE.get("ltp")
-            prev_close = _LIVE.get("prev_close")
-        if ltp is not None:
-            _supa.upsert_live_tick("NSE:NIFTYBANK-INDEX", ltp, prev_close)
-            now = time.time()
-            if now - _SUPA_LAST_PUSH["ts"] >= 1.0:
-                _SUPA_LAST_PUSH["ts"] = now
-                _supa.insert_live_tick_log("NSE:NIFTYBANK-INDEX", ltp, prev_close)
     except Exception:
         pass
 
@@ -857,8 +693,8 @@ def _start_ws():
             write_to_file=False,
             reconnect=True,
             on_connect=_on_ws_connect,
-            on_close=_on_ws_close,
-            on_error=_on_ws_error,
+            on_close=lambda msg: None,
+            on_error=lambda msg: None,
             on_message=_on_ws_message,
         )
         t = threading.Thread(target=fyers_ws.connect, name="FyersWS", daemon=True)
@@ -868,8 +704,21 @@ def _start_ws():
         pass
 
 # ─── Background REST poller (fallback: polls Fyers 1m candles every 3s) ──────
+def _is_nse_market_open() -> bool:
+    """NSE market 9:15–15:30 IST, Mon–Fri, non-holiday."""
+    now_ist = _ist_now()
+    if now_ist.weekday() >= 5:   # Sat=5, Sun=6
+        return False
+    t = now_ist.hour * 60 + now_ist.minute
+    return (9 * 60 + 15) <= t <= (15 * 60 + 30)
+
 def _rest_live_loop():
     while True:
+        # Market band ho to REST calls skip karo — stale data bhejne se
+        # JS chart mein SR lines dobara draw hoti thi aur price flicker hoti thi.
+        if not _is_nse_market_open():
+            time.sleep(5)
+            continue
         # WebSocket se fresh data aa raha hai to REST call skip karo
         with _LIVE_LOCK:
             ws_fresh = (time.time() - _LIVE["ts"]) < 8
@@ -903,38 +752,12 @@ def _rest_live_loop():
                     pass
         time.sleep(1)
 
-# ─── Background BTC live poller — keeps Supabase continuously updated ───────
-# (Browser still shows live price via fast direct Binance WebSocket. This loop
-# runs independently in the backend so Supabase never has a gap, even if the
-# browser tab is closed or the WebSocket drops for a while.)
-_BTC_LIVE_LAST_PUSH = {"ts": 0.0}
-
-def _btc_live_loop():
-    while True:
-        try:
-            r = requests.get(
-                "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT",
-                timeout=5,
-            ).json()
-            price = float(r.get("price")) if r.get("price") else None
-            if price is not None:
-                _supa.upsert_live_tick("BTCUSDT", price, None)
-                now = time.time()
-                if now - _BTC_LIVE_LAST_PUSH["ts"] >= 1.0:
-                    _BTC_LIVE_LAST_PUSH["ts"] = now
-                    _supa.insert_live_tick_log("BTCUSDT", price, None)
-        except Exception:
-            pass
-        time.sleep(1)
-
 def _ensure_live_threads():
     names = {t.name for t in threading.enumerate()}
     if "FyersRESTPoller" not in names:
         threading.Thread(target=_rest_live_loop, name="FyersRESTPoller", daemon=True).start()
     if "FyersTokenMonitor" not in names:
         threading.Thread(target=_token_monitor_loop, name="FyersTokenMonitor", daemon=True).start()
-    if "BTCLivePoller" not in names:
-        threading.Thread(target=_btc_live_loop, name="BTCLivePoller", daemon=True).start()
     _start_ws()
     _register_api_route()
 
@@ -1021,18 +844,6 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
-                if parsed.path == "/api/btc_tick":
-                    tick = _supa.fetch_latest_live_tick("BTCUSDT")
-                    body = json.dumps(tick if tick else {}).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()
@@ -1090,14 +901,6 @@ def _register_api_route():
 
     threading.Thread(target=_server_loop, name="BNHistoryAPI", daemon=True).start()
 
-# ─── ZIP export ───────────────────────────────────────────────────────────────
-def _make_zip() -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname in ("dashboard.py", "chart.html"):
-            if os.path.exists(fname):
-                zf.write(fname)
-    return buf.getvalue()
 
 # ─── Auto-startup TOTP login (runs once per session on any machine) ───────────
 if not st.session_state.get("_startup_login_done"):
@@ -1151,107 +954,6 @@ if _qp.get("totp_trigger") == "1":
             st.session_state["totp_err"] = _msg2
             st.session_state["totp_log"] = _log2
     st.rerun()
-
-# Handler 2b: Server-side chart state save (Google ke bina — direct file pe)
-if _qp.get("cs_save") == "1":
-    _cs_data_b64 = _qp.get("cs_data", "")
-    st.query_params.clear()
-    if _cs_data_b64:
-        try:
-            import base64 as _b64mod
-            _cs_raw = _b64mod.urlsafe_b64decode(_cs_data_b64.encode()).decode("utf-8")
-            # Sanity check — valid JSON hi likho file mein
-            json.loads(_cs_raw)
-            with open(CHART_STATE_FILE, "w", encoding="utf-8") as _csf:
-                _csf.write(_cs_raw)
-        except Exception:
-            pass
-    st.rerun()
-
-# Handler 3: Google Drive OAuth callback — ?gd_cb=1#access_token=...
-# Popup yahan redirect hota hai — poora Streamlit UI hide karo, sirf callback JS chalao
-if _qp.get("gd_cb") == "1":
-    st.markdown("""
-<style>
-  /* Streamlit poora hide karo */
-  #root > div, .stApp, header, footer,
-  [data-testid="stAppViewContainer"],
-  [data-testid="stHeader"],
-  [data-testid="stToolbar"],
-  [data-testid="stSidebar"],
-  .main, .block-container { display: none !important; }
-  body { background: #131722 !important; margin: 0 !important; }
-</style>
-<div id="gd-cb-box" style="
-  position:fixed;top:0;left:0;width:100vw;height:100vh;
-  background:#131722;display:flex;align-items:center;
-  justify-content:center;font-family:sans-serif;color:#d1d4dc;
-  flex-direction:column;gap:16px;z-index:999999;">
-  <div id="gd-spinner" style="font-size:2.5rem;">☁</div>
-  <div id="gd-msg" style="font-size:1rem;">Google sign-in complete ho raha hai…</div>
-</div>
-<script>
-(function() {
-  // Google OAuth2 implicit flow: token URL fragment mein aata hai
-  // Fragment Streamlit tak nahi pahunchta — isliye hum sessionStorage trick use karte hain
-
-  var STORAGE_KEY = '_gd_oauth_pending';
-  var TS_KEY      = '_gd_oauth_ts';
-
-  function setMsg(txt, ok) {
-    var el = document.getElementById('gd-msg');
-    var sp = document.getElementById('gd-spinner');
-    if (el) el.textContent = txt;
-    if (sp) sp.textContent = ok ? '✅' : '❌';
-  }
-
-  function parseHash(str) {
-    var p = {};
-    (str || '').replace(/^[#?]/, '').split('&').forEach(function(pair) {
-      var kv = pair.split('=');
-      if (kv.length >= 2) p[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join('='));
-    });
-    return p;
-  }
-
-  function sendToken(token, exp) {
-    var msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
-
-    // Method 1: window.opener (popup ka parent)
-    try { if (window.opener && !window.opener.closed) { window.opener.postMessage(msg, '*'); } } catch(_) {}
-
-    // Method 2: localStorage (chart poll karta hai)
-    try {
-      localStorage.setItem(STORAGE_KEY, msg);
-      localStorage.setItem(TS_KEY, Date.now().toString());
-    } catch(_) {}
-
-    setMsg('✅ Sign-in ho gaya! Yeh window band ho rahi hai…', true);
-    setTimeout(function() {
-      try { window.close(); } catch(_) {}
-      // Agar window band nahi hui toh blank page dikhao
-      setTimeout(function() { document.body.innerHTML = '<p style="color:#26a69a;text-align:center;padding:40px;font-family:sans-serif">✅ Sign-in complete. Yeh tab band kar sakte ho.</p>'; }, 1500);
-    }, 1000);
-  }
-
-  // Hash directly milta hai toh seedha use karo
-  var hash = window.location.hash || window.location.search || '';
-  var params = parseHash(hash);
-  var token = params['access_token'];
-  var exp   = parseInt(params['expires_in'] || '3600', 10);
-
-  if (token) {
-    sendToken(token, exp);
-    return;
-  }
-
-  // Hash nahi mila — URL mein fragment tha jo Streamlit ne strip kar diya
-  // Yeh normal hai — chart ka localStorage poller handle karega
-  setMsg('❌ Token nahi mila. Chart pe wapas jao aur dobara Sign in karo.', false);
-})();
-</script>
-""", unsafe_allow_html=True)
-    st.stop()
 
 
 creds      = load_creds()
@@ -1377,6 +1079,52 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ── Historical Data Status + Manual Update ──────────────────────────────
+    with st.expander("📦 Historical Data", expanded=False):
+        _stats = get_stats()
+        if _stats.get("exists"):
+            st.success(f"✅ {_stats['count']:,} candles")
+            st.caption(f"From: {_stats.get('first','?')}")
+            st.caption(f"To:   {_stats.get('last','?')}")
+            st.caption(f"Size: {_stats.get('size_mb','?')} MB")
+        else:
+            st.error("❌ bn_1m.bin.gz not found")
+            _gdrive_id = st.text_input(
+                "Google Drive File ID",
+                value=GDRIVE_FILE_ID,
+                placeholder="1aBcD...",
+                key="gdrive_id_inp",
+            )
+            if st.button("⬇️ Drive se Download", use_container_width=True, key="gdrive_dl_btn"):
+                with st.spinner("Downloading from Google Drive..."):
+                    _ok_dl = download_from_gdrive(file_id=_gdrive_id.strip())
+                if _ok_dl:
+                    st.success("✅ Download complete!")
+                    _get_chart_data.clear()
+                    st.rerun()
+                else:
+                    st.error("❌ Download failed — File ID sahi hai? Publicly shared hai?")
+
+        if sess_active and _stats.get("exists"):
+            if st.button("🔄 Force Update (Fyers)", use_container_width=True, key="hist_force_upd"):
+                with st.spinner("Fyers se update ho raha hai..."):
+                    _r = _maybe_update_historical(creds, force=True)
+                if _r.get("added", 0) > 0:
+                    st.success(f"✅ +{_r['added']} nayi candles")
+                    st.rerun()
+                elif _r.get("skipped"):
+                    st.info("Already up to date")
+                else:
+                    st.warning("Koi naya data nahi mila")
+
+        # Auto-update status dikhao
+        if not _hist_update_result.get("skipped"):
+            _added = _hist_update_result.get("added", 0)
+            if _added > 0:
+                st.info(f"🔁 Auto-updated: +{_added} candles")
+
+    st.markdown("---")
+
     # ── SMS Alert Setup ─────────────────────────────────────────────────────
     with st.expander("📱 SMS Alert Setup", expanded=False):
         st.caption("Token expire hone par SMS aayega 7018093451 par")
@@ -1390,31 +1138,91 @@ with st.sidebar:
             save_creds({**creds_now, "alert_phone": new_phone.strip()})
             st.success(f"Saved: {new_phone}")
 
-    st.markdown("---")
-    st.download_button(
-        "⬇️ Download Project ZIP",
-        data=_make_zip(),
-        file_name="banknifty_chart.zip",
-        mime="application/zip",
-        use_container_width=True,
-    )
+
+# ─── Historical data auto-update logic ───────────────────────────────────────
+def _maybe_update_historical(creds: dict, force: bool = False) -> dict:
+    """
+    3:35 PM IST ke baad ya force=True par Fyers se historical update karo.
+    Session mein ek baar hi chalta hai.
+    """
+    update_key = "bn_hist_updated_today"
+    now_ist    = _ist_now()
+    today_str  = now_ist.strftime("%Y-%m-%d")
+
+    if not force:
+        if st.session_state.get(update_key) == today_str:
+            return {"skipped": True, "reason": "already updated today"}
+        close_time = now_ist.replace(hour=15, minute=35, second=0, microsecond=0)
+        if now_ist < close_time:
+            return {"skipped": True, "reason": "market not closed"}
+
+    app_id       = creds.get("app_id", "")
+    access_token = creds.get("access_token", "")
+    if not app_id or not access_token:
+        return {"skipped": True, "reason": "no fyers creds"}
+
+    result = update_from_fyers(app_id, access_token, force=force)
+    if not result.get("skipped"):
+        st.session_state[update_key] = today_str
+        _get_chart_data.clear()   # Cache invalidate → fresh data load hoga
+    return result
+
 
 # ─── Fetch all chart data ─────────────────────────────────────────────────────
-# Cache key includes first 8 chars of token so new token → fresh fetch
+# _hist_ts changes jab file update hoti hai → cache auto-invalidate
 @st.cache_data(ttl=HIST_CACHE_TTL, show_spinner=False)
-def _get_chart_data(sess: bool, _tok: str = ""):
+def _get_chart_data(sess: bool, _tok: str = "", _hist_ts: int = 0):
+    """
+    Historical + live data merge karke deta hai.
+    _hist_ts: bn_1m.bin.gz ki mtime — nayi file par cache reset hoti hai.
+    """
     btc_1m   = fetch_btc("1m",  1000)
     btc_15m  = fetch_btc("15m", 1000)
     btc_day  = load_btc_daily()
-    bn_1m    = fetch_bn_intraday(1)  if sess else []
-    bn_5m    = fetch_bn_intraday(5)  if sess else []
-    bn_15m   = fetch_bn_intraday(15) if sess else []
-    bn_45m   = fetch_bn_intraday(45) if sess else []
-    bn_day   = load_bn_daily()       if sess else []
+
+    # ── Google Drive se auto-download agar local file nahi hai ───────────────
+    ensure_bin_file()          # File nahi → Drive se download
+    hist_all = load_bin(auto_download=False)   # Already ensured above
+
+    if sess:
+        live_1m  = fetch_bn_intraday(1)
+        live_5m  = fetch_bn_intraday(5)
+        live_15m = fetch_bn_intraday(15)
+        live_45m = fetch_bn_intraday(45)
+        bn_day   = load_bn_daily()
+
+        # Merge: historical + live (dedup by timestamp)
+        if hist_all and live_1m:
+            live_ts   = {r[0] for r in live_1m}
+            hist_trim = [r for r in hist_all if r[0] not in live_ts]
+            bn_1m     = hist_trim + live_1m
+        elif hist_all:
+            bn_1m = hist_all
+        else:
+            bn_1m = live_1m
+
+        bn_5m  = live_5m
+        bn_15m = live_15m
+        bn_45m = live_45m
+    else:
+        # No Fyers session — sirf historical file use karo (replay mode)
+        bn_1m  = hist_all
+        bn_5m  = []
+        bn_15m = []
+        bn_45m = []
+        bn_day = []
+
     return btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day
 
+
+# Auto-update check + chart data load
+_hist_update_result = _maybe_update_historical(creds) if sess_active else {"skipped": True}
+_hist_file_ts = int(os.path.getmtime("bn_1m.bin.gz")) if os.path.exists("bn_1m.bin.gz") else 0
+
 _tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
-btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(sess_active, _tok_hint)
+btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(
+    sess_active, _tok_hint, _hist_file_ts
+)
 
 # ─── TOTP error notification (from iframe-triggered auto-login failure) ────────
 if "totp_err" in st.session_state:
@@ -1495,13 +1303,16 @@ def _build_chart_html(
     html = html.replace("__API_PORT__", str(_api_port))
 
     # ── Startup mein last known BN tick inject karo (polling se pehle) ──────
+    # Market band ho to stale bn_live.json inject mat karo — warna chart pe
+    # old price dikhega aur SR lines galat draw hongi (bug fix)
     tick = None
-    try:
-        if os.path.exists("bn_live.json"):
-            with open("bn_live.json") as _tf:
-                tick = json.load(_tf)
-    except Exception:
-        tick = None
+    if _is_nse_market_open():
+        try:
+            if os.path.exists("bn_live.json"):
+                with open("bn_live.json") as _tf:
+                    tick = json.load(_tf)
+        except Exception:
+            tick = None
     if tick:
         tick_js = json.dumps(tick)
         inject = (
@@ -1515,22 +1326,6 @@ def _build_chart_html(
             "</script>"
         )
         html = html.replace("</body>", inject + "\n</body>")
-
-    # ── Saved chart-state (server-side, Google ke bina) restore karo ──────────
-    _cs_state_raw = None
-    try:
-        if os.path.exists(CHART_STATE_FILE):
-            with open(CHART_STATE_FILE, "r", encoding="utf-8") as _csf:
-                _cs_state_raw = _csf.read().strip()
-            json.loads(_cs_state_raw)  # validate before inlining into <script>
-    except Exception:
-        _cs_state_raw = None
-    if _cs_state_raw:
-        _cs_safe = _cs_state_raw.replace("</", "<\\/")  # </script> injection se bachao
-        cs_inject = (
-            "\n<script>window.__CHART_STATE_RESTORE__ = " + _cs_safe + ";</script>"
-        )
-        html = html.replace("</body>", cs_inject + "\n</body>")
 
     return html
 
@@ -1561,6 +1356,11 @@ if sess_active or _btc_only:
     if sess_active:
         @st.fragment(run_every=1)
         def _bn_tick_pusher():
+            # Market band ho to postMessage push skip karo — stale tick se
+            # JS chart SR lines dobara draw karta tha (bug fix)
+            if not _is_nse_market_open():
+                return
+
             with _LAST_TICK_LOCK:
                 _tick_json = _LAST_TICK_JS["json"]
 
@@ -1800,286 +1600,3 @@ else:
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Google Cloud Restore card (login screen pe bhi) ────────────────────────
-    _gd_card_html = """
-<style>
-.gd-card{
-  background:#1a1f2e;border:1px solid #2962ff44;border-radius:12px;
-  padding:16px 18px;max-width:620px;margin:24px auto 0;
-}
-.gd-card-title{color:#90caf9;font:700 13px sans-serif;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
-.gd-card-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
-.gd-card-status{color:#787b86;font:600 11px sans-serif;flex:1;}
-.gd-card-btn{
-  background:#2962ff;color:#fff;border:none;border-radius:7px;
-  padding:9px 14px;font:700 12px sans-serif;cursor:pointer;
-  min-height:36px;white-space:nowrap;
-}
-.gd-card-btn:active{opacity:.8}
-.gd-card-inp{
-  flex:1;background:#131722;border:1px solid #363c4e;border-radius:6px;
-  color:#d1d4dc;font-size:11px;padding:7px 9px;outline:none;min-width:0;
-}
-.gd-card-ok{
-  background:#26a69a;color:#fff;border:none;border-radius:6px;
-  padding:7px 11px;font:700 11px sans-serif;cursor:pointer;white-space:nowrap;
-}
-</style>
-
-<div class="gd-card">
-  <div class="gd-card-title">☁ Google Cloud — Layout Restore</div>
-  <div class="gd-card-row">
-    <span class="gd-card-status" id="ls-gd-status">Checking…</span>
-    <button class="gd-card-btn" id="ls-gd-btn" onclick="lsGdSignIn()" style="display:none;">Sign in</button>
-  </div>
-  <div id="ls-gd-manual" style="display:none;margin-top:8px;">
-    <div style="color:#787b86;font:500 10px sans-serif;margin-bottom:5px;">Popup ka poora URL paste karo:</div>
-    <div style="display:flex;gap:6px;">
-      <input class="gd-card-inp" id="ls-gd-inp" placeholder="localhost:8501/?gd_cb=1#access_token=ya29…">
-      <button class="gd-card-ok" onclick="lsGdManualToken()">✓ OK</button>
-    </div>
-  </div>
-</div>
-
-<script>
-(function(){
-  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
-  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
-  const FILE_NAME = 'banknifty-layout-sync.json';
-  const AUTH_FLAG  = 'gdAuthed';
-  const TOK_KEY    = '_gd_access_token';
-  const TOK_EXP_KEY= '_gd_token_exp';
-
-  let _accessToken = null, _tokenExp = 0, _fileId = null;
-
-  // Reload hone par bhi token yaad rahe — localStorage se purana token uthao
-  try{
-    const savedTok = localStorage.getItem(TOK_KEY);
-    const savedExp = parseInt(localStorage.getItem(TOK_EXP_KEY)||'0',10);
-    if(savedTok && savedExp > Date.now()){
-      _accessToken = savedTok;
-      _tokenExp    = savedExp;
-    }
-  }catch(_){}
-
-  function _hdr(){ return { Authorization: 'Bearer ' + _accessToken }; }
-  function _setStatus(t,c){ const s=document.getElementById('ls-gd-status'); if(s){s.textContent=t;s.style.color=c||'#787b86';} }
-  function _showBtn(show){ const b=document.getElementById('ls-gd-btn'); if(b) b.style.display=show?'':'none'; }
-  function _showManual(show){ const m=document.getElementById('ls-gd-manual'); if(m) m.style.display=show?'':'none'; }
-
-  function _getRedirectURI(){
-    try{
-      const origin = window.parent !== window
-        ? (document.referrer ? new URL(document.referrer).origin : window.location.origin)
-        : window.location.origin;
-      if(origin && origin!=='null') return origin+'/?gd_cb=1';
-    }catch(_){}
-    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
-  }
-
-  function _onToken(resp){
-    if(resp && resp.access_token){
-      _accessToken = resp.access_token;
-      _tokenExp = Date.now() + ((resp.expires_in||3600)*1000 - 60000);
-      try{
-        localStorage.setItem(AUTH_FLAG,'1');
-        localStorage.setItem(TOK_KEY,_accessToken);
-        localStorage.setItem(TOK_EXP_KEY,String(_tokenExp));
-      }catch(_){}
-      return true;
-    }
-    return false;
-  }
-
-  // Popup OAuth
-  let _popWin=null, _popTimer=null, _lsPoll=null;
-  window.addEventListener('message', function(e){
-    try{
-      const d = typeof e.data==='string' ? JSON.parse(e.data) : e.data;
-      if(d && d.type==='gd_oauth_token' && d.access_token){
-        clearInterval(_popTimer); clearInterval(_lsPoll);
-        try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
-        if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
-          _showBtn(false); _showManual(false);
-          _doRestore();
-        }
-      }
-    }catch(_){}
-  });
-
-  function _startLSPoll(){
-    clearInterval(_lsPoll);
-    _lsPoll = setInterval(function(){
-      try{
-        const raw = localStorage.getItem('_gd_oauth_pending');
-        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts')||'0',10);
-        if(raw && (Date.now()-ts)<60000){
-          clearInterval(_lsPoll);
-          try{ localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); }catch(_){}
-          const d = JSON.parse(raw);
-          if(d && d.access_token){
-            clearInterval(_popTimer);
-            try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
-            if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
-              _showBtn(false); _showManual(false);
-              _doRestore();
-            }
-          }
-        }
-      }catch(_){}
-    },1000);
-  }
-
-  window.lsGdSignIn = function(){
-    const REDIRECT_URI = _getRedirectURI();
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id:     CLIENT_ID,
-      redirect_uri:  REDIRECT_URI,
-      response_type: 'token',
-      scope:         SCOPE,
-      prompt:        'select_account',
-    });
-    _setStatus('☁ Opening Google…','#f0b429');
-    _showBtn(false); _showManual(true);
-    try{ _popWin = window.open(authUrl,'gdLoginPopup','width=480,height=620,top=80,left=80'); }catch(_){}
-    if(!_popWin || _popWin.closed){ _setStatus('☁ Popup blocked — URL paste karo','#f23645'); _showManual(true); return; }
-    clearInterval(_popTimer);
-    _popTimer = setInterval(function(){
-      try{
-        if(_popWin && _popWin.closed){ clearInterval(_popTimer); clearInterval(_lsPoll); _setStatus('☁ Sign in cancelled','#f23645'); _showBtn(true); return; }
-        try{
-          const href = _popWin.location.href;
-          const frag = _popWin.location.hash;
-          if(href && href.includes('gd_cb=1') && frag){
-            clearInterval(_popTimer); clearInterval(_lsPoll);
-            const p = new URLSearchParams(frag.substring(1));
-            const tok = p.get('access_token');
-            try{ _popWin.close(); }catch(_){}
-            if(tok && _onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
-              _showBtn(false); _showManual(false);
-              _doRestore();
-            }
-          }
-        }catch(_){}
-      }catch(_){}
-    },800);
-    _startLSPoll();
-  };
-
-  window.lsGdManualToken = function(){
-    const raw = (document.getElementById('ls-gd-inp')||{}).value||'';
-    const hashIdx = raw.indexOf('#');
-    const frag = hashIdx!==-1 ? raw.substring(hashIdx+1) : (raw.includes('access_token')?raw:'');
-    if(!frag){ _setStatus('☁ Token nahi mila','#f23645'); return; }
-    const p   = new URLSearchParams(frag);
-    const tok = p.get('access_token');
-    if(!tok){ _setStatus('☁ Token extract nahi hua','#f23645'); return; }
-    document.getElementById('ls-gd-inp').value='';
-    if(_onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
-      _showBtn(false); _showManual(false);
-      _doRestore();
-    }
-  };
-
-  function _findFile(cb){
-    fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%22'+FILE_NAME+'%22&fields=files(id)',{headers:_hdr()})
-      .then(r=>r.json()).then(d=>{ const f=(d.files||[])[0]; cb(f?f.id:null); }).catch(()=>cb(null));
-  }
-
-  function _download(cb){
-    _findFile(function(id){
-      if(!id){ cb(null); return; }
-      _fileId=id;
-      fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:_hdr()})
-        .then(r=>r.json()).then(d=>cb(d)).catch(()=>cb(null));
-    });
-  }
-
-  function _applyLS(data){
-    let changed=false;
-    try{
-      for(const k in data){
-        if(k==='gdAuthed') continue;
-        if(localStorage.getItem(k)!==data[k]){ localStorage.setItem(k,data[k]); changed=true; }
-      }
-    }catch(_){}
-    return changed;
-  }
-
-  function _doRestore(){
-    _setStatus('☁ Cloud: restoring…','#f0b429');
-    _download(function(obj){
-      if(obj && obj.data){
-        const changed = _applyLS(obj.data);
-        _setStatus('☁ Restored ✓ — app khul rahi hai…','#26a69a');
-        let alreadyReloaded = false;
-        try{ alreadyReloaded = sessionStorage.getItem('_gd_reloaded_once')==='1'; }catch(_){}
-        if(changed && !alreadyReloaded){
-          try{ sessionStorage.setItem('_gd_reloaded_once','1'); }catch(_){}
-          setTimeout(function(){ location.reload(); },800);
-        } else {
-          _setStatus('☁ Cloud: connected ✓','#26a69a');
-        }
-      } else {
-        _setStatus('☁ Cloud: koi data nahi','#f23645');
-        _showBtn(true);
-      }
-    });
-  }
-
-  // Auto-boot: agar pehle sign in hua tha toh silent token try karo
-  function _boot(){
-    if(localStorage.getItem(AUTH_FLAG)!=='1'){
-      _setStatus('☁ Cloud se restore karo — Sign in karo','#787b86');
-      _showBtn(true);
-      return;
-    }
-    // Cached token check
-    if(_accessToken && Date.now() < _tokenExp){
-      _doRestore(); return;
-    }
-    _setStatus('☁ Cloud: reconnecting…','#787b86');
-    _showBtn(false);
-    // Silent token refresh — popup ke bina (prompt:none)
-    const REDIRECT_URI = _getRedirectURI();
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id:     CLIENT_ID,
-      redirect_uri:  REDIRECT_URI,
-      response_type: 'token',
-      scope:         SCOPE,
-      prompt:        'none',
-    });
-    const silentFrame = document.createElement('iframe');
-    silentFrame.style.cssText='display:none;width:0;height:0;';
-    silentFrame.src = authUrl;
-    document.body.appendChild(silentFrame);
-    let _silentDone = false;
-    window.addEventListener('message',function(e){
-      if(_silentDone) return;
-      try{
-        const d = typeof e.data==='string'?JSON.parse(e.data):e.data;
-        if(d && d.type==='gd_oauth_token' && d.access_token){
-          _silentDone=true;
-          if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
-            _showBtn(false); _doRestore();
-          }
-        }
-      }catch(_){}
-    },{once:false});
-    // Timeout — silent fail
-    setTimeout(function(){
-      if(!_silentDone){
-        try{ document.body.removeChild(silentFrame); }catch(_){}
-        _setStatus('☁ Cloud: Sign in karo','#787b86');
-        _showBtn(true);
-      }
-    },5000);
-  }
-
-  if(document.readyState==='loading'){
-    document.addEventListener('DOMContentLoaded',_boot);
-  } else { _boot(); }
-})();
-</script>
-"""
-    components.html(_gd_card_html, height=160, scrolling=False)
