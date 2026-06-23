@@ -11584,6 +11584,7 @@ if (document.readyState === 'loading') {
         <button id="rp-tab-btc" onclick="Replay.switchAsset('BTCUSDT')">BTC</button>
       </div>
       <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Select date range</button>
+      <button onclick="Replay._showDebugPanel(true)" title="Debug log dekho" style="background:#1a1a2e;color:#f6a623;border:1px solid #f6a623;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;margin-left:4px;">🔍 Log</button>
     </div>
     <!-- Row 2: play + speed + time -->
     <div class="rp-controls-row">
@@ -11806,6 +11807,46 @@ const Replay = {
   openRangeModal(){ document.getElementById('replay-range-modal').classList.add('open'); },
   closeRangeModal(){ document.getElementById('replay-range-modal').classList.remove('open'); },
 
+  // ── DEBUG LOG PANEL ─────────────────────────────────────────────────────────
+  _dbgLog: [],
+  _dbgLog(msg) {
+    const ts = new Date().toLocaleTimeString('en-IN');
+    const line = `[${ts}] ${msg}`;
+    this._dbgLog.push(line);
+    console.log('[ReplayDebug]', line);
+    // Panel update karo agar open hai
+    const panel = document.getElementById('rp-debug-panel');
+    if (panel) {
+      const pre = document.getElementById('rp-debug-pre');
+      if (pre) { pre.textContent = this._dbgLog.slice(-40).join('\n'); pre.scrollTop = pre.scrollHeight; }
+    }
+  },
+
+  _showDebugPanel(show) {
+    let panel = document.getElementById('rp-debug-panel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'rp-debug-panel';
+      panel.style.cssText = 'position:fixed;bottom:80px;left:10px;right:10px;max-height:260px;background:#0d1117;border:1.5px solid #f6a623;border-radius:10px;z-index:99999;padding:10px;font-family:monospace;font-size:11px;color:#e6e6e6;display:flex;flex-direction:column;';
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="color:#f6a623;font-weight:700;">🔍 Replay Debug Log</span>
+          <div>
+            <button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('rp-debug-pre').textContent)" style="background:#1a1a2e;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;margin-right:4px;">Copy</button>
+            <button onclick="Replay._showDebugPanel(false)" style="background:#1a1a2e;color:#f66;border:1px solid #444;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;">✕ Close</button>
+          </div>
+        </div>
+        <pre id="rp-debug-pre" style="margin:0;overflow-y:auto;flex:1;white-space:pre-wrap;word-break:break-all;color:#b5cea8;"></pre>
+      `;
+      document.body.appendChild(panel);
+    }
+    panel.style.display = show ? 'flex' : 'none';
+    if (show) {
+      const pre = document.getElementById('rp-debug-pre');
+      if (pre) { pre.textContent = this._dbgLog.slice(-40).join('\n'); pre.scrollTop = pre.scrollHeight; }
+    }
+  },
+
   async requestLoad(){
     const start = document.getElementById('rp-start-date').value;
     const end   = document.getElementById('rp-end-date').value;
@@ -11814,9 +11855,15 @@ const Replay = {
     this.closeRangeModal();
     this._showLoading(true);
 
+    // Debug log reset aur panel open karo
+    this._dbgLog = [];
+    this._showDebugPanel(true);
+
     const rpAsset = this._asset;
     const rpStart = start;
     const rpEnd   = end;
+
+    this._dbgLog(`▶ Replay start — Asset: ${rpAsset}, From: ${rpStart}, To: ${rpEnd}`);
 
     // ── GitHub .gz direct fetch (no Python, no postMessage needed) ──────────
     // BankNifty: GitHub se binary .gz fetch → browser mein decompress → parse
@@ -11824,42 +11871,80 @@ const Replay = {
     try {
       if (rpAsset === 'BANKNIFTY') {
         const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz';
-        const resp = await fetch(GH_URL);
+        this._dbgLog(`📡 GitHub fetch start: ${GH_URL}`);
+
+        let resp;
+        try {
+          resp = await fetch(GH_URL);
+          this._dbgLog(`📡 GitHub HTTP response: ${resp.status} ${resp.statusText}`);
+        } catch(fetchErr) {
+          this._dbgLog(`❌ FETCH ERROR (network): ${fetchErr.message}`);
+          this._dbgLog(`   → Internet connection check karo ya GitHub URL sahi hai?`);
+          throw fetchErr;
+        }
         if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
 
-        // ── Decompress gzip in browser ───────────────────────────────────────
-        const compBuf  = await resp.arrayBuffer();
-        const ds       = new DecompressionStream('gzip');
-        const writer   = ds.writable.getWriter();
-        writer.write(new Uint8Array(compBuf));
-        writer.close();
-        const chunks = [];
-        const reader = ds.readable.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
+        this._dbgLog(`⬇️ Response OK — buffer download ho raha hai...`);
+        let compBuf;
+        try {
+          compBuf = await resp.arrayBuffer();
+          this._dbgLog(`✅ Download complete — size: ${(compBuf.byteLength/1024/1024).toFixed(2)} MB`);
+        } catch(bufErr) {
+          this._dbgLog(`❌ DOWNLOAD ERROR: ${bufErr.message}`);
+          throw bufErr;
         }
-        let totalLen = 0;
-        chunks.forEach(c => totalLen += c.length);
-        const raw = new Uint8Array(totalLen);
-        let off = 0;
-        chunks.forEach(c => { raw.set(c, off); off += c.length; });
+
+        // ── Decompress gzip in browser ───────────────────────────────────────
+        this._dbgLog(`🔓 Gzip decompress start...`);
+        let raw;
+        try {
+          if (typeof DecompressionStream === 'undefined') {
+            throw new Error('DecompressionStream API is not supported in this browser');
+          }
+          const ds     = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          writer.write(new Uint8Array(compBuf));
+          writer.close();
+          const chunks = [];
+          const reader = ds.readable.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          let totalLen = 0;
+          chunks.forEach(c => totalLen += c.length);
+          raw = new Uint8Array(totalLen);
+          let off = 0;
+          chunks.forEach(c => { raw.set(c, off); off += c.length; });
+          this._dbgLog(`✅ Decompress complete — raw size: ${(totalLen/1024/1024).toFixed(2)} MB`);
+        } catch(dcErr) {
+          this._dbgLog(`❌ DECOMPRESS ERROR: ${dcErr.message}`);
+          this._dbgLog(`   → Browser mein DecompressionStream support nahi?`);
+          throw dcErr;
+        }
 
         // ── Parse binary format: BN1M header + candles ──────────────────────
         // Header: magic(4B) + version(1B) + count(4uint32BE) + base_ts(4uint32BE) = 13B
         // Candle: ts_offset(4uint32BE) + O,H,L,C (4x float32BE) = 20B
+        this._dbgLog(`🔍 Binary parse start...`);
         const magic = String.fromCharCode(raw[0],raw[1],raw[2],raw[3]);
+        this._dbgLog(`   Magic bytes: "${magic}" (expected: "BN1M")`);
         if (magic !== 'BN1M') throw new Error('Invalid binary magic: ' + magic);
+
         const dv      = new DataView(raw.buffer);
         const count   = dv.getUint32(5,  false);  // big-endian
         const baseTs  = dv.getUint32(9,  false);  // seconds
+        this._dbgLog(`   Total candles in file: ${count.toLocaleString()}`);
+        this._dbgLog(`   Base timestamp: ${new Date(baseTs*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}`);
 
         // ── Date filter: start/end → unix seconds ────────────────────────────
         // Dates are IST; we convert to UTC unix seconds for comparison
         const IST_OFF  = 5.5 * 3600;  // seconds
         const startSec = (new Date(rpStart + 'T00:00:00Z').getTime() / 1000) - IST_OFF;
         const endSec   = (new Date(rpEnd   + 'T00:00:00Z').getTime() / 1000) - IST_OFF + 86400;
+        this._dbgLog(`   Date filter: ${rpStart} → ${rpEnd}`);
+        this._dbgLog(`   Unix range: ${startSec} → ${endSec}`);
 
         const base = [];
         let ptr = 13;
@@ -11875,26 +11960,45 @@ const Replay = {
           base.push([tsSec * 1000, o, h, l, c]);
         }
 
+        this._dbgLog(`✅ Parse done — filtered candles: ${base.length.toLocaleString()}`);
+
         if (base.length === 0) {
+          this._dbgLog(`⚠️ 0 candles mili — date range check karo! baseTs se compare:`);
+          this._dbgLog(`   File ka pehla candle: ${new Date(baseTs*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}`);
+          this._dbgLog(`   Tumhara range start: ${new Date(startSec*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}`);
           this._showLoading(false);
-          alert('Is date range mein koi data nahi mila. Dusri dates try karo.');
+          alert('Is date range mein koi data nahi mila. Dusri dates try karo.\n\nDebug panel mein details dekho ⬇');
           return;
         }
 
+        this._dbgLog(`🚀 setData call ho raha hai...`);
         this.setData(rpAsset, { base, meta: { start: rpStart, end: rpEnd } });
+        this._dbgLog(`✅ Replay data load COMPLETE!`);
 
       } else {
         // ── BTC: Binance REST API ─────────────────────────────────────────────
+        this._dbgLog(`₿ BTC mode — Binance API se fetch karenge`);
         const startMs = new Date(rpStart + 'T00:00:00Z').getTime();
         const endMs   = new Date(rpEnd   + 'T23:59:59Z').getTime();
         const base    = [];
         let curMs     = startMs;
+        let batchNum  = 0;
 
         while (curMs < endMs) {
+          batchNum++;
           const url  = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${curMs}&endTime=${endMs}&limit=1000`;
-          const resp = await fetch(url);
+          this._dbgLog(`📡 Binance batch #${batchNum}: from ${new Date(curMs).toISOString().slice(0,16)}`);
+          let resp;
+          try {
+            resp = await fetch(url);
+            this._dbgLog(`   HTTP: ${resp.status}`);
+          } catch(fetchErr) {
+            this._dbgLog(`❌ BINANCE FETCH ERROR: ${fetchErr.message}`);
+            throw fetchErr;
+          }
           if (!resp.ok) throw new Error('Binance fetch failed: HTTP ' + resp.status);
           const rows = await resp.json();
+          this._dbgLog(`   Rows received: ${Array.isArray(rows) ? rows.length : 'NOT_ARRAY: ' + JSON.stringify(rows).slice(0,80)}`);
           if (!Array.isArray(rows) || rows.length === 0) break;
           for (const x of rows) {
             base.push([parseInt(x[0]), parseFloat(x[1]), parseFloat(x[2]), parseFloat(x[3]), parseFloat(x[4])]);
@@ -11903,18 +12007,26 @@ const Replay = {
           if (rows.length < 1000) break;
         }
 
+        this._dbgLog(`✅ BTC fetch done — total candles: ${base.length}`);
+
         if (base.length === 0) {
+          this._dbgLog(`⚠️ 0 candles mili — Binance se data nahi aaya`);
           this._showLoading(false);
-          alert('Is date range mein koi BTC data nahi mila.');
+          alert('Is date range mein koi BTC data nahi mila.\n\nDebug panel mein details dekho ⬇');
           return;
         }
 
+        this._dbgLog(`🚀 setData call ho raha hai...`);
         this.setData(rpAsset, { base, meta: { start: rpStart, end: rpEnd } });
+        this._dbgLog(`✅ Replay data load COMPLETE!`);
       }
 
     } catch(err) {
       this._showLoading(false);
-      alert('Replay data load nahi hua: ' + err.message);
+      this._dbgLog(`\n💥 EXCEPTION CAUGHT: ${err.name}: ${err.message}`);
+      if (err.stack) this._dbgLog(`Stack: ${err.stack.split('\n').slice(0,4).join(' | ')}`);
+      this._dbgLog(`\n👇 Yeh log copy karke share karo (Copy button upar hai)`);
+      alert('Replay data load nahi hua: ' + err.message + '\n\nDebug panel mein full log dekho ⬇');
     }
   },
 
