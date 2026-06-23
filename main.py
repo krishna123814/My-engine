@@ -1166,12 +1166,6 @@ with st.sidebar:
                 else:
                     st.warning("Koi naya data nahi mila")
 
-        # Auto-update status dikhao
-        if not _hist_update_result.get("skipped"):
-            _added = _hist_update_result.get("added", 0)
-            if _added > 0:
-                st.info(f"🔁 Auto-updated: +{_added} candles")
-
     st.markdown("---")
 
     # ── SMS Alert Setup ─────────────────────────────────────────────────────
