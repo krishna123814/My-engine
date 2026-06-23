@@ -982,6 +982,31 @@ if "fyers_code" in _qp:
             _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
     st.rerun()
 
+# Handler 2b: Replay data request from chart iframe
+if "rp_asset" in _qp:
+    _rp_asset  = _qp.get("rp_asset", "BANKNIFTY").upper()
+    _rp_from   = _qp.get("rp_from", "")
+    _rp_to     = _qp.get("rp_to",   "")
+    st.query_params.clear()
+    if _rp_from and _rp_to:
+        try:
+            _rp_data = _get_replay_data_cached(_rp_asset, _rp_from, _rp_to)
+            import json as _rj
+            _rp_js = _rj.dumps(_rp_data)
+            _rp_script = (
+                "<script>(function(){{"
+                "var data=" + _rp_js + ";"
+                "var msg=JSON.stringify({{type:'rp_data',asset:'" + _rp_asset + "',data:data}});"
+                "var frames=document.querySelectorAll('iframe');"
+                "for(var i=0;i<frames.length;i++){{try{{frames[i].contentWindow.postMessage(msg,'*');}}catch(e){{}}}}"
+                "}})();</script>"
+            )
+            import streamlit.components.v1 as _c
+            _c.html(_rp_script, height=0, scrolling=False)
+        except Exception as _rp_err:
+            pass
+    st.rerun()
+
 # Handler 2: TOTP auto-login triggered from chart panel
 if _qp.get("totp_trigger") == "1":
     _totp_sec = _qp.get("totp_secret",  "").strip()
@@ -1483,6 +1508,57 @@ if sess_active or _btc_only:
             components.html(_script, height=0, scrolling=False)
 
         _bn_tick_pusher()
+
+    # ── Replay postMessage bridge ─────────────────────────────────────────────
+    # chart.html se rp_request message aata hai (asset, from, to).
+    # Yeh fragment us request ko sun ke Python se data fetch karta hai
+    # aur rp_data postMessage se wapas chart iframe ko bhejta hai.
+    # Streamlit Cloud pe side-ports block hote hain — yahi ek reliable path hai.
+    @st.fragment(run_every=1)
+    def _replay_bridge():
+        # JS se request query-param ke zariye aata hai
+        # (postMessage → parent Streamlit page → query param set)
+        qp = st.query_params
+        if "rp_asset" not in qp:
+            return
+        rp_asset    = qp.get("rp_asset", "BANKNIFTY").upper()
+        rp_from     = qp.get("rp_from", "")
+        rp_to       = qp.get("rp_to", "")
+        rp_req_id   = qp.get("rp_req_id", "")
+        st.query_params.clear()
+        if not rp_from or not rp_to:
+            return
+        try:
+            data = _get_replay_data_cached(rp_asset, rp_from, rp_to)
+            import json as _json
+            data_js = _json.dumps(data)
+            _script = f"""
+<script>
+(function(){{
+  var data = {data_js};
+  var msg  = JSON.stringify({{ type: 'rp_data', asset: '{rp_asset}', data: data }});
+  var frames = document.querySelectorAll('iframe');
+  for(var i=0;i<frames.length;i++){{
+    try{{ frames[i].contentWindow.postMessage(msg, '*'); }}catch(e){{}}
+  }}
+}})();
+</script>"""
+            components.html(_script, height=0, scrolling=False)
+        except Exception as e:
+            _err_script = f"""
+<script>
+(function(){{
+  var frames = document.querySelectorAll('iframe');
+  for(var i=0;i<frames.length;i++){{
+    try{{ frames[i].contentWindow.postMessage(
+      JSON.stringify({{type:'rp_error',error:{repr(str(e))}}}),'*'
+    ); }}catch(_){{}}
+  }}
+}})();
+</script>"""
+            components.html(_err_script, height=0, scrolling=False)
+
+    _replay_bridge()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

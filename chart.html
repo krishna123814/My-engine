@@ -8115,6 +8115,8 @@ function _bnGetCellBar(c, latest) {
 function _applyBNLiveTick(d) {
   // d = { ts, ltp, candle: {time, open, high, low, close} }
   if (!d || !d.candle) return;
+  // Replay mode active hone par live ticks ignore karo
+  if (window._replayModeActive) return;
 
   // ── Market-hours guard: market band ho to stale ticks chart update na karein ──
   // Iske bina market close ke baad bhi last known price bar-bar update hota tha,
@@ -8233,8 +8235,17 @@ function _applyBNLiveTick(d) {
 window.addEventListener('message', function(evt) {
   try {
     const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'bn_live') _applyBNLiveTick(msg.data);
-    // Also accept BTC tick override from parent (future use)
+    if (!msg) return;
+    // Live BN tick
+    if (msg.type === 'bn_live') _applyBNLiveTick(msg.data);
+    // Replay data response from Streamlit parent (postMessage bridge)
+    if (msg.type === 'rp_data' && msg.asset && msg.data) {
+      Replay.setData(msg.asset, msg.data);
+    }
+    if (msg.type === 'rp_error') {
+      Replay._showLoading(false);
+      alert('Replay data load nahi hua: ' + (msg.error || 'Unknown error'));
+    }
   } catch(_) {}
 });
 
@@ -11458,19 +11469,15 @@ if (document.readyState === 'loading') {
      ═══════════════════════════════════════════════════════════════════════ -->
 <style>
 #replay-screen{
-  position:fixed; inset:0; z-index:20000; background:#131722;
+  /* Sirf bottom overlay — live stack ke upar float karta hai */
+  position:fixed; bottom:0; left:0; right:0; z-index:20000;
   display:none; flex-direction:column; touch-action:pan-y;
+  background:transparent; pointer-events:none;
 }
 #replay-screen.open{ display:flex; }
-#replay-top{
-  display:flex; align-items:center; gap:8px; padding:8px 10px;
-  background:#1e222d; border-bottom:1px solid #2a2e3e; flex-shrink:0;
-  min-height:44px;
-}
-#replay-top .rp-close{
-  background:none; border:none; color:#d1d4dc; font-size:18px;
-  width:36px; height:36px; flex-shrink:0;
-}
+/* replay-top aur replay-stack ab use nahi — live STACK_CELLS use hote hain */
+#replay-top{ display:none !important; }
+#replay-stack{ display:none !important; }
 .rp-asset-toggle{ display:flex; background:#131722; border-radius:8px; overflow:hidden; flex-shrink:0; }
 .rp-asset-toggle button{
   border:none; background:transparent; color:#787b86; font-size:12px; font-weight:700;
@@ -11482,11 +11489,6 @@ if (document.readyState === 'loading') {
   font-size:11px; padding:8px 10px; flex:1; min-height:36px; text-align:left;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-#replay-stack{
-  flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
-  display:flex; flex-direction:column; gap:1px; background:#0c0e15;
-  touch-action:pan-y;
-}
 .rp-tf-row{ position:relative; flex-shrink:0; width:100%; background:#131722; }
 .rp-tf-label{
   position:absolute; top:4px; left:6px; z-index:5; color:#d1d4dc;
@@ -11495,8 +11497,10 @@ if (document.readyState === 'loading') {
 }
 .rp-tf-chart{ width:100%; height:100%; touch-action:none; }
 #replay-bottombar{
-  flex-shrink:0; background:#1e222d; border-top:1px solid #2a2e3e;
+  flex-shrink:0; background:#1e222d; border-top:2px solid #2962ff;
   padding:8px 10px; display:flex; flex-direction:column; gap:6px;
+  pointer-events:all; /* parent screen pointer-events:none override */
+  border-radius:12px 12px 0 0;
 }
 .rp-controls-row{ display:flex; align-items:center; gap:8px; }
 .rp-ctrl-btn{
@@ -11546,34 +11550,36 @@ if (document.readyState === 'loading') {
 </style>
 
 <div id="replay-screen">
-  <div id="replay-top">
-    <button class="rp-close" onclick="Replay.close()">✕</button>
-    <div class="rp-asset-toggle">
-      <button id="rp-tab-bn" onclick="Replay.switchAsset('BANKNIFTY')">BankNifty</button>
-      <button id="rp-tab-btc" onclick="Replay.switchAsset('BTCUSDT')">BTC</button>
-    </div>
-    <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Select date range</button>
-  </div>
-
-  <div id="replay-stack"><!-- TF rows injected by JS --></div>
+  <!-- replay-top aur replay-stack hidden hain — live stack charts use hote hain -->
+  <div id="replay-top"></div>
+  <div id="replay-stack"></div>
 
   <div id="replay-bottombar">
+    <!-- Row 1: close + asset toggle + date range -->
+    <div class="rp-controls-row">
+      <button class="rp-close" onclick="Replay.close()" style="background:#ef5350;border-radius:8px;color:#fff;font-size:13px;font-weight:700;width:36px;height:36px;flex-shrink:0;border:none;">✕</button>
+      <div class="rp-asset-toggle">
+        <button id="rp-tab-bn" onclick="Replay.switchAsset('BANKNIFTY')">BN</button>
+        <button id="rp-tab-btc" onclick="Replay.switchAsset('BTCUSDT')">BTC</button>
+      </div>
+      <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Select date range</button>
+    </div>
+    <!-- Row 2: play + speed + time -->
     <div class="rp-controls-row">
       <button class="rp-ctrl-btn primary" id="rp-play-btn" onclick="Replay.togglePlay()">▶</button>
       <input type="range" id="replay-speed" min="1" max="60" value="1" step="1" oninput="Replay.setSpeed(this.value)">
       <div id="replay-speed-label">1×</div>
       <div id="replay-time-label">—</div>
     </div>
+    <!-- Row 3: indicators (asset-specific) -->
     <div class="rp-indbar" id="rp-indbar-bn" style="display:none">
       <button onclick="Replay.toggleSMA(20)" id="rp-sma20-bn">SMA 20</button>
       <button onclick="Replay.toggleSMA(50)" id="rp-sma50-bn">SMA 50</button>
-      <button onclick="Replay.cycleRowHeight()">⊞ Layout</button>
       <button onclick="Replay.fitAll()">⊡ Fit</button>
     </div>
     <div class="rp-indbar" id="rp-indbar-btc" style="display:none">
       <button onclick="Replay.toggleSMA(20)" id="rp-sma20-btc">SMA 20</button>
       <button onclick="Replay.toggleSMA(50)" id="rp-sma50-btc">SMA 50</button>
-      <button onclick="Replay.cycleRowHeight()">⊞ Layout</button>
       <button onclick="Replay.fitAll()">⊡ Fit</button>
     </div>
   </div>
@@ -11679,100 +11685,91 @@ function _rpMakeDayResampler(nDays, dayKeyFn){
 
 const Replay = {
   _asset: 'BANKNIFTY',
-  _data: null,          // current asset's {base,tfs,meta}
-  _idx: 0,               // pointer into base[] (next row to consume)
+  _data: null,
+  _idx: 0,
   _playing: false,
   _speed: 1,
   _timer: null,
-  _charts: {},            // tf -> {chart, series, resampler, lastBarTime}
+  _rafId: null,
+  // _charts: STACK_CELLS se map hoga { tf_label -> {cellIdx, resampler, bars, srSeries, smaSeries} }
+  _charts: {},
   _rowHeightClass: 'h-normal',
-  _syncing: false,        // guard against infinite loop while syncing time scales
+  _syncing: false,
+  _active: false,   // kya replay mode ON hai?
 
+  // ── Replay ON: live stack charts mein replay data inject karo ──────────
   open(){
-    document.getElementById('replay-screen').classList.add('open');
-    document.body.style.overflow = 'hidden';
-    // ── Streamlit parent page scroll + scroll position lock ──
-    try {
-      if (window.parent !== window) {
-        const p = window.parent.document;
-        // Sab scrollable containers band karo
-        p.body.style.overflow = 'hidden';
-        p.documentElement.style.overflow = 'hidden';
-        // Streamlit ke main containers bhi lock karo
-        const containers = p.querySelectorAll(
-          '[data-testid="stAppViewContainer"], [data-testid="stMain"], ' +
-          '.main, .block-container, section.main, #root, .stApp'
-        );
-        containers.forEach(el => {
-          el._rpOldOverflow = el.style.overflow;
-          el._rpOldPosition = el.style.position;
-          el.style.overflow = 'hidden';
-        });
-        // iframe ko viewport 100% height tak stretch karo
-        const iframes = p.querySelectorAll('iframe');
-        iframes.forEach(fr => {
-          if (fr.contentWindow === window) {
-            fr._rpOldHeight   = fr.style.height;
-            fr._rpOldMinH     = fr.style.minHeight;
-            fr._rpOldMaxH     = fr.style.maxHeight;
-            fr._rpOldPosition = fr.style.position;
-            fr._rpOldTop      = fr.style.top;
-            fr._rpOldLeft     = fr.style.left;
-            fr._rpOldWidth    = fr.style.width;
-            fr._rpOldZIndex   = fr.style.zIndex;
-            fr.style.position = 'fixed';
-            fr.style.top      = '0';
-            fr.style.left     = '0';
-            fr.style.width    = '100vw';
-            fr.style.height   = '100dvh';
-            fr.style.maxHeight= '100dvh';
-            fr.style.zIndex   = '99999';
-          }
-        });
-        // Page scroll position save + reset
-        window._rpScrollY = window.parent.scrollY || 0;
-        window.parent.scrollTo(0, 0);
+    if (this._active) return;
+    this._active = true;
+
+    // 1. Live tick block karo
+    window._replayModeActive = true;
+
+    // 2. Live SR hide karo (har cell)
+    CELLS.forEach((c, i) => {
+      if (c.srSeries && c.srSeries.length && c.chart) {
+        c._rpSavedSR = c.srSeries;
+        c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
       }
-    } catch(_) {}
+    });
+    // Main 1x1 SR bhi hide
+    if (typeof _bnMainSrSeries !== 'undefined' && _bnMainSrSeries && _bnMainSrSeries.length) {
+      window._rpMainSR = _bnMainSrSeries;
+      _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
+    }
+
+    // 3. Replay bottom bar dikhao
+    document.getElementById('replay-screen').classList.add('open');
+
+    // 4. Asset tabs update + data load
     this.switchAsset(this._asset);
   },
+
+  // ── Replay OFF: live restore ───────────────────────────────────────────
   close(){
+    if (!this._active) return;
     this.pause();
+    this._active = false;
+    window._replayModeActive = false;
+
+    // 1. Bottom bar hide
     document.getElementById('replay-screen').classList.remove('open');
-    document.body.style.overflow = '';
-    // ── Streamlit parent restore ──
-    try {
-      if (window.parent !== window) {
-        const p = window.parent.document;
-        p.body.style.overflow = '';
-        p.documentElement.style.overflow = '';
-        // Containers restore
-        const containers = p.querySelectorAll(
-          '[data-testid="stAppViewContainer"], [data-testid="stMain"], ' +
-          '.main, .block-container, section.main, #root, .stApp'
-        );
-        containers.forEach(el => {
-          if (el._rpOldOverflow !== undefined) el.style.overflow = el._rpOldOverflow;
-        });
-        // iframe original size restore
-        const iframes = p.querySelectorAll('iframe');
-        iframes.forEach(fr => {
-          if (fr.contentWindow === window) {
-            fr.style.position = fr._rpOldPosition || '';
-            fr.style.top      = fr._rpOldTop      || '';
-            fr.style.left     = fr._rpOldLeft     || '';
-            fr.style.width    = fr._rpOldWidth     || '';
-            fr.style.height   = fr._rpOldHeight    || '';
-            fr.style.maxHeight= fr._rpOldMaxH      || '';
-            fr.style.zIndex   = fr._rpOldZIndex    || '';
-          }
-        });
-        // Scroll position restore
-        if (window._rpScrollY !== undefined) {
-          window.parent.scrollTo(0, window._rpScrollY);
+
+    // 2. Replay SMA series remove from live cells
+    CELLS.forEach((c, i) => {
+      if (c._rpSmaSeries) {
+        c._rpSmaSeries.forEach(s => { try{ c.chart.removeSeries(s); }catch(_){} });
+        c._rpSmaSeries = [];
+      }
+      // Live data wapas set karo
+      if (c.series && c.chart) {
+        const arr = _bnArrayFor ? _bnArrayFor(c.tf) : [];
+        if (arr && arr.length) {
+          try { c.series.setData(arr); } catch(_) {}
         }
       }
-    } catch(_) {}
+    });
+
+    // 3. Live SR restore
+    CELLS.forEach((c, i) => {
+      if (c._rpSavedSR) {
+        // Rebuild SR fresh (saved series pointers invalid ho sakte hain)
+        const lines = swingComputeMultiTF(c.asset, c.tf);
+        c.srSeries = _bnBuildSRNative(c.chart, lines, null);
+        c._rpSavedSR = null;
+      }
+    });
+    if (window._rpMainSR !== undefined) {
+      try {
+        const lines = swingComputeMultiTF(S.asset, S.tf);
+        _bnMainSrSeries = _bnBuildSRNative(chart, lines, null);
+      } catch(_) {}
+      window._rpMainSR = undefined;
+    }
+
+    // 4. ws-status live restore
+    const st = document.getElementById('ws-status');
+    if (st) st.innerHTML = '<span id="ws-dot"></span>';
   },
 
   switchAsset(asset){
@@ -11795,26 +11792,61 @@ const Replay = {
     if (start > end){ alert('Start date end date se pehle hona chahiye'); return; }
     this.closeRangeModal();
     this._showLoading(true);
-    try {
-      if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort === 0 && typeof _probeApiPort === 'function'){
-        await _probeApiPort();
+
+    // ── postMessage bridge: parent Python se data maango ──────────────────
+    // Port-based fetch Streamlit Cloud pe kaam nahi karta (ports blocked).
+    // Isliye hum parent window ko postMessage bhejte hain, woh Python se
+    // data fetch karke rp_data message wapas bhejega.
+    const rpAsset = this._asset;
+    const rpStart = start;
+    const rpEnd   = end;
+
+    // Pehle direct port try karo (localhost dev ke liye)
+    let portOk = false;
+    if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort === 0 && typeof _probeApiPort === 'function'){
+      await _probeApiPort();
+    }
+    if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) {
+      try {
+        const host = window.location.hostname || 'localhost';
+        const url  = `http://${host}:${_resolvedApiPort}/api/replay_data?asset=${rpAsset}&from=${rpStart}&to=${rpEnd}`;
+        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (!data.error) { this.setData(rpAsset, data); portOk = true; }
+        }
+      } catch(_) {}
+    }
+
+    // Port kaam nahi kiya → query-param bridge use karo
+    // (Streamlit parent ke query params update karke Python fragment trigger karo)
+    if (!portOk) {
+      try {
+        const reqId = Date.now().toString();
+        const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
+        const pdoc = window.parent.document;
+        const form = pdoc.createElement('form');
+        form.method = 'GET';
+        form.action = parentUrl;
+        const h = (name, val) => {
+          const el = pdoc.createElement('input');
+          el.type='hidden'; el.name=name; el.value=val;
+          form.appendChild(el);
+        };
+        h('rp_asset',  rpAsset);
+        h('rp_from',   rpStart);
+        h('rp_to',     rpEnd);
+        h('rp_req_id', reqId);
+        pdoc.body.appendChild(form);
+        form.submit();
+        // rp_data message ka wait karo — Python wapas postMessage karega
+      } catch(err) {
+        this._showLoading(false);
+        alert('Replay data load nahi hua: ' + err.message);
       }
-      const host = window.location.hostname || 'localhost';
-      const path = `/api/replay_data?asset=${this._asset}&from=${start}&to=${end}`;
-      const url  = (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0)
-        ? `http://${host}:${_resolvedApiPort}${path}` : path;
-      const resp = await fetch(url, { signal: AbortSignal.timeout(120000) });
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const data = await resp.json();
-      if (data.error) throw new Error(data.error);
-      this.setData(this._asset, data);
-    } catch (err) {
-      this._showLoading(false);
-      alert('Replay data load nahi hua: ' + err.message + '\n(BTC ke liye lambi range pehli baar slow ho sakti hai — thodi der wait karke firse try karo)');
     }
   },
 
-  // Called by Step 3's Python-injection bridge once new data is ready.
   setData(asset, data){
     window.__REPLAY_DATA__[asset] = data;
     this._showLoading(false);
@@ -11825,18 +11857,20 @@ const Replay = {
     let el = document.getElementById('replay-loading');
     if (!el){
       el = document.createElement('div');
-      el.id='replay-loading'; el.textContent='Loading replay data…';
-      document.getElementById('replay-stack').appendChild(el);
+      el.id = 'replay-loading';
+      el.style.cssText = 'position:fixed;inset:0;z-index:19999;display:none;align-items:center;justify-content:center;background:#131722cc;color:#9598a1;font-size:13px;pointer-events:none;';
+      el.textContent = '⏳ Replay data load ho raha hai…';
+      document.body.appendChild(el);
     }
-    el.classList.toggle('show', !!show);
+    el.style.display = show ? 'flex' : 'none';
   },
 
   _loadFromGlobal(){
     const data = window.__REPLAY_DATA__[this._asset];
     this._data = data;
     this._idx = 0;
+    // Live STACK_CELLS ke liye resamplers banao
     this._buildStack();
-    setTimeout(() => this.fitAll(), 50);
     if (data && data.meta){
       document.getElementById('replay-range-btn').textContent =
         '📅 ' + data.meta.start + ' → ' + data.meta.end;
@@ -11844,82 +11878,51 @@ const Replay = {
       document.getElementById('replay-range-btn').textContent = '📅 Select date range';
     }
     this._updateTimeLabel(null);
+    setTimeout(() => this.fitAll(), 80);
   },
 
   _buildStack(){
-    // teardown old charts
-    Object.values(this._charts).forEach(c => { try{ c.chart.remove(); }catch(_){} });
+    // Live STACK_CELLS use karte hain — unka data clear karo, resamplers banao
     this._charts = {};
-    const stack = document.getElementById('replay-stack');
-    stack.innerHTML = '';
 
     const defs = REPLAY_TF_DEFS[this._asset];
     const asset = this._asset;
-    defs.forEach(def => {
-      const row = document.createElement('div');
-      row.className = 'rp-tf-row ' + this._rowHeightClass;
-      const label = document.createElement('div');
-      label.className = 'rp-tf-label';
-      label.textContent = def.tf;
-      const chartDiv = document.createElement('div');
-      chartDiv.className = 'rp-tf-chart';
-      row.appendChild(chartDiv);
-      row.appendChild(label);
-      stack.appendChild(row);
 
-      const chart = LightweightCharts.createChart(chartDiv, {
-        layout:{ background:{color:'#131722'}, textColor:'#787b86' },
-        grid:{ vertLines:{color:'#1e222d'}, horzLines:{color:'#1e222d'} },
-        timeScale:{ timeVisible:true, secondsVisible:false, borderColor:'#2a2e3e' },
-        rightPriceScale:{ borderColor:'#2a2e3e' },
-        crosshair:{ mode: LightweightCharts.CrosshairMode.Normal },
-        handleScroll:{ mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:false },
-        handleScale:{ axisPressedMouseMove:true, mouseWheel:true, pinch:true },
-        kineticScroll:{ mouse:true, touch:true },
-      });
-      const series = chart.addCandlestickSeries({
-        upColor:'#26a69a', downColor:'#ef5350',
-        borderUpColor:'#26a69a', borderDownColor:'#ef5350',
-        wickUpColor:'#26a69a', wickDownColor:'#ef5350',
-      });
+    // Har STACK_CELL ko ek replay resampler de do (TF match karke)
+    STACK_CELLS.forEach((c, idx) => {
+      if (!c.chart || !c.series) return;
+      if (c.asset !== asset) return;
+
+      const tfMin = c.tf || 1;
+      // Matching def dhundho
+      const def = defs.find(d => (d.mins && d.mins === tfMin) || (d.days && d.days * 1440 === tfMin));
+      if (!def) return;
+
+      // Live data clear karo is cell se
+      try { c.series.setData([]); } catch(_) {}
+      // Existing SMA remove
+      if (c._rpSmaSeries) {
+        c._rpSmaSeries.forEach(s => { try{ c.chart.removeSeries(s); }catch(_){} });
+      }
+      c._rpSmaSeries = [];
 
       const resampler = def.type === 'minute'
         ? _rpMakeMinuteResampler(def.mins)
-        : _rpMakeDayResampler(def.days, this._asset==='BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
+        : _rpMakeDayResampler(def.days, asset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
 
-      this._charts[def.tf] = { chart, series, resampler, bars: [], srSeries: [], tfMin: def.mins || (def.days ? def.days * 1440 : 1) };
-
-      new ResizeObserver(() => chart.applyOptions({ width: chartDiv.clientWidth, height: chartDiv.clientHeight })).observe(chartDiv);
-
-      // ── Crosshair sync — moving on one TF shows the same time-point
-      //    marker on all other stacked TFs (live-feel: one clock, all panes). ──
-      chart.subscribeCrosshairMove(param => {
-        if (this._syncing) return;
-        this._syncing = true;
-        Object.entries(this._charts).forEach(([tf, c]) => {
-          if (c.chart === chart) return;
-          if (param.time) c.chart.setCrosshairPosition(0, param.time, c.series);
-          else c.chart.clearCrosshairPosition();
-        });
-        this._syncing = false;
-      });
+      this._charts[def.tf] = {
+        chart: c.chart, series: c.series,
+        resampler, bars: [],
+        srSeries: [],
+        tfMin: def.mins || (def.days ? def.days * 1440 : 1),
+        cellIdx: idx,
+      };
     });
 
-    // ── SR lines draw karo (same as live chart — swingComputeMultiTF + _bnBuildSRNative) ──
-    if (typeof swingComputeMultiTF === 'function' && typeof _bnBuildSRNative === 'function') {
-      setTimeout(() => {
-        Object.entries(this._charts).forEach(([tf, c]) => {
-          try {
-            const tfMin = c.tfMin || 1;
-            const lines = swingComputeMultiTF(asset, tfMin);
-            c.srSeries = _bnBuildSRNative(c.chart, lines, null);
-          } catch(_) {}
-        });
-      }, 100);
-    }
+    // Agar koi cell match nahi hua (e.g. BTC replay but stack BN) — ignore
   },
 
-  // ── SR lines redraw — bars aane ke baad refresh karo ──────────────────
+  // ── SR lines redraw — replay bars ke basis par recompute ──────────────
   _rpRedrawSR(){
     if (typeof swingComputeMultiTF !== 'function' || typeof _bnBuildSRNative !== 'function') return;
     if (typeof _bnClearSRNative !== 'function') return;
@@ -11927,9 +11930,7 @@ const Replay = {
     Object.entries(this._charts).forEach(([tf, c]) => {
       try {
         const tfMin = c.tfMin || 1;
-        // Clear old SR series
         c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
-        // Recompute using bars accumulated so far
         const lines = swingComputeMultiTF(asset, tfMin);
         c.srSeries = _bnBuildSRNative(c.chart, lines, null);
       } catch(_) {}
@@ -12032,7 +12033,9 @@ const Replay = {
   },
 
   fitAll(){
-    Object.values(this._charts).forEach(c => { try{ c.chart.timeScale().fitContent(); }catch(_){} });
+    Object.values(this._charts).forEach(c => {
+      try{ c.chart.timeScale().fitContent(); }catch(_){}
+    });
   },
 
   _toLwc(bar){
