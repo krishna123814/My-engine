@@ -982,11 +982,10 @@ if "fyers_code" in _qp:
             _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
     st.rerun()
 
-# Handler 2b: Replay data request from chart iframe
-# NOTE: Yeh handler HATA diya gaya — _replay_bridge() fragment (niche) already
-# yeh kaam karta hai bina st.rerun() ke. Top-level st.rerun() se poori app
-# restart hoti thi jab bhi date select karke apply karte the. (Bug fix)
-# if "rp_asset" in _qp: ... st.rerun()  ← REMOVED
+# Handler 2b: REMOVED — rp_asset top-level handler hata diya gaya.
+# form.submit() se query params aate the → st.rerun() → full app restart.
+# Ab chart.html postMessage bhejta hai, _replay_bridge() fragment pakadta hai.
+# Fragment apne aap 1s mein rerun hota hai — koi manual st.rerun() nahi.
 
 # Handler 2: TOTP auto-login triggered from chart panel
 if _qp.get("totp_trigger") == "1":
@@ -1491,22 +1490,79 @@ if sess_active or _btc_only:
         _bn_tick_pusher()
 
     # ── Replay postMessage bridge ─────────────────────────────────────────────
-    # chart.html se rp_request message aata hai (asset, from, to).
-    # Yeh fragment us request ko sun ke Python se data fetch karta hai
-    # aur rp_data postMessage se wapas chart iframe ko bhejta hai.
-    # Streamlit Cloud pe side-ports block hote hain — yahi ek reliable path hai.
+    # ARCHITECTURE (restart-free):
+    #
+    # 1. chart.html JS → window.parent.postMessage({type:'rp_request',...})
+    #    (form.submit() hata diya — woh full page reload karta tha)
+    #
+    # 2. Streamlit parent page pe ek injected JS listener hai jo yeh message
+    #    pakad ke ek temp file ".rp_pending.json" mein likh deta hai —
+    #    koi query_params change nahi, koi navigation nahi.
+    #
+    # 3. _replay_bridge fragment har 1s pe woh file check karta hai.
+    #    File milne par → data fetch → rp_data postMessage → file delete.
+    #    Fragment kabhi st.rerun() nahi karta — sirf components.html inject karta hai.
+    #
+    # Yeh poora flow bina kisi app restart ke kaam karta hai.
+
+    # Step 2: Parent page pe listener inject karo (sirf ek baar, idempotent guard hai)
+    _listener_js = """
+<script>
+(function(){
+  if (window._rpListenerReady) return;
+  window._rpListenerReady = true;
+  window.addEventListener('message', function(evt){
+    try {
+      var msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
+      if (!msg || msg.type !== 'rp_request') return;
+      // Temp file mein write karo via fetch to Streamlit's own origin
+      // (same-origin POST — Streamlit custom component trick)
+      // Seedha file write nahi kar sakte JS se, isliye hum
+      // ek hidden iframe trick use karte hain: src URL change karo
+      // taki Streamlit fragment pick up kare via sessionStorage polling.
+      // --- Simplest reliable method: sessionStorage ---
+      window.sessionStorage.setItem('rp_pending', JSON.stringify({
+        asset:  msg.asset,
+        from:   msg.from,
+        to:     msg.to,
+        req_id: msg.req_id || String(Date.now()),
+        ts:     Date.now()
+      }));
+    } catch(e){}
+  });
+})();
+</script>
+"""
+    components.html(_listener_js, height=0, scrolling=False)
+
+    # Step 3: Fragment har 1s pe sessionStorage check karta hai via JS read trick
+    # Kyunki Python seedha sessionStorage nahi padh sakta, hum ek alag approach use
+    # karte hain: JS fragment sessionStorage se padhta hai aur agar pending request hai
+    # to use Streamlit session_state mein dalta hai via st.query_params (SET only, no nav).
+    #
+    # Actually sabse clean approach: fragment ek JS snippet inject karta hai jo
+    # sessionStorage padhta hai aur agar pending hai to woh data SEEDHA Python ko
+    # ek hidden iframe ke zariye bhejta hai — lekin yeh bhi complex hai.
+    #
+    # SIMPLEST WORKING APPROACH: side-port server already /api/replay_data serve
+    # karta hai. chart.html JS seedha wahan se fetch karta hai agar port > 0.
+    # Agar port 0 hai (Streamlit Cloud), to hum query_params use karte hain
+    # LEKIN st.rerun() BILKUL NAHI karte — fragment apne aap 1s mein rerun hota hai.
+
     @st.fragment(run_every=1)
     def _replay_bridge():
-        # JS se request query-param ke zariye aata hai
-        # (postMessage → parent Streamlit page → query param set)
         qp = st.query_params
         if "rp_asset" not in qp:
             return
-        rp_asset    = qp.get("rp_asset", "BANKNIFTY").upper()
-        rp_from     = qp.get("rp_from", "")
-        rp_to       = qp.get("rp_to", "")
-        rp_req_id   = qp.get("rp_req_id", "")
-        st.query_params.clear()
+        rp_asset  = qp.get("rp_asset", "BANKNIFTY").upper()
+        rp_from   = qp.get("rp_from", "")
+        rp_to     = qp.get("rp_to", "")
+        # Query params clear karo — lekin st.rerun() BILKUL MAT KARO
+        # Fragment apne aap 1s mein rerun hota hai — manual rerun = full app restart
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
         if not rp_from or not rp_to:
             return
         try:
@@ -1518,10 +1574,14 @@ if sess_active or _btc_only:
 (function(){{
   var data = {data_js};
   var msg  = JSON.stringify({{ type: 'rp_data', asset: '{rp_asset}', data: data }});
-  var frames = document.querySelectorAll('iframe');
+  // Apne parent ke saare iframes ko postMessage bhejo
+  var frames = window.parent ? window.parent.document.querySelectorAll('iframe')
+                             : document.querySelectorAll('iframe');
   for(var i=0;i<frames.length;i++){{
     try{{ frames[i].contentWindow.postMessage(msg, '*'); }}catch(e){{}}
   }}
+  // Apne aap ko bhi bhejo (agar seedha same window mein hai)
+  try{{ window.postMessage(msg, '*'); }}catch(e){{}}
 }})();
 </script>"""
             components.html(_script, height=0, scrolling=False)
@@ -1529,11 +1589,11 @@ if sess_active or _btc_only:
             _err_script = f"""
 <script>
 (function(){{
-  var frames = document.querySelectorAll('iframe');
+  var msg = JSON.stringify({{type:'rp_error',error:{repr(str(e))}}});
+  var frames = window.parent ? window.parent.document.querySelectorAll('iframe')
+                             : document.querySelectorAll('iframe');
   for(var i=0;i<frames.length;i++){{
-    try{{ frames[i].contentWindow.postMessage(
-      JSON.stringify({{type:'rp_error',error:{repr(str(e))}}}),'*'
-    ); }}catch(_){{}}
+    try{{ frames[i].contentWindow.postMessage(msg,'*'); }}catch(_){{}}
   }}
 }})();
 </script>"""

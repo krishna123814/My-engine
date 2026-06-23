@@ -11818,27 +11818,20 @@ const Replay = {
       } catch(_) {}
     }
 
-    // Port kaam nahi kiya → query-param bridge use karo
-    // (Streamlit parent ke query params update karke Python fragment trigger karo)
+    // Port kaam nahi kiya → postMessage bridge use karo
+    // form.submit() HATA DIYA — woh full page reload karta tha aur app restart hoti thi.
+    // Ab hum parent window ko postMessage bhejte hain — koi navigation nahi, koi reload nahi.
+    // Python side ek injected listener in params ko pakad ke data wapas bhejta hai.
     if (!portOk) {
       try {
         const reqId = Date.now().toString();
-        const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-        const pdoc = window.parent.document;
-        const form = pdoc.createElement('form');
-        form.method = 'GET';
-        form.action = parentUrl;
-        const h = (name, val) => {
-          const el = pdoc.createElement('input');
-          el.type='hidden'; el.name=name; el.value=val;
-          form.appendChild(el);
-        };
-        h('rp_asset',  rpAsset);
-        h('rp_from',   rpStart);
-        h('rp_to',     rpEnd);
-        h('rp_req_id', reqId);
-        pdoc.body.appendChild(form);
-        form.submit();
+        window.parent.postMessage(JSON.stringify({
+          type:   'rp_request',
+          asset:  rpAsset,
+          from:   rpStart,
+          to:     rpEnd,
+          req_id: reqId,
+        }), '*');
         // rp_data message ka wait karo — Python wapas postMessage karega
       } catch(err) {
         this._showLoading(false);
