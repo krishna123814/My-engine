@@ -1166,12 +1166,6 @@ with st.sidebar:
                 else:
                     st.warning("Koi naya data nahi mila")
 
-        # Auto-update status dikhao
-        if not _hist_update_result.get("skipped"):
-            _added = _hist_update_result.get("added", 0)
-            if _added > 0:
-                st.info(f"🔁 Auto-updated: +{_added} candles")
-
     st.markdown("---")
 
     # ── SMS Alert Setup ─────────────────────────────────────────────────────
@@ -1266,6 +1260,13 @@ def _get_chart_data(sess: bool, _tok: str = "", _hist_ts: int = 0):
 
 # Auto-update check + chart data load
 _hist_update_result = _maybe_update_historical(creds) if sess_active else {"skipped": True}
+
+# Auto-update status dikhao
+if not _hist_update_result.get("skipped"):
+    _added = _hist_update_result.get("added", 0)
+    if _added > 0:
+        st.info(f"🔁 Auto-updated: +{_added} candles")
+
 _hist_file_ts = int(os.path.getmtime("bn_1m.bin.gz")) if os.path.exists("bn_1m.bin.gz") else 0
 
 _tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
