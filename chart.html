@@ -11814,50 +11814,107 @@ const Replay = {
     this.closeRangeModal();
     this._showLoading(true);
 
-    // ── postMessage bridge: parent Python se data maango ──────────────────
-    // Port-based fetch Streamlit Cloud pe kaam nahi karta (ports blocked).
-    // Isliye hum parent window ko postMessage bhejte hain, woh Python se
-    // data fetch karke rp_data message wapas bhejega.
     const rpAsset = this._asset;
     const rpStart = start;
     const rpEnd   = end;
 
-    // Pehle direct port try karo (localhost dev ke liye)
-    let portOk = false;
-    if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort === 0 && typeof _probeApiPort === 'function'){
-      await _probeApiPort();
-    }
-    if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) {
-      try {
-        const host = window.location.hostname || 'localhost';
-        const url  = `http://${host}:${_resolvedApiPort}/api/replay_data?asset=${rpAsset}&from=${rpStart}&to=${rpEnd}`;
-        const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (!data.error) { this.setData(rpAsset, data); portOk = true; }
-        }
-      } catch(_) {}
-    }
+    // ── GitHub .gz direct fetch (no Python, no postMessage needed) ──────────
+    // BankNifty: GitHub se binary .gz fetch → browser mein decompress → parse
+    // BTC: Binance REST API se seedha fetch
+    try {
+      if (rpAsset === 'BANKNIFTY') {
+        const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz';
+        const resp = await fetch(GH_URL);
+        if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
 
-    // Port kaam nahi kiya → postMessage bridge use karo
-    // form.submit() HATA DIYA — woh full page reload karta tha aur app restart hoti thi.
-    // Ab hum parent window ko postMessage bhejte hain — koi navigation nahi, koi reload nahi.
-    // Python side ek injected listener in params ko pakad ke data wapas bhejta hai.
-    if (!portOk) {
-      try {
-        const reqId = Date.now().toString();
-        window.parent.postMessage(JSON.stringify({
-          type:   'rp_request',
-          asset:  rpAsset,
-          from:   rpStart,
-          to:     rpEnd,
-          req_id: reqId,
-        }), '*');
-        // rp_data message ka wait karo — Python wapas postMessage karega
-      } catch(err) {
-        this._showLoading(false);
-        alert('Replay data load nahi hua: ' + err.message);
+        // ── Decompress gzip in browser ───────────────────────────────────────
+        const compBuf  = await resp.arrayBuffer();
+        const ds       = new DecompressionStream('gzip');
+        const writer   = ds.writable.getWriter();
+        writer.write(new Uint8Array(compBuf));
+        writer.close();
+        const chunks = [];
+        const reader = ds.readable.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+        }
+        let totalLen = 0;
+        chunks.forEach(c => totalLen += c.length);
+        const raw = new Uint8Array(totalLen);
+        let off = 0;
+        chunks.forEach(c => { raw.set(c, off); off += c.length; });
+
+        // ── Parse binary format: BN1M header + candles ──────────────────────
+        // Header: magic(4B) + version(1B) + count(4uint32BE) + base_ts(4uint32BE) = 13B
+        // Candle: ts_offset(4uint32BE) + O,H,L,C (4x float32BE) = 20B
+        const magic = String.fromCharCode(raw[0],raw[1],raw[2],raw[3]);
+        if (magic !== 'BN1M') throw new Error('Invalid binary magic: ' + magic);
+        const dv      = new DataView(raw.buffer);
+        const count   = dv.getUint32(5,  false);  // big-endian
+        const baseTs  = dv.getUint32(9,  false);  // seconds
+
+        // ── Date filter: start/end → unix seconds ────────────────────────────
+        // Dates are IST; we convert to UTC unix seconds for comparison
+        const IST_OFF  = 5.5 * 3600;  // seconds
+        const startSec = (new Date(rpStart + 'T00:00:00Z').getTime() / 1000) - IST_OFF;
+        const endSec   = (new Date(rpEnd   + 'T00:00:00Z').getTime() / 1000) - IST_OFF + 86400;
+
+        const base = [];
+        let ptr = 13;
+        for (let i = 0; i < count; i++, ptr += 20) {
+          const tsOff = dv.getUint32(ptr,     false);
+          const tsSec = baseTs + tsOff;
+          if (tsSec < startSec) continue;
+          if (tsSec >= endSec)  break;
+          const o = dv.getFloat32(ptr +  4, false);
+          const h = dv.getFloat32(ptr +  8, false);
+          const l = dv.getFloat32(ptr + 12, false);
+          const c = dv.getFloat32(ptr + 16, false);
+          base.push([tsSec * 1000, o, h, l, c]);
+        }
+
+        if (base.length === 0) {
+          this._showLoading(false);
+          alert('Is date range mein koi data nahi mila. Dusri dates try karo.');
+          return;
+        }
+
+        this.setData(rpAsset, { base, meta: { start: rpStart, end: rpEnd } });
+
+      } else {
+        // ── BTC: Binance REST API ─────────────────────────────────────────────
+        const startMs = new Date(rpStart + 'T00:00:00Z').getTime();
+        const endMs   = new Date(rpEnd   + 'T23:59:59Z').getTime();
+        const base    = [];
+        let curMs     = startMs;
+
+        while (curMs < endMs) {
+          const url  = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${curMs}&endTime=${endMs}&limit=1000`;
+          const resp = await fetch(url);
+          if (!resp.ok) throw new Error('Binance fetch failed: HTTP ' + resp.status);
+          const rows = await resp.json();
+          if (!Array.isArray(rows) || rows.length === 0) break;
+          for (const x of rows) {
+            base.push([parseInt(x[0]), parseFloat(x[1]), parseFloat(x[2]), parseFloat(x[3]), parseFloat(x[4])]);
+          }
+          curMs = parseInt(rows[rows.length - 1][0]) + 60000;
+          if (rows.length < 1000) break;
+        }
+
+        if (base.length === 0) {
+          this._showLoading(false);
+          alert('Is date range mein koi BTC data nahi mila.');
+          return;
+        }
+
+        this.setData(rpAsset, { base, meta: { start: rpStart, end: rpEnd } });
       }
+
+    } catch(err) {
+      this._showLoading(false);
+      alert('Replay data load nahi hua: ' + err.message);
     }
   },
 
