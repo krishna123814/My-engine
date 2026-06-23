@@ -11459,7 +11459,7 @@ if (document.readyState === 'loading') {
 <style>
 #replay-screen{
   position:fixed; inset:0; z-index:20000; background:#131722;
-  display:none; flex-direction:column; touch-action:none;
+  display:none; flex-direction:column; touch-action:pan-y;
 }
 #replay-screen.open{ display:flex; }
 #replay-top{
@@ -11485,6 +11485,7 @@ if (document.readyState === 'loading') {
 #replay-stack{
   flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch;
   display:flex; flex-direction:column; gap:1px; background:#0c0e15;
+  touch-action:pan-y;
 }
 .rp-tf-row{ position:relative; flex-shrink:0; width:100%; background:#131722; }
 .rp-tf-label{
@@ -11492,7 +11493,7 @@ if (document.readyState === 'loading') {
   font-size:11px; font-weight:700; background:#1e222dcc; padding:2px 6px;
   border-radius:4px; pointer-events:none;
 }
-.rp-tf-chart{ width:100%; height:100%; }
+.rp-tf-chart{ width:100%; height:100%; touch-action:none; }
 #replay-bottombar{
   flex-shrink:0; background:#1e222d; border-top:1px solid #2a2e3e;
   padding:8px 10px; display:flex; flex-direction:column; gap:6px;
@@ -11689,11 +11690,26 @@ const Replay = {
 
   open(){
     document.getElementById('replay-screen').classList.add('open');
+    // Body scroll lock karo taaki Streamlit page scroll na ho
+    document.body.style.overflow = 'hidden';
+    try {
+      // Streamlit iframe ko bhi signal do — parent scroll band
+      if (window.parent !== window) {
+        window.parent.document.body.style.overflow = 'hidden';
+      }
+    } catch(_) {}
     this.switchAsset(this._asset);
   },
   close(){
     this.pause();
     document.getElementById('replay-screen').classList.remove('open');
+    // Scroll restore karo
+    document.body.style.overflow = '';
+    try {
+      if (window.parent !== window) {
+        window.parent.document.body.style.overflow = '';
+      }
+    } catch(_) {}
   },
 
   switchAsset(asset){
@@ -11794,7 +11810,9 @@ const Replay = {
         timeScale:{ timeVisible:true, secondsVisible:false, borderColor:'#2a2e3e' },
         rightPriceScale:{ borderColor:'#2a2e3e' },
         crosshair:{ mode: LightweightCharts.CrosshairMode.Normal },
-        handleScroll:true, handleScale:true,
+        handleScroll:{ mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:false },
+        handleScale:{ axisPressedMouseMove:true, mouseWheel:true, pinch:true },
+        kineticScroll:{ mouse:true, touch:true },
       });
       const series = chart.addCandlestickSeries({
         upColor:'#26a69a', downColor:'#ef5350',
