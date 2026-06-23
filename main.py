@@ -983,29 +983,10 @@ if "fyers_code" in _qp:
     st.rerun()
 
 # Handler 2b: Replay data request from chart iframe
-if "rp_asset" in _qp:
-    _rp_asset  = _qp.get("rp_asset", "BANKNIFTY").upper()
-    _rp_from   = _qp.get("rp_from", "")
-    _rp_to     = _qp.get("rp_to",   "")
-    st.query_params.clear()
-    if _rp_from and _rp_to:
-        try:
-            _rp_data = _get_replay_data_cached(_rp_asset, _rp_from, _rp_to)
-            import json as _rj
-            _rp_js = _rj.dumps(_rp_data)
-            _rp_script = (
-                "<script>(function(){{"
-                "var data=" + _rp_js + ";"
-                "var msg=JSON.stringify({{type:'rp_data',asset:'" + _rp_asset + "',data:data}});"
-                "var frames=document.querySelectorAll('iframe');"
-                "for(var i=0;i<frames.length;i++){{try{{frames[i].contentWindow.postMessage(msg,'*');}}catch(e){{}}}}"
-                "}})();</script>"
-            )
-            import streamlit.components.v1 as _c
-            _c.html(_rp_script, height=0, scrolling=False)
-        except Exception as _rp_err:
-            pass
-    st.rerun()
+# NOTE: Yeh handler HATA diya gaya — _replay_bridge() fragment (niche) already
+# yeh kaam karta hai bina st.rerun() ke. Top-level st.rerun() se poori app
+# restart hoti thi jab bhi date select karke apply karte the. (Bug fix)
+# if "rp_asset" in _qp: ... st.rerun()  ← REMOVED
 
 # Handler 2: TOTP auto-login triggered from chart panel
 if _qp.get("totp_trigger") == "1":
