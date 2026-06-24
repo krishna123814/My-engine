@@ -70,18 +70,28 @@ def download_from_github(url: str = "", dest: str = "") -> bool:
 
 def check_github_update(url: str = "") -> dict:
     """
-    GitHub par file ka Last-Modified header check karo aur local file se compare karo.
+    GitHub par file check karo — Last-Modified header ya ETag se compare karo.
+
+    ETag strategy:
+      - GitHub raw CDN kabhi kabhi Last-Modified nahi bhejta (CDN caching issue).
+      - Tab ETag (file hash) use karo. ETag ko local .etag file mein save karte hain.
+      - Agar GitHub ETag != locally stored ETag → file outdated hai.
+      - Agar koi local .etag file nahi → assume outdated (safe side).
 
     Returns dict:
       {
-        "status": "up_to_date" | "outdated" | "no_local" | "error" | "checking",
-        "github_modified": "RFC-date string or None",
-        "local_modified":  "datetime string or None",
-        "error":           "error message or None",
-        "needs_update":    True/False,
+        "status": "up_to_date" | "outdated" | "no_local" | "error",
+        "github_modified": str or None,
+        "local_modified":  str or None,
+        "error":           str or None,
+        "needs_update":    bool,
       }
     """
-    src  = url or GITHUB_URL
+    import email.utils
+
+    src       = url or GITHUB_URL
+    etag_file = BIN_FILE + ".etag"   # e.g. bn_1m.bin.gz.etag
+
     result = {
         "status":          "checking",
         "github_modified": None,
@@ -90,7 +100,7 @@ def check_github_update(url: str = "") -> dict:
         "needs_update":    False,
     }
 
-    # Local file exist karta hai?
+    # ── Local file exist karta hai? ──────────────────────────────────────────
     if not os.path.exists(BIN_FILE):
         result["status"]       = "no_local"
         result["needs_update"] = True
@@ -100,7 +110,7 @@ def check_github_update(url: str = "") -> dict:
     local_dt    = datetime.datetime.utcfromtimestamp(local_mtime)
     result["local_modified"] = local_dt.strftime("%Y-%m-%d %H:%M UTC")
 
-    # GitHub se HEAD request bhejo (sirf headers, no body download)
+    # ── GitHub HEAD request ──────────────────────────────────────────────────
     try:
         resp = requests.head(src, timeout=15, allow_redirects=True)
 
@@ -114,43 +124,76 @@ def check_github_update(url: str = "") -> dict:
             result["error"]  = f"GitHub ne HTTP {resp.status_code} diya. Thodi der baad try karo."
             return result
 
+        # ── Method 1: Last-Modified header ───────────────────────────────────
         last_modified_str = resp.headers.get("Last-Modified") or resp.headers.get("last-modified")
 
-        if not last_modified_str:
-            # GitHub raw CDN kabhi kabhi Last-Modified nahi bhejta — ETag try karo
-            etag = resp.headers.get("ETag") or resp.headers.get("etag") or ""
-            result["status"]          = "error"
-            result["error"]           = (
-                "GitHub ne Last-Modified header nahi bheja (CDN caching issue).\n"
-                f"ETag: {etag if etag else 'N/A'}\n"
-                "Kuch der baad retry karo ya manually 'Force Download' karo."
+        if last_modified_str:
+            github_dt_tuple = email.utils.parsedate(last_modified_str)
+            if github_dt_tuple:
+                github_dt = datetime.datetime(*github_dt_tuple[:6])
+                result["github_modified"] = github_dt.strftime("%Y-%m-%d %H:%M UTC")
+                diff_secs = (github_dt - local_dt).total_seconds()
+                if diff_secs > 60:
+                    result["status"]       = "outdated"
+                    result["needs_update"] = True
+                else:
+                    result["status"]       = "up_to_date"
+                    result["needs_update"] = False
+                return result
+
+        # ── Method 2: ETag comparison (fallback) ─────────────────────────────
+        github_etag = (resp.headers.get("ETag") or resp.headers.get("etag") or "").strip()
+
+        if github_etag:
+            # Local mein stored ETag padhho
+            stored_etag = ""
+            if os.path.exists(etag_file):
+                try:
+                    with open(etag_file, "r") as f:
+                        stored_etag = f.read().strip()
+                except Exception:
+                    stored_etag = ""
+
+            result["github_modified"] = f"ETag: {github_etag[:20]}..."
+            result["local_modified"]  = (
+                f"ETag: {stored_etag[:20]}..." if stored_etag
+                else "ETag not stored (assume outdated)"
             )
+
+            if not stored_etag or stored_etag != github_etag:
+                result["status"]       = "outdated"
+                result["needs_update"] = True
+            else:
+                result["status"]       = "up_to_date"
+                result["needs_update"] = False
             return result
 
-        # Parse RFC-2616 date: "Mon, 01 Jan 2024 12:00:00 GMT"
-        import email.utils
-        github_dt_tuple = email.utils.parsedate(last_modified_str)
-        if github_dt_tuple is None:
-            result["status"] = "error"
-            result["error"]  = f"GitHub ka date parse nahi hua: '{last_modified_str}'"
+        # ── Method 3: Content-Length fallback ────────────────────────────────
+        content_length = resp.headers.get("Content-Length")
+        if content_length:
+            gh_size    = int(content_length)
+            local_size = os.path.getsize(BIN_FILE)
+            result["github_modified"] = f"Size: {gh_size/1024/1024:.1f} MB"
+            result["local_modified"]  = f"Size: {local_size/1024/1024:.1f} MB"
+            if abs(gh_size - local_size) > 1024:   # 1KB tolerance
+                result["status"]       = "outdated"
+                result["needs_update"] = True
+            else:
+                result["status"]       = "up_to_date"
+                result["needs_update"] = False
             return result
 
-        github_dt = datetime.datetime(*github_dt_tuple[:6])  # naive UTC
-        result["github_modified"] = github_dt.strftime("%Y-%m-%d %H:%M UTC")
-
-        # Compare — 60-sec tolerance (CDN rounding)
-        diff_secs = (github_dt - local_dt).total_seconds()
-
-        if diff_secs > 60:
-            result["status"]       = "outdated"
-            result["needs_update"] = True
-        else:
-            result["status"]       = "up_to_date"
-            result["needs_update"] = False
+        # ── Koi bhi header kaam nahi aaya ────────────────────────────────────
+        result["status"] = "error"
+        result["error"]  = (
+            "GitHub ne koi comparison header nahi bheja "
+            "(Last-Modified, ETag, Content-Length — teeno missing).\n"
+            "Skip karo ya Force Download karo."
+        )
 
     except requests.exceptions.ConnectionError:
         result["status"] = "error"
-        result["error"]  = "Internet connection nahi hai ya GitHub reachable nahi. Network check karo."
+        result["error"]  = "Internet connection nahi hai ya GitHub reachable nahi."
     except requests.exceptions.Timeout:
         result["status"] = "error"
         result["error"]  = "GitHub response timeout (15 sec). Thodi der baad retry karo."
@@ -161,9 +204,20 @@ def check_github_update(url: str = "") -> dict:
     return result
 
 
+def _save_etag(etag: str):
+    """Download ke baad GitHub ETag local file mein save karo."""
+    etag_file = BIN_FILE + ".etag"
+    try:
+        with open(etag_file, "w") as f:
+            f.write(etag.strip())
+    except Exception:
+        pass
+
+
 def force_download_from_github(url: str = "", dest: str = "") -> dict:
     """
     GitHub se forcefully download karo — local file exist kare ya na kare.
+    Download ke baad ETag save karta hai taaki next check accurate ho.
     Returns: {"ok": bool, "size_mb": float, "error": str or None}
     """
     src  = url or GITHUB_URL
@@ -192,6 +246,11 @@ def force_download_from_github(url: str = "", dest: str = "") -> dict:
         # Atomic replace
         import shutil
         shutil.move(tmp_path, path)
+
+        # ETag save karo — next check mein comparison ke liye
+        etag = resp.headers.get("ETag") or resp.headers.get("etag") or ""
+        if etag:
+            _save_etag(etag)
 
         size_mb = total / 1024 / 1024
         log.info(f"✅ Force downloaded {size_mb:.1f} MB → {path}")
