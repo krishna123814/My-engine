@@ -653,6 +653,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .gp-stack-row .gp-stack-label{font-size:13px;color:#d1d4dc;font-weight:600;flex:1}
 .gp-stack-row.active{background:#2962ff22}
 .gp-stack-row.active .gp-stack-label{color:#2962ff}
+#gp-bar-replay-row:active{background:#ff6d0022}
+#gp-bar-replay-row.bar-replay-active{background:#ff6d0022}
+#gp-bar-replay-row.bar-replay-active .gp-stack-label{color:#ff9800}
 .gp-stack-gear{background:transparent;border:1px solid #363c4e;border-radius:6px;
   width:30px;height:30px;flex-shrink:0;color:#9598a1;font-size:15px;cursor:pointer}
 .gp-stack-gear:active{background:#363c4e}
@@ -1903,8 +1906,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
-  <div class="bot-sep"></div>
-  <button id="replay-open-btn" onclick="Replay.open()" title="Replay mode">⏪ Replay</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -1952,6 +1953,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <span class="gp-stack-label">Stack View (scrollable)</span>
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
+    </div>
+    <div id="gp-bar-replay-row" class="gp-stack-row" onclick="enterBarReplayStackView()" style="cursor:pointer;margin-top:2px;">
+      <span class="gp-stack-icon">⏪</span>
+      <span class="gp-stack-label">Bar Replay</span>
     </div>
     <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
@@ -11537,6 +11542,10 @@ if (document.readyState === 'loading') {
   background:transparent; pointer-events:none;
 }
 #replay-screen.open{ display:flex; }
+#replay-screen.bar-replay-full{
+  /* Bar Replay mode: pura screen cover karo — stack view ki tarah */
+  top:0; background:#131722;
+}
 /* replay-top aur replay-stack ab use nahi — live STACK_CELLS use hote hain */
 #replay-top{ display:none !important; }
 #replay-stack{ display:none !important; }
@@ -11619,7 +11628,7 @@ if (document.readyState === 'loading') {
   <div id="replay-bottombar">
     <!-- Row 1: close + asset toggle + date range -->
     <div class="rp-controls-row">
-      <button class="rp-close" onclick="Replay.close()" style="background:#ef5350;border-radius:8px;color:#fff;font-size:13px;font-weight:700;width:36px;height:36px;flex-shrink:0;border:none;">✕</button>
+      <button class="rp-close" onclick="BarReplayStack.close()" style="background:#ef5350;border-radius:8px;color:#fff;font-size:13px;font-weight:700;width:36px;height:36px;flex-shrink:0;border:none;">✕</button>
       <div class="rp-asset-toggle">
         <button id="rp-tab-bn" onclick="Replay.switchAsset('BANKNIFTY')">BN</button>
         <button id="rp-tab-btc" onclick="Replay.switchAsset('BTCUSDT')">BTC</button>
@@ -12320,6 +12329,77 @@ const Replay = {
     el.textContent = `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} IST`;
   },
 };
+
+// ════════════════════════════════════════════════════════════════════════════
+// BAR REPLAY STACK VIEW
+// ── Grid Picker mein "⏪ Bar Replay" tap karne par:
+//    1. Grid / Stack View / workspace sab off
+//    2. Stack View full-screen clone open hota hai (#bar-replay-stack-view)
+//       jo sirf STACK_CELLS use karta hai — live data nahi aata
+//    3. Replay ka original open() call hota hai — saare functions wahi rehte hain
+//       (play/pause/speed/SMA/SR/date-range — kuch bhi change nahi)
+// ── Close par: Replay.close() + Stack View wapas
+// ════════════════════════════════════════════════════════════════════════════
+
+const BarReplayStack = {
+  _active: false,
+
+  open() {
+    if (this._active) return;
+    this._active = true;
+
+    // Grid picker band karo
+    document.getElementById('grid-picker').classList.remove('open');
+
+    // Grid Picker row mein active highlight
+    const brRow = document.getElementById('gp-bar-replay-row');
+    if (brRow) brRow.classList.add('bar-replay-active');
+
+    // Step 1: Pehle Stack View activate karo (STACK_CELLS build hote hain)
+    // Ye zaroori hai kyunki Replay._buildStack() STACK_CELLS pe depend karta hai
+    if (!_stackActive) {
+      selectStackView();
+    }
+
+    // Step 2: Replay ka original open() call karo — saare functions wahi hain
+    // Replay.open() khud:
+    //   - live tick block karta hai
+    //   - live SR hide karta hai
+    //   - replay-screen.open add karta hai
+    //   - switchAsset() call karta hai
+    Replay.open();
+
+    // Step 3: replay-screen ko full-screen banao (Stack View ke upar)
+    const rScreen = document.getElementById('replay-screen');
+    rScreen.classList.add('bar-replay-full');
+
+    // Step 4: bar-replay-stack-view hide — Stack View hi use ho raha hai
+    // (STACK_CELLS replay mode mein blank slate hain — Replay._buildStack ne clear kiye)
+    // Koi alag stack build nahi karna — Replay engine STACK_CELLS ko directly use karta hai
+  },
+
+  close() {
+    if (!this._active) return;
+    this._active = false;
+
+    // Grid Picker row active state hata do
+    const brRow = document.getElementById('gp-bar-replay-row');
+    if (brRow) brRow.classList.remove('bar-replay-active');
+
+    // Replay ka original close() — live SR restore, SMA remove, tick unblock
+    Replay.close();
+
+    // replay-screen se full-screen class hata do
+    const rScreen = document.getElementById('replay-screen');
+    rScreen.classList.remove('bar-replay-full');
+  },
+};
+
+// ── Entry point: Grid Picker "⏪ Bar Replay" tap ──────────────────────────
+function enterBarReplayStackView() {
+  document.getElementById('grid-picker').classList.remove('open');
+  BarReplayStack.open();
+}
 </script>
 </body>
 </html>
