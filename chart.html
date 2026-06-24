@@ -1020,6 +1020,81 @@ select.s-select{
 #auto-btn:active{background:#2a2e39;color:#d1d4dc}
 #auto-btn:hover{border-color:#26a69a;color:#26a69a}
 
+/* ── Update button (bottom bar) ─────────────────────────────────── */
+#upd-btn{
+  height:18px;padding:0 7px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:10px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+#upd-btn:active{background:#2a2e39;color:#d1d4dc}
+#upd-btn:hover{border-color:#2962ff;color:#2962ff}
+#upd-btn.upd-outdated{border-color:#f0b429;color:#f0b429;animation:upd-pulse 1.6s ease-in-out infinite}
+#upd-btn.upd-error{border-color:#ef5350;color:#ef5350}
+@keyframes upd-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+/* ── Update Panel ─────────────────────────────────────────────────── */
+#upd-panel{
+  display:none;position:fixed;bottom:30px;
+  left:50%;transform:translateX(-50%);
+  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
+  padding:12px 14px;z-index:9999;box-shadow:0 8px 32px #0009;
+  min-width:280px;max-width:340px;
+}
+#upd-panel.open{display:block}
+.upd-header{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:11px;font-weight:700;color:#d1d4dc;margin-bottom:10px;
+}
+.upd-close{
+  background:transparent;border:none;color:#787b86;
+  font-size:13px;cursor:pointer;padding:0 2px;line-height:1;
+}
+.upd-close:hover{color:#ef5350}
+.upd-status-row{
+  display:flex;align-items:center;gap:7px;
+  margin-bottom:8px;min-height:18px;
+}
+.upd-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+}
+.upd-dot-idle    {background:#787b86}
+.upd-dot-ok      {background:#26a69a}
+.upd-dot-warn    {background:#f0b429;animation:upd-pulse 1.6s ease-in-out infinite}
+.upd-dot-err     {background:#ef5350}
+.upd-dot-busy    {background:#2962ff;animation:upd-pulse .8s ease-in-out infinite}
+.upd-status-txt{font-size:11px;color:#9598a1;line-height:1.4}
+.upd-dates{
+  font-size:10px;color:#787b86;margin-bottom:8px;
+  background:#131722;border-radius:4px;padding:6px 8px;
+  display:flex;flex-direction:column;gap:3px;
+}
+.upd-label{color:#555;min-width:44px;display:inline-block}
+.upd-err-box{
+  font-size:10px;color:#ef5350;background:#1a0c0c;
+  border:1px solid #3e1a1a;border-radius:4px;
+  padding:6px 8px;margin-bottom:8px;
+  white-space:pre-wrap;word-break:break-word;max-height:90px;overflow-y:auto;
+}
+.upd-btns{display:flex;gap:6px;margin-bottom:0}
+.upd-btn{
+  flex:1;height:24px;border-radius:4px;border:none;
+  font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.3px;
+}
+.upd-btn-sec{background:#2a2e39;color:#9598a1}
+.upd-btn-sec:hover{background:#363c4e;color:#d1d4dc}
+.upd-btn-pri{background:#2962ff;color:#fff}
+.upd-btn-pri:hover{background:#1e53e5}
+.upd-btn-warn{background:#f0b429;color:#131722}
+.upd-btn-warn:hover{background:#e0a020}
+.upd-btn-err{background:#ef5350;color:#fff}
+.upd-btn-err:hover{background:#c62828}
+.upd-spinner{
+  display:flex;align-items:center;gap:6px;
+  font-size:10px;color:#787b86;margin-top:8px;
+}
+.upd-spin-anim{display:inline-block;animation:upd-spin-rot 1s linear infinite}
+@keyframes upd-spin-rot{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
 /* Global up/down step-jump buttons (replaces old per-cell black strip) */
 #stack-up-btn,#stack-down-btn{
   height:18px;width:22px;padding:0;
@@ -1902,6 +1977,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
+  <button id="upd-btn" onclick="toggleUpdPanel()" title="Update historical data">🔄 Update</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
@@ -1915,6 +1991,38 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="goto-date-btns">
     <button class="goto-date-go" onclick="execGotoDate()">Go</button>
     <button class="goto-date-cancel" onclick="toggleGotoDate()">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ UPDATE PANEL ══════════════════════════════════════════════════ -->
+<div id="upd-panel">
+  <div class="upd-header">
+    <span>🔄 Historical Data Update</span>
+    <button class="upd-close" onclick="toggleUpdPanel()">✕</button>
+  </div>
+
+  <!-- Status row -->
+  <div id="upd-status-row" class="upd-status-row">
+    <span id="upd-status-dot" class="upd-dot upd-dot-idle"></span>
+    <span id="upd-status-txt" class="upd-status-txt">Check karo — GitHub par nayi file hai ya nahi</span>
+  </div>
+
+  <!-- Date info -->
+  <div id="upd-dates" class="upd-dates" style="display:none">
+    <div><span class="upd-label">GitHub:</span> <span id="upd-gh-date">—</span></div>
+    <div><span class="upd-label">Local: </span> <span id="upd-loc-date">—</span></div>
+  </div>
+
+  <!-- Error detail (collapsible) -->
+  <div id="upd-err-box" class="upd-err-box" style="display:none"></div>
+
+  <!-- Action buttons -->
+  <div class="upd-btns">
+    <button id="upd-check-btn"  class="upd-btn upd-btn-sec" onclick="updCheckGithub()">🔍 Check</button>
+    <button id="upd-action-btn" class="upd-btn upd-btn-pri" onclick="updDoDownload()" style="display:none"></button>
+  </div>
+  <div id="upd-spinner" class="upd-spinner" style="display:none">
+    <span class="upd-spin-anim">⏳</span> <span id="upd-spin-txt">Kaam ho raha hai...</span>
   </div>
 </div>
 
@@ -12544,6 +12652,190 @@ window.addEventListener('unhandledrejection', function(e) {
   }
   console.error('[UnhandledPromise]', e.reason);
 });
+
+// ═══ UPDATE PANEL (bottom-bar 🔄 Update button) ══════════════════════════
+(function(){
+  // API_PORT chart.html inject karta hai — wahi use karo
+  function _apiBase(){
+    var p = (typeof API_PORT !== 'undefined' && API_PORT > 0) ? API_PORT : 8502;
+    return 'http://localhost:' + p;
+  }
+
+  var _panel  = null;  // lazy init
+  var _state  = 'idle'; // idle | checking | outdated | up_to_date | error | downloading
+
+  function _el(id){ return document.getElementById(id); }
+
+  function _setBtn(label, cls){
+    var b = _el('upd-action-btn');
+    b.textContent = label;
+    b.className   = 'upd-btn ' + cls;
+    b.style.display = label ? '' : 'none';
+  }
+
+  function _setStatus(dotCls, txt){
+    _el('upd-status-dot').className = 'upd-dot ' + dotCls;
+    _el('upd-status-txt').textContent = txt;
+  }
+
+  function _setSpinner(visible, txt){
+    var s = _el('upd-spinner');
+    s.style.display = visible ? 'flex' : 'none';
+    if(txt) _el('upd-spin-txt').textContent = txt;
+  }
+
+  function _setDates(gh, loc, show){
+    var d = _el('upd-dates');
+    d.style.display = show ? '' : 'none';
+    if(show){
+      _el('upd-gh-date').textContent  = gh  || '—';
+      _el('upd-loc-date').textContent = loc || '—';
+    }
+  }
+
+  function _setErr(msg){
+    var b = _el('upd-err-box');
+    if(msg){ b.style.display=''; b.textContent=msg; }
+    else   { b.style.display='none'; b.textContent=''; }
+  }
+
+  function _setCheckBtn(enabled){
+    var b = _el('upd-check-btn');
+    b.disabled = !enabled;
+    b.style.opacity = enabled ? '' : '0.45';
+  }
+
+  // ── Apply visual state ──────────────────────────────────────────────────
+  function _applyState(s, data){
+    _state = s;
+    data = data || {};
+    var bar = _el('upd-btn');
+
+    _setSpinner(false);
+    _setCheckBtn(true);
+
+    if(s === 'idle'){
+      bar.className = 'upd-btn-plain' ; // no special class
+      _setStatus('upd-dot-idle', 'Check karo — GitHub par nayi file hai ya nahi');
+      _setDates('','',false);
+      _setErr(null);
+      _setBtn('','');
+    }
+    else if(s === 'checking'){
+      _setStatus('upd-dot-busy', 'GitHub check ho raha hai...');
+      _setSpinner(true,'GitHub se header fetch ho raha hai...');
+      _setDates('','',false); _setErr(null); _setBtn('','');
+      _setCheckBtn(false);
+    }
+    else if(s === 'up_to_date'){
+      bar.classList.remove('upd-outdated','upd-error');
+      _setStatus('upd-dot-ok', '✅ File updated hai');
+      _setDates(data.github_modified, data.local_modified, true);
+      _setErr(null);
+      _setBtn('⬇️ Force Download', 'upd-btn-sec');
+    }
+    else if(s === 'outdated'){
+      bar.classList.add('upd-outdated'); bar.classList.remove('upd-error');
+      _setStatus('upd-dot-warn', '⚠️ GitHub par nayi file hai!');
+      _setDates(data.github_modified, data.local_modified, true);
+      _setErr(null);
+      _setBtn('⬇️ Abhi Update Karo', 'upd-btn-warn');
+    }
+    else if(s === 'no_local'){
+      bar.classList.add('upd-outdated'); bar.classList.remove('upd-error');
+      _setStatus('upd-dot-warn', '⚠️ Local file nahi hai');
+      _setDates('','',false); _setErr(null);
+      _setBtn('⬇️ Download Karo', 'upd-btn-warn');
+    }
+    else if(s === 'error'){
+      bar.classList.add('upd-error'); bar.classList.remove('upd-outdated');
+      var isRetry = data.error && /timeout|thodi der|retry|503|502|429/i.test(data.error);
+      _setStatus('upd-dot-err', isRetry ? '⏳ Thoda time lagega — retry karo' : '❌ Error hua');
+      _setDates('','',false);
+      _setErr(data.error || 'Unknown error');
+      _setBtn('🔄 Retry', isRetry ? 'upd-btn-sec' : 'upd-btn-err');
+      // retry = check again, err = force download
+      _el('upd-action-btn').onclick = isRetry ? updCheckGithub : updDoDownload;
+    }
+    else if(s === 'downloading'){
+      _setStatus('upd-dot-busy', 'Download ho raha hai...');
+      _setSpinner(true, 'GitHub se file download ho rahi hai...');
+      _setErr(null); _setBtn('','');
+      _setCheckBtn(false);
+    }
+    else if(s === 'done'){
+      bar.classList.remove('upd-outdated','upd-error');
+      _setStatus('upd-dot-ok', '✅ Download complete! Page reload karo.');
+      _setDates('','',false); _setErr(null);
+      _setBtn('🔁 Reload', 'upd-btn-pri');
+      _el('upd-action-btn').onclick = function(){ location.reload(); };
+    }
+    else if(s === 'dl_error'){
+      bar.classList.add('upd-error');
+      _setStatus('upd-dot-err', '❌ Download failed');
+      _setErr(data.error || 'Download error');
+      _setBtn('🔄 Retry Download', 'upd-btn-err');
+      _el('upd-action-btn').onclick = updDoDownload;
+    }
+  }
+
+  // ── Toggle panel open/close ──────────────────────────────────────────────
+  window.toggleUpdPanel = function(){
+    var p = _el('upd-panel');
+    if(!p) return;
+    var isOpen = p.classList.contains('open');
+
+    // Close other panels first (same pattern as goto-date)
+    document.querySelectorAll(
+      '#goto-date-panel.open, #grid-picker.open'
+    ).forEach(function(el){ el.classList.remove('open'); });
+
+    if(isOpen){ p.classList.remove('open'); }
+    else      { p.classList.add('open'); }
+  };
+
+  // ── Check GitHub ─────────────────────────────────────────────────────────
+  window.updCheckGithub = function(){
+    _applyState('checking');
+    fetch(_apiBase() + '/api/gh_check', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if     (d.status === 'up_to_date') _applyState('up_to_date', d);
+        else if(d.status === 'outdated')   _applyState('outdated',   d);
+        else if(d.status === 'no_local')   _applyState('no_local',   d);
+        else                               _applyState('error',      d);
+      })
+      .catch(function(e){
+        _applyState('error', {error: 'API reachable nahi: ' + e.message +
+          '\n(Streamlit app chal raha hai? Port 8502-8510 mein se koi open hai?)'});
+      });
+  };
+
+  // ── Download ─────────────────────────────────────────────────────────────
+  window.updDoDownload = function(){
+    _applyState('downloading');
+    fetch(_apiBase() + '/api/gh_download', {cache:'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.ok) _applyState('done', d);
+        else     _applyState('dl_error', d);
+      })
+      .catch(function(e){
+        _applyState('dl_error', {error: 'Download API error: ' + e.message});
+      });
+  };
+
+  // ── Close panel on outside click ─────────────────────────────────────────
+  document.addEventListener('click', function(e){
+    var p = _el('upd-panel');
+    var b = _el('upd-btn');
+    if(!p || !p.classList.contains('open')) return;
+    if(!p.contains(e.target) && e.target !== b) p.classList.remove('open');
+  });
+
+  // Init state
+  _applyState('idle');
+})();
 </script>
 </body>
 </html>
