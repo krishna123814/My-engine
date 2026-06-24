@@ -1465,39 +1465,8 @@ if sess_active or _btc_only:
             </div>
             """, unsafe_allow_html=True)
 
-            # ── Yahin se Fyers update + download bhi mil jaye, taaki guest/BTC
-            # mode se seedha is screen tak aane par bhi options mile ──────────
-            _creds_here = load_creds()
-            if _creds_here.get("access_token"):
-                if st.button("🔄 Fyers se Naya Data Lao (Asli Update)", use_container_width=True,
-                             type="primary", key="real_fyers_update_btn_gate2"):
-                    with st.spinner("📡 Fyers se naya data aa raha hai..."):
-                        _res2 = update_from_fyers(
-                            _creds_here["app_id"], _creds_here["access_token"], force=True
-                        )
-                    if _res2.get("skipped"):
-                        st.warning(f"⏭️ Skip ho gaya: {_res2.get('reason','?')}")
-                    elif _res2.get("error"):
-                        st.error(f"❌ Failed: {_res2['error']}")
-                    else:
-                        st.success("✅ Naya data aa gaya!")
-                        st.session_state["gh_check_result"] = None
-                        _get_chart_data.clear()
-                        st.rerun()
-            else:
-                st.caption("⚠️ Fyers login nahi hai — isliye 'Asli Update' yahan nahi chalega")
-
-            from bn_data_manager import BIN_FILE as _BF2
-            if os.path.exists(_BF2):
-                with open(_BF2, "rb") as _f2:
-                    st.download_button(
-                        label=f"📥 bn_1m.bin.gz Download Karo ({_stats_now.get('size_mb','?')} MB)",
-                        data=_f2.read(),
-                        file_name="bn_1m.bin.gz",
-                        mime="application/gzip",
-                        use_container_width=True,
-                        key="dl_bin_btn_gate2",
-                    )
+            # ── Update/Download buttons sirf PEHLI screen par hain — yahan
+            # sirf info dikhao, taaki confusion na ho ───────────────────────
 
             if st.button("⏭️ Skip — Chart Kholo", use_container_width=True,
                          key="upd_sess_skip_uptodate"):
@@ -1974,25 +1943,96 @@ else:
     # (yeh GitHub-check se ALAG hai — yeh sach mein naya data laata hai)
     from bn_data_manager import BIN_FILE
     _creds_now = load_creds()
+
+    _stats_pre = get_stats()
+
     if _creds_now.get("access_token"):
         st.markdown("<div style='max-width:620px;margin:0 auto 10px;'>", unsafe_allow_html=True)
         if st.button("🔄 Fyers se Naya Data Lao (Asli Update)", use_container_width=True,
                      type="primary", key="real_fyers_update_btn"):
-            with st.spinner("📡 Fyers se naya data aa raha hai..."):
-                _res = update_from_fyers(
-                    _creds_now["app_id"], _creds_now["access_token"], force=True
-                )
-            if _res.get("skipped"):
-                st.warning(f"⏭️ Skip ho gaya: {_res.get('reason','?')}")
-            elif _res.get("error"):
-                st.error(f"❌ Failed: {_res['error']}")
-            else:
-                st.success(f"✅ Naya data aa gaya! Ab niche download button se le lo.")
-                _get_chart_data.clear()
-                st.rerun()
+            # Update se PEHLE ki file ki details save kar lo, taaki baad mein
+            # purani vs nayi side-by-side dikha sakein
+            st.session_state["_old_stats_snapshot"] = _stats_pre
+            try:
+                with st.spinner("📡 Fyers se naya data aa raha hai..."):
+                    _res = update_from_fyers(
+                        _creds_now["app_id"], _creds_now["access_token"], force=True
+                    )
+            except Exception:
+                import traceback
+                st.session_state["_update_error"] = traceback.format_exc()
+                _res = None
+
+            if _res is not None:
+                if _res.get("skipped"):
+                    st.session_state["_update_error"]  = None
+                    st.session_state["_update_skipped"] = _res.get("reason", "?")
+                elif _res.get("error"):
+                    st.session_state["_update_error"]  = _res["error"]
+                    st.session_state["_update_skipped"] = None
+                else:
+                    st.session_state["_update_error"]   = None
+                    st.session_state["_update_skipped"] = None
+                    st.session_state["gh_check_result"]  = None
+                    _get_chart_data.clear()
+            st.session_state["_new_stats_snapshot"] = get_stats()
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.caption("⚠️ Fyers se login nahi hai — pehle login karo, fir 'Asli Update' chalega")
+
+    # ── Result dikhao — agar kabhi update try hua ho is session mein ────────
+    _old_s = st.session_state.get("_old_stats_snapshot")
+    _new_s = st.session_state.get("_new_stats_snapshot")
+    _upd_err = st.session_state.get("_update_error")
+    _upd_skip_reason = st.session_state.get("_update_skipped")
+
+    if _upd_err:
+        st.error("❌ Update karte waqt error aaya:")
+        st.code(_upd_err)
+    elif _upd_skip_reason:
+        st.warning(f"⏭️ Skip ho gaya — reason: {_upd_skip_reason}")
+
+    if _old_s is not None and _new_s is not None:
+        # Update kabhi try hua tha is session mein — purani vs nayi dikhao
+        _o_last = _old_s.get("last", "—") if _old_s.get("exists") else "file thi nahi"
+        _n_last = _new_s.get("last", "—") if _new_s.get("exists") else "file nahi hai"
+        _o_cnt  = _old_s.get("count", "—")
+        _n_cnt  = _new_s.get("count", "—")
+        _changed = (_o_last != _n_last)
+        st.markdown(f"""
+        <div style='max-width:620px;margin:0 auto 10px;background:#131722;
+                    border:1px solid {'#1a4731' if _changed else '#2a2e3e'};border-radius:8px;
+                    padding:12px 16px;'>
+            <div style='display:flex;justify-content:space-between;gap:12px;'>
+                <div style='flex:1;'>
+                    <div style='color:#555;font-size:0.72rem;'>PURANI FILE</div>
+                    <div style='color:#787b86;font-size:0.85rem;font-weight:600;'>{_o_last}</div>
+                    <div style='color:#555;font-size:0.7rem;'>{_o_cnt} candles</div>
+                </div>
+                <div style='color:#555;font-size:1.2rem;align-self:center;'>→</div>
+                <div style='flex:1;'>
+                    <div style='color:#555;font-size:0.72rem;'>NAYI FILE (ABHI)</div>
+                    <div style='color:{"#26a69a" if _changed else "#787b86"};font-size:0.85rem;font-weight:700;'>{_n_last}</div>
+                    <div style='color:#555;font-size:0.7rem;'>{_n_cnt} candles</div>
+                </div>
+            </div>
+            {"<div style='color:#26a69a;font-size:0.78rem;margin-top:8px;'>✅ Naya data add hua</div>" if _changed else "<div style='color:#f0b429;font-size:0.78rem;margin-top:8px;'>⚠️ Koi badlaav nahi hua — date same hai</div>"}
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Update kabhi try nahi hua is session mein — sirf current file dikhao
+        if _stats_pre.get("exists"):
+            st.markdown(f"""
+            <div style='max-width:620px;margin:0 auto 10px;background:#131722;
+                        border:1px solid #2a2e3e;border-radius:8px;padding:10px 16px;'>
+                <span style='color:#787b86;font-size:0.85rem;'>
+                    📅 Abhi file ki aakhri candle: <b style='color:#f0b429'>{_stats_pre.get('last','?')}</b>
+                    &nbsp;|&nbsp; Size: {_stats_pre.get('size_mb','?')} MB
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ bn_1m.bin.gz abhi maujood nahi hai")
 
     # ── Mobile-friendly: bn_1m.bin.gz seedha phone me download karo ──────────
     # (taaki GitHub par manually upload kiya ja sake, bina laptop ke)
