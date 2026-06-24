@@ -12257,7 +12257,13 @@ const Replay = {
     // Har STACK_CELL ko ek replay resampler de do (TF match karke)
     STACK_CELLS.forEach((c, idx) => {
       if (!c.chart || !c.series) return;
-      if (c.asset !== asset) return;
+      // asset match: c.asset "📊 BANKNIFTY" ya "BANKNIFTY" dono handle karo
+      const cellAsset = (c.asset || '').replace(/[^\w]/g, ' ').trim().split(/\s+/).pop().toUpperCase();
+      const wantAsset = asset.replace(/[^\w]/g, ' ').trim().split(/\s+/).pop().toUpperCase();
+      if (cellAsset !== wantAsset) {
+        Replay._dbgLog('  Cell ' + idx + ' asset mismatch: "' + c.asset + '" vs "' + asset + '" skip');
+        return;
+      }
 
       const tfMin = c.tf || 1;
       // Exact match pehle try karo
