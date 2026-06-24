@@ -12,7 +12,8 @@ import datetime
 # ─── BN Historical Data Manager ──────────────────────────────────────────────
 from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
-    download_from_github, ensure_bin_file, GITHUB_URL
+    download_from_github, ensure_bin_file, GITHUB_URL,
+    start_auto_update, get_auto_update_status,
 )
 import replay_data as _replay_data
 
@@ -762,6 +763,12 @@ def _ensure_live_threads():
     _start_ws()
     _register_api_route()
 
+    # ── BN 1m data auto-update: app open hone par Fyers se latest data fetch ──
+    if "BNAutoUpdater" not in names:
+        creds = load_creds()
+        if creds.get("access_token") and creds.get("app_id"):
+            start_auto_update(creds["app_id"], creds["access_token"])
+
 # ─── Tornado /api/bn_history handler — lazy historical data endpoint ──────────
 # Streamlit internally uses Tornado. We inject our own route so chart.html's
 # infinite-scroll loader can fetch older BN candles on demand without a page reload.
@@ -1158,6 +1165,19 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error("❌ Download failed — GitHub URL sahi hai? File publicly accessible hai?")
+
+        # ── Auto-update status ──────────────────────────────────────────────
+        _au = get_auto_update_status()
+        if _au["running"]:
+            st.info("⏳ Auto-update chal raha hai...")
+        elif _au["last_result"]:
+            _r = _au["last_result"]
+            if _r.get("error"):
+                st.warning(f"⚠️ Auto-update error: {_r['error']}")
+            elif _r.get("added", 0) > 0:
+                st.success(f"🔄 Auto-updated: +{_r['added']} candles (till {_r.get('last_date','')})")
+            elif _r.get("skipped"):
+                st.caption(f"✅ Data already current till {_r.get('last_date','')}")
 
         if sess_active and _stats.get("exists"):
             if st.button("🔄 Force Update (Fyers)", use_container_width=True, key="hist_force_upd"):
