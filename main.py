@@ -1905,6 +1905,26 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Mobile-friendly: bn_1m.bin.gz seedha phone me download karo ──────────
+    # (taaki GitHub par manually upload kiya ja sake, bina laptop ke)
+    from bn_data_manager import BIN_FILE
+    if os.path.exists(BIN_FILE):
+        _bin_size_mb = os.path.getsize(BIN_FILE) / 1024 / 1024
+        st.markdown("<div style='max-width:620px;margin:0 auto 14px;'>", unsafe_allow_html=True)
+        with open(BIN_FILE, "rb") as _f:
+            st.download_button(
+                label=f"📥 bn_1m.bin.gz Download Karo ({_bin_size_mb:.1f} MB)",
+                data=_f.read(),
+                file_name="bn_1m.bin.gz",
+                mime="application/gzip",
+                use_container_width=True,
+                key="dl_bin_btn",
+            )
+        st.caption("Download karne ke baad GitHub par 'Add file → Upload files' se daal dein")
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.caption("⚠️ bn_1m.bin.gz file abhi server par maujood nahi hai")
+
     # Check karo — already skipped hai session mein?
     _upd_skipped = st.session_state.get("_data_update_skipped", False)
     _upd_done    = st.session_state.get("_data_update_done", False)
