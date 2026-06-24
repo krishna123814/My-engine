@@ -11,10 +11,10 @@ import datetime
 
 # ─── BN Historical Data Manager ──────────────────────────────────────────────
 from bn_data_manager import (
-    check_github_update, force_download_from_github,
     load_bin, update_from_fyers, get_stats, csv_to_bin,
     download_from_github, ensure_bin_file, GITHUB_URL,
     start_auto_update, get_auto_update_status,
+    check_github_update, force_download_from_github,
 )
 import replay_data as _replay_data
 
@@ -893,40 +893,6 @@ def _register_api_route():
                         except Exception as e:
                             body = json.dumps({"error": str(e)}).encode()
                             self.send_response(500)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
-                if parsed.path == "/api/gh_check":
-                    try:
-                        result = check_github_update()
-                        body = json.dumps(result).encode()
-                        self.send_response(200)
-                    except Exception as e:
-                        body = json.dumps({"status": "error", "error": str(e)}).encode()
-                        self.send_response(500)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
-                if parsed.path == "/api/gh_download":
-                    try:
-                        result = force_download_from_github()
-                        if result["ok"]:
-                            _get_chart_data.clear()
-                        body = json.dumps(result).encode()
-                        self.send_response(200)
-                    except Exception as e:
-                        body = json.dumps({"ok": False, "error": str(e)}).encode()
-                        self.send_response(500)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Cache-Control", "no-cache")
@@ -1814,4 +1780,209 @@ else:
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Update Data Section ────────────────────────────────────────────────────
+    st.markdown("""
+    <div style='display:flex;align-items:center;gap:12px;margin:28px auto 18px;max-width:620px;'>
+        <div style='flex:1;height:1px;background:#2a2e3e'></div>
+        <div style='color:#555;font-size:0.8rem;white-space:nowrap'>DATA UPDATE</div>
+        <div style='flex:1;height:1px;background:#2a2e3e'></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Check karo — already skipped hai session mein?
+    _upd_skipped = st.session_state.get("_data_update_skipped", False)
+    _upd_done    = st.session_state.get("_data_update_done", False)
+
+    if _upd_done:
+        st.markdown("""
+        <div style='background:#0d1f17;border:1px solid #1a4731;border-radius:10px;
+                    padding:14px 18px;max-width:620px;margin:0 auto;
+                    display:flex;align-items:center;gap:12px;'>
+            <span style='font-size:1.5rem'>✅</span>
+            <div>
+                <div style='color:#26a69a;font-weight:700;font-size:0.95rem'>Data Updated!</div>
+                <div style='color:#555;font-size:0.8rem'>bn_1m.bin.gz latest version hai</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif _upd_skipped:
+        st.markdown("""
+        <div style='background:#131722;border:1px solid #2a2e3e;border-radius:10px;
+                    padding:14px 18px;max-width:620px;margin:0 auto;
+                    display:flex;align-items:center;gap:12px;'>
+            <span style='font-size:1.5rem'>⏭️</span>
+            <div>
+                <div style='color:#787b86;font-weight:700;font-size:0.95rem'>Update Skip kiya</div>
+                <div style='color:#555;font-size:0.8rem'>Historical data update nahi hua</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("<div style='max-width:620px;margin:8px auto 0;'>", unsafe_allow_html=True)
+        if st.button("🔄 Phir se try karo", use_container_width=True, key="upd_retry_btn"):
+            st.session_state["_data_update_skipped"] = False
+            st.session_state["_data_update_done"]    = False
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    else:
+        # Check result session mein cache karo
+        if "gh_check_result" not in st.session_state:
+            st.session_state["gh_check_result"] = None
+
+        _gh_res = st.session_state.get("gh_check_result")
+
+        # Auto-check on first load (agar result nahi hai)
+        if _gh_res is None:
+            with st.spinner("📡 GitHub check ho raha hai..."):
+                _gh_res = check_github_update()
+            st.session_state["gh_check_result"] = _gh_res
+
+        _gh_status = _gh_res.get("status", "error")
+
+        # ── Status card ────────────────────────────────────────────────────
+        if _gh_status == "up_to_date":
+            st.markdown(f"""
+            <div style='background:#0d1f17;border:1px solid #1a4731;border-radius:10px;
+                        padding:14px 18px;max-width:620px;margin:0 auto;'>
+                <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;'>
+                    <span style='font-size:1.2rem'>✅</span>
+                    <span style='color:#26a69a;font-weight:700;'>Data already latest hai</span>
+                </div>
+                <div style='color:#555;font-size:0.78rem;padding-left:2px;'>
+                    GitHub: {_gh_res.get('github_modified','?')}<br>
+                    Local:&nbsp; {_gh_res.get('local_modified','?')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("<div style='max-width:620px;margin:8px auto 0;'>", unsafe_allow_html=True)
+            if st.button("⏭️ Skip — Chart par jao", use_container_width=True, key="upd_skip_ok_btn"):
+                st.session_state["_data_update_skipped"] = True
+                st.session_state["_data_update_done"]    = True
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        elif _gh_status == "outdated":
+            st.markdown(f"""
+            <div style='background:#1a1500;border:1px solid #3d2e00;border-radius:10px;
+                        padding:14px 18px;max-width:620px;margin:0 auto;'>
+                <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;'>
+                    <span style='font-size:1.2rem'>⚠️</span>
+                    <span style='color:#f0b429;font-weight:700;'>GitHub par nayi file available hai!</span>
+                </div>
+                <div style='color:#787b86;font-size:0.78rem;padding-left:2px;'>
+                    GitHub: {_gh_res.get('github_modified','?')}<br>
+                    Local:&nbsp; {_gh_res.get('local_modified','?')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("<div style='max-width:620px;margin:8px auto 0;'>", unsafe_allow_html=True)
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                if st.button("⬇️ Abhi Update Karo", use_container_width=True,
+                             type="primary", key="upd_now_btn"):
+                    with st.spinner("⬇️ GitHub se download ho raha hai..."):
+                        _dl = force_download_from_github()
+                    if _dl["ok"]:
+                        st.success(f"✅ Done! {_dl['size_mb']} MB downloaded")
+                        st.session_state["_data_update_done"]    = True
+                        st.session_state["_data_update_skipped"] = False
+                        st.session_state["gh_check_result"]      = None
+                        _get_chart_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed: {_dl['error']}")
+                        st.session_state["gh_check_result"] = {
+                            "status": "error", "error": _dl["error"],
+                            "github_modified": None, "local_modified": None,
+                        }
+                        st.rerun()
+            with _c2:
+                if st.button("⏭️ Skip", use_container_width=True, key="upd_skip_outdated_btn"):
+                    st.session_state["_data_update_skipped"] = True
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        elif _gh_status == "no_local":
+            st.markdown("""
+            <div style='background:#1a0c0c;border:1px solid #3e1a1a;border-radius:10px;
+                        padding:14px 18px;max-width:620px;margin:0 auto;'>
+                <div style='display:flex;align-items:center;gap:10px;margin-bottom:4px;'>
+                    <span style='font-size:1.2rem'>❌</span>
+                    <span style='color:#ef5350;font-weight:700;'>Local data file nahi hai!</span>
+                </div>
+                <div style='color:#787b86;font-size:0.78rem;'>
+                    bn_1m.bin.gz missing — GitHub se download karo
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("<div style='max-width:620px;margin:8px auto 0;'>", unsafe_allow_html=True)
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                if st.button("⬇️ Download Karo", use_container_width=True,
+                             type="primary", key="upd_dl_nolocal_btn"):
+                    with st.spinner("⬇️ Downloading..."):
+                        _dl = force_download_from_github()
+                    if _dl["ok"]:
+                        st.success(f"✅ Done! {_dl['size_mb']} MB")
+                        st.session_state["_data_update_done"]    = True
+                        st.session_state["_data_update_skipped"] = False
+                        st.session_state["gh_check_result"]      = None
+                        _get_chart_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed: {_dl['error']}")
+            with _c2:
+                if st.button("⏭️ Skip", use_container_width=True, key="upd_skip_nolocal_btn"):
+                    st.session_state["_data_update_skipped"] = True
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        elif _gh_status == "error":
+            _err_msg = _gh_res.get("error", "Unknown error")
+            _is_retry = any(k in _err_msg.lower() for k in ["timeout","thodi der","retry","503","502","429"])
+            st.markdown(f"""
+            <div style='background:#1a0c0c;border:1px solid #3e1a1a;border-radius:10px;
+                        padding:14px 18px;max-width:620px;margin:0 auto;'>
+                <div style='display:flex;align-items:center;gap:10px;margin-bottom:6px;'>
+                    <span style='font-size:1.2rem'>{'⏳' if _is_retry else '❌'}</span>
+                    <span style='color:#ef5350;font-weight:700;'>
+                        {'Thoda time lagega' if _is_retry else 'GitHub check failed'}
+                    </span>
+                </div>
+                <div style='color:#ef5350;font-size:0.75rem;background:#0d0505;
+                            border-radius:6px;padding:8px;white-space:pre-wrap;word-break:break-word;'>
+{_err_msg}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown("<div style='max-width:620px;margin:8px auto 0;'>", unsafe_allow_html=True)
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                _retry_label = "🔄 Retry" if _is_retry else "⬇️ Force Download"
+                if st.button(_retry_label, use_container_width=True,
+                             type="primary", key="upd_err_retry_btn"):
+                    if _is_retry:
+                        with st.spinner("Retry ho raha hai..."):
+                            _new_res = check_github_update()
+                        st.session_state["gh_check_result"] = _new_res
+                        st.rerun()
+                    else:
+                        with st.spinner("⬇️ Force download ho raha hai..."):
+                            _dl = force_download_from_github()
+                        if _dl["ok"]:
+                            st.success(f"✅ Done! {_dl['size_mb']} MB")
+                            st.session_state["_data_update_done"]    = True
+                            st.session_state["_data_update_skipped"] = False
+                            st.session_state["gh_check_result"]      = None
+                            _get_chart_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {_dl['error']}")
+            with _c2:
+                if st.button("⏭️ Skip", use_container_width=True, key="upd_skip_err_btn"):
+                    st.session_state["_data_update_skipped"] = True
+                    st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
