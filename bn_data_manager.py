@@ -68,6 +68,144 @@ def download_from_github(url: str = "", dest: str = "") -> bool:
         return False
 
 
+def check_github_update(url: str = "") -> dict:
+    """
+    GitHub par file ka Last-Modified header check karo aur local file se compare karo.
+
+    Returns dict:
+      {
+        "status": "up_to_date" | "outdated" | "no_local" | "error" | "checking",
+        "github_modified": "RFC-date string or None",
+        "local_modified":  "datetime string or None",
+        "error":           "error message or None",
+        "needs_update":    True/False,
+      }
+    """
+    src  = url or GITHUB_URL
+    result = {
+        "status":          "checking",
+        "github_modified": None,
+        "local_modified":  None,
+        "error":           None,
+        "needs_update":    False,
+    }
+
+    # Local file exist karta hai?
+    if not os.path.exists(BIN_FILE):
+        result["status"]       = "no_local"
+        result["needs_update"] = True
+        return result
+
+    local_mtime = os.path.getmtime(BIN_FILE)
+    local_dt    = datetime.datetime.utcfromtimestamp(local_mtime)
+    result["local_modified"] = local_dt.strftime("%Y-%m-%d %H:%M UTC")
+
+    # GitHub se HEAD request bhejo (sirf headers, no body download)
+    try:
+        resp = requests.head(src, timeout=15, allow_redirects=True)
+
+        if resp.status_code == 404:
+            result["status"] = "error"
+            result["error"]  = f"GitHub file nahi mili (404). URL check karo:\n{src}"
+            return result
+
+        if resp.status_code != 200:
+            result["status"] = "error"
+            result["error"]  = f"GitHub ne HTTP {resp.status_code} diya. Thodi der baad try karo."
+            return result
+
+        last_modified_str = resp.headers.get("Last-Modified") or resp.headers.get("last-modified")
+
+        if not last_modified_str:
+            # GitHub raw CDN kabhi kabhi Last-Modified nahi bhejta — ETag try karo
+            etag = resp.headers.get("ETag") or resp.headers.get("etag") or ""
+            result["status"]          = "error"
+            result["error"]           = (
+                "GitHub ne Last-Modified header nahi bheja (CDN caching issue).\n"
+                f"ETag: {etag if etag else 'N/A'}\n"
+                "Kuch der baad retry karo ya manually 'Force Download' karo."
+            )
+            return result
+
+        # Parse RFC-2616 date: "Mon, 01 Jan 2024 12:00:00 GMT"
+        import email.utils
+        github_dt_tuple = email.utils.parsedate(last_modified_str)
+        if github_dt_tuple is None:
+            result["status"] = "error"
+            result["error"]  = f"GitHub ka date parse nahi hua: '{last_modified_str}'"
+            return result
+
+        github_dt = datetime.datetime(*github_dt_tuple[:6])  # naive UTC
+        result["github_modified"] = github_dt.strftime("%Y-%m-%d %H:%M UTC")
+
+        # Compare — 60-sec tolerance (CDN rounding)
+        diff_secs = (github_dt - local_dt).total_seconds()
+
+        if diff_secs > 60:
+            result["status"]       = "outdated"
+            result["needs_update"] = True
+        else:
+            result["status"]       = "up_to_date"
+            result["needs_update"] = False
+
+    except requests.exceptions.ConnectionError:
+        result["status"] = "error"
+        result["error"]  = "Internet connection nahi hai ya GitHub reachable nahi. Network check karo."
+    except requests.exceptions.Timeout:
+        result["status"] = "error"
+        result["error"]  = "GitHub response timeout (15 sec). Thodi der baad retry karo."
+    except Exception as e:
+        result["status"] = "error"
+        result["error"]  = f"Unexpected error: {e}"
+
+    return result
+
+
+def force_download_from_github(url: str = "", dest: str = "") -> dict:
+    """
+    GitHub se forcefully download karo — local file exist kare ya na kare.
+    Returns: {"ok": bool, "size_mb": float, "error": str or None}
+    """
+    src  = url or GITHUB_URL
+    path = dest or BIN_FILE
+
+    log.info(f"Force download from GitHub: {src}")
+    try:
+        resp = requests.get(src, stream=True, timeout=120)
+
+        if resp.status_code != 200:
+            return {"ok": False, "size_mb": 0, "error": f"HTTP {resp.status_code} — GitHub URL sahi hai?"}
+
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        tmp_path = path + ".tmp"
+        total = 0
+        with open(tmp_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+                    total += len(chunk)
+
+        if total < 1024:  # < 1 KB = something wrong
+            os.remove(tmp_path)
+            return {"ok": False, "size_mb": 0, "error": "Downloaded file bahut chhoti hai — corrupt ya wrong URL."}
+
+        # Atomic replace
+        import shutil
+        shutil.move(tmp_path, path)
+
+        size_mb = total / 1024 / 1024
+        log.info(f"✅ Force downloaded {size_mb:.1f} MB → {path}")
+        return {"ok": True, "size_mb": round(size_mb, 1), "error": None}
+
+    except requests.exceptions.Timeout:
+        return {"ok": False, "size_mb": 0, "error": "Download timeout — file bahut badi hai ya connection slow hai. Retry karo."}
+    except Exception as e:
+        if os.path.exists(path + ".tmp"):
+            try: os.remove(path + ".tmp")
+            except: pass
+        return {"ok": False, "size_mb": 0, "error": f"Download error: {e}"}
+
+
 def ensure_bin_file() -> bool:
     """
     Replay/chart mode ke liye: local file check karo, nahi hai to GitHub se lao.

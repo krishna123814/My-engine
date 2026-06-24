@@ -14,6 +14,7 @@ from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
     download_from_github, ensure_bin_file, GITHUB_URL,
     start_auto_update, get_auto_update_status,
+    check_github_update, force_download_from_github,
 )
 import replay_data as _replay_data
 
@@ -1140,44 +1141,141 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ── Historical Data Status + Manual Update ──────────────────────────────
+    # ── Historical Data Status + GitHub Update Check ────────────────────────
     with st.expander("📦 Historical Data", expanded=False):
         _stats = get_stats()
+
+        # ── Local file status ──────────────────────────────────────────────
         if _stats.get("exists"):
             st.success(f"✅ {_stats['count']:,} candles")
             st.caption(f"From: {_stats.get('first','?')}")
             st.caption(f"To:   {_stats.get('last','?')}")
             st.caption(f"Size: {_stats.get('size_mb','?')} MB")
         else:
-            st.error("❌ bn_1m.bin.gz not found")
-            _github_url = st.text_input(
-                "GitHub Raw URL",
-                value=GITHUB_URL,
-                placeholder="https://raw.githubusercontent.com/...",
-                key="github_url_inp",
-            )
-            if st.button("⬇️ GitHub se Download", use_container_width=True, key="github_dl_btn"):
-                with st.spinner("Downloading from GitHub..."):
-                    _ok_dl = download_from_github(url=_github_url.strip())
-                if _ok_dl:
-                    st.success("✅ Download complete!")
+            st.error("❌ bn_1m.bin.gz local mein nahi hai")
+
+        st.markdown("---")
+
+        # ── GitHub Update Check Section ────────────────────────────────────
+        st.markdown("**🌐 GitHub Update Check**")
+
+        _github_url_val = st.text_input(
+            "GitHub Raw URL",
+            value=GITHUB_URL,
+            placeholder="https://raw.githubusercontent.com/...",
+            key="github_url_inp",
+        )
+
+        # Session state mein check result store karo (button click par update)
+        if "gh_check_result" not in st.session_state:
+            st.session_state["gh_check_result"] = None
+
+        _col1, _col2 = st.columns(2)
+
+        with _col1:
+            if st.button("🔍 Update Check", use_container_width=True, key="github_check_btn"):
+                with st.spinner("GitHub check ho raha hai..."):
+                    _chk = check_github_update(url=_github_url_val.strip())
+                st.session_state["gh_check_result"] = _chk
+
+        with _col2:
+            if st.button("⬇️ Force Download", use_container_width=True, key="github_force_dl_btn"):
+                with st.spinner("GitHub se download ho raha hai..."):
+                    _dl = force_download_from_github(url=_github_url_val.strip())
+                if _dl["ok"]:
+                    st.success(f"✅ Downloaded {_dl['size_mb']} MB!")
+                    st.session_state["gh_check_result"] = None
                     _get_chart_data.clear()
                     st.rerun()
                 else:
-                    st.error("❌ Download failed — GitHub URL sahi hai? File publicly accessible hai?")
+                    st.error(f"❌ Download failed:\n{_dl['error']}")
+                    # Retry button ke liye error result store karo
+                    st.session_state["gh_check_result"] = {
+                        "status": "error",
+                        "error": _dl["error"],
+                        "github_modified": None,
+                        "local_modified": None,
+                        "needs_update": False,
+                    }
 
-        # ── Auto-update status ──────────────────────────────────────────────
+        # ── Check result display ───────────────────────────────────────────
+        _chk_res = st.session_state.get("gh_check_result")
+        if _chk_res is not None:
+            _status = _chk_res.get("status", "")
+
+            if _status == "up_to_date":
+                st.success("✅ File updated hai — GitHub aur local same hain")
+                st.caption(f"GitHub: {_chk_res.get('github_modified','?')}")
+                st.caption(f"Local:  {_chk_res.get('local_modified','?')}")
+
+            elif _status == "outdated":
+                st.warning("⚠️ GitHub par nayi file hai — update karo!")
+                st.caption(f"GitHub: {_chk_res.get('github_modified','?')}")
+                st.caption(f"Local:  {_chk_res.get('local_modified','?')}")
+                if st.button("⬇️ Abhi Update Karo", use_container_width=True,
+                             type="primary", key="github_update_now_btn"):
+                    with st.spinner("Download ho raha hai..."):
+                        _dl2 = force_download_from_github(url=_github_url_val.strip())
+                    if _dl2["ok"]:
+                        st.success(f"✅ Updated! {_dl2['size_mb']} MB downloaded")
+                        st.session_state["gh_check_result"] = None
+                        _get_chart_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Download failed:\n{_dl2['error']}")
+
+            elif _status == "no_local":
+                st.error("❌ Local file nahi hai — download karo")
+                if st.button("⬇️ GitHub se Download Karo", use_container_width=True,
+                             type="primary", key="github_dl_nolocal_btn"):
+                    with st.spinner("Download ho raha hai..."):
+                        _dl3 = force_download_from_github(url=_github_url_val.strip())
+                    if _dl3["ok"]:
+                        st.success(f"✅ Downloaded! {_dl3['size_mb']} MB")
+                        st.session_state["gh_check_result"] = None
+                        _get_chart_data.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Download failed:\n{_dl3['error']}")
+
+            elif _status == "error":
+                _err_msg = _chk_res.get("error", "Unknown error")
+
+                # Kya yeh "thodi der baad hoga" wala error hai?
+                _retry_errors = ["timeout", "thodi der", "retry", "time", "503", "502", "429"]
+                _is_retry_case = any(k in _err_msg.lower() for k in _retry_errors)
+
+                if _is_retry_case:
+                    st.warning(f"⏳ Thoda time lagega:\n{_err_msg}")
+                    if st.button("🔄 Abhi Retry Karo", use_container_width=True,
+                                 key="github_retry_btn"):
+                        with st.spinner("Retry ho raha hai..."):
+                            _chk2 = check_github_update(url=_github_url_val.strip())
+                        st.session_state["gh_check_result"] = _chk2
+                        st.rerun()
+                else:
+                    st.error(f"❌ Error:\n{_err_msg}")
+                    if st.button("🔄 Retry Karo", use_container_width=True,
+                                 key="github_retry_btn2"):
+                        with st.spinner("Retry ho raha hai..."):
+                            _chk3 = check_github_update(url=_github_url_val.strip())
+                        st.session_state["gh_check_result"] = _chk3
+                        st.rerun()
+
+        st.markdown("---")
+
+        # ── Auto-update (Fyers) status ─────────────────────────────────────
         _au = get_auto_update_status()
         if _au["running"]:
-            st.info("⏳ Auto-update chal raha hai...")
+            st.info("⏳ Fyers auto-update chal raha hai...")
         elif _au["last_result"]:
             _r = _au["last_result"]
             if _r.get("error"):
-                st.warning(f"⚠️ Auto-update error: {_r['error']}")
+                st.warning(f"⚠️ Fyers auto-update error: {_r['error']}")
             elif _r.get("added", 0) > 0:
-                st.success(f"🔄 Auto-updated: +{_r['added']} candles (till {_r.get('last_date','')})")
+                st.success(f"🔄 Fyers auto-updated: +{_r['added']} candles (till {_r.get('last_date','')})")
             elif _r.get("skipped"):
-                st.caption(f"✅ Data already current till {_r.get('last_date','')}")
+                st.caption(f"✅ Fyers data already current till {_r.get('last_date','')}")
 
         if sess_active and _stats.get("exists"):
             if st.button("🔄 Force Update (Fyers)", use_container_width=True, key="hist_force_upd"):
