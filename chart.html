@@ -11684,8 +11684,7 @@ if (document.readyState === 'loading') {
   font-size:12px; width:28px; height:28px; flex-shrink:0;
 }
 .rp-ctrl-btn.primary{ background:#1a73e8; color:#fff; }
-#replay-speed{ flex:1; height:4px; }
-#replay-speed-label{ color:#787b86; font-size:10px; width:28px; flex-shrink:0; text-align:center; }
+
 #replay-time-label{ color:#9598a1; font-size:10px; flex:1; text-align:right; white-space:nowrap; overflow:hidden; }
 .rp-indbar{
   display:flex; gap:4px; align-items:center;
@@ -11739,8 +11738,7 @@ if (document.readyState === 'loading') {
     </div>
     <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Date</button>
     <button class="rp-ctrl-btn primary" id="rp-play-btn" onclick="Replay.togglePlay()">▶</button>
-    <input type="range" id="replay-speed" min="1" max="7" value="1" step="1" oninput="Replay.setSpeed(this.value)" style="width:55px;flex-shrink:0;">
-    <div id="replay-speed-label">3m</div>
+
     <div id="replay-time-label">—</div>
     <div class="rp-indbar" id="rp-indbar-bn" style="display:none">
       <button onclick="Replay.toggleSMA(20)" id="rp-sma20-bn">S20</button>
@@ -11861,7 +11859,7 @@ const Replay = {
   _data: null,
   _idx: 0,
   _playing: false,
-  _speed: 1,
+
   _timer: null,
   _rafId: null,
   // _charts: STACK_CELLS se map hoga { tf_label -> {cellIdx, resampler, bars, srSeries, smaSeries} }
@@ -11869,6 +11867,7 @@ const Replay = {
   _rowHeightClass: 'h-normal',
   _syncing: false,
   _active: false,   // kya replay mode ON hai?
+  _pausePending: false,  // pause requested — candle complete hone par rukna
 
   // ── Replay ON: live stack charts mein replay data inject karo ──────────
   open(){
@@ -12631,7 +12630,7 @@ const Replay = {
       alert('Pehle date range select karke data load karo');
       return;
     }
-    this._playing ? this.pause() : this.play();
+    this._playing ? this.requestPause() : this.play();
   },
   play(){
     if (this._playing) return;
@@ -12643,6 +12642,7 @@ const Replay = {
   },
   pause(){
     this._playing = false;
+    this._pausePending = false;
     const btn = document.getElementById('rp-play-btn');
     if (btn) btn.textContent = '▶';
     if (this._timer){ clearTimeout(this._timer); this._timer = null; }
@@ -12650,33 +12650,24 @@ const Replay = {
     // SR redraw when paused — bars jo aaye unke basis par recalculate
     try { this._rpRedrawSR(); } catch(_) {}
   },
-  // ── Speed steps: slider 1=slowest(3min/candle) → 7=fastest(30sec/candle) ──
-  _SPEED_STEPS_MS: [180000, 120000, 90000, 60000, 45000, 40000, 30000],
-  _SPEED_LABELS:   ['3m',   '2m',  '90s', '1m',  '45s', '40s', '30s'],
-
-  setSpeed(v){
-    const idx = Math.max(0, Math.min(6, parseInt(v,10)-1));
-    this._speed = idx; // store index
-    const lbl = document.getElementById('replay-speed-label');
-    if (lbl) lbl.textContent = this._SPEED_LABELS[idx];
+  // Pause request — current candle complete hone par rukna
+  requestPause(){
+    if (!this._playing) return;
+    this._pausePending = true;
+    const btn = document.getElementById('rp-play-btn');
+    if (btn) btn.textContent = '⏸…';
   },
-
-  // ── Speed model ─────────────────────────────────────────────────────────
-  // msPerCandle = _SPEED_STEPS_MS[_speed]
-  // rowsPerSec  = (minBarMinutes * 60000) / msPerCandle
-  _minBarMinutesFor(asset){
-    return asset === 'BTCUSDT' ? 160 : 5;
-  },
+  // Fixed speed: 5m candle = 10sec, 15m = 30sec, 45m = 1.5min (rowsPerSec=30)
 
   _frameLoop(ts){
-    if (!this._playing) return;
+    if (!this._playing && !this._pausePending) return;
     if (this._lastFrameTs == null) this._lastFrameTs = ts;
     const elapsedMs = ts - this._lastFrameTs;
     this._lastFrameTs = ts;
 
-    const msPerCandle = this._SPEED_STEPS_MS[this._speed] || 30000;
-    const minBarMs    = this._minBarMinutesFor(this._asset) * 60000;
-    const rowsPerSec  = minBarMs / msPerCandle;
+    // Fixed speed: 5m candle = 10 sec → rowsPerSec = 5rows/10sec = 0.5... 
+    // Actually: 30 base-rows/sec → 5m candle (5 rows) = 10sec
+    const rowsPerSec = 30;
     this._rowAccum += (elapsedMs / 1000) * rowsPerSec;
 
     let nRows = Math.floor(this._rowAccum);
@@ -12687,7 +12678,7 @@ const Replay = {
       const capped = Math.min(nRows, 2000);
       this._stepBatch(capped);
     }
-    if (this._playing && this._idx < (this._data.base ? this._data.base.length : 0)){
+    if ((this._playing || this._pausePending) && this._idx < (this._data.base ? this._data.base.length : 0)){
       this._rafId = requestAnimationFrame(this._frameLoop.bind(this));
     } else if (this._idx >= (this._data.base ? this._data.base.length : 0)){
       this.pause();
@@ -12722,6 +12713,11 @@ const Replay = {
       this._srThrottle = setTimeout(() => { try{ this._rpRedrawSR(); }catch(_){} }, 300);
     }
     if (lastTs != null) this._updateTimeLabel(lastTs);
+
+    // Pause pending tha aur candle close hui — ab actually pause karo
+    if (this._pausePending && anyClosed) {
+      this.pause();
+    }
   },
 
 
