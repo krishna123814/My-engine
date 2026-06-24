@@ -11738,6 +11738,7 @@ if (document.readyState === 'loading') {
     </div>
     <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Date</button>
     <button class="rp-ctrl-btn primary" id="rp-play-btn" onclick="Replay.togglePlay()">▶</button>
+    <button class="rp-ctrl-btn" id="rp-step-btn" onclick="Replay.stepOne()" style="font-size:13px;" title="Step: 1 candle">⏭1</button>
 
     <div id="replay-time-label">—</div>
     <div class="rp-indbar" id="rp-indbar-bn" style="display:none">
@@ -11892,6 +11893,13 @@ const Replay = {
 
     // 3. Replay bottom bar dikhao
     document.getElementById('replay-screen').classList.add('open');
+
+    // 4. SR auto-on karo
+    this._srOn = true;
+    ['bn','btc'].forEach(sfx => {
+      const b = document.getElementById('rp-sr-'+sfx);
+      if (b) b.classList.add('active');
+    });
 
     // 4. Asset tabs update + data load
     this.switchAsset(this._asset);
@@ -12513,14 +12521,61 @@ const Replay = {
     });
 
     // Agar koi cell match nahi hua (e.g. BTC replay but stack BN) — ignore
+
+    // SR auto-draw after stack build
+    setTimeout(() => { try { this._rpRedrawSR(); } catch(_) {} }, 100);
   },
 
   // ── SR lines redraw — replay bars ke basis par recompute ──────────────
+  // swingComputeMultiTF global BN_5M/BN_15M/BN_45M arrays padhta hai.
+  // Replay mein future data nahi dikhna chahiye — isliye temporarily
+  // in arrays ko replay ke c.bars se replace karte hain, compute karte
+  // hain, phir original restore kar dete hain.
   _rpRedrawSR(){
-    if (!this._srOn) return;   // SR off hai toh skip
+    if (!this._srOn) return;
     if (typeof swingComputeMultiTF !== 'function' || typeof _bnBuildSRNative !== 'function') return;
     if (typeof _bnClearSRNative !== 'function') return;
+
     const asset = this._asset;
+    const isBN  = (asset === 'BANKNIFTY');
+
+    // Step 1: Replay bars collect karo — har TF ke liye LWC format mein
+    // c.bars = [[ts_ms, o, h, l, c], ...]
+    // Global arrays expect karte hain: [{time (sec), open, high, low, close}, ...]
+    const replayBarsByTf = {};
+    Object.entries(this._charts).forEach(([tf, c]) => {
+      replayBarsByTf[c.tfMin || 1] = c.bars.map(b => ({
+        time: Math.floor(b[0]/1000), open: b[1], high: b[2], low: b[3], close: b[4]
+      }));
+    });
+
+    // Step 2: Global arrays temporarily replace karo
+    const saved = {};
+    if (isBN) {
+      saved.BN_5M    = window.BN_5M;
+      saved.BN_15M   = window.BN_15M;
+      saved.BN_45M   = window.BN_45M;
+      saved.BN_DAILY = window.BN_DAILY;
+      saved.ALLDATA_BN = window.ALLDATA ? window.ALLDATA[asset] : undefined;
+      // Replay bars inject karo (jo available hain)
+      // 1m base data ke liye sabse chhoti available TF use karo
+      const base1m = replayBarsByTf[1] || replayBarsByTf[5] || replayBarsByTf[15] || [];
+      if (window.ALLDATA) window.ALLDATA[asset] = base1m;
+      if (replayBarsByTf[5])    window.BN_5M    = replayBarsByTf[5];
+      if (replayBarsByTf[15])   window.BN_15M   = replayBarsByTf[15];
+      if (replayBarsByTf[45])   window.BN_45M   = replayBarsByTf[45];
+      if (replayBarsByTf[1440]) window.BN_DAILY = replayBarsByTf[1440];
+    } else {
+      saved.BTC_15M    = window.BTC_15M;
+      saved.BTC_DAILY  = window.BTC_DAILY;
+      saved.ALLDATA_BTC = window.ALLDATA ? window.ALLDATA[asset] : undefined;
+      const base1m = replayBarsByTf[1] || replayBarsByTf[15] || [];
+      if (window.ALLDATA) window.ALLDATA[asset] = base1m;
+      if (replayBarsByTf[15])   window.BTC_15M   = replayBarsByTf[15];
+      if (replayBarsByTf[1440]) window.BTC_DAILY = replayBarsByTf[1440];
+    }
+
+    // Step 3: SR compute + draw (ab sirf replay bars se calculate hoga)
     Object.entries(this._charts).forEach(([tf, c]) => {
       try {
         const tfMin = c.tfMin || 1;
@@ -12529,6 +12584,19 @@ const Replay = {
         c.srSeries = _bnBuildSRNative(c.chart, lines, null);
       } catch(_) {}
     });
+
+    // Step 4: Global arrays restore karo
+    if (isBN) {
+      window.BN_5M    = saved.BN_5M;
+      window.BN_15M   = saved.BN_15M;
+      window.BN_45M   = saved.BN_45M;
+      window.BN_DAILY = saved.BN_DAILY;
+      if (window.ALLDATA && saved.ALLDATA_BN !== undefined) window.ALLDATA[asset] = saved.ALLDATA_BN;
+    } else {
+      window.BTC_15M   = saved.BTC_15M;
+      window.BTC_DAILY = saved.BTC_DAILY;
+      if (window.ALLDATA && saved.ALLDATA_BTC !== undefined) window.ALLDATA[asset] = saved.ALLDATA_BTC;
+    }
   },
 
   // ── SMA toggle ────────────────────────────────────────────────────────
@@ -12657,7 +12725,58 @@ const Replay = {
     const btn = document.getElementById('rp-play-btn');
     if (btn) btn.textContent = '⏸…';
   },
-  // Fixed speed: 5m candle = 10sec, 15m = 30sec, 45m = 1.5min (rowsPerSec=30)
+  // ── Step: ek candle run karo 1 second mein, phir ruk jao ────────────────
+  stepOne(){
+    if (!this._data || !this._data.base || !this._data.base.length){
+      alert('Pehle date range select karke data load karo');
+      return;
+    }
+    if (this._idx >= this._data.base.length) return;
+
+    // Agar play chal raha hai to pehle pause karo
+    if (this._playing || this._pausePending) this.pause();
+
+    // Step mode: ek candle worth ke rows collect karo
+    // Minimum TF ki candle = 5 rows (5m), max = 45 rows (45m)
+    // Sabse chhoti TF ki ek candle complete karo (5 base rows = 1 visible candle on 5m chart)
+    // Phir baaki TF apne aap accumulate ho jaayengi
+    const STEP_ROWS = 5; // 5m candle = 5 base rows
+    const STEP_DURATION_MS = 1000; // 1 second mein complete
+
+    const btn = document.getElementById('rp-step-btn');
+    if (btn) btn.disabled = true;
+
+    // 1 second mein STEP_ROWS rows push karo (RAF se smooth)
+    const rowsToProcess = Math.min(STEP_ROWS, this._data.base.length - this._idx);
+    if (rowsToProcess <= 0) { if(btn) btn.disabled=false; return; }
+
+    const msPerRow = STEP_DURATION_MS / rowsToProcess;
+    let rowsDone = 0;
+    const self = this;
+
+    function stepTick(ts){
+      if (!self._stepStartTs) self._stepStartTs = ts;
+      const elapsed = ts - self._stepStartTs;
+      const targetRows = Math.min(Math.floor(elapsed / msPerRow) + 1, rowsToProcess);
+      const toProcess = targetRows - rowsDone;
+      if (toProcess > 0){
+        self._stepBatch(toProcess);
+        rowsDone += toProcess;
+      }
+      if (rowsDone < rowsToProcess){
+        requestAnimationFrame(stepTick);
+      } else {
+        self._stepStartTs = null;
+        if (btn) btn.disabled = false;
+        // SR update after step
+        if (self._srOn) try { self._rpRedrawSR(); } catch(_) {}
+      }
+    }
+    this._stepStartTs = null;
+    requestAnimationFrame(stepTick);
+  },
+
+  // Fixed speed: 5m candle = 10sec, 15m = 30sec, 45m = 1.5min (rowsPerSec=0.5)
 
   _frameLoop(ts){
     if (!this._playing && !this._pausePending) return;
