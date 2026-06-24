@@ -1436,9 +1436,29 @@ if sess_active or _btc_only:
         _gh = st.session_state["gh_check_result"]
         _gh_st = _gh.get("status", "error")
 
-        # Up-to-date → silently skip, chart load karo
+        # Up-to-date bhi ho, phir bhi user se explicit click lo — auto-redirect nahi
         if _gh_st == "up_to_date":
-            st.session_state["_data_update_done"] = True
+            st.markdown("## 📊 BankNifty Live Chart")
+            st.markdown(f"""
+            <div style='background:#0d1f17;border:1px solid #1a4731;border-radius:10px;
+                        padding:16px 20px;margin-bottom:12px;'>
+                <div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>
+                    <span style='font-size:1.3rem'>✅</span>
+                    <span style='color:#26a69a;font-weight:700;font-size:1rem;'>
+                        Data already latest hai
+                    </span>
+                </div>
+                <div style='color:#787b86;font-size:0.78rem;'>
+                    GitHub: {_gh.get('github_modified','?')}<br>
+                    Local:&nbsp; {_gh.get('local_modified','?')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("⏭️ Skip — Chart Kholo", use_container_width=True,
+                         type="primary", key="upd_sess_skip_uptodate"):
+                st.session_state["_data_update_done"] = True
+                st.rerun()
+            st.stop()  # jab tak button na dabe, chart nahi khulega
 
         else:
             # Show update card — chart abhi nahi dikhega
@@ -1905,9 +1925,32 @@ else:
     </div>
     """, unsafe_allow_html=True)
 
+    # ── ASLI update: Fyers se naya data khinch ke local bin.gz mein bharo ────
+    # (yeh GitHub-check se ALAG hai — yeh sach mein naya data laata hai)
+    from bn_data_manager import BIN_FILE
+    _creds_now = load_creds()
+    if _creds_now.get("access_token"):
+        st.markdown("<div style='max-width:620px;margin:0 auto 10px;'>", unsafe_allow_html=True)
+        if st.button("🔄 Fyers se Naya Data Lao (Asli Update)", use_container_width=True,
+                     type="primary", key="real_fyers_update_btn"):
+            with st.spinner("📡 Fyers se naya data aa raha hai..."):
+                _res = update_from_fyers(
+                    _creds_now["app_id"], _creds_now["access_token"], force=True
+                )
+            if _res.get("skipped"):
+                st.warning(f"⏭️ Skip ho gaya: {_res.get('reason','?')}")
+            elif _res.get("error"):
+                st.error(f"❌ Failed: {_res['error']}")
+            else:
+                st.success(f"✅ Naya data aa gaya! Ab niche download button se le lo.")
+                _get_chart_data.clear()
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.caption("⚠️ Fyers se login nahi hai — pehle login karo, fir 'Asli Update' chalega")
+
     # ── Mobile-friendly: bn_1m.bin.gz seedha phone me download karo ──────────
     # (taaki GitHub par manually upload kiya ja sake, bina laptop ke)
-    from bn_data_manager import BIN_FILE
     if os.path.exists(BIN_FILE):
         _bin_size_mb = os.path.getsize(BIN_FILE) / 1024 / 1024
         st.markdown("<div style='max-width:620px;margin:0 auto 14px;'>", unsafe_allow_html=True)
