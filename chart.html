@@ -12242,13 +12242,17 @@ const Replay = {
   },
 
   _buildStack(){
-    // Live STACK_CELLS use karte hain — unka data clear karo, resamplers banao
     this._charts = {};
 
     const defs  = REPLAY_TF_DEFS[this._asset];
     const asset = this._asset;
     const data  = this._data;
-    const preIdx = this._idx;  // left-scroll fix: pre-data boundary
+    const preIdx = this._idx;
+
+    // Debug: kaunse cells hain
+    Replay._dbgLog('_buildStack: asset=' + asset + ' cells=' + STACK_CELLS.length +
+      ' tfs=[' + STACK_CELLS.map(c=>c.tf+'('+(c.asset||'?')+')').join(',') + ']');
+    Replay._dbgLog('REPLAY_TF_DEFS mins: ' + defs.map(d=>d.mins||d.days+'D').join(','));
 
     // Har STACK_CELL ko ek replay resampler de do (TF match karke)
     STACK_CELLS.forEach((c, idx) => {
@@ -12256,9 +12260,25 @@ const Replay = {
       if (c.asset !== asset) return;
 
       const tfMin = c.tf || 1;
-      // Matching def dhundho
-      const def = defs.find(d => (d.mins && d.mins === tfMin) || (d.days && d.days * 1440 === tfMin));
-      if (!def) return;
+      // Exact match pehle try karo
+      let def = defs.find(d => (d.mins && d.mins === tfMin) || (d.days && d.days * 1440 === tfMin));
+      // Fuzzy fallback: agar exact nahi mila to nearest minute-type TF use karo
+      // (e.g. 138m → 135m, user ne manually TF tweak kiya hoga)
+      if (!def) {
+        const minuteDefs = defs.filter(d => d.type === 'minute');
+        if (minuteDefs.length) {
+          def = minuteDefs.reduce((best, d) => {
+            const bDiff = Math.abs((best.mins || best.days*1440) - tfMin);
+            const dDiff = Math.abs((d.mins    || d.days*1440)    - tfMin);
+            return dDiff < bDiff ? d : best;
+          });
+        }
+      }
+      if (!def) {
+        Replay._dbgLog('  Cell ' + idx + ' tf=' + tfMin + ' → NO MATCH, skip');
+        return;
+      }
+      Replay._dbgLog('  Cell ' + idx + ' tf=' + tfMin + ' → matched def=' + def.tf);
 
       // Existing SMA remove
       if (c._rpSmaSeries) {
