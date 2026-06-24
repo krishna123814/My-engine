@@ -12665,9 +12665,8 @@ const Replay = {
     const elapsedMs = ts - this._lastFrameTs;
     this._lastFrameTs = ts;
 
-    // Fixed speed: 5m candle = 10 sec → rowsPerSec = 5rows/10sec = 0.5... 
-    // Actually: 30 base-rows/sec → 5m candle (5 rows) = 10sec
-    const rowsPerSec = 30;
+    // Fixed speed: 5m candle = 10sec → 5 rows / 10sec = 0.5 rows/sec
+    const rowsPerSec = 0.5;
     this._rowAccum += (elapsedMs / 1000) * rowsPerSec;
 
     let nRows = Math.floor(this._rowAccum);
