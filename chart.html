@@ -12235,7 +12235,9 @@ const Replay = {
     } else {
       document.getElementById('replay-range-btn').textContent = '📅 Select date range';
     }
-    this._updateTimeLabel(data && data.base && this._idx > 0 ? data.base[this._idx][0] : null);
+    const _idxTs = (data && data.base && this._idx > 0 && this._idx < data.base.length)
+      ? data.base[this._idx][0] : null;
+    this._updateTimeLabel(_idxTs);
     setTimeout(() => this.fitAll(), 80);
   },
 
