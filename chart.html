@@ -7843,20 +7843,41 @@ async function _extendBNHistory(tfMin, seriesRef, chartRef) {
     // ── Strategy 1: .gz raw data already in memory (ALLDATA[BN_ASSET]) ────
     const raw1m = ALLDATA[BN_ASSET] || [];
     const oldestArrSec = oldestTs;
-    const raw1mOlder = raw1m.filter(b => b.time < oldestArrSec);
 
-    if (raw1mOlder.length > 0) {
-      console.log(`[BN lazy] .gz se ${raw1mOlder.length} older 1m bars milei`);
-      const resampled = resampleForTF(raw1m, tfMin, BN_ASSET);
-      const freshBars = resampled.filter(b => b.time < oldestArrSec && !existingSet.has(b.time));
-      if (freshBars.length > 0) {
-        arr.unshift(...freshBars);
-        _bnOldestLoaded[key] = arr[0].time;
-        console.log(`[BN lazy] .gz path: +${freshBars.length} bars prepended`);
-        _renderAndSync(arr, tfMin, seriesRef, chartRef);
-        _setLoadingLabel('');
-        _bnExtendInFlight = false;
-        return;
+    if (raw1m.length > 0 && raw1m[0].time < oldestArrSec) {
+      // Binary search: oldestArrSec se pehle ka last index dhundo
+      let lo = 0, hi = raw1m.length - 1, cutIdx = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (raw1m[mid].time < oldestArrSec) { cutIdx = mid; lo = mid + 1; }
+        else hi = mid - 1;
+      }
+      if (cutIdx < 0) {
+        // .gz mein bhi purana data nahi — Strategy 2 pe jao
+      } else {
+        // Sirf ek chunk lo (30 din max) — poori file ek saath mat lo
+        const { chunkDays } = _bnResolutionFor(tfMin);
+        const chunkSec = chunkDays * 86400;
+        const chunkStart = oldestArrSec - chunkSec;
+        // cutIdx se peeche chunkStart tak ka slice
+        let startIdx = cutIdx;
+        while (startIdx > 0 && raw1m[startIdx - 1].time >= chunkStart) startIdx--;
+        const olderRaw = raw1m.slice(startIdx, cutIdx + 1);
+        console.log(`[BN lazy] .gz chunk: ${olderRaw.length} 1m bars (${chunkDays}d window)`);
+
+        if (olderRaw.length > 0) {
+          const resampled = resampleForTF(olderRaw, tfMin, BN_ASSET);
+          const freshBars = resampled.filter(b => !existingSet.has(b.time));
+          if (freshBars.length > 0) {
+            arr.unshift(...freshBars);
+            _bnOldestLoaded[key] = arr[0].time;
+            console.log(`[BN lazy] .gz path: +${freshBars.length} bars prepended`);
+            _renderAndSync(arr, tfMin, seriesRef, chartRef);
+            _setLoadingLabel('');
+            _bnExtendInFlight = false;
+            return;
+          }
+        }
       }
     }
 
