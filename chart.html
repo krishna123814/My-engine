@@ -12494,6 +12494,13 @@ const BarReplayStack = {
   },
 };
 
+// ── Entry point: Grid Picker "⏪ Bar Replay" tap ──────────────────────────
+function enterBarReplayStackView() {
+  const gp = document.getElementById('grid-picker');
+  if (gp) gp.classList.remove('open');
+  BarReplayStack.open();
+}
+
 // ── Global error catcher — replay mein koi bhi silent crash pakdo ──────────
 window.addEventListener('error', function(e) {
   if (typeof Replay !== 'undefined' && typeof Replay._dbgLog === 'function') {
