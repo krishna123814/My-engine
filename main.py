@@ -1465,8 +1465,19 @@ if sess_active or _btc_only:
             </div>
             """, unsafe_allow_html=True)
 
-            # ── Update/Download buttons sirf PEHLI screen par hain — yahan
-            # sirf info dikhao, taaki confusion na ho ───────────────────────
+            # ── Download yahan bhi do — kyunki yeh screen hi reachable hai
+            # session set hone ke baad (pehli screen wapas nahi dikhti) ─────
+            from bn_data_manager import BIN_FILE as _BF2
+            if os.path.exists(_BF2):
+                with open(_BF2, "rb") as _f2:
+                    st.download_button(
+                        label=f"📥 bn_1m.bin.gz Download Karo ({_stats_now.get('size_mb','?')} MB)",
+                        data=_f2.read(),
+                        file_name="bn_1m.bin.gz",
+                        mime="application/gzip",
+                        use_container_width=True,
+                        key="dl_bin_btn_gate2",
+                    )
 
             if st.button("⏭️ Skip — Chart Kholo", use_container_width=True,
                          key="upd_sess_skip_uptodate"):
