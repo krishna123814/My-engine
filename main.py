@@ -1422,6 +1422,121 @@ st.markdown("## 📊 BankNifty Live Chart")
 _btc_only = st.session_state.get("_btc_only_mode", False)
 
 if sess_active or _btc_only:
+
+    # ── Data Update Check (chart se pehle, ek baar) ──────────────────────────
+    _upd_done    = st.session_state.get("_data_update_done", False)
+    _upd_skipped = st.session_state.get("_data_update_skipped", False)
+
+    if not _upd_done and not _upd_skipped:
+        # Auto-check GitHub (cache session mein)
+        if "gh_check_result" not in st.session_state:
+            with st.spinner("📡 Data update check ho raha hai..."):
+                st.session_state["gh_check_result"] = check_github_update()
+
+        _gh = st.session_state["gh_check_result"]
+        _gh_st = _gh.get("status", "error")
+
+        # Up-to-date → silently skip, chart load karo
+        if _gh_st == "up_to_date":
+            st.session_state["_data_update_done"] = True
+
+        else:
+            # Show update card — chart abhi nahi dikhega
+            st.markdown("## 📊 BankNifty Live Chart")
+
+            if _gh_st == "outdated":
+                st.markdown(f"""
+                <div style='background:#1a1500;border:1px solid #3d2e00;border-radius:10px;
+                            padding:16px 20px;margin-bottom:12px;'>
+                    <div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>
+                        <span style='font-size:1.3rem'>⚠️</span>
+                        <span style='color:#f0b429;font-weight:700;font-size:1rem;'>
+                            GitHub par nayi data file hai!
+                        </span>
+                    </div>
+                    <div style='color:#787b86;font-size:0.78rem;'>
+                        GitHub: {_gh.get('github_modified','?')}<br>
+                        Local:&nbsp; {_gh.get('local_modified','?')}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                _c1, _c2 = st.columns(2)
+                with _c1:
+                    if st.button("⬇️ Abhi Update Karo", use_container_width=True,
+                                 type="primary", key="upd_sess_now"):
+                        with st.spinner("⬇️ Download ho raha hai..."):
+                            _dl = force_download_from_github()
+                        if _dl["ok"]:
+                            st.success(f"✅ Done! {_dl['size_mb']} MB")
+                            st.session_state["_data_update_done"] = True
+                            st.session_state["gh_check_result"]   = None
+                            _get_chart_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {_dl['error']}")
+                            st.session_state["_data_update_skipped"] = True
+                            st.rerun()
+                with _c2:
+                    if st.button("⏭️ Skip — Chart kholo", use_container_width=True,
+                                 key="upd_sess_skip"):
+                        st.session_state["_data_update_skipped"] = True
+                        st.rerun()
+            
+            elif _gh_st == "no_local":
+                st.error("❌ bn_1m.bin.gz local mein nahi hai — download karo")
+                _c1, _c2 = st.columns(2)
+                with _c1:
+                    if st.button("⬇️ Download Karo", use_container_width=True,
+                                 type="primary", key="upd_sess_dl"):
+                        with st.spinner("⬇️ Download ho raha hai..."):
+                            _dl = force_download_from_github()
+                        if _dl["ok"]:
+                            st.success(f"✅ Done! {_dl['size_mb']} MB")
+                            st.session_state["_data_update_done"] = True
+                            st.session_state["gh_check_result"]   = None
+                            _get_chart_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {_dl['error']}")
+                with _c2:
+                    if st.button("⏭️ Skip", use_container_width=True, key="upd_sess_skip2"):
+                        st.session_state["_data_update_skipped"] = True
+                        st.rerun()
+
+            else:  # error
+                _err = _gh.get("error", "Unknown error")
+                _is_retry = any(k in _err.lower() for k in ["timeout","thodi der","retry","503","502","429"])
+                st.markdown(f"""
+                <div style='background:#1a0c0c;border:1px solid #3e1a1a;border-radius:10px;
+                            padding:16px 20px;margin-bottom:12px;'>
+                    <div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>
+                        <span style='font-size:1.3rem'>{'⏳' if _is_retry else '❌'}</span>
+                        <span style='color:#ef5350;font-weight:700;'>
+                            {'GitHub check timeout' if _is_retry else 'GitHub check failed'}
+                        </span>
+                    </div>
+                    <div style='color:#ef5350;font-size:0.75rem;background:#0d0505;
+                                border-radius:6px;padding:8px;white-space:pre-wrap;word-break:break-word;'>
+{_err}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                _c1, _c2 = st.columns(2)
+                with _c1:
+                    if st.button("🔄 Retry", use_container_width=True,
+                                 type="primary", key="upd_sess_retry"):
+                        with st.spinner("Check ho raha hai..."):
+                            st.session_state["gh_check_result"] = check_github_update()
+                        st.rerun()
+                with _c2:
+                    if st.button("⏭️ Skip — Chart kholo", use_container_width=True,
+                                 key="upd_sess_skip3"):
+                        st.session_state["_data_update_skipped"] = True
+                        st.rerun()
+
+            st.stop()  # chart render mat karo jab tak update/skip na ho
+
+    # ── Chart render ─────────────────────────────────────────────────────────
     if sess_active:
         st.success("✅ Fyers connected — live data active")
     else:
