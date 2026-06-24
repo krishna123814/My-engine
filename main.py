@@ -966,8 +966,9 @@ if not st.session_state.get("_startup_login_done"):
     if not is_session_active() and _boot_creds.get("totp_secret"):
         _ok_boot, _msg_boot, _ = auto_fyers_login()
         if _ok_boot:
-            _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
-        st.rerun()
+            _sess_cache.update({"active": True, "ts": time.time()})
+            st.session_state["_force_active"] = True
+            st.rerun()  # Sirf tab rerun karo jab TOTP login succeed ho
 
 # ─── In-chart broker panel: handle query params from iframe form submits ───────
 _qp = st.query_params

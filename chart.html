@@ -11739,17 +11739,19 @@ if (document.readyState === 'loading') {
     </div>
     <button id="replay-range-btn" onclick="Replay.openRangeModal()">📅 Date</button>
     <button class="rp-ctrl-btn primary" id="rp-play-btn" onclick="Replay.togglePlay()">▶</button>
-    <input type="range" id="replay-speed" min="1" max="60" value="1" step="1" oninput="Replay.setSpeed(this.value)" style="width:55px;flex-shrink:0;">
-    <div id="replay-speed-label">1×</div>
+    <input type="range" id="replay-speed" min="1" max="7" value="1" step="1" oninput="Replay.setSpeed(this.value)" style="width:55px;flex-shrink:0;">
+    <div id="replay-speed-label">3m</div>
     <div id="replay-time-label">—</div>
     <div class="rp-indbar" id="rp-indbar-bn" style="display:none">
       <button onclick="Replay.toggleSMA(20)" id="rp-sma20-bn">S20</button>
       <button onclick="Replay.toggleSMA(50)" id="rp-sma50-bn">S50</button>
+      <button onclick="Replay.toggleSR()" id="rp-sr-bn">SR</button>
       <button onclick="Replay.fitAll()">Fit</button>
     </div>
     <div class="rp-indbar" id="rp-indbar-btc" style="display:none">
       <button onclick="Replay.toggleSMA(20)" id="rp-sma20-btc">S20</button>
       <button onclick="Replay.toggleSMA(50)" id="rp-sma50-btc">S50</button>
+      <button onclick="Replay.toggleSR()" id="rp-sr-btc">SR</button>
       <button onclick="Replay.fitAll()">Fit</button>
     </div>
     <button onclick="Replay._showDebugPanel(true)" style="background:#1a1a2e;color:#f6a623;border:1px solid #f6a623;border-radius:5px;padding:2px 5px;font-size:10px;min-height:22px;flex-shrink:0;">🔍</button>
@@ -11941,6 +11943,18 @@ const Replay = {
     // 4. ws-status live restore
     const st = document.getElementById('ws-status');
     if (st) st.innerHTML = '<span id="ws-dot"></span>';
+
+    // 5. Reset SR/SMA indicator state + buttons
+    this._srOn = false;
+    this._smaOn = {};
+    ['bn','btc'].forEach(sfx => {
+      const srb = document.getElementById('rp-sr-'+sfx);
+      if (srb) srb.classList.remove('active');
+      [20,50].forEach(p => {
+        const b = document.getElementById('rp-sma'+p+'-'+sfx);
+        if (b) b.classList.remove('active');
+      });
+    });
   },
 
   switchAsset(asset){
@@ -12504,6 +12518,7 @@ const Replay = {
 
   // ── SR lines redraw — replay bars ke basis par recompute ──────────────
   _rpRedrawSR(){
+    if (!this._srOn) return;   // SR off hai toh skip
     if (typeof swingComputeMultiTF !== 'function' || typeof _bnBuildSRNative !== 'function') return;
     if (typeof _bnClearSRNative !== 'function') return;
     const asset = this._asset;
@@ -12515,6 +12530,99 @@ const Replay = {
         c.srSeries = _bnBuildSRNative(c.chart, lines, null);
       } catch(_) {}
     });
+  },
+
+  // ── SMA toggle ────────────────────────────────────────────────────────
+  _smaOn: {},   // { 20: false, 50: false }
+  toggleSMA(period){
+    if (!this._smaOn) this._smaOn = {};
+    const was = !!this._smaOn[period];
+    this._smaOn[period] = !was;
+
+    // Button active style update
+    const asset = this._asset;
+    const suffix = asset === 'BANKNIFTY' ? 'bn' : 'btc';
+    const btn = document.getElementById('rp-sma' + period + '-' + suffix);
+    if (btn) btn.classList.toggle('active', this._smaOn[period]);
+
+    // For each chart cell, add or remove SMA line series
+    Object.values(this._charts).forEach(c => {
+      if (!c.chart) return;
+      try {
+        if (!c._rpSmaMap) c._rpSmaMap = {};
+        if (this._smaOn[period]) {
+          // Compute SMA from c.bars
+          const smaPts = this._calcSMA(c.bars, period, c.tfMin||1);
+          const smaS = c.chart.addLineSeries({
+            color: period === 20 ? '#2196f3' : '#ff9800',
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          smaS.setData(smaPts);
+          c._rpSmaMap[period] = smaS;
+        } else {
+          if (c._rpSmaMap[period]) {
+            try { c.chart.removeSeries(c._rpSmaMap[period]); } catch(_) {}
+            delete c._rpSmaMap[period];
+          }
+        }
+      } catch(e) {}
+    });
+  },
+
+  // Compute SMA data points from bars array
+  _calcSMA(bars, period, tfMin){
+    if (!bars || !bars.length) return [];
+    const out = [];
+    let sum = 0;
+    for (let i = 0; i < bars.length; i++) {
+      const c = bars[i][4]; // close
+      sum += c;
+      if (i >= period) sum -= bars[i - period][4];
+      if (i >= period - 1) {
+        out.push({ time: Math.floor(bars[i][0] / 1000), value: sum / period });
+      }
+    }
+    return out;
+  },
+
+  // Update SMA series with new bar data (called from _stepBatch)
+  _updateSMALines(chartEntry, newBar){
+    if (!chartEntry._rpSmaMap) return;
+    Object.entries(chartEntry._rpSmaMap).forEach(([period, smaS]) => {
+      try {
+        const p = parseInt(period);
+        const smaPts = this._calcSMA(chartEntry.bars, p, chartEntry.tfMin||1);
+        if (smaPts.length) smaS.setData(smaPts);
+      } catch(_) {}
+    });
+  },
+
+  // ── SR toggle (Support/Resistance swing lines) ─────────────────────────
+  _srOn: false,
+  toggleSR(){
+    this._srOn = !this._srOn;
+
+    // Button active style
+    const asset = this._asset;
+    const suffix = asset === 'BANKNIFTY' ? 'bn' : 'btc';
+    const btn = document.getElementById('rp-sr-' + suffix);
+    if (btn) btn.classList.toggle('active', this._srOn);
+
+    if (this._srOn) {
+      this._rpRedrawSR();
+    } else {
+      // Clear all SR lines from replay charts
+      if (typeof _bnClearSRNative !== 'function') return;
+      Object.values(this._charts).forEach(c => {
+        if (!c.chart) return;
+        try {
+          c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
+        } catch(_) {}
+      });
+    }
   },
 
   // ── Playback control ──────────────────────────────────────────────────
@@ -12542,15 +12650,20 @@ const Replay = {
     // SR redraw when paused — bars jo aaye unke basis par recalculate
     try { this._rpRedrawSR(); } catch(_) {}
   },
+  // ── Speed steps: slider 1=slowest(3min/candle) → 7=fastest(30sec/candle) ──
+  _SPEED_STEPS_MS: [180000, 120000, 90000, 60000, 45000, 40000, 30000],
+  _SPEED_LABELS:   ['3m',   '2m',  '90s', '1m',  '45s', '40s', '30s'],
+
   setSpeed(v){
-    this._speed = parseInt(v, 10) || 1;
-    document.getElementById('replay-speed-label').textContent = this._speed + '×';
+    const idx = Math.max(0, Math.min(6, parseInt(v,10)-1));
+    this._speed = idx; // store index
+    const lbl = document.getElementById('replay-speed-label');
+    if (lbl) lbl.textContent = this._SPEED_LABELS[idx];
   },
 
   // ── Speed model ─────────────────────────────────────────────────────────
-  // Spec: at 1x speed, ONE smallest-TF bar (5m for BankNifty = 5 base rows,
-  // 160m for BTC = 160 base rows) should take ~1 real second.
-  // rows/sec = minBarMinutes * speed  →  scales linearly with the slider.
+  // msPerCandle = _SPEED_STEPS_MS[_speed]
+  // rowsPerSec  = (minBarMinutes * 60000) / msPerCandle
   _minBarMinutesFor(asset){
     return asset === 'BTCUSDT' ? 160 : 5;
   },
@@ -12561,7 +12674,9 @@ const Replay = {
     const elapsedMs = ts - this._lastFrameTs;
     this._lastFrameTs = ts;
 
-    const rowsPerSec = this._minBarMinutesFor(this._asset) * this._speed;
+    const msPerCandle = this._SPEED_STEPS_MS[this._speed] || 30000;
+    const minBarMs    = this._minBarMinutesFor(this._asset) * 60000;
+    const rowsPerSec  = minBarMs / msPerCandle;
     this._rowAccum += (elapsedMs / 1000) * rowsPerSec;
 
     let nRows = Math.floor(this._rowAccum);
@@ -12584,6 +12699,7 @@ const Replay = {
   _stepBatch(n){
     const base = this._data.base;
     let lastTs = null;
+    let anyClosed = false;
     for (let i = 0; i < n && this._idx < base.length; i++){
       const row = base[this._idx++];
       lastTs = row[0];
@@ -12593,9 +12709,17 @@ const Replay = {
           c.series.update(this._toLwc(closed));
           c.bars.push(closed);
           if (c.bars.length > 500) c.bars.shift();
+          anyClosed = true;
+          // Update SMA lines for this cell when candle closes
+          try { this._updateSMALines(c, closed); } catch(_) {}
         }
         c.series.update(this._toLwc(current));
       });
+    }
+    // Redraw SR every time a candle closes (throttled)
+    if (anyClosed && this._srOn) {
+      clearTimeout(this._srThrottle);
+      this._srThrottle = setTimeout(() => { try{ this._rpRedrawSR(); }catch(_){} }, 300);
     }
     if (lastTs != null) this._updateTimeLabel(lastTs);
   },
