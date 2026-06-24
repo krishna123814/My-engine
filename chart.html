@@ -12141,23 +12141,72 @@ const Replay = {
         this._dbgLog(`📡 GitHub fallback fetch: ${GH_URL}`);
 
         let resp;
+        const _ctrl = new AbortController();
+        const _timeoutMs = 45000; // 45 sec — isse zyada lage to error do, hang mat hone do
+        const _timeoutId = setTimeout(() => _ctrl.abort(), _timeoutMs);
         try {
-          resp = await fetch(GH_URL);
+          resp = await fetch(GH_URL, { signal: _ctrl.signal });
           this._dbgLog(`📡 GitHub HTTP: ${resp.status} ${resp.statusText}`);
         } catch(fetchErr) {
-          this._dbgLog(`❌ FETCH ERROR: ${fetchErr.message}`);
-          this._dbgLog(`   → Internet check karo ya Fyers se connected raho`);
+          clearTimeout(_timeoutId);
+          if (fetchErr.name === 'AbortError') {
+            this._dbgLog(`❌ TIMEOUT — ${(_timeoutMs/1000)}s mein download shuru/poora nahi hua`);
+            this._dbgLog(`   → Network bahut slow hai ya GitHub unreachable hai`);
+          } else {
+            this._dbgLog(`❌ FETCH ERROR: ${fetchErr.message}`);
+            this._dbgLog(`   → Internet check karo ya Fyers se connected raho`);
+          }
           throw fetchErr;
         }
-        if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
+        if (!resp.ok) { clearTimeout(_timeoutId); throw new Error('GitHub fetch failed: HTTP ' + resp.status); }
 
+        // ── Streaming download with live speed/progress ─────────────────────
         this._dbgLog(`⬇️ File download ho raha hai (~12MB)...`);
         let compBuf;
         try {
-          compBuf = await resp.arrayBuffer();
-          this._dbgLog(`✅ Download complete — ${(compBuf.byteLength/1024/1024).toFixed(2)} MB`);
+          const _contentLen = parseInt(resp.headers.get('Content-Length') || '0', 10);
+          if (!resp.body || typeof resp.body.getReader !== 'function') {
+            // Streaming fallback nahi mila — purane tarike se download karo
+            compBuf = await resp.arrayBuffer();
+          } else {
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let received = 0;
+            const startT = performance.now();
+            let lastLogT = startT;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              received += value.length;
+              const now = performance.now();
+              if (now - lastLogT > 2000) {  // har 2 sec mein speed log karo
+                const elapsedSec = (now - startT) / 1000;
+                const speedKBs   = (received / 1024) / elapsedSec;
+                const pct = _contentLen ? Math.round((received/_contentLen)*100) : null;
+                this._dbgLog(
+                  `⬇️ ${(received/1024/1024).toFixed(2)} MB aa gaya` +
+                  (pct !== null ? ` (${pct}%)` : '') +
+                  ` — speed: ${speedKBs.toFixed(0)} KB/s`
+                );
+                lastLogT = now;
+              }
+            }
+            clearTimeout(_timeoutId);
+            const totalElapsedSec = (performance.now() - startT) / 1000;
+            const avgSpeedKBs = (received / 1024) / Math.max(totalElapsedSec, 0.01);
+            compBuf = new Uint8Array(received);
+            let off = 0;
+            chunks.forEach(c => { compBuf.set(c, off); off += c.length; });
+            this._dbgLog(`✅ Download complete — ${(received/1024/1024).toFixed(2)} MB in ${totalElapsedSec.toFixed(1)}s (avg ${avgSpeedKBs.toFixed(0)} KB/s)`);
+          }
         } catch(bufErr) {
-          this._dbgLog(`❌ DOWNLOAD ERROR: ${bufErr.message}`);
+          clearTimeout(_timeoutId);
+          if (bufErr.name === 'AbortError') {
+            this._dbgLog(`❌ TIMEOUT — download ${(_timeoutMs/1000)}s se zyada le raha tha, rok diya`);
+          } else {
+            this._dbgLog(`❌ DOWNLOAD ERROR: ${bufErr.message}`);
+          }
           throw bufErr;
         }
 
