@@ -12424,6 +12424,8 @@ const Replay = {
       ? data.base[this._idx][0] : null;
     this._updateTimeLabel(_idxTs);
     setTimeout(() => this.fitAll(), 80);
+    // FIX: Data load complete — SR draw karo (800ms delay: fitAll + render settle hone ka time)
+    setTimeout(() => { try { if (this._active) this._rpRedrawSR(); } catch(_) {} }, 800);
   },
 
   _buildStack(){
@@ -12523,7 +12525,22 @@ const Replay = {
     // Agar koi cell match nahi hua (e.g. BTC replay but stack BN) — ignore
 
     // SR auto-draw after stack build
-    setTimeout(() => { try { this._rpRedrawSR(); } catch(_) {} }, 100);
+    // FIX: 100ms → 600ms (charts + LWC render hone ka time chahiye)
+    // + retry loop: agar pehli baar charts ready nahi the to 3 baar try karo
+    const _srDrawWithRetry = (attemptsLeft) => {
+      try {
+        const chartCount = Object.keys(this._charts).length;
+        if (chartCount === 0 && attemptsLeft > 0) {
+          // Charts abhi build nahi hue — thoda aur wait karo
+          setTimeout(() => _srDrawWithRetry(attemptsLeft - 1), 400);
+          return;
+        }
+        this._rpRedrawSR();
+      } catch(_) {
+        if (attemptsLeft > 0) setTimeout(() => _srDrawWithRetry(attemptsLeft - 1), 400);
+      }
+    };
+    setTimeout(() => _srDrawWithRetry(3), 600);
   },
 
   // ── SR lines redraw — replay bars ke basis par recompute ──────────────
@@ -12532,7 +12549,19 @@ const Replay = {
   // in arrays ko replay ke c.bars se replace karte hain, compute karte
   // hain, phir original restore kar dete hain.
   _rpRedrawSR(){
-    if (!this._srOn) return;
+    // FIX: Agar replay active hai aur _srOn false hai (open() ke baad bhi),
+    // toh _srOn force-on karo aur button bhi active karo
+    if (!this._srOn) {
+      if (this._active) {
+        // Replay chal raha hai — SR auto-on karo silently
+        this._srOn = true;
+        const suffix = (this._asset === 'BANKNIFTY') ? 'bn' : 'btc';
+        const btn = document.getElementById('rp-sr-' + suffix);
+        if (btn) btn.classList.add('active');
+      } else {
+        return;
+      }
+    }
     if (typeof swingComputeMultiTF !== 'function' || typeof _bnBuildSRNative !== 'function') return;
     if (typeof _bnClearSRNative !== 'function') return;
 
