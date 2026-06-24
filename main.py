@@ -12,7 +12,8 @@ import datetime
 # ─── BN Historical Data Manager ──────────────────────────────────────────────
 from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
-    download_from_github, ensure_bin_file, GITHUB_URL
+    download_from_github, ensure_bin_file, GITHUB_URL,
+    load_all_timeframes, regenerate_all_timeframes, ensure_all_tf_files,
 )
 import replay_data as _replay_data
 
@@ -1221,7 +1222,12 @@ def _maybe_update_historical(creds: dict, force: bool = False) -> dict:
 @st.cache_data(ttl=HIST_CACHE_TTL, show_spinner=False)
 def _get_chart_data(sess: bool, _tok: str = "", _hist_ts: int = 0):
     """
-    Historical + live data merge karke deta hai.
+    BankNifty ke liye ab koi live Fyers intraday fetch / client resample nahi
+    hota — sab 8 timeframes (5m,15m,45m,135m,1d,3d,9d,27d) precomputed
+    bn_<tf>.bin.gz files se load hote hain (regenerate_all_timeframes() har
+    daily update ke baad inhe fresh rakhta hai). sess flag ab data-source ko
+    affect nahi karta, sirf BTC/login-status display ke liye reference rehta
+    hai jahan bhi use ho.
     _hist_ts: bn_1m.bin.gz ki mtime — nayi file par cache reset hoti hai.
     """
     btc_1m   = fetch_btc("1m",  1000)
@@ -1230,37 +1236,27 @@ def _get_chart_data(sess: bool, _tok: str = "", _hist_ts: int = 0):
 
     # ── Google Drive se auto-download agar local file nahi hai ───────────────
     ensure_bin_file()          # File nahi → Drive se download
-    hist_all = load_bin(auto_download=False)   # Already ensured above
+    bn_1m = load_bin(auto_download=False)   # Already ensured above
 
-    if sess:
-        live_1m  = fetch_bn_intraday(1)
-        live_5m  = fetch_bn_intraday(5)
-        live_15m = fetch_bn_intraday(15)
-        live_45m = fetch_bn_intraday(45)
-        bn_day   = load_bn_daily()
+    # ── Precomputed timeframe files bhi ensure karo (GitHub → fallback local
+    #    regenerate agar wahan bhi na milein, e.g. pehli deploy) ──────────────
+    ensure_all_tf_files()
 
-        # Merge: historical + live (dedup by timestamp)
-        if hist_all and live_1m:
-            live_ts   = {r[0] for r in live_1m}
-            hist_trim = [r for r in hist_all if r[0] not in live_ts]
-            bn_1m     = hist_trim + live_1m
-        elif hist_all:
-            bn_1m = hist_all
-        else:
-            bn_1m = live_1m
+    # ── Sab precomputed BankNifty timeframes ek saath load (auto-download
+    #    GitHub se agar local file missing ho) ────────────────────────────────
+    tf = load_all_timeframes(auto_download=True)
+    bn_5m   = tf["5m"]
+    bn_15m  = tf["15m"]
+    bn_45m  = tf["45m"]
+    bn_135m = tf["135m"]
+    bn_day  = tf["1d"]
+    bn_3d   = tf["3d"]
+    bn_9d   = tf["9d"]
+    bn_27d  = tf["27d"]
 
-        bn_5m  = live_5m
-        bn_15m = live_15m
-        bn_45m = live_45m
-    else:
-        # No Fyers session — sirf historical file use karo (replay mode)
-        bn_1m  = hist_all
-        bn_5m  = []
-        bn_15m = []
-        bn_45m = []
-        bn_day = []
-
-    return btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day
+    return (btc_1m, btc_15m, btc_day,
+            bn_1m, bn_5m, bn_15m, bn_45m, bn_135m,
+            bn_day, bn_3d, bn_9d, bn_27d)
 
 
 # Auto-update check + chart data load
@@ -1278,7 +1274,9 @@ _tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
 
 # Cache miss par Fyers + Binance calls slow hoti hain — spinner dikhao
 with st.spinner("📡 Chart data load ho raha hai... (pehli baar 20-30 sec lag sakte hain)"):
-    btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(
+    (btc_1m, btc_15m, btc_day,
+     bn_1m, bn_5m, bn_15m, bn_45m, bn_135m,
+     bn_day, bn_3d, bn_9d, bn_27d) = _get_chart_data(
         sess_active, _tok_hint, _hist_file_ts
     )
 
@@ -1294,7 +1292,8 @@ if "totp_err" in st.session_state:
 # ─── Chart HTML builder — injects live data directly into chart.html ──────────
 def _build_chart_html(
     btc_1m, btc_15m, btc_day,
-    bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
+    bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_135m,
+    bn_day, bn_3d,  bn_9d,   bn_27d,
     sess_active: bool
 ) -> str:
     """Read chart.html and replace all __PLACEHOLDERS__ with real data."""
@@ -1351,7 +1350,11 @@ def _build_chart_html(
     html = html.replace("__BN_5M__",       _to_lwc(bn_5m))
     html = html.replace("__BN_15M__",      _to_lwc(bn_15m))
     html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
+    html = html.replace("__BN_135M__",     _to_lwc(bn_135m))
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
+    html = html.replace("__BN_3D__",       _to_lwc(bn_3d))
+    html = html.replace("__BN_9D__",       _to_lwc(bn_9d))
+    html = html.replace("__BN_27D__",      _to_lwc(bn_27d))
     html = html.replace("__FYERS_STATUS__", status)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
@@ -1407,7 +1410,8 @@ if sess_active or _btc_only:
         st.info("📊 BTC Chart mode — BankNifty data available nahi (Fyers login nahi hai)")
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
-        bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
+        bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_135m,
+        bn_day, bn_3d,  bn_9d,   bn_27d,
         sess_active,
     )
     components.html(_chart_html, height=950, scrolling=False)

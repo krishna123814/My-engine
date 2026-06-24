@@ -2267,8 +2267,28 @@ const BTC_DAILY   = __BTC_DAILY__;
 const BN_5M       = __BN_5M__;
 const BN_15M      = __BN_15M__;
 const BN_45M      = __BN_45M__;
+const BN_135M     = __BN_135M__;
 
 const BN_DAILY    = __BN_DAILY__;
+const BN_3D       = __BN_3D__;
+const BN_9D       = __BN_9D__;
+const BN_27D      = __BN_27D__;
+
+// All BankNifty timeframes are now precomputed server-side (bn_data_manager.py
+// regenerate_all_timeframes()) — no client-side resample needed for BN_ASSET.
+// Keys are tfMin values exactly as used elsewhere in this file.
+const BN_PRECOMPUTED = {
+  1:     null,       // 1m → ALLDATA[BN_ASSET] directly, see resampleForTF()
+  5:     BN_5M,
+  15:    BN_15M,
+  45:    BN_45M,
+  135:   BN_135M,
+  1440:  BN_DAILY,
+  4320:  BN_3D,
+  12960: BN_9D,
+  38880: BN_27D,
+};
+
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
@@ -4173,6 +4193,19 @@ function _isMarketOpen(asset) {
 //   NSE/BSE → NSE trading-day grouping (skip weekends + declared holidays)
 //   ≤ 1D    → unchanged calendar resample for all assets
 function resampleForTF(rows, tfMin, asset) {
+  // ── BankNifty: every supported timeframe is precomputed server-side ──────
+  // (5m/15m/45m/135m NSE-session-aware, 1d/3d/9d/27d NSE working-day aware —
+  // see bn_data_manager.py regenerate_all_timeframes()). No resample needed.
+  if (asset === BN_ASSET) {
+    if (tfMin === 1) return (ALLDATA[BN_ASSET] || []).slice();
+    if (Object.prototype.hasOwnProperty.call(BN_PRECOMPUTED, tfMin)) {
+      const pre = BN_PRECOMPUTED[tfMin];
+      if (Array.isArray(pre)) return pre.slice();
+    }
+    // Fallback for any ad-hoc/synthetic tfMin not in the precomputed set
+    // (e.g. custom multi-chart layouts) — old logic still works as a safety net.
+  }
+
   if (tfMin > 1440) {
     const nDays = Math.round(tfMin / 1440);
     return isCryptoSymbol(asset)
