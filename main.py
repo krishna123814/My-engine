@@ -1439,23 +1439,68 @@ if sess_active or _btc_only:
         # Up-to-date bhi ho, phir bhi user se explicit click lo — auto-redirect nahi
         if _gh_st == "up_to_date":
             st.markdown("## 📊 BankNifty Live Chart")
+
+            _stats_now = get_stats()
+            _last_candle = _stats_now.get("last", "?") if _stats_now.get("exists") else "file missing"
+
             st.markdown(f"""
             <div style='background:#0d1f17;border:1px solid #1a4731;border-radius:10px;
                         padding:16px 20px;margin-bottom:12px;'>
                 <div style='display:flex;align-items:center;gap:10px;margin-bottom:8px;'>
                     <span style='font-size:1.3rem'>✅</span>
                     <span style='color:#26a69a;font-weight:700;font-size:1rem;'>
-                        Data already latest hai
+                        GitHub se match karti hai (ETag same)
                     </span>
                 </div>
                 <div style='color:#787b86;font-size:0.78rem;'>
                     GitHub: {_gh.get('github_modified','?')}<br>
                     Local:&nbsp; {_gh.get('local_modified','?')}
                 </div>
+                <div style='color:#f0b429;font-size:0.85rem;margin-top:8px;font-weight:700;'>
+                    📅 Data ki aakhri candle: {_last_candle}
+                </div>
+                <div style='color:#555;font-size:0.72rem;margin-top:2px;'>
+                    (Yeh asli freshness hai — upar wala ETag sirf GitHub=Local match batata hai)
+                </div>
             </div>
             """, unsafe_allow_html=True)
+
+            # ── Yahin se Fyers update + download bhi mil jaye, taaki guest/BTC
+            # mode se seedha is screen tak aane par bhi options mile ──────────
+            _creds_here = load_creds()
+            if _creds_here.get("access_token"):
+                if st.button("🔄 Fyers se Naya Data Lao (Asli Update)", use_container_width=True,
+                             type="primary", key="real_fyers_update_btn_gate2"):
+                    with st.spinner("📡 Fyers se naya data aa raha hai..."):
+                        _res2 = update_from_fyers(
+                            _creds_here["app_id"], _creds_here["access_token"], force=True
+                        )
+                    if _res2.get("skipped"):
+                        st.warning(f"⏭️ Skip ho gaya: {_res2.get('reason','?')}")
+                    elif _res2.get("error"):
+                        st.error(f"❌ Failed: {_res2['error']}")
+                    else:
+                        st.success("✅ Naya data aa gaya!")
+                        st.session_state["gh_check_result"] = None
+                        _get_chart_data.clear()
+                        st.rerun()
+            else:
+                st.caption("⚠️ Fyers login nahi hai — isliye 'Asli Update' yahan nahi chalega")
+
+            from bn_data_manager import BIN_FILE as _BF2
+            if os.path.exists(_BF2):
+                with open(_BF2, "rb") as _f2:
+                    st.download_button(
+                        label=f"📥 bn_1m.bin.gz Download Karo ({_stats_now.get('size_mb','?')} MB)",
+                        data=_f2.read(),
+                        file_name="bn_1m.bin.gz",
+                        mime="application/gzip",
+                        use_container_width=True,
+                        key="dl_bin_btn_gate2",
+                    )
+
             if st.button("⏭️ Skip — Chart Kholo", use_container_width=True,
-                         type="primary", key="upd_sess_skip_uptodate"):
+                         key="upd_sess_skip_uptodate"):
                 st.session_state["_data_update_done"] = True
                 st.rerun()
             st.stop()  # jab tak button na dabe, chart nahi khulega
