@@ -11542,10 +11542,7 @@ if (document.readyState === 'loading') {
   background:transparent; pointer-events:none;
 }
 #replay-screen.open{ display:flex; }
-#replay-screen.bar-replay-full{
-  /* Bar Replay mode: pura screen cover karo — stack view ki tarah */
-  top:0; background:#131722;
-}
+/* bar-replay-full: removed — replay-screen always stays as bottom overlay only */
 /* replay-top aur replay-stack ab use nahi — live STACK_CELLS use hote hain */
 #replay-top{ display:none !important; }
 #replay-stack{ display:none !important; }
@@ -12365,17 +12362,10 @@ const BarReplayStack = {
     // Replay.open() khud:
     //   - live tick block karta hai
     //   - live SR hide karta hai
-    //   - replay-screen.open add karta hai
-    //   - switchAsset() call karta hai
+    //   - replay-screen.open add karta hai (bottom bar neeche dikhta hai)
+    //   - switchAsset() → _buildStack() → STACK_CELLS pe resamplers set karta hai
+    // Stack View charts screen pe visible rahenge, replay bottom bar neeche overlay hai
     Replay.open();
-
-    // Step 3: replay-screen ko full-screen banao (Stack View ke upar)
-    const rScreen = document.getElementById('replay-screen');
-    rScreen.classList.add('bar-replay-full');
-
-    // Step 4: bar-replay-stack-view hide — Stack View hi use ho raha hai
-    // (STACK_CELLS replay mode mein blank slate hain — Replay._buildStack ne clear kiye)
-    // Koi alag stack build nahi karna — Replay engine STACK_CELLS ko directly use karta hai
   },
 
   close() {
@@ -12388,10 +12378,6 @@ const BarReplayStack = {
 
     // Replay ka original close() — live SR restore, SMA remove, tick unblock
     Replay.close();
-
-    // replay-screen se full-screen class hata do
-    const rScreen = document.getElementById('replay-screen');
-    rScreen.classList.remove('bar-replay-full');
   },
 };
 
