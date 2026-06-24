@@ -7777,7 +7777,7 @@ async function _probeApiPort() {
   for (let p = 8502; p <= 8510; p++) {
     try {
       const r = await fetch(`http://${host}:${p}/api/bn_history?resolution=D&days=1`,
-                            { signal: AbortSignal.timeout(1500) });
+                            { signal: AbortSignal.timeout(600) });  // 600ms max per port
       if (r.ok || r.status === 401) { _resolvedApiPort = p; return p; }
     } catch(_) {}
   }
@@ -11849,43 +11849,88 @@ const Replay = {
   closeRangeModal(){ document.getElementById('replay-range-modal').classList.remove('open'); },
 
   // ── DEBUG LOG PANEL ─────────────────────────────────────────────────────────
-  _dbgLog: [],
+  _dbgLines: [],
+
   _dbgLog(msg) {
-    const ts = new Date().toLocaleTimeString('en-IN');
-    const line = `[${ts}] ${msg}`;
-    this._dbgLog.push(line);
-    console.log('[ReplayDebug]', line);
-    // Panel update karo agar open hai
-    const panel = document.getElementById('rp-debug-panel');
-    if (panel) {
-      const pre = document.getElementById('rp-debug-pre');
-      if (pre) { pre.textContent = this._dbgLog.slice(-40).join('\n'); pre.scrollTop = pre.scrollHeight; }
-    }
+    try {
+      const ts   = new Date().toLocaleTimeString('en-IN');
+      const line = '[' + ts + '] ' + msg;
+      // Array guard — kabhi bhi corrupt nahi hona chahiye
+      if (!Array.isArray(Replay._dbgLines)) Replay._dbgLines = [];
+      Replay._dbgLines.push(line);
+      console.log('[RP]', line);
+      // Pre element seedha update karo
+      const pre = document.getElementById('rp-dbg-pre');
+      if (pre) {
+        pre.textContent = Replay._dbgLines.join('\n');
+        pre.scrollTop   = 999999;
+      }
+    } catch(e) { console.error('[RP _dbgLog crash]', e); }
   },
 
   _showDebugPanel(show) {
-    let panel = document.getElementById('rp-debug-panel');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'rp-debug-panel';
-      panel.style.cssText = 'position:fixed;bottom:80px;left:10px;right:10px;max-height:260px;background:#0d1117;border:1.5px solid #f6a623;border-radius:10px;z-index:99999;padding:10px;font-family:monospace;font-size:11px;color:#e6e6e6;display:flex;flex-direction:column;';
-      panel.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <span style="color:#f6a623;font-weight:700;">🔍 Replay Debug Log</span>
-          <div>
-            <button onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('rp-debug-pre').textContent)" style="background:#1a1a2e;color:#aaa;border:1px solid #444;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;margin-right:4px;">Copy</button>
-            <button onclick="Replay._showDebugPanel(false)" style="background:#1a1a2e;color:#f66;border:1px solid #444;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;">✕ Close</button>
-          </div>
-        </div>
-        <pre id="rp-debug-pre" style="margin:0;overflow-y:auto;flex:1;white-space:pre-wrap;word-break:break-all;color:#b5cea8;"></pre>
-      `;
-      document.body.appendChild(panel);
-    }
-    panel.style.display = show ? 'flex' : 'none';
-    if (show) {
-      const pre = document.getElementById('rp-debug-pre');
-      if (pre) { pre.textContent = this._dbgLog.slice(-40).join('\n'); pre.scrollTop = pre.scrollHeight; }
-    }
+    try {
+      // Panel ek baar banao, baar baar recreate mat karo
+      let panel = document.getElementById('rp-dbg-panel');
+      if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'rp-dbg-panel';
+        panel.style.cssText =
+          'position:fixed;bottom:76px;left:4px;right:4px;height:260px;' +
+          'background:#0a0e17;border:2px solid #f6a623;border-radius:10px;' +
+          'z-index:2147483647;display:flex;flex-direction:column;' +
+          'font-family:monospace;font-size:11px;color:#ddd;';
+
+        // Header
+        const hdr = document.createElement('div');
+        hdr.style.cssText =
+          'display:flex;align-items:center;justify-content:space-between;' +
+          'padding:6px 10px;border-bottom:1px solid #2a2e3e;flex-shrink:0;';
+        hdr.innerHTML =
+          '<span style="color:#f6a623;font-weight:700;font-size:12px;">🔍 Replay Debug Log</span>' +
+          '<div style="display:flex;gap:6px;">' +
+          '<button id="rp-dbg-copy" style="background:#1e3a5f;color:#7ab3ef;border:1px solid #2a5a9f;' +
+          'border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer;">📋 Copy</button>' +
+          '<button id="rp-dbg-close" style="background:#3a1e1e;color:#f66;border:1px solid #7a2a2a;' +
+          'border-radius:4px;padding:3px 10px;font-size:10px;cursor:pointer;">✕ Close</button>' +
+          '</div>';
+        panel.appendChild(hdr);
+
+        // Pre — log content
+        const pre = document.createElement('pre');
+        pre.id = 'rp-dbg-pre';
+        pre.style.cssText =
+          'margin:0;padding:8px 10px;overflow-y:auto;flex:1;' +
+          'white-space:pre-wrap;word-break:break-all;color:#b5cea8;line-height:1.6;';
+        panel.appendChild(pre);
+
+        document.body.appendChild(panel);
+
+        // Button handlers
+        document.getElementById('rp-dbg-copy').onclick = function() {
+          const txt = document.getElementById('rp-dbg-pre').textContent;
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(txt).then(function(){ alert('Log copied!'); });
+          } else {
+            prompt('Log copy karo:', txt);
+          }
+        };
+        document.getElementById('rp-dbg-close').onclick = function() {
+          Replay._showDebugPanel(false);
+        };
+      }
+
+      panel.style.display = show ? 'flex' : 'none';
+
+      if (show) {
+        // Existing lines show karo
+        const pre = document.getElementById('rp-dbg-pre');
+        if (pre) {
+          pre.textContent = (Replay._dbgLines || []).join('\n');
+          pre.scrollTop   = 999999;
+        }
+      }
+    } catch(e) { console.error('[RP _showDebugPanel crash]', e); }
   },
 
   async requestLoad(){
@@ -11896,9 +11941,10 @@ const Replay = {
     this.closeRangeModal();
     this._showLoading(true);
 
-    // Debug log reset aur panel open karo
-    this._dbgLog = [];
-    this._showDebugPanel(true);
+    // Debug panel reset + open — PEHLE panel banao, PHIR log karo
+    Replay._dbgLines = [];
+    Replay._showDebugPanel(true);
+    Replay._dbgLog('▶ requestLoad() called');
 
     const rpAsset = this._asset;
     const rpStart = start;
@@ -11926,8 +11972,11 @@ const Replay = {
 
         // API port probe karo agar abhi tak nahi mila
         if (_resolvedApiPort === 0) {
-          this._dbgLog(`🔍 API port probe kar raha hai...`);
+          this._dbgLog(`🔍 API port probe kar raha hai... (8502-8510, max ~5s)`);
           await _probeApiPort();
+          this._dbgLog(`🔍 Probe result: port=${_resolvedApiPort} (0=nahi mila)`);
+        } else {
+          this._dbgLog(`✅ API port already known: ${_resolvedApiPort}`);
         }
 
         if (_resolvedApiPort > 0) {
@@ -12127,11 +12176,14 @@ const Replay = {
       }
 
     } catch(err) {
-      this._showLoading(false);
       this._dbgLog(`\n💥 EXCEPTION: ${err.name}: ${err.message}`);
       if (err.stack) this._dbgLog(`Stack: ${err.stack.split('\n').slice(0,4).join(' | ')}`);
       this._dbgLog(`\n👇 Log copy karke share karo`);
+      this._showLoading(false);
       alert('Replay data load nahi hua: ' + err.message + '\n\nDebug panel mein full log dekho ⬇');
+    } finally {
+      // Safety net: koi bhi path se exit ho — loading zaroor band karo
+      this._showLoading(false);
     }
   },
 
@@ -12442,11 +12494,21 @@ const BarReplayStack = {
   },
 };
 
-// ── Entry point: Grid Picker "⏪ Bar Replay" tap ──────────────────────────
-function enterBarReplayStackView() {
-  document.getElementById('grid-picker').classList.remove('open');
-  BarReplayStack.open();
-}
+// ── Global error catcher — replay mein koi bhi silent crash pakdo ──────────
+window.addEventListener('error', function(e) {
+  if (typeof Replay !== 'undefined' && typeof Replay._dbgLog === 'function') {
+    Replay._dbgLog(`🔴 JS ERROR: ${e.message} @ ${e.filename}:${e.lineno}`);
+    Replay._showDebugPanel(true);
+  }
+  console.error('[GlobalError]', e.message, e.filename, e.lineno);
+});
+window.addEventListener('unhandledrejection', function(e) {
+  if (typeof Replay !== 'undefined' && typeof Replay._dbgLog === 'function') {
+    Replay._dbgLog(`🔴 UNHANDLED PROMISE: ${e.reason}`);
+    Replay._showDebugPanel(true);
+  }
+  console.error('[UnhandledPromise]', e.reason);
+});
 </script>
 </body>
 </html>
