@@ -553,12 +553,18 @@ def build_sr_snapshot(rows: list = None) -> dict:
     bn_1m data se sabhi TF ke liye resampled bars banao aur
     bn_sr_snapshot.json.gz mein save karo.
 
+    Ab snapshot mein 'base' bhi hai — last REPLAY_BASE_DAYS trading days ke
+    1m candles. Chart.html seedha GitHub se fetch karke date range filter
+    karega JS mein — koi Local API ya Streamlit bridge nahi chahiye.
+
     rows: already loaded 1m data pass kar sakte ho (reload avoid karne ke liye).
           None dene par load_bin() se load hoga.
 
     Returns: {tf: bar_count, ...} — kitne bars har TF mein bane.
     """
-    import json
+    import json, datetime as _dt
+
+    REPLAY_BASE_DAYS = 60  # last 60 trading days ke 1m candles snapshot mein
 
     if rows is None:
         rows = load_bin(auto_download=False)
@@ -566,9 +572,25 @@ def build_sr_snapshot(rows: list = None) -> dict:
         log.warning("build_sr_snapshot: koi data nahi mila — snapshot nahi bana")
         return {}
 
+    # ── last N trading days ke 1m candles nikalo ────────────────────────────
+    IST = _dt.timedelta(hours=5, minutes=30)
+    day_set = {}
+    for r in rows:
+        day_key = (_dt.datetime.utcfromtimestamp(r[0]/1000) + IST).strftime("%Y-%m-%d")
+        day_set[day_key] = True
+    unique_days = sorted(day_set.keys())
+    cutoff_day  = unique_days[-REPLAY_BASE_DAYS] if len(unique_days) >= REPLAY_BASE_DAYS else unique_days[0]
+    cutoff_ts   = int((_dt.datetime.strptime(cutoff_day, "%Y-%m-%d") - IST
+                       - _dt.datetime(1970, 1, 1)).total_seconds() * 1000)
+    base_rows   = [r for r in rows if r[0] >= cutoff_ts]
+    # Float precision: 2 decimal places
+    base_rows   = [[r[0], round(r[1],2), round(r[2],2), round(r[3],2), round(r[4],2)]
+                   for r in base_rows]
+
     snapshot = {
         "asset":     "BANKNIFTY",
         "generated": rows[-1][0],   # last candle timestamp ms
+        "base":      base_rows,     # 1m candles — JS mein date filter karega
         "tfs":       {},
     }
     counts = {}
@@ -580,7 +602,6 @@ def build_sr_snapshot(rows: list = None) -> dict:
             all_bars = _snap_resample_days(rows, val)
 
         bars = all_bars[-want:] if len(all_bars) >= want else all_bars
-        # Float precision: 2 decimal places kafi hain BankNifty ke liye
         bars = [[b[0], round(b[1], 2), round(b[2], 2), round(b[3], 2), round(b[4], 2)]
                 for b in bars]
         snapshot["tfs"][tf] = bars
@@ -593,8 +614,8 @@ def build_sr_snapshot(rows: list = None) -> dict:
         f.write(json_bytes)
 
     size_kb = os.path.getsize(SNAPSHOT_FILE) / 1024
-    log.info(f"✅ Snapshot saved: {SNAPSHOT_FILE} ({size_kb:.1f} KB) — {counts}")
-    print(f"✅ Snapshot: {size_kb:.1f} KB → {counts}")
+    log.info(f"✅ Snapshot saved: {SNAPSHOT_FILE} ({size_kb:.1f} KB) — base:{len(base_rows)} 1m candles, {counts}")
+    print(f"✅ Snapshot: {size_kb:.1f} KB → base:{len(base_rows)} 1m candles, tfs:{counts}")
     return counts
 
 
