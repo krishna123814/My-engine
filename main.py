@@ -814,24 +814,29 @@ def _bn_history_handler_data(resolution: str, from_date: str, to_date: str) -> d
     return {"candles": converted, "cached": False}
 
 
-# ─── Replay data endpoint — in-memory cache (asset|from|to → data) ────────────
+# ─── Replay data endpoint — in-memory cache (asset|from|to|sr → data) ───────
 _REPLAY_CACHE: dict = {}
 _REPLAY_CACHE_LOCK = threading.Lock()
 _REPLAY_CACHE_TTL = 1800  # 30 min — BTC fetch especially is expensive, reuse it
 
-
-def _replay_cache_key(asset: str, from_date: str, to_date: str) -> str:
-    return f"{asset}|{from_date}|{to_date}"
+SR_LOOKBACK_DEFAULT = 100  # Visible S/R window candles (start_date se pehle ke)
 
 
-def _get_replay_data_cached(asset: str, from_date: str, to_date: str) -> dict:
-    key = _replay_cache_key(asset, from_date, to_date)
+def _replay_cache_key(asset: str, from_date: str, to_date: str,
+                      sr_lookback: int = SR_LOOKBACK_DEFAULT) -> str:
+    return f"{asset}|{from_date}|{to_date}|sr{sr_lookback}"
+
+
+def _get_replay_data_cached(asset: str, from_date: str, to_date: str,
+                             sr_lookback: int = SR_LOOKBACK_DEFAULT) -> dict:
+    key = _replay_cache_key(asset, from_date, to_date, sr_lookback)
     now = time.time()
     with _REPLAY_CACHE_LOCK:
         entry = _REPLAY_CACHE.get(key)
         if entry and (now - entry["ts"] < _REPLAY_CACHE_TTL):
             return entry["data"]
-    data = _replay_data.get_replay_data(asset, from_date, to_date)
+    data = _replay_data.get_replay_data(asset, from_date, to_date,
+                                         sr_lookback=sr_lookback)
     with _REPLAY_CACHE_LOCK:
         _REPLAY_CACHE[key] = {"ts": now, "data": data}
     return data
@@ -879,15 +884,22 @@ def _register_api_route():
                 if parsed.path == "/api/replay_data":
                     qs = _up.parse_qs(parsed.query, keep_blank_values=False)
                     def _qr(k, d=""): return qs.get(k, [d])[0]
-                    asset = _qr("asset", "BANKNIFTY").upper()
+                    asset     = _qr("asset", "BANKNIFTY").upper()
                     from_date = _qr("from", "")
                     to_date   = _qr("to", "")
+                    # sr_candles: kitne visible candles start_date se pehle chahiye
+                    try:
+                        sr_lookback = int(_qr("sr_candles", str(SR_LOOKBACK_DEFAULT)))
+                        sr_lookback = max(0, min(sr_lookback, 500))  # 0–500 clamp
+                    except ValueError:
+                        sr_lookback = SR_LOOKBACK_DEFAULT
                     if not from_date or not to_date:
                         body = json.dumps({"error": "from/to date required"}).encode()
                         self.send_response(400)
                     else:
                         try:
-                            data = _get_replay_data_cached(asset, from_date, to_date)
+                            data = _get_replay_data_cached(asset, from_date, to_date,
+                                                            sr_lookback=sr_lookback)
                             body = json.dumps(data).encode()
                             self.send_response(200)
                         except Exception as e:
@@ -1706,6 +1718,7 @@ if sess_active or _btc_only:
       params.set('rp_from',  msg.from  || '');
       params.set('rp_to',    msg.to    || '');
       params.set('rp_req',   msg.req_id || String(Date.now()));
+      params.set('rp_sr',    String(msg.sr_candles || 100));
       // replaceState — page reload NAHI hoga, sirf URL update hoga
       window.parent.history.replaceState(null, '', '?' + params.toString());
     } catch(e){}
@@ -1723,6 +1736,11 @@ if sess_active or _btc_only:
         rp_asset  = qp.get("rp_asset", "BANKNIFTY").upper()
         rp_from   = qp.get("rp_from", "")
         rp_to     = qp.get("rp_to", "")
+        try:
+            rp_sr = int(qp.get("rp_sr", str(SR_LOOKBACK_DEFAULT)))
+            rp_sr = max(0, min(rp_sr, 500))
+        except ValueError:
+            rp_sr = SR_LOOKBACK_DEFAULT
         # Query params clear karo — lekin st.rerun() BILKUL MAT KARO
         # Fragment apne aap 1s mein rerun hota hai — manual rerun = full app restart
         try:
@@ -1732,7 +1750,8 @@ if sess_active or _btc_only:
         if not rp_from or not rp_to:
             return
         try:
-            data = _get_replay_data_cached(rp_asset, rp_from, rp_to)
+            data = _get_replay_data_cached(rp_asset, rp_from, rp_to,
+                                            sr_lookback=rp_sr)
             import json as _json
             data_js = _json.dumps(data)
             _script = f"""

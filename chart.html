@@ -11954,6 +11954,7 @@ const Replay = {
     // 5. Reset SR/SMA indicator state + buttons
     this._srOn = false;
     this._smaOn = {};
+    this._srWindow = [];  // SR visible window clear karo
     ['bn','btc'].forEach(sfx => {
       const srb = document.getElementById('rp-sr-'+sfx);
       if (srb) srb.classList.remove('active');
@@ -12075,28 +12076,20 @@ const Replay = {
     Replay._showDebugPanel(true);
     Replay._dbgLog('▶ requestLoad() called');
 
-    const rpAsset = this._asset;
-    const rpStart = start;
-    const rpEnd   = end;
+    const rpAsset   = this._asset;
+    const rpStart   = start;
+    const rpEnd     = end;
+    const SR_CANDLES = 100;  // Visible S/R window size
 
-    // Pre-data: user ke selected start se 90 din pehle ka data bhi lao
-    // Taaki replay start par left scroll karne par purana data dikh sake
-    const PRE_DAYS = 90;
-    const rpPreFrom = (function(){
-      const d = new Date(rpStart + 'T00:00:00Z');
-      d.setUTCDate(d.getUTCDate() - PRE_DAYS);
-      return d.toISOString().slice(0, 10);
-    })();
     // User ke actual start date ka ms — replay cursor yahan se start hoga
     const rpStartTs = new Date(rpStart + 'T00:00:00Z').getTime();
 
     this._dbgLog(`▶ Replay start — Asset: ${rpAsset}, From: ${rpStart}, To: ${rpEnd}`);
-    this._dbgLog(`   Pre-data from: ${rpPreFrom} (${PRE_DAYS} din pehle, left-scroll ke liye)`);
+    this._dbgLog(`   SR lookback: ${SR_CANDLES} candles (start se pehle ke, visible window)`);
 
     try {
       if (rpAsset === 'BANKNIFTY') {
-        // ── Strategy 1: Local API server se filtered data lao (fast, sirf selected dates) ──
-        // GitHub se poori 12MB file download karne ki zaroorat nahi
+        // ── Strategy 1: Local API server se filtered data lao (fast) ──────────
         let base = null;
 
         // API port probe karo agar abhi tak nahi mila
@@ -12110,10 +12103,10 @@ const Replay = {
 
         if (_resolvedApiPort > 0) {
           // ── Local Python API server available hai ──
-          // pre_from use karo — 90 din pehle se — taaki left scroll work kare
-          const apiUrl = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/replay_data?asset=BANKNIFTY&from=${rpPreFrom}&to=${rpEnd}`;
+          // from=rpStart (sirf replay range), sr_candles=100 (Python side fetch karega pehle ke)
+          const apiUrl = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/replay_data?asset=BANKNIFTY&from=${rpStart}&to=${rpEnd}&sr_candles=${SR_CANDLES}`;
           this._dbgLog(`📡 Local API fetch: port ${_resolvedApiPort}`);
-          this._dbgLog(`   URL: ...replay_data?asset=BANKNIFTY&from=${rpPreFrom}&to=${rpEnd}`);
+          this._dbgLog(`   URL: ...replay_data?asset=BANKNIFTY&from=${rpStart}&to=${rpEnd}&sr_candles=${SR_CANDLES}`);
 
           let resp;
           try {
@@ -12129,7 +12122,7 @@ const Replay = {
             let apiData;
             try {
               apiData = await resp.json();
-              this._dbgLog(`✅ API data mili — base candles: ${(apiData.base || []).length.toLocaleString()}`);
+              this._dbgLog(`✅ API data mili — replay base: ${(apiData.base || []).length.toLocaleString()}, sr_base: ${(apiData.sr_base || []).length} candles`);
             } catch(jsonErr) {
               this._dbgLog(`❌ JSON parse error: ${jsonErr.message}`);
               apiData = null;
@@ -12138,10 +12131,11 @@ const Replay = {
             if (apiData && apiData.base && apiData.base.length > 0) {
               this._dbgLog(`🚀 setData call ho raha hai (API path)...`);
               this.setData(rpAsset, {
-                base: apiData.base,
-                tfs:  apiData.tfs  || {},
-                meta: apiData.meta || { start: rpStart, end: rpEnd },
-                replayStartTs: rpStartTs,   // left-scroll fix: cursor yahan se chalega
+                base:         apiData.base,        // Hidden: replay engine
+                sr_base:      apiData.sr_base || [], // Visible: S/R window
+                tfs:          apiData.tfs  || {},
+                meta:         apiData.meta || { start: rpStart, end: rpEnd },
+                replayStartTs: rpStartTs,
               });
               this._dbgLog(`✅ Replay data load COMPLETE! (Local API)`);
               return;
@@ -12278,9 +12272,13 @@ const Replay = {
         this._dbgLog(`   Total candles: ${count.toLocaleString()}`);
 
         const IST_OFF  = 5.5 * 3600;
-        // Pre-data bhi include karo (rpPreFrom se) — left scroll ke liye
-        const startSec = (new Date(rpPreFrom + 'T00:00:00Z').getTime() / 1000) - IST_OFF;
-        const endSec   = (new Date(rpEnd   + 'T00:00:00Z').getTime() / 1000) - IST_OFF + 86400;
+        // SR window ke liye rpStart se thoda pehle se fetch karo.
+        // BankNifty 1m: ek trading day ~375 candles. SR_CANDLES=100 ke liye
+        // ~1 trading day kaafi hai, lekin safety ke liye 7 calendar days buffer.
+        const srBufferDays = 7;
+        const srBufferSec  = srBufferDays * 86400;
+        const startSec = (rpStartTs / 1000) - IST_OFF - srBufferSec;
+        const endSec   = (new Date(rpEnd + 'T00:00:00Z').getTime() / 1000) - IST_OFF + 86400;
 
         const ghBase = [];
         let ptr = 13;
@@ -12306,11 +12304,34 @@ const Replay = {
           return;
         }
 
+        // ── GitHub fallback: sr_base aur base alag karo ───────────────────────
+        // ghBase mein saari candles hain (pre+replay) — split karo rpStartTs par
+        // sr_base = rpStartTs se PEHLE ki last SR_CANDLES candles (visible S/R window)
+        // base    = rpStartTs se BAAD ki candles (hidden replay engine)
+        const ghSrBase   = [];
+        const ghReplay   = [];
+        for (const c of ghBase) {
+          if (c[0] < rpStartTs) ghSrBase.push(c);
+          else ghReplay.push(c);
+        }
+        // Sirf last SR_CANDLES rakhni hain
+        const ghSrBaseSliced = ghSrBase.slice(-SR_CANDLES);
+        this._dbgLog(`   sr_base: ${ghSrBaseSliced.length} candles (visible S/R window)`);
+        this._dbgLog(`   base:    ${ghReplay.length} candles (hidden replay engine)`);
+
+        if (ghReplay.length === 0) {
+          this._dbgLog(`⚠️ Replay range mein 0 candles — date range check karo`);
+          this._showLoading(false);
+          alert('Selected date range mein koi data nahi mila.\n\nDebug panel mein details dekho ⬇');
+          return;
+        }
+
         this._dbgLog(`🚀 setData call ho raha hai (GitHub path)...`);
         this.setData(rpAsset, {
-          base: ghBase,
-          meta: { start: rpStart, end: rpEnd },
-          replayStartTs: rpStartTs,   // left-scroll fix: cursor yahan se chalega
+          base:          ghReplay,
+          sr_base:       ghSrBaseSliced,
+          meta:          { start: rpStart, end: rpEnd },
+          replayStartTs: rpStartTs,
         });
         this._dbgLog(`✅ Replay data load COMPLETE! (GitHub fallback)`);
 
@@ -12394,24 +12415,17 @@ const Replay = {
     const data = window.__REPLAY_DATA__[this._asset];
     this._data = data;
 
-    // Left-scroll fix: replayStartTs se pehle ke bars "pre-data" hain
-    // _idx unhe skip karke actual replay start par set karo
-    if (data && data.base && data.replayStartTs) {
-      // Binary search — first index >= replayStartTs
-      const base = data.base;
-      const ts0  = data.replayStartTs;
-      let lo = 0, hi = base.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >>> 1;
-        if (base[mid][0] < ts0) lo = mid + 1;
-        else hi = mid;
-      }
-      this._idx = lo;
-    } else {
-      this._idx = 0;
-    }
+    // ── SR visible window initialize karo ──────────────────────────────────
+    // data.sr_base = start_date se pehle ke 100 candles (visible, S/R ke liye)
+    // data.base    = selected date range (hidden, replay engine chalata hai)
+    // _srWindow = rolling 100 candles jo chart par dikhte hain
+    this._srWindow = (data && data.sr_base) ? data.sr_base.slice() : [];
 
-    // Live STACK_CELLS ke liye resamplers banao + pre-data inject karo
+    // base ab sirf replay candles hain (sr_base alag hai)
+    // isliye _idx hamesha 0 se start hoga
+    this._idx = 0;
+
+    // Live STACK_CELLS ke liye resamplers banao + sr_base inject karo
     this._buildStack();
 
     if (data && data.meta){
@@ -12420,8 +12434,8 @@ const Replay = {
     } else {
       document.getElementById('replay-range-btn').textContent = '📅 Select date range';
     }
-    const _idxTs = (data && data.base && this._idx > 0 && this._idx < data.base.length)
-      ? data.base[this._idx][0] : null;
+    const _idxTs = (data && data.base && data.base.length > 0)
+      ? data.base[0][0] : null;
     this._updateTimeLabel(_idxTs);
     setTimeout(() => this.fitAll(), 80);
     // FIX: Data load complete — SR draw karo (800ms delay: fitAll + render settle hone ka time)
@@ -12434,12 +12448,16 @@ const Replay = {
     const defs  = REPLAY_TF_DEFS[this._asset];
     const asset = this._asset;
     const data  = this._data;
-    const preIdx = this._idx;
+
+    // srWindow = visible rolling 100 candles (sr_base se initialize, replay ke saath append hoga)
+    // _srWindow already _loadFromGlobal mein set ho chuka hai
+    const srWindow = this._srWindow || [];
 
     // Debug: kaunse cells hain
     Replay._dbgLog('_buildStack: asset=' + asset + ' cells=' + STACK_CELLS.length +
       ' tfs=[' + STACK_CELLS.map(c=>c.tf+'('+(c.asset||'?')+')').join(',') + ']');
     Replay._dbgLog('REPLAY_TF_DEFS mins: ' + defs.map(d=>d.mins||d.days+'D').join(','));
+    Replay._dbgLog('sr_base candles: ' + srWindow.length + ' (visible S/R window)');
 
     // Har STACK_CELL ko ek replay resampler de do (TF match karke)
     STACK_CELLS.forEach((c, idx) => {
@@ -12456,7 +12474,6 @@ const Replay = {
       // Exact match pehle try karo
       let def = defs.find(d => (d.mins && d.mins === tfMin) || (d.days && d.days * 1440 === tfMin));
       // Fuzzy fallback: agar exact nahi mila to nearest minute-type TF use karo
-      // (e.g. 138m → 135m, user ne manually TF tweak kiya hoga)
       if (!def) {
         const minuteDefs = defs.filter(d => d.type === 'minute');
         if (minuteDefs.length) {
@@ -12483,25 +12500,16 @@ const Replay = {
         ? _rpMakeMinuteResampler(def.mins)
         : _rpMakeDayResampler(def.days, asset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
 
-      // ── Pre-data inject karo (replay cursor se pehle ke bars) ──────────────
-      // Inhe seedha resample karke setData() se chart mein daal do
-      // Taaki left scroll karne par purana data dikh sake
+      // ── sr_base se initial visible bars banao ──────────────────────────────
+      // srWindow = 100 1m candles → resample karke chart TF ke bars banao
       const preBars = [];
-      if (data && data.base && preIdx > 0) {
-        // Temp resampler bana kar pre-data process karo
+      if (srWindow.length > 0) {
         const preResampler = def.type === 'minute'
           ? _rpMakeMinuteResampler(def.mins)
           : _rpMakeDayResampler(def.days, asset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
-        for (let i = 0; i < preIdx; i++) {
-          const {closed, current} = preResampler(data.base[i]);
+        for (let i = 0; i < srWindow.length; i++) {
+          const {closed} = preResampler(srWindow[i]);
           if (closed) preBars.push(this._toLwc(closed));
-        }
-        // Last partial bar bhi add karo
-        if (preBars.length || preIdx > 0) {
-          // current state ka ek dummy pass karo
-          const {current} = preResampler(data.base[Math.max(0, preIdx-1)]);
-          // Already last closed bar add ho chuka — current (partial) mat add karo
-          // Sirf closed bars = clean candles
         }
       }
 
@@ -12525,13 +12533,10 @@ const Replay = {
     // Agar koi cell match nahi hua (e.g. BTC replay but stack BN) — ignore
 
     // SR auto-draw after stack build
-    // FIX: 100ms → 600ms (charts + LWC render hone ka time chahiye)
-    // + retry loop: agar pehli baar charts ready nahi the to 3 baar try karo
     const _srDrawWithRetry = (attemptsLeft) => {
       try {
         const chartCount = Object.keys(this._charts).length;
         if (chartCount === 0 && attemptsLeft > 0) {
-          // Charts abhi build nahi hue — thoda aur wait karo
           setTimeout(() => _srDrawWithRetry(attemptsLeft - 1), 400);
           return;
         }
@@ -12835,26 +12840,43 @@ const Replay = {
   },
 
   _stepBatch(n){
-    const base = this._data.base;
-    let lastTs = null;
-    let anyClosed = false;
+    const base      = this._data.base;
+    const SR_MAX    = (this._data && this._data.meta && this._data.meta.sr_lookback)
+                      ? this._data.meta.sr_lookback : 100;
+    let lastTs      = null;
+    let anyClosed   = false;
+
     for (let i = 0; i < n && this._idx < base.length; i++){
       const row = base[this._idx++];
       lastTs = row[0];
+
       Object.values(this._charts).forEach(c => {
         const {closed, current} = c.resampler(row);
         if (closed){
-          c.series.update(this._toLwc(closed));
+          // ── Rolling S/R window update ──────────────────────────────────────
+          // Closed candle ko visible window mein add karo
+          // c.bars = rolling window of displayed candles (SR calculate inhi se hoga)
           c.bars.push(closed);
-          if (c.bars.length > 500) c.bars.shift();
+          // Agar window limit se zyada ho gaya to pehli candle hata do (rolling)
+          if (c.bars.length > SR_MAX) c.bars.shift();
+          // Chart par update karo
+          c.series.update(this._toLwc(closed));
           anyClosed = true;
-          // Update SMA lines for this cell when candle closes
+          // SMA update
           try { this._updateSMALines(c, closed); } catch(_) {}
         }
+        // Current (incomplete) candle bhi update karo
         c.series.update(this._toLwc(current));
       });
+
+      // ── srWindow (1m raw) bhi rolling update karo ─────────────────────────
+      // Yeh _rpRedrawSR mein ALLDATA replacement ke liye use hoga
+      if (!this._srWindow) this._srWindow = [];
+      this._srWindow.push(row);
+      if (this._srWindow.length > SR_MAX) this._srWindow.shift();
     }
-    // Redraw SR every time a candle closes (throttled)
+
+    // Redraw SR every time a candle closes (throttled 300ms)
     if (anyClosed && this._srOn) {
       clearTimeout(this._srThrottle);
       this._srThrottle = setTimeout(() => { try{ this._rpRedrawSR(); }catch(_){} }, 300);
