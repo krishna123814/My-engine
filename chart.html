@@ -12079,13 +12079,16 @@ const Replay = {
     const rpAsset   = this._asset;
     const rpStart   = start;
     const rpEnd     = end;
-    const SR_CANDLES = 100;  // Visible S/R window size
+    // SR_CANDLES: GitHub fallback mein ghSrBase se kitne 1m candles rakhne hain.
+    // srBufferDays=400 se ~150,000 candles parse hote hain — sabko slice karo.
+    // API path mein SR_CANDLES sirf URL param ke liye hai (Python sr_bars=100 use karta hai).
+    const SR_CANDLES = 150000;  // GitHub path: saare fetched 1m candles rakhna (JS resampler ke liye)
 
     // User ke actual start date ka ms — replay cursor yahan se start hoga
     const rpStartTs = new Date(rpStart + 'T00:00:00Z').getTime();
 
     this._dbgLog(`▶ Replay start — Asset: ${rpAsset}, From: ${rpStart}, To: ${rpEnd}`);
-    this._dbgLog(`   SR lookback: ${SR_CANDLES} candles (start se pehle ke, visible window)`);
+    this._dbgLog(`   sr_tfs: har TF ke liye last 100 pre-bars (daily+ TF ke liye bhi SR draw hoga)`);
 
     try {
       if (rpAsset === 'BANKNIFTY') {
@@ -12129,12 +12132,21 @@ const Replay = {
             }
 
             if (apiData && apiData.base && apiData.base.length > 0) {
+              // sr_tfs log: har TF mein kitne pre-bars hain
+              if (apiData.sr_tfs) {
+                const srCounts = Object.entries(apiData.sr_tfs).map(([k,v])=>k+'='+v.length).join(', ');
+                this._dbgLog(`✅ API data mili — base: ${apiData.base.length.toLocaleString()} candles`);
+                this._dbgLog(`   sr_tfs (per-TF pre-bars): ${srCounts}`);
+              } else {
+                this._dbgLog(`⚠️ sr_tfs missing in API response — old Python? GitHub fallback will handle`);
+              }
               this._dbgLog(`🚀 setData call ho raha hai (API path)...`);
               this.setData(rpAsset, {
-                base:         apiData.base,        // Hidden: replay engine
-                sr_base:      apiData.sr_base || [], // Visible: S/R window
-                tfs:          apiData.tfs  || {},
-                meta:         apiData.meta || { start: rpStart, end: rpEnd },
+                base:          apiData.base,           // Hidden: replay engine
+                sr_base:       apiData.sr_base || [],  // 1m fallback (GitHub compat)
+                sr_tfs:        apiData.sr_tfs  || null, // ✅ Per-TF pre-bars (preferred)
+                tfs:           apiData.tfs     || {},
+                meta:          apiData.meta    || { start: rpStart, end: rpEnd },
                 replayStartTs: rpStartTs,
               });
               this._dbgLog(`✅ Replay data load COMPLETE! (Local API)`);
@@ -12272,10 +12284,18 @@ const Replay = {
         this._dbgLog(`   Total candles: ${count.toLocaleString()}`);
 
         const IST_OFF  = 5.5 * 3600;
-        // SR window ke liye rpStart se thoda pehle se fetch karo.
-        // BankNifty 1m: ek trading day ~375 candles. SR_CANDLES=100 ke liye
-        // ~1 trading day kaafi hai, lekin safety ke liye 7 calendar days buffer.
-        const srBufferDays = 7;
+        // SR window ke liye rpStart se pehle ka data fetch karo.
+        // Har TF ke liye last 100 bars chahiye:
+        //   5m   → 100 × 5m   = 500 min  ≈ 1.5 trading days
+        //   15m  → 100 × 15m  = 1500 min ≈ 4 trading days
+        //   45m  → 100 × 45m  = 4500 min ≈ 12 trading days
+        //   135m → 100 × 135m = 13500 min ≈ 36 trading days
+        //   1d   → 100 days
+        //   3d   → 300 trading days ≈ 420 calendar days
+        //   27d  → 2700 trading days ≈ 3780 calendar days (>>10 years!)
+        // 27d ke liye itna data expensive hai.
+        // Practical: last 400 calendar days enough hai (covers ~280 trading days ≈ ~10 3d bars + ~5 27d bars)
+        const srBufferDays = 400;  // ~400 cal days pehle se fetch karo
         const srBufferSec  = srBufferDays * 86400;
         const startSec = (rpStartTs / 1000) - IST_OFF - srBufferSec;
         const endSec   = (new Date(rpEnd + 'T00:00:00Z').getTime() / 1000) - IST_OFF + 86400;
@@ -12326,10 +12346,37 @@ const Replay = {
           return;
         }
 
+        // GitHub path: sr_tfs JS mein banao (1m candles → resample)
+        // Local API ki tarah Python-side nahi hoga, isliye JS resamplers use karo.
+        const ghSrTfs = {};
+        const ghDefs  = REPLAY_TF_DEFS[rpAsset] || [];
+        const dayKeyFn = rpAsset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC;
+        for (const def of ghDefs) {
+          const rs = def.type === 'minute'
+            ? _rpMakeMinuteResampler(def.mins)
+            : _rpMakeDayResampler(def.days, dayKeyFn);
+          const bars = [];
+          for (const row of ghSrBaseSliced) {
+            const {closed, current} = rs(row);
+            if (closed) bars.push(closed);
+          }
+          // Flush last forming candle
+          if (ghSrBaseSliced.length > 0) {
+            const lastResult = rs(ghSrBaseSliced[ghSrBaseSliced.length - 1]);
+            if (lastResult.current && (!bars.length || bars[bars.length-1][0] !== lastResult.current[0])) {
+              bars.push(lastResult.current);
+            }
+          }
+          ghSrTfs[def.tf] = bars;
+        }
+        const ghSrTfCounts = Object.entries(ghSrTfs).map(([k,v])=>k+'='+v.length+'bars').join(', ');
+        this._dbgLog(`   sr_tfs (JS-resampled from ${ghSrBaseSliced.length} 1m): ${ghSrTfCounts}`);
+
         this._dbgLog(`🚀 setData call ho raha hai (GitHub path)...`);
         this.setData(rpAsset, {
           base:          ghReplay,
-          sr_base:       ghSrBaseSliced,
+          sr_base:       ghSrBaseSliced,  // 1m fallback
+          sr_tfs:        ghSrTfs,         // ✅ Per-TF pre-bars
           meta:          { start: rpStart, end: rpEnd },
           replayStartTs: rpStartTs,
         });
@@ -12416,16 +12463,17 @@ const Replay = {
     this._data = data;
 
     // ── SR visible window initialize karo ──────────────────────────────────
-    // data.sr_base = start_date se pehle ke 100 candles (visible, S/R ke liye)
-    // data.base    = selected date range (hidden, replay engine chalata hai)
-    // _srWindow = rolling 100 candles jo chart par dikhte hain
+    // data.sr_tfs  = { "5m": [[ts_ms,o,h,l,c],...], "15m": [...], "27d": [...] }
+    //                Local API path: har TF ke liye last 100 resampled bars
+    // data.sr_base = 1m candles (GitHub fallback ke liye)
+    // _srTfs = per-TF pre-bars object (preferred)
+    this._srTfs   = (data && data.sr_tfs)  ? data.sr_tfs  : null;
+    // _srWindow = 1m raw candles fallback (GitHub path ya BTC)
     this._srWindow = (data && data.sr_base) ? data.sr_base.slice() : [];
 
-    // base ab sirf replay candles hain (sr_base alag hai)
-    // isliye _idx hamesha 0 se start hoga
     this._idx = 0;
 
-    // Live STACK_CELLS ke liye resamplers banao + sr_base inject karo
+    // Live STACK_CELLS ke liye resamplers banao + sr data inject karo
     this._buildStack();
 
     if (data && data.meta){
@@ -12459,15 +12507,21 @@ const Replay = {
     const asset = this._asset;
     const data  = this._data;
 
-    // srWindow = visible rolling 100 candles (sr_base se initialize, replay ke saath append hoga)
-    // _srWindow already _loadFromGlobal mein set ho chuka hai
-    const srWindow = this._srWindow || [];
+    // sr_tfs: per-TF pre-resampled bars (Local API path — preferred)
+    //   { "5m": [[ts_ms,o,h,l,c], ...last 100 bars...], "15m": [...], "27d": [...] }
+    // srWindow: 1m raw candles fallback (GitHub path)
+    const srTfs    = this._srTfs   || null;   // per-TF object (preferred)
+    const srWindow = this._srWindow || [];     // 1m fallback
 
     // Debug: kaunse cells hain
     Replay._dbgLog('_buildStack: asset=' + asset + ' cells=' + STACK_CELLS.length +
       ' tfs=[' + STACK_CELLS.map(c=>c.tf+'('+(c.asset||'?')+')').join(',') + ']');
     Replay._dbgLog('REPLAY_TF_DEFS mins: ' + defs.map(d=>d.mins||d.days+'D').join(','));
-    Replay._dbgLog('sr_base candles: ' + srWindow.length + ' (visible S/R window)');
+    if (srTfs) {
+      Replay._dbgLog('sr_tfs (per-TF): ' + Object.entries(srTfs).map(([k,v])=>k+'='+v.length+'bars').join(', '));
+    } else {
+      Replay._dbgLog('sr_base (1m fallback): ' + srWindow.length + ' candles');
+    }
 
     // Har STACK_CELL ko ek replay resampler de do (TF match karke)
     STACK_CELLS.forEach((c, idx) => {
@@ -12498,7 +12552,6 @@ const Replay = {
         Replay._dbgLog('  Cell ' + idx + ' tf=' + tfMin + ' → NO MATCH, skip');
         return;
       }
-      Replay._dbgLog('  Cell ' + idx + ' tf=' + tfMin + ' → matched def=' + def.tf);
 
       // Existing SMA remove
       if (c._rpSmaSeries) {
@@ -12510,27 +12563,38 @@ const Replay = {
         ? _rpMakeMinuteResampler(def.mins)
         : _rpMakeDayResampler(def.days, asset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
 
-      // ── sr_base se initial visible bars banao ──────────────────────────────
-      // srWindow = 100 1m candles → resample karke chart TF ke bars banao
-      const preBars = [];
-      if (srWindow.length > 0) {
+      // ── Initial visible bars banao ────────────────────────────────────────
+      // Priority 1: sr_tfs se seedha pre-resampled bars (Local API — exact TF match)
+      // Priority 2: srWindow (1m raw) se resample karo (GitHub fallback)
+      let preBars = [];
+
+      if (srTfs && srTfs[def.tf] && srTfs[def.tf].length > 0) {
+        // ✅ PREFERRED PATH: Python ne already is TF ke liye 100 bars bheje hain
+        // Format: [[ts_ms, o, h, l, c], ...] → convert to LWC {time(sec), o,h,l,c}
+        preBars = srTfs[def.tf].map(b => ({
+          time: Math.floor(b[0] / 1000), open: b[1], high: b[2], low: b[3], close: b[4]
+        }));
+        Replay._dbgLog('  Cell ' + idx + ' tf=' + def.tf + ' ✅ sr_tfs: ' + preBars.length + ' bars');
+
+      } else if (srWindow.length > 0) {
+        // FALLBACK: 1m candles se resample karo (GitHub path ya BTC)
         const preResampler = def.type === 'minute'
           ? _rpMakeMinuteResampler(def.mins)
           : _rpMakeDayResampler(def.days, asset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
         for (let i = 0; i < srWindow.length; i++) {
           const {closed, current} = preResampler(srWindow[i]);
           if (closed) preBars.push(this._toLwc(closed));
-          // Last candle: flush the currently-forming (incomplete) candle too
           if (i === srWindow.length - 1 && current) {
             const lwc = this._toLwc(current);
-            // Only push if not duplicate of last closed candle
             if (!preBars.length || preBars[preBars.length - 1].time !== lwc.time) {
               preBars.push(lwc);
             }
           }
         }
+        Replay._dbgLog('  Cell ' + idx + ' tf=' + def.tf + ' 📦 1m-resample fallback: ' + preBars.length + ' bars from ' + srWindow.length + ' 1m candles');
+      } else {
+        Replay._dbgLog('  Cell ' + idx + ' tf=' + def.tf + ' ⚠️ no sr data — chart empty');
       }
-      Replay._dbgLog('  Cell ' + idx + ' tf=' + def.tf + ' preBars(sr_base)=' + preBars.length + ' from srWindow=' + srWindow.length);
 
       try {
         if (preBars.length > 0) {
@@ -12538,11 +12602,14 @@ const Replay = {
         } else {
           c.series.setData([]);
         }
-      } catch(_) {}
+      } catch(e) {
+        Replay._dbgLog('  Cell ' + idx + ' tf=' + def.tf + ' 🔴 setData error: ' + e.message);
+      }
 
+      // bars array: [[ts_ms, o,h,l,c], ...] format (resampler + _rpRedrawSR ke liye)
       this._charts[def.tf] = {
         chart: c.chart, series: c.series,
-        resampler, bars: preBars.map(b => [b.time*1000, b.open, b.high, b.low, b.close]),
+        resampler, bars: preBars.map(b => [b.time * 1000, b.open, b.high, b.low, b.close]),
         srSeries: [],
         tfMin: def.mins || (def.days ? def.days * 1440 : 1),
         cellIdx: idx,
@@ -12679,9 +12746,12 @@ const Replay = {
         const tfMin = c.tfMin || 1;
         c.srSeries  = _bnClearSRNative(c.chart, c.srSeries);
         const bars  = replayBarsByTfMin[tfMin] || [];
-        if (bars.length < 2) {
-          this._dbgLog('⚠️ SR skip tf=' + tf + ' — only ' + bars.length + ' bars (need ≥2)');
+        if (bars.length < 1) {
+          this._dbgLog('⚠️ SR skip tf=' + tf + ' — 0 bars, no data');
           return;
+        }
+        if (bars.length < 3) {
+          this._dbgLog('ℹ️ tf=' + tf + ' only ' + bars.length + ' bars — limited SR possible');
         }
         const lines = _rpComputeSRForCell(tfMin);
         totalLines += lines.length;
