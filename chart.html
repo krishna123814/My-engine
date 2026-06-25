@@ -2062,7 +2062,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
     </div>
-    <div id="gp-bar-replay-row" class="gp-stack-row" onclick="enterBarReplayStackView()" style="cursor:pointer;margin-top:2px;">
+    <div id="gp-bar-replay-row" class="gp-stack-row" style="cursor:pointer;margin-top:2px;min-height:44px;-webkit-tap-highlight-color:rgba(255,109,0,0.15);">
       <span class="gp-stack-icon">⏪</span>
       <span class="gp-stack-label">Bar Replay</span>
     </div>
@@ -11649,8 +11649,9 @@ if (document.readyState === 'loading') {
   display:none; flex-direction:column; touch-action:pan-y;
   background:transparent; pointer-events:none;
 }
-#replay-screen.open{ display:flex; }
-/* bar-replay-full: removed — replay-screen always stays as top overlay only */
+#replay-screen.open{ display:flex; pointer-events:none; }
+/* Sirf bottombar ke andar pointer events allow karo — baaki chart touchable rahe */
+#replay-screen.open #replay-bottombar{ pointer-events:all; }
 /* replay-top aur replay-stack ab use nahi — live STACK_CELLS use hote hain */
 #replay-top{ display:none !important; }
 #replay-stack{ display:none !important; }
@@ -12084,52 +12085,37 @@ const Replay = {
 
     try {
       if (rpAsset === 'BANKNIFTY') {
-        // ── Local API path (Streamlit) se data aata hai via postMessage ──────
-        // Python side (replay_data.py) ne already:
-        //   tfs     = date range ke bars (replay engine)
-        //   sr_tfs  = start_date se PEHLE ke exactly N bars per TF
-        //             (5m=25, 15m=30, 45m=40, 135m=40, 1d/3d/9d/27d=50)
-        // Yahan JS mein koi filtering nahi karni — Python ka kaam use karo.
-        //
-        // NOTE: Browser Python pickle (.pkl.gz) nahi padh sakta, isliye
-        // GitHub se direct load NAHI hota. Data Streamlit backend se
-        // postMessage ke zariye aata hai (_loadFromGlobal path).
-        // Agar postMessage nahi aaya to neeche ka Local API fallback use hoga.
+        // ── GitHub snapshot fetch — seedha resampled bars, koi 1m nahi ────────
+        const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz';
+        this._dbgLog(`📡 GitHub snapshot fetch...`);
 
-        const apiPort = window.__API_PORT__ || 0;
-        if (!apiPort) {
-          this._showLoading(false);
-          alert('Streamlit API port nahi mila.\nPage reload karo aur dobara try karo.');
-          return;
-        }
-
-        // SR lookback per TF (Python se match karta hai — BANKNIFTY_SR_LOOKBACK)
-        const SR_LOOKBACK_PER_TF = {
-          '5m': 25, '15m': 30, '45m': 40, '135m': 40,
-          '1d': 50, '3d': 50, '9d': 50, '27d': 50,
-        };
-
-        this._dbgLog(`📡 Local API fetch: port=${apiPort}`);
-        const apiUrl = `http://localhost:${apiPort}/api/replay_data?asset=BANKNIFTY&from=${rpStart}&to=${rpEnd}`;
-        const resp = await fetch(apiUrl, {cache: 'no-store'});
+        const resp = await fetch(GH_URL, {cache: 'no-store'});
         this._dbgLog(`📡 HTTP: ${resp.status}`);
-        if (!resp.ok) throw new Error('Local API fetch failed: HTTP ' + resp.status);
+        if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
 
-        const data = await resp.json();
-        if (data.error) throw new Error('API error: ' + data.error);
+        // Decompress
+        const compBuf = await resp.arrayBuffer();
+        const t0 = performance.now();
+        const ds = new DecompressionStream('gzip');
+        const w  = ds.writable.getWriter();
+        w.write(new Uint8Array(compBuf)); w.close();
+        const chunks = []; const rdr = ds.readable.getReader();
+        while(true){ const {done,value} = await rdr.read(); if(done) break; chunks.push(value); }
+        let len=0; chunks.forEach(c=>len+=c.length);
+        const raw=new Uint8Array(len); let off=0; chunks.forEach(c=>{raw.set(c,off);off+=c.length;});
+        const snap = JSON.parse(new TextDecoder().decode(raw));
+        this._dbgLog(`✅ Snapshot ready — ${(compBuf.byteLength/1024).toFixed(1)} KB in ${((performance.now()-t0)/1000).toFixed(2)}s`);
 
-        // tfs = replay range bars (Python se already filtered)
-        const filteredTfs = data.tfs || {};
-        // sr_tfs = pichla context (Python se already N bars per TF)
-        const srTfs = data.sr_tfs || {};
+        if (!snap || !snap.tfs) throw new Error('Snapshot format galat — tfs missing');
 
-        // Debug: har TF ke counts
-        for (const [tf, bars] of Object.entries(filteredTfs)) {
-          this._dbgLog(`  replay ${tf}: ${bars.length} bars`);
-        }
-        for (const [tf, bars] of Object.entries(srTfs)) {
-          const expected = SR_LOOKBACK_PER_TF[tf] || 50;
-          this._dbgLog(`  sr_tfs ${tf}: ${bars.length}/${expected} bars`);
+        // ── Har TF ke bars mein se date range filter karo ───────────────────
+        // Snapshot bars IST mein hain (BankNifty), filter seedha timestamp se
+        const filteredTfs = {};
+        let baseBarCount = 0;
+        for (const [tf, bars] of Object.entries(snap.tfs)) {
+          filteredTfs[tf] = bars.filter(b => b[0] >= rpStartTs && b[0] <= rpEndTs);
+          if (tf === '5m') baseBarCount = filteredTfs[tf].length;
+          this._dbgLog(`  ${tf}: ${bars.length} total → ${filteredTfs[tf].length} in range`);
         }
 
         // base = 5m bars (replay engine ka minimum TF)
@@ -12137,7 +12123,7 @@ const Replay = {
 
         if (base.length === 0) {
           this._showLoading(false);
-          alert('Is date range mein koi 5m data nahi mila.\nDebug panel mein details dekho ⬇');
+          alert('Is date range mein koi data nahi mila.\nSnapshot last 50 bars per TF cover karta hai.\n\nDebug panel mein details dekho ⬇');
           return;
         }
 
@@ -12146,9 +12132,9 @@ const Replay = {
         this.setData(rpAsset, {
           base,
           sr_base: [],
-          sr_tfs:  srTfs,       // Python se exactly N bars per TF (pichla context)
+          sr_tfs:  snap.tfs,   // SR ke liye poore unfiltered bars
           tfs:     filteredTfs, // Replay ke liye filtered bars
-          meta:    { start: rpStart, end: rpEnd, sr_lookback_per_tf: SR_LOOKBACK_PER_TF },
+          meta:    { start: rpStart, end: rpEnd },
           replayStartTs: rpStartTs,
         });
         this._dbgLog(`✅ Load COMPLETE! ${base.length} x 5m bars ready.`);
@@ -12225,13 +12211,6 @@ const Replay = {
     this._buildStack();
 
     if (data && data.meta){
-      // sr_lookback_per_tf ensure karo (Python se nahi aaya to default daal do)
-      if (!data.meta.sr_lookback_per_tf) {
-        data.meta.sr_lookback_per_tf = {
-          '5m': 25, '15m': 30, '45m': 40, '135m': 40,
-          '1d': 50, '3d': 50, '9d': 50, '27d': 50,
-        };
-      }
       document.getElementById('replay-range-btn').textContent =
         '📅 ' + data.meta.start + ' → ' + data.meta.end;
     } else {
@@ -12728,15 +12707,8 @@ const Replay = {
 
   _stepBatch(n){
     const base      = this._data.base;
-
-    // Per-TF rolling window limits (Python ke BANKNIFTY_SR_LOOKBACK se match karta hai)
-    // BTC ke liye sab 100 rehte hain (generic fallback)
-    const SR_LOOKBACK_PER_TF = (this._data && this._data.meta && this._data.meta.sr_lookback_per_tf)
-      ? this._data.meta.sr_lookback_per_tf
-      : { '5m': 25, '15m': 30, '45m': 40, '135m': 40, '1d': 50, '3d': 50, '9d': 50, '27d': 50 };
-    const SR_MAX_DEFAULT = (this._data && this._data.meta && this._data.meta.sr_lookback)
-      ? this._data.meta.sr_lookback : 100;
-
+    const SR_MAX    = (this._data && this._data.meta && this._data.meta.sr_lookback)
+                      ? this._data.meta.sr_lookback : 100;
     let lastTs      = null;
     let anyClosed   = false;
 
@@ -12744,15 +12716,15 @@ const Replay = {
       const row = base[this._idx++];
       lastTs = row[0];
 
-      Object.entries(this._charts).forEach(([tf, c]) => {
+      Object.values(this._charts).forEach(c => {
         const {closed, current} = c.resampler(row);
         if (closed){
           // ── Rolling S/R window update ──────────────────────────────────────
           // Closed candle ko visible window mein add karo
+          // c.bars = rolling window of displayed candles (SR calculate inhi se hoga)
           c.bars.push(closed);
-          // Har TF ka apna limit: 5m=25, 15m=30, 45m/135m=40, 1d+= 50
-          const srMax = SR_LOOKBACK_PER_TF[tf] || SR_MAX_DEFAULT;
-          if (c.bars.length > srMax) c.bars.shift();
+          // Agar window limit se zyada ho gaya to pehli candle hata do (rolling)
+          if (c.bars.length > SR_MAX) c.bars.shift();
           // Chart par update karo
           c.series.update(this._toLwc(closed));
           anyClosed = true;
@@ -12764,9 +12736,10 @@ const Replay = {
       });
 
       // ── srWindow (1m raw) bhi rolling update karo ─────────────────────────
+      // Yeh _rpRedrawSR mein ALLDATA replacement ke liye use hoga
       if (!this._srWindow) this._srWindow = [];
       this._srWindow.push(row);
-      if (this._srWindow.length > SR_MAX_DEFAULT) this._srWindow.shift();
+      if (this._srWindow.length > SR_MAX) this._srWindow.shift();
     }
 
     // Redraw SR every time a candle closes (throttled 300ms)
@@ -12843,19 +12816,24 @@ const BarReplayStack = {
     if (brRow) brRow.classList.add('bar-replay-active');
 
     // Step 1: Pehle Stack View activate karo (STACK_CELLS build hote hain)
-    // Ye zaroori hai kyunki Replay._buildStack() STACK_CELLS pe depend karta hai
     if (!_stackActive) {
       selectStackView();
     }
 
-    // Step 2: Replay ka original open() call karo — saare functions wahi hain
-    // Replay.open() khud:
-    //   - live tick block karta hai
-    //   - live SR hide karta hai
-    //   - replay-screen.open add karta hai (bottom bar neeche dikhta hai)
-    //   - switchAsset() → _buildStack() → STACK_CELLS pe resamplers set karta hai
-    // Stack View charts screen pe visible rahenge, replay bottom bar neeche overlay hai
+    // Step 2: Replay ka original open() call karo
     Replay.open();
+
+    // Step 3: Agar abhi tak koi data load nahi hua to date modal seedha khol do
+    // (user ko dhundna nahi padega "📅 Date" button)
+    const hasData = window.__REPLAY_DATA__ &&
+                    window.__REPLAY_DATA__['BANKNIFTY'] &&
+                    window.__REPLAY_DATA__['BANKNIFTY'].base &&
+                    window.__REPLAY_DATA__['BANKNIFTY'].base.length > 0;
+    if (!hasData) {
+      setTimeout(() => {
+        try { Replay.openRangeModal(); } catch(_) {}
+      }, 150);
+    }
   },
 
   close() {
@@ -12877,6 +12855,40 @@ function enterBarReplayStackView() {
   if (gp) gp.classList.remove('open');
   BarReplayStack.open();
 }
+
+// REPLAY row ke liye reliable click handler — inline onclick ki jagah JS se attach karo
+// (Streamlit iframe mein inline onclick kabhi kabhi nahi fire karta)
+(function _attachReplayRowHandlers() {
+  function _tryAttach() {
+    const row = document.getElementById('gp-bar-replay-row');
+    if (!row) { setTimeout(_tryAttach, 300); return; }
+
+    // Already attached guard
+    if (row._rpHandlerAttached) return;
+    row._rpHandlerAttached = true;
+
+    function _handler(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      enterBarReplayStackView();
+    }
+
+    // Mouse click
+    row.addEventListener('click', _handler);
+    // Touch tap (mobile/tablet)
+    row.addEventListener('touchend', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      enterBarReplayStackView();
+    }, { passive: false });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _tryAttach);
+  } else {
+    _tryAttach();
+  }
+})();
 
 // ── Global error catcher — replay mein koi bhi silent crash pakdo ──────────
 window.addEventListener('error', function(e) {
