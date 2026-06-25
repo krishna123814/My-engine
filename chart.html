@@ -12744,6 +12744,11 @@ const Replay = {
     Object.entries(charts).forEach(([tf, c]) => {
       try {
         const tfMin = c.tfMin || 1;
+        // Visible range PEHLE save karo (clear se bhi pehle) —
+        // warna _bnBuildSRNative ko null milta hai aur scrollToRealTime() fire
+        // hota hai jo sab charts ko right edge par reset kar deta hai.
+        let _preRange = null;
+        try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
         c.srSeries  = _bnClearSRNative(c.chart, c.srSeries);
         const bars  = replayBarsByTfMin[tfMin] || [];
         if (bars.length < 1) {
@@ -12755,7 +12760,7 @@ const Replay = {
         }
         const lines = _rpComputeSRForCell(tfMin);
         totalLines += lines.length;
-        c.srSeries  = _bnBuildSRNative(c.chart, lines, null);
+        c.srSeries  = _bnBuildSRNative(c.chart, lines, _preRange);
       } catch(e) {
         this._dbgLog('🔴 SR draw error tf=' + tf + ': ' + e.message);
       }
