@@ -3454,10 +3454,11 @@ function _replayResample(baseBars, targetMin) {
 }
 
 // ── Build one replay chart cell ───────────────────────────────────────────
-function _buildOneReplayCell(container, tfMin, tfLabel, idx, cfg) {
+function _buildOneReplayCell(container, tfMin, tfLabel, idx, cfg, cellH) {
   const cell = document.createElement('div');
   cell.className = 'grid-cell replay-cell';
-  cell.style.height = 'calc(100% / ' + Math.max(1, cfg.visible) + ')';
+  cell.style.height = (cellH || 300) + 'px';
+  cell.style.minHeight = (cellH || 300) + 'px';
 
   const hdr = document.createElement('div');
   hdr.className = 'cell-hdr';
@@ -3551,8 +3552,14 @@ function _buildReplayCharts() {
   const container = document.getElementById('replay-container');
   if (!container) return;
   const cfg = _REPLAY_CONFIG[_replayAsset] || _REPLAY_CONFIG.bn;
-  cfg.tfs.forEach((tfMin, idx) => {
-    _buildOneReplayCell(container, tfMin, cfg.labels[idx], idx, cfg);
+
+  // Container height milne ke baad hi cells banao (DOM paint ke baad)
+  requestAnimationFrame(() => {
+    const containerH = container.clientHeight || window.innerHeight;
+    const cellH = Math.floor(containerH / Math.max(1, cfg.visible));
+    cfg.tfs.forEach((tfMin, idx) => {
+      _buildOneReplayCell(container, tfMin, cfg.labels[idx], idx, cfg, cellH);
+    });
   });
 }
 
