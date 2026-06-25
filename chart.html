@@ -12085,56 +12085,69 @@ const Replay = {
 
     try {
       if (rpAsset === 'BANKNIFTY') {
-        // ── GitHub snapshot fetch — seedha resampled bars, koi 1m nahi ────────
-        const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz';
-        this._dbgLog(`📡 GitHub snapshot fetch...`);
+        // ── Local API endpoint se replay data fetch karo (Python server) ────
+        // /api/replay_data → Python ka _get_replay_data_cached() → pkl.gz load → JSON
+        // GitHub se seedha fetch band kar diya — pkl.gz format JS mein parse nahi hota
+        let apiPort = (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0)
+                      ? _resolvedApiPort
+                      : (typeof _API_PORT !== 'undefined' && _API_PORT > 0 ? _API_PORT : 0);
 
-        const resp = await fetch(GH_URL, {cache: 'no-store'});
-        this._dbgLog(`📡 HTTP: ${resp.status}`);
-        if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
-
-        // Decompress
-        const compBuf = await resp.arrayBuffer();
-        const t0 = performance.now();
-        const ds = new DecompressionStream('gzip');
-        const w  = ds.writable.getWriter();
-        w.write(new Uint8Array(compBuf)); w.close();
-        const chunks = []; const rdr = ds.readable.getReader();
-        while(true){ const {done,value} = await rdr.read(); if(done) break; chunks.push(value); }
-        let len=0; chunks.forEach(c=>len+=c.length);
-        const raw=new Uint8Array(len); let off=0; chunks.forEach(c=>{raw.set(c,off);off+=c.length;});
-        const snap = JSON.parse(new TextDecoder().decode(raw));
-        this._dbgLog(`✅ Snapshot ready — ${(compBuf.byteLength/1024).toFixed(1)} KB in ${((performance.now()-t0)/1000).toFixed(2)}s`);
-
-        if (!snap || !snap.tfs) throw new Error('Snapshot format galat — tfs missing');
-
-        // ── Har TF ke bars mein se date range filter karo ───────────────────
-        // Snapshot bars IST mein hain (BankNifty), filter seedha timestamp se
-        const filteredTfs = {};
-        let baseBarCount = 0;
-        for (const [tf, bars] of Object.entries(snap.tfs)) {
-          filteredTfs[tf] = bars.filter(b => b[0] >= rpStartTs && b[0] <= rpEndTs);
-          if (tf === '5m') baseBarCount = filteredTfs[tf].length;
-          this._dbgLog(`  ${tf}: ${bars.length} total → ${filteredTfs[tf].length} in range`);
+        // Port nahi mila to probe karo
+        if (apiPort === 0) {
+          this._dbgLog(`🔍 API port probe kar raha hai...`);
+          const host = window.location.hostname || 'localhost';
+          for (let p = 8502; p <= 8510; p++) {
+            try {
+              const pr = await fetch(`http://${host}:${p}/api/bn_history?resolution=D&days=1`,
+                                     { signal: AbortSignal.timeout(600) });
+              if (pr.ok || pr.status === 401) { apiPort = p; _resolvedApiPort = p; break; }
+            } catch(_) {}
+          }
         }
 
-        // base = 5m bars (replay engine ka minimum TF)
+        if (apiPort === 0) throw new Error('Python API server nahi mila (port 8502-8510). Streamlit app chal raha hai?');
+
+        const host = window.location.hostname || 'localhost';
+        const apiUrl = `http://${host}:${apiPort}/api/replay_data?asset=BANKNIFTY&from=${rpStart}&to=${rpEnd}&sr_candles=100`;
+        this._dbgLog(`📡 Local API fetch: ${apiUrl}`);
+
+        const resp = await fetch(apiUrl, { cache: 'no-store' });
+        this._dbgLog(`📡 HTTP: ${resp.status}`);
+        if (!resp.ok) throw new Error('API fetch failed: HTTP ' + resp.status);
+
+        const snap = await resp.json();
+        this._dbgLog(`✅ API data ready`);
+
+        if (snap.error) throw new Error('Server error: ' + snap.error);
+        if (!snap.tfs) throw new Error('Response format galat — tfs missing');
+
+        // snap.tfs = filtered TFs (selected date range)
+        // snap.sr_tfs = SR context TFs (start_date se pehle ke bars)
+        const filteredTfs = snap.tfs || {};
+        const srTfs       = snap.sr_tfs || {};
+
+        // base = smallest TF bars (5m for BANKNIFTY)
         const base = filteredTfs['5m'] || [];
 
         if (base.length === 0) {
           this._showLoading(false);
-          alert('Is date range mein koi data nahi mila.\nSnapshot last 50 bars per TF cover karta hai.\n\nDebug panel mein details dekho ⬇');
+          alert('Is date range mein koi data nahi mila.\n\nDebug panel mein details dekho ⬇');
           return;
+        }
+
+        // Debug: har TF ka bar count
+        for (const [tf, bars] of Object.entries(filteredTfs)) {
+          this._dbgLog(`  ${tf}: ${(bars||[]).length} bars in range`);
         }
 
         this._dbgLog(`✅ base (5m): ${base.length} bars`);
         this._dbgLog(`🚀 setData...`);
         this.setData(rpAsset, {
           base,
-          sr_base: [],
-          sr_tfs:  snap.tfs,   // SR ke liye poore unfiltered bars
+          sr_base: snap.sr_base || [],
+          sr_tfs:  srTfs,       // SR ke liye pre-date bars (per TF)
           tfs:     filteredTfs, // Replay ke liye filtered bars
-          meta:    { start: rpStart, end: rpEnd },
+          meta:    snap.meta || { start: rpStart, end: rpEnd },
           replayStartTs: rpStartTs,
         });
         this._dbgLog(`✅ Load COMPLETE! ${base.length} x 5m bars ready.`);
