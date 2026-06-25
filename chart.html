@@ -12439,7 +12439,17 @@ const Replay = {
     this._updateTimeLabel(_idxTs);
     setTimeout(() => this.fitAll(), 80);
     // FIX: Data load complete — SR draw karo (800ms delay: fitAll + render settle hone ka time)
-    setTimeout(() => { try { if (this._active) this._rpRedrawSR(); } catch(_) {} }, 800);
+    setTimeout(() => {
+      try {
+        if (this._active) {
+          Replay._dbgLog('⏱ Initial SR draw (800ms after load)...');
+          this._rpRedrawSR();
+        }
+      } catch(e) {
+        Replay._dbgLog('🔴 Initial SR draw error: ' + e.message);
+        Replay._showDebugPanel(true);
+      }
+    }, 800);
   },
 
   _buildStack(){
@@ -12508,10 +12518,19 @@ const Replay = {
           ? _rpMakeMinuteResampler(def.mins)
           : _rpMakeDayResampler(def.days, asset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC);
         for (let i = 0; i < srWindow.length; i++) {
-          const {closed} = preResampler(srWindow[i]);
+          const {closed, current} = preResampler(srWindow[i]);
           if (closed) preBars.push(this._toLwc(closed));
+          // Last candle: flush the currently-forming (incomplete) candle too
+          if (i === srWindow.length - 1 && current) {
+            const lwc = this._toLwc(current);
+            // Only push if not duplicate of last closed candle
+            if (!preBars.length || preBars[preBars.length - 1].time !== lwc.time) {
+              preBars.push(lwc);
+            }
+          }
         }
       }
+      Replay._dbgLog('  Cell ' + idx + ' tf=' + def.tf + ' preBars(sr_base)=' + preBars.length + ' from srWindow=' + srWindow.length);
 
       try {
         if (preBars.length > 0) {
@@ -12537,28 +12556,32 @@ const Replay = {
       try {
         const chartCount = Object.keys(this._charts).length;
         if (chartCount === 0 && attemptsLeft > 0) {
+          Replay._dbgLog('⏳ SR retry: no charts yet, attempts left=' + attemptsLeft);
           setTimeout(() => _srDrawWithRetry(attemptsLeft - 1), 400);
           return;
         }
+        Replay._dbgLog('⏱ SR draw from _buildStack (attempt, charts=' + chartCount + ')');
         this._rpRedrawSR();
-      } catch(_) {
+      } catch(e) {
+        Replay._dbgLog('🔴 SR retry error: ' + e.message);
         if (attemptsLeft > 0) setTimeout(() => _srDrawWithRetry(attemptsLeft - 1), 400);
+        else Replay._showDebugPanel(true);
       }
     };
     setTimeout(() => _srDrawWithRetry(3), 600);
   },
 
   // ── SR lines redraw — replay bars ke basis par recompute ──────────────
-  // swingComputeMultiTF global BN_5M/BN_15M/BN_45M arrays padhta hai.
-  // Replay mein future data nahi dikhna chahiye — isliye temporarily
-  // in arrays ko replay ke c.bars se replace karte hain, compute karte
-  // hain, phir original restore kar dete hain.
+  // FIX (v2): Globals (BN_5M/BN_15M/BN_45M/BN_DAILY) sab `const` hain —
+  // window.BN_5M assign karne se _baseDataFor() ke andar wala `BN_5M`
+  // variable change NAHI hota. Isliye ab hum swingComputeMultiTF() BILKUL
+  // NAHI call karte. Seedha swingCompute(replayBars, tfMin) call karo —
+  // globals se koi lena dena nahi. Live chart ki tarah multi-TF SR bhi
+  // dikhate hain (SWING_TF_LIST ke enabled higher TFs ke liye).
   _rpRedrawSR(){
-    // FIX: Agar replay active hai aur _srOn false hai (open() ke baad bhi),
-    // toh _srOn force-on karo aur button bhi active karo
+    // SR auto-on karo agar replay active hai
     if (!this._srOn) {
       if (this._active) {
-        // Replay chal raha hai — SR auto-on karo silently
         this._srOn = true;
         const suffix = (this._asset === 'BANKNIFTY') ? 'bn' : 'btc';
         const btn = document.getElementById('rp-sr-' + suffix);
@@ -12567,70 +12590,109 @@ const Replay = {
         return;
       }
     }
-    if (typeof swingComputeMultiTF !== 'function' || typeof _bnBuildSRNative !== 'function') return;
-    if (typeof _bnClearSRNative !== 'function') return;
 
-    const asset = this._asset;
-    const isBN  = (asset === 'BANKNIFTY');
+    if (typeof swingCompute !== 'function' || typeof _bnBuildSRNative !== 'function' || typeof _bnClearSRNative !== 'function') {
+      this._dbgLog('⚠️ _rpRedrawSR: swingCompute / _bnBuildSRNative / _bnClearSRNative missing');
+      return;
+    }
 
-    // Step 1: Replay bars collect karo — har TF ke liye LWC format mein
+    const asset   = this._asset;
+    const charts  = this._charts;
+    const chartCount = Object.keys(charts).length;
+
+    if (chartCount === 0) {
+      this._dbgLog('⚠️ _rpRedrawSR: no replay charts built yet — skip');
+      return;
+    }
+
+    // ── Replay bars → LWC format (seconds) for each TF ───────────────────
     // c.bars = [[ts_ms, o, h, l, c], ...]
-    // Global arrays expect karte hain: [{time (sec), open, high, low, close}, ...]
-    const replayBarsByTf = {};
-    Object.entries(this._charts).forEach(([tf, c]) => {
-      replayBarsByTf[c.tfMin || 1] = c.bars.map(b => ({
-        time: Math.floor(b[0]/1000), open: b[1], high: b[2], low: b[3], close: b[4]
+    // swingCompute expects [{time (sec), open, high, low, close}, ...]
+    const replayBarsByTfMin = {};
+    Object.entries(charts).forEach(([tf, c]) => {
+      const tfMin = c.tfMin || 1;
+      replayBarsByTfMin[tfMin] = c.bars.map(b => ({
+        time: Math.floor(b[0] / 1000), open: b[1], high: b[2], low: b[3], close: b[4]
       }));
     });
 
-    // Step 2: Global arrays temporarily replace karo
-    const saved = {};
-    if (isBN) {
-      saved.BN_5M    = window.BN_5M;
-      saved.BN_15M   = window.BN_15M;
-      saved.BN_45M   = window.BN_45M;
-      saved.BN_DAILY = window.BN_DAILY;
-      saved.ALLDATA_BN = window.ALLDATA ? window.ALLDATA[asset] : undefined;
-      // Replay bars inject karo (jo available hain)
-      // 1m base data ke liye sabse chhoti available TF use karo
-      const base1m = replayBarsByTf[1] || replayBarsByTf[5] || replayBarsByTf[15] || [];
-      if (window.ALLDATA) window.ALLDATA[asset] = base1m;
-      if (replayBarsByTf[5])    window.BN_5M    = replayBarsByTf[5];
-      if (replayBarsByTf[15])   window.BN_15M   = replayBarsByTf[15];
-      if (replayBarsByTf[45])   window.BN_45M   = replayBarsByTf[45];
-      if (replayBarsByTf[1440]) window.BN_DAILY = replayBarsByTf[1440];
-    } else {
-      saved.BTC_15M    = window.BTC_15M;
-      saved.BTC_DAILY  = window.BTC_DAILY;
-      saved.ALLDATA_BTC = window.ALLDATA ? window.ALLDATA[asset] : undefined;
-      const base1m = replayBarsByTf[1] || replayBarsByTf[15] || [];
-      if (window.ALLDATA) window.ALLDATA[asset] = base1m;
-      if (replayBarsByTf[15])   window.BTC_15M   = replayBarsByTf[15];
-      if (replayBarsByTf[1440]) window.BTC_DAILY = replayBarsByTf[1440];
+    // ── swingCompute directly on replay bars (globals bypassed) ──────────
+    // For each chart cell, compute SR from that cell's own TF bars PLUS
+    // any higher TF in SWING_TF_LIST (same logic as live swingComputeMultiTF,
+    // but using replayBarsByTfMin instead of global arrays).
+    function _rpComputeSRForCell(currentTfMin) {
+      const allLines = [];
+
+      // Current TF bars
+      const curBars = replayBarsByTfMin[currentTfMin];
+      if (curBars && curBars.length >= 3) {
+        try {
+          // resampleForTF not needed — bars are already in the right TF
+          const curLines = swingCompute(curBars, currentTfMin);
+          const valid    = curLines.filter(l => currentTfMin <= l.levelTf);
+          allLines.push(...valid);
+        } catch(e) {
+          Replay._dbgLog('⚠️ swingCompute error on currentTF=' + currentTfMin + ': ' + e.message);
+        }
+      }
+
+      // Higher TFs from SWING_TF_LIST (live chart ki tarah)
+      if (typeof SWING_TF_LIST !== 'undefined' && Array.isArray(SWING_TF_LIST)) {
+        const higherTFs = SWING_TF_LIST
+          .filter(t => t.enabled && t.min > currentTfMin)
+          .sort((a, b) => a.min - b.min);
+
+        for (const tf of higherTFs) {
+          const htfBars = replayBarsByTfMin[tf.min];
+          if (htfBars && htfBars.length >= 3) {
+            try {
+              const htfLines = swingCompute(htfBars, tf.min);
+              const valid    = htfLines.filter(l => currentTfMin <= l.levelTf);
+              allLines.push(...valid);
+            } catch(e) {
+              Replay._dbgLog('⚠️ swingCompute error on htf=' + tf.min + ': ' + e.message);
+            }
+          }
+        }
+      }
+
+      // Dedup (same logic as swingComputeMultiTF)
+      const _swingByPrice  = new Map();
+      const _candleByPrice = new Map();
+      for (const line of allLines) {
+        if (line.isInfinite) {
+          const ex = _swingByPrice.get(line.price);
+          if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
+        } else {
+          const ex = _candleByPrice.get(line.price);
+          if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
+        }
+      }
+      for (const price of _candleByPrice.keys()) _swingByPrice.delete(price);
+      return [...Array.from(_swingByPrice.values()), ...Array.from(_candleByPrice.values())];
     }
 
-    // Step 3: SR compute + draw (ab sirf replay bars se calculate hoga)
-    Object.entries(this._charts).forEach(([tf, c]) => {
+    // ── Draw SR on each replay chart cell ────────────────────────────────
+    let totalLines = 0;
+    Object.entries(charts).forEach(([tf, c]) => {
       try {
         const tfMin = c.tfMin || 1;
-        c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
-        const lines = swingComputeMultiTF(asset, tfMin);
-        c.srSeries = _bnBuildSRNative(c.chart, lines, null);
-      } catch(_) {}
+        c.srSeries  = _bnClearSRNative(c.chart, c.srSeries);
+        const bars  = replayBarsByTfMin[tfMin] || [];
+        if (bars.length < 2) {
+          this._dbgLog('⚠️ SR skip tf=' + tf + ' — only ' + bars.length + ' bars (need ≥2)');
+          return;
+        }
+        const lines = _rpComputeSRForCell(tfMin);
+        totalLines += lines.length;
+        c.srSeries  = _bnBuildSRNative(c.chart, lines, null);
+      } catch(e) {
+        this._dbgLog('🔴 SR draw error tf=' + tf + ': ' + e.message);
+      }
     });
 
-    // Step 4: Global arrays restore karo
-    if (isBN) {
-      window.BN_5M    = saved.BN_5M;
-      window.BN_15M   = saved.BN_15M;
-      window.BN_45M   = saved.BN_45M;
-      window.BN_DAILY = saved.BN_DAILY;
-      if (window.ALLDATA && saved.ALLDATA_BN !== undefined) window.ALLDATA[asset] = saved.ALLDATA_BN;
-    } else {
-      window.BTC_15M   = saved.BTC_15M;
-      window.BTC_DAILY = saved.BTC_DAILY;
-      if (window.ALLDATA && saved.ALLDATA_BTC !== undefined) window.ALLDATA[asset] = saved.ALLDATA_BTC;
-    }
+    this._dbgLog('✅ SR redrawn — ' + chartCount + ' charts, ' + totalLines + ' total lines, bars/tf: ' +
+      Object.entries(replayBarsByTfMin).map(([k,v])=>k+'m='+v.length).join(', '));
   },
 
   // ── SMA toggle ────────────────────────────────────────────────────────
@@ -12750,7 +12812,7 @@ const Replay = {
     if (this._timer){ clearTimeout(this._timer); this._timer = null; }
     if (this._rafId){ cancelAnimationFrame(this._rafId); this._rafId = null; }
     // SR redraw when paused — bars jo aaye unke basis par recalculate
-    try { this._rpRedrawSR(); } catch(_) {}
+    try { this._rpRedrawSR(); } catch(e) { Replay._dbgLog('🔴 pause() SR error: ' + e.message); }
   },
   // Pause request — current candle complete hone par rukna
   requestPause(){
@@ -12803,7 +12865,7 @@ const Replay = {
         self._stepStartTs = null;
         if (btn) btn.disabled = false;
         // SR update after step
-        if (self._srOn) try { self._rpRedrawSR(); } catch(_) {}
+        if (self._srOn) try { self._rpRedrawSR(); } catch(e) { Replay._dbgLog('🔴 stepOne SR error: ' + e.message); }
       }
     }
     this._stepStartTs = null;
@@ -12835,7 +12897,7 @@ const Replay = {
     } else if (this._idx >= (this._data.base ? this._data.base.length : 0)){
       this.pause();
       // Replay complete — final SR draw
-      try { this._rpRedrawSR(); } catch(_) {}
+      try { this._rpRedrawSR(); } catch(e) { Replay._dbgLog('🔴 final SR error: ' + e.message); }
     }
   },
 
@@ -12879,7 +12941,10 @@ const Replay = {
     // Redraw SR every time a candle closes (throttled 300ms)
     if (anyClosed && this._srOn) {
       clearTimeout(this._srThrottle);
-      this._srThrottle = setTimeout(() => { try{ this._rpRedrawSR(); }catch(_){} }, 300);
+      this._srThrottle = setTimeout(() => {
+        try { this._rpRedrawSR(); }
+        catch(e) { Replay._dbgLog('🔴 SR throttle error: ' + e.message); Replay._showDebugPanel(true); }
+      }, 300);
     }
     if (lastTs != null) this._updateTimeLabel(lastTs);
 
