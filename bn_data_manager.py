@@ -22,7 +22,21 @@ BIN_FILE = os.path.join(os.path.dirname(__file__), "bn_1m.bin.gz")
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 
 # ─── GitHub Raw URL Config ────────────────────────────────────────────────────
-GITHUB_URL = "https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz"
+GITHUB_URL     = "https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz"
+SNAPSHOT_FILE  = os.path.join(os.path.dirname(__file__), "bn_sr_snapshot.json.gz")
+SNAPSHOT_URL   = "https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz"
+
+# Har TF ke liye kitne resampled bars snapshot mein chahiye
+SR_SNAPSHOT_CONFIG = {
+    "5m":   ("minute", 5,    25),
+    "15m":  ("minute", 15,   35),
+    "45m":  ("minute", 45,   50),
+    "135m": ("minute", 135,  50),
+    "1d":   ("day",    1,    75),
+    "3d":   ("day",    3,    75),
+    "9d":   ("day",    9,    75),
+    "27d":  ("day",    27,   75),
+}
 
 
 def download_from_github(url: str = "", dest: str = "") -> bool:
@@ -466,12 +480,139 @@ def update_from_fyers(app_id: str, access_token: str,
     save_bin(all_rows)
     log.info(f"Updated: +{len(fresh)} candles → {len(all_rows):,} total")
 
+    # Snapshot bhi update karo
+    try:
+        build_sr_snapshot(all_rows)
+    except Exception as _se:
+        log.warning(f"Snapshot build failed (non-fatal): {_se}")
+
     return {
         "added":     len(fresh),
         "total":     len(all_rows),
         "last_date": today_str,
         "skipped":   False
     }
+
+
+
+# ─── SR Snapshot Builder ──────────────────────────────────────────────────────
+
+def _snap_day_key_ist(ts_ms: int) -> str:
+    """IST trading day key for snapshot resampling."""
+    dt = datetime.datetime.utcfromtimestamp(ts_ms // 1000) + IST_OFFSET
+    return f"{dt.year}-{dt.month}-{dt.day}"
+
+
+def _snap_resample_minutes(rows: list, mins: int) -> list:
+    """1m rows → fixed minute buckets."""
+    bucket_ms = mins * 60_000
+    out, cb = [], None
+    o = h = l = c = None
+    for ts, ro, rh, rl, rc in rows:
+        b = (ts // bucket_ms) * bucket_ms
+        if b != cb:
+            if cb is not None:
+                out.append([cb, o, h, l, c])
+            cb, o, h, l, c = b, ro, rh, rl, rc
+        else:
+            h = max(h, rh); l = min(l, rl); c = rc
+    if cb is not None:
+        out.append([cb, o, h, l, c])
+    return out
+
+
+def _snap_resample_days(rows: list, n_days: int) -> list:
+    """1m rows → N-day buckets (IST trading days)."""
+    day_groups: dict = {}
+    day_order: list  = []
+    for r in rows:
+        k = _snap_day_key_ist(r[0])
+        if k not in day_groups:
+            day_groups[k] = []
+            day_order.append(k)
+        day_groups[k].append(r)
+    out = []
+    for i in range(0, len(day_order), n_days):
+        chunk: list = []
+        for k in day_order[i:i + n_days]:
+            chunk.extend(day_groups[k])
+        if not chunk:
+            continue
+        out.append([
+            chunk[0][0],
+            chunk[0][1],
+            max(r[2] for r in chunk),
+            min(r[3] for r in chunk),
+            chunk[-1][4],
+        ])
+    return out
+
+
+def build_sr_snapshot(rows: list = None) -> dict:
+    """
+    bn_1m data se sabhi TF ke liye resampled bars banao aur
+    bn_sr_snapshot.json.gz mein save karo.
+
+    rows: already loaded 1m data pass kar sakte ho (reload avoid karne ke liye).
+          None dene par load_bin() se load hoga.
+
+    Returns: {tf: bar_count, ...} — kitne bars har TF mein bane.
+    """
+    import json
+
+    if rows is None:
+        rows = load_bin(auto_download=False)
+    if not rows:
+        log.warning("build_sr_snapshot: koi data nahi mila — snapshot nahi bana")
+        return {}
+
+    snapshot = {
+        "asset":     "BANKNIFTY",
+        "generated": rows[-1][0],   # last candle timestamp ms
+        "tfs":       {},
+    }
+    counts = {}
+
+    for tf, (typ, val, want) in SR_SNAPSHOT_CONFIG.items():
+        if typ == "minute":
+            all_bars = _snap_resample_minutes(rows, val)
+        else:
+            all_bars = _snap_resample_days(rows, val)
+
+        bars = all_bars[-want:] if len(all_bars) >= want else all_bars
+        # Float precision: 2 decimal places kafi hain BankNifty ke liye
+        bars = [[b[0], round(b[1], 2), round(b[2], 2), round(b[3], 2), round(b[4], 2)]
+                for b in bars]
+        snapshot["tfs"][tf] = bars
+        counts[tf] = len(bars)
+
+    # Save as gzip JSON
+    import gzip as _gz
+    json_bytes = json.dumps(snapshot, separators=(",", ":")).encode("utf-8")
+    with _gz.open(SNAPSHOT_FILE, "wb", compresslevel=9) as f:
+        f.write(json_bytes)
+
+    size_kb = os.path.getsize(SNAPSHOT_FILE) / 1024
+    log.info(f"✅ Snapshot saved: {SNAPSHOT_FILE} ({size_kb:.1f} KB) — {counts}")
+    print(f"✅ Snapshot: {size_kb:.1f} KB → {counts}")
+    return counts
+
+
+def load_sr_snapshot() -> dict:
+    """
+    bn_sr_snapshot.json.gz load karo.
+    Returns: {"tfs": {"5m": [[ts,o,h,l,c],...], ...}, "generated": ts_ms}
+    File nahi mili to empty dict return karta hai.
+    """
+    import json, gzip as _gz
+    if not os.path.exists(SNAPSHOT_FILE):
+        return {}
+    try:
+        with _gz.open(SNAPSHOT_FILE, "rb") as f:
+            return json.loads(f.read().decode("utf-8"))
+    except Exception as e:
+        log.warning(f"load_sr_snapshot error: {e}")
+        return {}
 
 
 # ─── Stat helper (for display) ────────────────────────────────────────────────
@@ -572,6 +713,13 @@ def _auto_update_worker(app_id: str, access_token: str) -> None:
         all_rows    = sorted(existing + fresh, key=lambda x: x[0])
         save_bin(all_rows)
 
+        # ── Snapshot bhi update karo (same data, no reload needed) ──────────
+        try:
+            build_sr_snapshot(all_rows)
+            log.info("[AutoUpdate] ✅ Snapshot updated")
+        except Exception as _se:
+            log.warning(f"[AutoUpdate] Snapshot build failed (non-fatal): {_se}")
+
         result = {
             "added":     len(fresh),
             "total":     len(all_rows),
@@ -648,9 +796,22 @@ if __name__ == "__main__":
         print("✅ Download OK" if ok else "❌ Download failed")
         if ok:
             print(get_stats())
+    elif len(sys.argv) == 2 and sys.argv[1] == "snapshot":
+        # python bn_data_manager.py snapshot
+        print("Building SR snapshot from local bn_1m.bin.gz...")
+        counts = build_sr_snapshot()
+        if counts:
+            import os as _os
+            size_kb = _os.path.getsize(SNAPSHOT_FILE) / 1024
+            print(f"✅ bn_sr_snapshot.json.gz ready: {size_kb:.1f} KB")
+            for tf, n in counts.items():
+                print(f"   {tf}: {n} bars")
+        else:
+            print("❌ Snapshot build failed — bn_1m.bin.gz available hai?")
     else:
         print("Usage:")
         print("  python bn_data_manager.py bank-nifty-1m-data.txt   # CSV → bin.gz")
         print("  python bn_data_manager.py download                  # GitHub se download")
         print("  python bn_data_manager.py download CUSTOM_URL       # Custom URL se")
+        print("  python bn_data_manager.py snapshot                  # SR snapshot build karo")
         print("Stats:", get_stats())

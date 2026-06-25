@@ -13,6 +13,7 @@ import datetime
 from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
     download_from_github, ensure_bin_file, GITHUB_URL,
+    SNAPSHOT_FILE, SNAPSHOT_URL, build_sr_snapshot, load_sr_snapshot,
     start_auto_update, get_auto_update_status,
     check_github_update, force_download_from_github,
 )
@@ -2083,6 +2084,30 @@ else:
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.caption("⚠️ bn_1m.bin.gz file abhi server par maujood nahi hai")
+
+    # ── Snapshot download button ───────────────────────────────────────────────
+    # Pehle snapshot build karo agar exist nahi karti
+    import os as _os2
+    if not _os2.exists(SNAPSHOT_FILE) and _os2.exists(BIN_FILE):
+        with st.spinner("SR Snapshot build ho raha hai..."):
+            build_sr_snapshot()
+
+    if _os2.exists(SNAPSHOT_FILE):
+        _snap_kb = _os2.getsize(SNAPSHOT_FILE) / 1024
+        st.markdown("<div style='max-width:620px;margin:0 auto 14px;'>", unsafe_allow_html=True)
+        with open(SNAPSHOT_FILE, "rb") as _sf:
+            st.download_button(
+                label=f"📥 bn_sr_snapshot.json.gz Download Karo ({_snap_kb:.1f} KB) — Chart ke liye",
+                data=_sf.read(),
+                file_name="bn_sr_snapshot.json.gz",
+                mime="application/gzip",
+                use_container_width=True,
+                key="dl_snapshot_btn",
+            )
+        st.caption("Yahi file GitHub par upload karo — chart isi se SR bars load karega (sirf 7KB!)")
+        st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.caption("⚠️ Snapshot file nahi bani — pehle bn_1m.bin.gz download karo")
 
     # Check karo — already skipped hai session mein?
     _upd_skipped = st.session_state.get("_data_update_skipped", False)

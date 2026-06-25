@@ -12039,11 +12039,11 @@ const Replay = {
         // Button handlers
         document.getElementById('rp-dbg-copy').onclick = function() {
           const txt = document.getElementById('rp-dbg-pre').textContent;
-          // FIX: navigator.clipboard.writeText() Android Chrome par fullscreen exit
-          // trigger karta hai (browser security policy). Isliye prompt() use karo —
-          // user manually Ctrl+A, Ctrl+C kar sakta hai bina fullscreen exit ke.
-          // Clipboard API intentionally avoid kiya gaya hai.
-          prompt('Log select karke copy karo (Ctrl+A → Ctrl+C / long-press → Copy All):', txt);
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(txt).then(function(){ alert('Log copied!'); });
+          } else {
+            prompt('Log copy karo:', txt);
+          }
         };
         document.getElementById('rp-dbg-close').onclick = function() {
           Replay._showDebugPanel(false);
@@ -12163,228 +12163,79 @@ const Replay = {
           this._dbgLog(`   → GitHub fallback try karega...`);
         }
 
-        // ── Strategy 2: GitHub se .gz fallback (API nahi mila to) ──────────
-        const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz';
-        this._dbgLog(`📡 GitHub fallback fetch: ${GH_URL}`);
+        // ── Strategy 2: GitHub se bn_sr_snapshot.json.gz fetch karo ──────────
+        // Pehle snapshot (7KB) fetch karo — sr_tfs seedha milenge.
+        // 12MB wali raw file ab zaroor nahi — snapshot se sirf SR data lenge.
+        const GH_SNAPSHOT_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz';
+        this._dbgLog(`📡 GitHub snapshot fetch: ${GH_SNAPSHOT_URL}`);
 
-        let resp;
-        const _ctrl = new AbortController();
-        const _stallMs = 20000; // 20 sec tak koi NAYA data na aaye to hi abort karo
-        let _stallTimer = setTimeout(() => _ctrl.abort(), _stallMs);
-        const _resetStall = () => {
-          clearTimeout(_stallTimer);
-          _stallTimer = setTimeout(() => _ctrl.abort(), _stallMs);
-        };
+        let snapshotResp;
         try {
-          resp = await fetch(GH_URL, { signal: _ctrl.signal });
-          this._dbgLog(`📡 GitHub HTTP: ${resp.status} ${resp.statusText}`);
-          _resetStall();
+          snapshotResp = await fetch(GH_SNAPSHOT_URL, {cache: 'no-store'});
+          this._dbgLog(`📡 GitHub HTTP: ${snapshotResp.status} ${snapshotResp.statusText}`);
         } catch(fetchErr) {
-          clearTimeout(_stallTimer);
-          if (fetchErr.name === 'AbortError') {
-            this._dbgLog(`❌ STALLED — ${(_stallMs/1000)}s tak koi response nahi mila`);
-            this._dbgLog(`   → Network bahut slow hai ya GitHub unreachable hai`);
-          } else {
-            this._dbgLog(`❌ FETCH ERROR: ${fetchErr.message}`);
-            this._dbgLog(`   → Internet check karo ya Fyers se connected raho`);
-          }
+          this._dbgLog(`❌ FETCH ERROR: ${fetchErr.message}`);
+          this._dbgLog(`   → Internet check karo ya GitHub reachable hai?`);
           throw fetchErr;
         }
-        if (!resp.ok) { clearTimeout(_stallTimer); throw new Error('GitHub fetch failed: HTTP ' + resp.status); }
+        if (!snapshotResp.ok) throw new Error('GitHub snapshot fetch failed: HTTP ' + snapshotResp.status);
 
-        // ── Streaming download with live speed/progress + stall detection ───
-        this._dbgLog(`⬇️ File download ho raha hai (~12MB)...`);
-        let compBuf;
+        // ── Decompress + parse JSON ──────────────────────────────────────────
+        this._dbgLog(`⬇️ Snapshot download + decompress ho raha hai (~7KB)...`);
+        let snapshotData;
         try {
-          const _contentLen = parseInt(resp.headers.get('Content-Length') || '0', 10);
-          if (!resp.body || typeof resp.body.getReader !== 'function') {
-            // Streaming fallback nahi mila — purane tarike se download karo
-            compBuf = await resp.arrayBuffer();
-            clearTimeout(_stallTimer);
-          } else {
-            const reader = resp.body.getReader();
-            const chunks = [];
-            let received = 0;
-            const startT = performance.now();
-            let lastLogT = startT;
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              _resetStall();  // naya data aaya — stall timer reset karo
-              chunks.push(value);
-              received += value.length;
-              const now = performance.now();
-              if (now - lastLogT > 2000) {  // har 2 sec mein speed log karo
-                const elapsedSec = (now - startT) / 1000;
-                const speedKBs   = (received / 1024) / elapsedSec;
-                const pct = _contentLen ? Math.round((received/_contentLen)*100) : null;
-                this._dbgLog(
-                  `⬇️ ${(received/1024/1024).toFixed(2)} MB aa gaya` +
-                  (pct !== null ? ` (${pct}%)` : '') +
-                  ` — speed: ${speedKBs.toFixed(0)} KB/s`
-                );
-                lastLogT = now;
-              }
-            }
-            clearTimeout(_stallTimer);
-            const totalElapsedSec = (performance.now() - startT) / 1000;
-            const avgSpeedKBs = (received / 1024) / Math.max(totalElapsedSec, 0.01);
-            compBuf = new Uint8Array(received);
-            let off = 0;
-            chunks.forEach(c => { compBuf.set(c, off); off += c.length; });
-            this._dbgLog(`✅ Download complete — ${(received/1024/1024).toFixed(2)} MB in ${totalElapsedSec.toFixed(1)}s (avg ${avgSpeedKBs.toFixed(0)} KB/s)`);
-          }
-        } catch(bufErr) {
-          clearTimeout(_stallTimer);
-          if (bufErr.name === 'AbortError') {
-            this._dbgLog(`❌ STALLED — ${(_stallMs/1000)}s tak naya data nahi aaya, rok diya`);
-          } else {
-            this._dbgLog(`❌ DOWNLOAD ERROR: ${bufErr.message}`);
-          }
-          throw bufErr;
-        }
+          const compBuf = await snapshotResp.arrayBuffer();
+          const startT  = performance.now();
 
-        // ── Decompress gzip in browser ───────────────────────────────────────
-        this._dbgLog(`🔓 Gzip decompress...`);
-        let raw;
-        try {
-          if (typeof DecompressionStream === 'undefined') {
-            throw new Error('DecompressionStream API not supported in this browser');
-          }
           const ds     = new DecompressionStream('gzip');
           const writer = ds.writable.getWriter();
           writer.write(new Uint8Array(compBuf));
           writer.close();
           const chunks = [];
-          const reader = ds.readable.getReader();
+          const dsReader = ds.readable.getReader();
           while (true) {
-            const { done, value } = await reader.read();
+            const { done, value } = await dsReader.read();
             if (done) break;
             chunks.push(value);
           }
           let totalLen = 0;
           chunks.forEach(c => totalLen += c.length);
-          raw = new Uint8Array(totalLen);
+          const rawBytes = new Uint8Array(totalLen);
           let off = 0;
-          chunks.forEach(c => { raw.set(c, off); off += c.length; });
-          this._dbgLog(`✅ Decompress done — ${(totalLen/1024/1024).toFixed(2)} MB raw`);
-        } catch(dcErr) {
-          this._dbgLog(`❌ DECOMPRESS ERROR: ${dcErr.message}`);
-          throw dcErr;
+          chunks.forEach(c => { rawBytes.set(c, off); off += c.length; });
+
+          const jsonStr = new TextDecoder().decode(rawBytes);
+          snapshotData  = JSON.parse(jsonStr);
+          const elapsed = ((performance.now() - startT) / 1000).toFixed(2);
+          this._dbgLog(`✅ Snapshot ready — ${(compBuf.byteLength/1024).toFixed(1)} KB in ${elapsed}s`);
+        } catch(parseErr) {
+          this._dbgLog(`❌ SNAPSHOT PARSE ERROR: ${parseErr.message}`);
+          throw parseErr;
         }
 
-        // ── Parse binary: BN1M header + candles ─────────────────────────────
-        this._dbgLog(`🔍 Binary parse...`);
-        const magic = String.fromCharCode(raw[0],raw[1],raw[2],raw[3]);
-        if (magic !== 'BN1M') throw new Error('Invalid binary magic: ' + magic);
-
-        const dv      = new DataView(raw.buffer);
-        const count   = dv.getUint32(5,  false);
-        const baseTs  = dv.getUint32(9,  false);
-        this._dbgLog(`   Total candles: ${count.toLocaleString()}`);
-
-        const IST_OFF  = 5.5 * 3600;
-        // SR window ke liye rpStart se pehle ka data fetch karo.
-        // Har TF ke liye last 100 bars chahiye:
-        //   5m   → 100 × 5m   = 500 min  ≈ 1.5 trading days
-        //   15m  → 100 × 15m  = 1500 min ≈ 4 trading days
-        //   45m  → 100 × 45m  = 4500 min ≈ 12 trading days
-        //   135m → 100 × 135m = 13500 min ≈ 36 trading days
-        //   1d   → 100 days
-        //   3d   → 300 trading days ≈ 420 calendar days
-        //   27d  → 2700 trading days ≈ 3780 calendar days (>>10 years!)
-        // 27d ke liye itna data expensive hai.
-        // Practical: last 400 calendar days enough hai (covers ~280 trading days ≈ ~10 3d bars + ~5 27d bars)
-        const srBufferDays = 400;  // ~400 cal days pehle se fetch karo
-        const srBufferSec  = srBufferDays * 86400;
-        const startSec = (rpStartTs / 1000) - IST_OFF - srBufferSec;
-        const endSec   = (new Date(rpEnd + 'T00:00:00Z').getTime() / 1000) - IST_OFF + 86400;
-
-        const ghBase = [];
-        let ptr = 13;
-        for (let i = 0; i < count; i++, ptr += 20) {
-          const tsOff = dv.getUint32(ptr,     false);
-          const tsSec = baseTs + tsOff;
-          if (tsSec < startSec) continue;
-          if (tsSec >= endSec)  break;
-          const o = dv.getFloat32(ptr +  4, false);
-          const h = dv.getFloat32(ptr +  8, false);
-          const l = dv.getFloat32(ptr + 12, false);
-          const c = dv.getFloat32(ptr + 16, false);
-          ghBase.push([tsSec * 1000, o, h, l, c]);
+        if (!snapshotData || !snapshotData.tfs) {
+          this._dbgLog(`❌ Snapshot format galat hai — tfs field nahi mili`);
+          throw new Error('Invalid snapshot format');
         }
 
-        this._dbgLog(`✅ Parse done — filtered: ${ghBase.length.toLocaleString()} candles (pre+replay)`);
-
-        if (ghBase.length === 0) {
-          this._dbgLog(`⚠️ 0 candles — date range check karo`);
-          this._dbgLog(`   File pehla candle: ${new Date(baseTs*1000).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})}`);
-          this._showLoading(false);
-          alert('Is date range mein koi data nahi mila.\n\nDebug panel mein details dekho ⬇');
-          return;
-        }
-
-        // ── GitHub fallback: sr_base aur base alag karo ───────────────────────
-        // ghBase mein saari candles hain (pre+replay) — split karo rpStartTs par
-        // sr_base = rpStartTs se PEHLE ki last SR_CANDLES candles (visible S/R window)
-        // base    = rpStartTs se BAAD ki candles (hidden replay engine)
-        const ghSrBase   = [];
-        const ghReplay   = [];
-        for (const c of ghBase) {
-          if (c[0] < rpStartTs) ghSrBase.push(c);
-          else ghReplay.push(c);
-        }
-        // Sirf last SR_CANDLES rakhni hain
-        const ghSrBaseSliced = ghSrBase.slice(-SR_CANDLES);
-        this._dbgLog(`   sr_base: ${ghSrBaseSliced.length} candles (visible S/R window)`);
-        this._dbgLog(`   base:    ${ghReplay.length} candles (hidden replay engine)`);
-
-        if (ghReplay.length === 0) {
-          this._dbgLog(`⚠️ Replay range mein 0 candles — date range check karo`);
-          this._showLoading(false);
-          alert('Selected date range mein koi data nahi mila.\n\nDebug panel mein details dekho ⬇');
-          return;
-        }
-
-        // GitHub path: sr_tfs JS mein banao (1m candles → resample)
-        // Local API ki tarah Python-side nahi hoga, isliye JS resamplers use karo.
-        const ghSrTfs = {};
-        const ghDefs  = REPLAY_TF_DEFS[rpAsset] || [];
-        const dayKeyFn = rpAsset === 'BANKNIFTY' ? _rpDayKeyIST : _rpDayKeyUTC;
-        for (const def of ghDefs) {
-          const rs = def.type === 'minute'
-            ? _rpMakeMinuteResampler(def.mins)
-            : _rpMakeDayResampler(def.days, dayKeyFn);
-          const bars = [];
-          for (const row of ghSrBaseSliced) {
-            const {closed, current} = rs(row);
-            if (closed) bars.push(closed);
-          }
-          // Flush last forming candle — FIX: same row dobara push NAHI karo.
-          // Pehle same last row ko rs() mein dobara push kiya tha jisse wrong
-          // timestamp milta tha aur 5m chart par visible gap banta tha.
-          // FIX: far-future dummy row push karo taaki current bucket flush ho.
-          if (ghSrBaseSliced.length > 0) {
-            const _lr = ghSrBaseSliced[ghSrBaseSliced.length - 1];
-            const _flush = rs([_lr[0] + 999*60000, _lr[1], _lr[2], _lr[3], _lr[4]]);
-            if (_flush.closed && (!bars.length || bars[bars.length-1][0] !== _flush.closed[0])) {
-              bars.push(_flush.closed);
-            }
-          }
-          ghSrTfs[def.tf] = bars;
-        }
+        // ── sr_tfs directly snapshot se lo — koi JS resampling nahi ────────
+        const ghSrTfs      = snapshotData.tfs;
         const ghSrTfCounts = Object.entries(ghSrTfs).map(([k,v])=>k+'='+v.length+'bars').join(', ');
-        this._dbgLog(`   sr_tfs (JS-resampled from ${ghSrBaseSliced.length} 1m): ${ghSrTfCounts}`);
+        this._dbgLog(`✅ sr_tfs from snapshot: ${ghSrTfCounts}`);
 
-        this._dbgLog(`🚀 setData call ho raha hai (GitHub path)...`);
+        // ── Replay base snapshot mein nahi — SR chart dikhega, step ke liye Local API chahiye ──
+        const ghReplay = [];
+        this._dbgLog(`ℹ️ Replay base empty — SR lines dikhenge, step ke liye Local API connect karo`);
+
+        this._dbgLog(`🚀 setData call ho raha hai (Snapshot path)...`);
         this.setData(rpAsset, {
           base:          ghReplay,
-          sr_base:       ghSrBaseSliced,  // 1m fallback
-          sr_tfs:        ghSrTfs,         // ✅ Per-TF pre-bars
+          sr_base:       [],
+          sr_tfs:        ghSrTfs,
           meta:          { start: rpStart, end: rpEnd },
           replayStartTs: rpStartTs,
         });
-        this._dbgLog(`✅ Replay data load COMPLETE! (GitHub fallback)`);
+        this._dbgLog(`✅ Snapshot load COMPLETE! SR lines ready.`);
 
       } else {
         // ── BTC: Binance REST API ─────────────────────────────────────────────
