@@ -13,7 +13,9 @@ import datetime
 from bn_data_manager import (
     load_bin, update_from_fyers, get_stats, csv_to_bin,
     download_from_github, ensure_bin_file, GITHUB_URL,
-    SNAPSHOT_FILE, SNAPSHOT_URL, build_sr_snapshot, load_sr_snapshot,
+    PKL_FILE, PKL_URL,
+    SNAPSHOT_FILE, SNAPSHOT_URL,   # legacy aliases — PKL_FILE/PKL_URL ke same hain
+    build_sr_snapshot, load_sr_snapshot,
     start_auto_update, get_auto_update_status,
     check_github_update, force_download_from_github,
 )
@@ -2097,14 +2099,14 @@ else:
         st.markdown("<div style='max-width:620px;margin:0 auto 14px;'>", unsafe_allow_html=True)
         with open(SNAPSHOT_FILE, "rb") as _sf:
             st.download_button(
-                label=f"📥 bn_sr_snapshot.json.gz Download Karo ({_snap_kb:.1f} KB) — Chart ke liye",
+                label=f"📥 banknifty_all_tf.pkl.gz Download Karo ({_snap_kb:.0f} KB) — Chart ke liye",
                 data=_sf.read(),
-                file_name="bn_sr_snapshot.json.gz",
+                file_name="banknifty_all_tf.pkl.gz",
                 mime="application/gzip",
                 use_container_width=True,
                 key="dl_snapshot_btn",
             )
-        st.caption("Yahi file GitHub par upload karo — chart isi se SR bars load karega (sirf 7KB!)")
+        st.caption("Yahi file GitHub par upload karo — chart isi se saari TF ka data load karega!")
         st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.caption("⚠️ Snapshot file nahi bani — pehle bn_1m.bin.gz download karo")

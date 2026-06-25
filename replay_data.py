@@ -26,7 +26,11 @@ Architecture:
   base     → replay engine ke liye hidden, har candle complete hone par sr_base mein append
              hoti hai aur purani pehli candle hatt jaati hai (rolling window JS mein handle hota hai)
 
-BankNifty source : bn_data_manager.load_bin()  (already saved 1m data)
+BankNifty source : bn_data_manager.load_sr_snapshot()  (already-resampled
+                   per-TF bars in bn_sr_snapshot.json.gz). NO 1m raw data,
+                   NO resampling — bin.gz hata diya gaya hai. Selected date
+                   range ke bars filter karke nikalte hain, baaki snapshot
+                   ke unfiltered bars S/R context ke liye use hote hain.
 BTC source       : Binance klines REST API, paginated by date range (no local
                    long-term store yet — fetched fresh per replay request,
                    then resampled in-memory; cheap since Binance allows
@@ -37,7 +41,7 @@ import datetime
 import time
 import requests
 
-from bn_data_manager import load_bin
+from bn_data_manager import load_sr_snapshot
 
 IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 
@@ -54,6 +58,19 @@ BANKNIFTY_TFS = {
     "3d":   {"type": "day",    "days": 3},
     "9d":   {"type": "day",    "days": 9},
     "27d":  {"type": "day",    "days": 27},
+}
+
+# Har TF ke liye start_date se PEHLE kitni candles context mein chahiye
+# (S/R draw karne ke liye visible pichla data)
+BANKNIFTY_SR_LOOKBACK = {
+    "5m":   25,
+    "15m":  30,
+    "45m":  40,
+    "135m": 40,
+    "1d":   50,
+    "3d":   50,
+    "9d":   50,
+    "27d":  50,
 }
 
 BTC_TFS = {
@@ -90,42 +107,52 @@ def _date_to_ts_range_utc(start_date: str, end_date: str) -> tuple:
     return start_ts, end_ts
 
 
-# ─── BankNifty: load + filter from existing bin ────────────────────────────
+# ─── BankNifty: load + filter DIRECTLY from snapshot (no 1m, no resampling) ─
+# bn_1m.bin.gz hata diya gaya hai (GitHub se). Ab sirf bn_sr_snapshot.json.gz
+# hi data source hai — already resampled bars per TF. Replay aur SR dono
+# isi snapshot se seedha milte hain, koi rebuild/resample nahi hota.
 
-def _load_banknifty_1m(start_date: str, end_date: str) -> list:
-    rows = load_bin(auto_download=True)
-    if not rows:
-        return []
+def _load_banknifty_from_snapshot(start_date: str, end_date: str) -> tuple:
+    """
+    banknifty_all_tf.pkl.gz se data load karo.
+
+    Returns (filtered_tfs, sr_tfs):
+      filtered_tfs : { "5m": [...], ... }  — selected date range ke bars (replay engine)
+      sr_tfs       : { "5m": [...], ... }  — start_date se PEHLE ke exactly N bars per TF
+                     (S/R draw ke liye, har TF ka apna lookback BANKNIFTY_SR_LOOKBACK se)
+
+    Snapshot missing hone par dono {} return karta hai.
+    """
+    snap = load_sr_snapshot()
+    if not snap or not snap.get("tfs"):
+        return {}, {}
+
     start_ts, end_ts = _date_to_ts_range_ist(start_date, end_date)
-    return [r for r in rows if start_ts <= r[0] < end_ts]
+    full_tfs = snap["tfs"]
 
+    # Replay range: start_date se end_date tak ke bars
+    filtered_tfs = {
+        tf: [b for b in bars if start_ts <= b[0] < end_ts]
+        for tf, bars in full_tfs.items()
+    }
 
-# ─── BankNifty: last N candles BEFORE start_date (for S/R visible window) ──
-# _build_sr_tfs() — har TF ke liye last 100 resampled bars return karta hai.
-# Yeh Local API path mein use hota hai taaki har chart par SR draw ho sake.
-# GitHub fallback mein _load_banknifty_sr_lookback() use hota hai (sirf 1m).
+    # S/R context: start_date se PEHLE ke exactly N bars per TF
+    sr_tfs = {}
+    for tf, bars in full_tfs.items():
+        before = [b for b in bars if b[0] < start_ts]
+        n = BANKNIFTY_SR_LOOKBACK.get(tf, 50)
+        sr_tfs[tf] = before[-n:] if len(before) >= n else before
 
-def _load_banknifty_1m_before(start_date: str) -> list:
-    """start_date se pehle ke SAARE 1m candles return karo."""
-    rows = load_bin(auto_download=True)
-    if not rows:
-        return []
-    start_ts, _ = _date_to_ts_range_ist(start_date, start_date)
-    return [r for r in rows if r[0] < start_ts]
-
-
-def _load_banknifty_sr_lookback(start_date: str, n: int) -> list:
-    """start_date se pehle ke exactly N 1m candles (GitHub fallback ke liye)."""
-    before = _load_banknifty_1m_before(start_date)
-    return before[-n:] if len(before) >= n else before
+    return filtered_tfs, sr_tfs
 
 
 def _build_sr_tfs(rows_1m_before: list, tf_defs: dict, day_key_fn,
                   sr_bars: int = 100) -> dict:
     """
-    Har TF ke liye start_date se PEHLE ke last sr_bars resampled bars return karo.
-    JS mein yeh seedha c.bars ke roop mein inject hote hain —
-    5m chart pe last 100 5m bars, 15m pe last 100 15m bars, aur 27d pe last 100 27d bars.
+    [BTC ONLY] Har TF ke liye start_date se PEHLE ke last sr_bars resampled
+    bars return karo (1m candles ko resample karke).
+    BankNifty ke liye ye function ab use NAHI hota — BN ka SR data seedha
+    snapshot (_load_banknifty_from_snapshot) se aata hai, koi resample nahi.
 
     Returns: { "5m": [[ts_ms,o,h,l,c], ...], "15m": [...], "27d": [...], ... }
     """
@@ -322,18 +349,17 @@ def get_replay_data(asset: str, start_date: str, end_date: str,
     asset = asset.upper()
     sr_lookback = max(0, int(sr_lookback))
 
-    SR_BARS = 100  # Har TF ke liye kitne bars chahiye visible window mein
+    SR_BARS = 100  # BTC ke liye (BankNifty ab BANKNIFTY_SR_LOOKBACK use karta hai)
 
     if asset in ("BANKNIFTY", "BN", "NIFTYBANK"):
-        # Hidden replay engine candles (selected date range)
-        rows_1m        = _load_banknifty_1m(start_date, end_date)
-        # start_date se pehle ke SAARE 1m candles (sr_tfs ke liye)
-        rows_1m_before = _load_banknifty_1m_before(start_date)
-        # Har TF ke liye last 100 resampled bars (chart par dikhenge, SR inhi se)
-        sr_tfs   = _build_sr_tfs(rows_1m_before, BANKNIFTY_TFS, _trading_day_key_ist, SR_BARS)
-        # sr_base: sirf 1m candles (GitHub fallback ke liye backward compatibility)
-        sr_base  = rows_1m_before[-sr_lookback:] if sr_lookback > 0 and rows_1m_before else []
-        tfs      = _build_tfs(rows_1m, BANKNIFTY_TFS, _trading_day_key_ist)
+        # ── pkl.gz se seedha — koi 1m, koi resample nahi ─────────────────────
+        # filtered_tfs : selected date range ke bars (replay engine ke liye)
+        # sr_tfs       : start_date se PEHLE ke exactly N bars per TF
+        #                (har TF ka apna lookback: 5m=25, 15m=30, 45m=40, etc.)
+        filtered_tfs, sr_tfs = _load_banknifty_from_snapshot(start_date, end_date)
+        tfs      = filtered_tfs
+        sr_base  = []   # 1m data ab available nahi — legacy field
+        rows_1m  = filtered_tfs.get(BANKNIFTY_MIN_TF, [])
         min_tf   = BANKNIFTY_MIN_TF
 
     elif asset in ("BTCUSDT", "BTC"):

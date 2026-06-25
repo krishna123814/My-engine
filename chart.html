@@ -12084,37 +12084,52 @@ const Replay = {
 
     try {
       if (rpAsset === 'BANKNIFTY') {
-        // ── GitHub snapshot fetch — seedha resampled bars, koi 1m nahi ────────
-        const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz';
-        this._dbgLog(`📡 GitHub snapshot fetch...`);
+        // ── Local API path (Streamlit) se data aata hai via postMessage ──────
+        // Python side (replay_data.py) ne already:
+        //   tfs     = date range ke bars (replay engine)
+        //   sr_tfs  = start_date se PEHLE ke exactly N bars per TF
+        //             (5m=25, 15m=30, 45m=40, 135m=40, 1d/3d/9d/27d=50)
+        // Yahan JS mein koi filtering nahi karni — Python ka kaam use karo.
+        //
+        // NOTE: Browser Python pickle (.pkl.gz) nahi padh sakta, isliye
+        // GitHub se direct load NAHI hota. Data Streamlit backend se
+        // postMessage ke zariye aata hai (_loadFromGlobal path).
+        // Agar postMessage nahi aaya to neeche ka Local API fallback use hoga.
 
-        const resp = await fetch(GH_URL, {cache: 'no-store'});
+        const apiPort = window.__API_PORT__ || 0;
+        if (!apiPort) {
+          this._showLoading(false);
+          alert('Streamlit API port nahi mila.\nPage reload karo aur dobara try karo.');
+          return;
+        }
+
+        // SR lookback per TF (Python se match karta hai — BANKNIFTY_SR_LOOKBACK)
+        const SR_LOOKBACK_PER_TF = {
+          '5m': 25, '15m': 30, '45m': 40, '135m': 40,
+          '1d': 50, '3d': 50, '9d': 50, '27d': 50,
+        };
+
+        this._dbgLog(`📡 Local API fetch: port=${apiPort}`);
+        const apiUrl = `http://localhost:${apiPort}/api/replay_data?asset=BANKNIFTY&from=${rpStart}&to=${rpEnd}`;
+        const resp = await fetch(apiUrl, {cache: 'no-store'});
         this._dbgLog(`📡 HTTP: ${resp.status}`);
-        if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
+        if (!resp.ok) throw new Error('Local API fetch failed: HTTP ' + resp.status);
 
-        // Decompress
-        const compBuf = await resp.arrayBuffer();
-        const t0 = performance.now();
-        const ds = new DecompressionStream('gzip');
-        const w  = ds.writable.getWriter();
-        w.write(new Uint8Array(compBuf)); w.close();
-        const chunks = []; const rdr = ds.readable.getReader();
-        while(true){ const {done,value} = await rdr.read(); if(done) break; chunks.push(value); }
-        let len=0; chunks.forEach(c=>len+=c.length);
-        const raw=new Uint8Array(len); let off=0; chunks.forEach(c=>{raw.set(c,off);off+=c.length;});
-        const snap = JSON.parse(new TextDecoder().decode(raw));
-        this._dbgLog(`✅ Snapshot ready — ${(compBuf.byteLength/1024).toFixed(1)} KB in ${((performance.now()-t0)/1000).toFixed(2)}s`);
+        const data = await resp.json();
+        if (data.error) throw new Error('API error: ' + data.error);
 
-        if (!snap || !snap.tfs) throw new Error('Snapshot format galat — tfs missing');
+        // tfs = replay range bars (Python se already filtered)
+        const filteredTfs = data.tfs || {};
+        // sr_tfs = pichla context (Python se already N bars per TF)
+        const srTfs = data.sr_tfs || {};
 
-        // ── Har TF ke bars mein se date range filter karo ───────────────────
-        // Snapshot bars IST mein hain (BankNifty), filter seedha timestamp se
-        const filteredTfs = {};
-        let baseBarCount = 0;
-        for (const [tf, bars] of Object.entries(snap.tfs)) {
-          filteredTfs[tf] = bars.filter(b => b[0] >= rpStartTs && b[0] <= rpEndTs);
-          if (tf === '5m') baseBarCount = filteredTfs[tf].length;
-          this._dbgLog(`  ${tf}: ${bars.length} total → ${filteredTfs[tf].length} in range`);
+        // Debug: har TF ke counts
+        for (const [tf, bars] of Object.entries(filteredTfs)) {
+          this._dbgLog(`  replay ${tf}: ${bars.length} bars`);
+        }
+        for (const [tf, bars] of Object.entries(srTfs)) {
+          const expected = SR_LOOKBACK_PER_TF[tf] || 50;
+          this._dbgLog(`  sr_tfs ${tf}: ${bars.length}/${expected} bars`);
         }
 
         // base = 5m bars (replay engine ka minimum TF)
@@ -12122,7 +12137,7 @@ const Replay = {
 
         if (base.length === 0) {
           this._showLoading(false);
-          alert('Is date range mein koi data nahi mila.\nSnapshot last 50 bars per TF cover karta hai.\n\nDebug panel mein details dekho ⬇');
+          alert('Is date range mein koi 5m data nahi mila.\nDebug panel mein details dekho ⬇');
           return;
         }
 
@@ -12131,9 +12146,9 @@ const Replay = {
         this.setData(rpAsset, {
           base,
           sr_base: [],
-          sr_tfs:  snap.tfs,   // SR ke liye poore unfiltered bars
+          sr_tfs:  srTfs,       // Python se exactly N bars per TF (pichla context)
           tfs:     filteredTfs, // Replay ke liye filtered bars
-          meta:    { start: rpStart, end: rpEnd },
+          meta:    { start: rpStart, end: rpEnd, sr_lookback_per_tf: SR_LOOKBACK_PER_TF },
           replayStartTs: rpStartTs,
         });
         this._dbgLog(`✅ Load COMPLETE! ${base.length} x 5m bars ready.`);
@@ -12210,6 +12225,13 @@ const Replay = {
     this._buildStack();
 
     if (data && data.meta){
+      // sr_lookback_per_tf ensure karo (Python se nahi aaya to default daal do)
+      if (!data.meta.sr_lookback_per_tf) {
+        data.meta.sr_lookback_per_tf = {
+          '5m': 25, '15m': 30, '45m': 40, '135m': 40,
+          '1d': 50, '3d': 50, '9d': 50, '27d': 50,
+        };
+      }
       document.getElementById('replay-range-btn').textContent =
         '📅 ' + data.meta.start + ' → ' + data.meta.end;
     } else {
@@ -12706,8 +12728,15 @@ const Replay = {
 
   _stepBatch(n){
     const base      = this._data.base;
-    const SR_MAX    = (this._data && this._data.meta && this._data.meta.sr_lookback)
-                      ? this._data.meta.sr_lookback : 100;
+
+    // Per-TF rolling window limits (Python ke BANKNIFTY_SR_LOOKBACK se match karta hai)
+    // BTC ke liye sab 100 rehte hain (generic fallback)
+    const SR_LOOKBACK_PER_TF = (this._data && this._data.meta && this._data.meta.sr_lookback_per_tf)
+      ? this._data.meta.sr_lookback_per_tf
+      : { '5m': 25, '15m': 30, '45m': 40, '135m': 40, '1d': 50, '3d': 50, '9d': 50, '27d': 50 };
+    const SR_MAX_DEFAULT = (this._data && this._data.meta && this._data.meta.sr_lookback)
+      ? this._data.meta.sr_lookback : 100;
+
     let lastTs      = null;
     let anyClosed   = false;
 
@@ -12715,15 +12744,15 @@ const Replay = {
       const row = base[this._idx++];
       lastTs = row[0];
 
-      Object.values(this._charts).forEach(c => {
+      Object.entries(this._charts).forEach(([tf, c]) => {
         const {closed, current} = c.resampler(row);
         if (closed){
           // ── Rolling S/R window update ──────────────────────────────────────
           // Closed candle ko visible window mein add karo
-          // c.bars = rolling window of displayed candles (SR calculate inhi se hoga)
           c.bars.push(closed);
-          // Agar window limit se zyada ho gaya to pehli candle hata do (rolling)
-          if (c.bars.length > SR_MAX) c.bars.shift();
+          // Har TF ka apna limit: 5m=25, 15m=30, 45m/135m=40, 1d+= 50
+          const srMax = SR_LOOKBACK_PER_TF[tf] || SR_MAX_DEFAULT;
+          if (c.bars.length > srMax) c.bars.shift();
           // Chart par update karo
           c.series.update(this._toLwc(closed));
           anyClosed = true;
@@ -12735,10 +12764,9 @@ const Replay = {
       });
 
       // ── srWindow (1m raw) bhi rolling update karo ─────────────────────────
-      // Yeh _rpRedrawSR mein ALLDATA replacement ke liye use hoga
       if (!this._srWindow) this._srWindow = [];
       this._srWindow.push(row);
-      if (this._srWindow.length > SR_MAX) this._srWindow.shift();
+      if (this._srWindow.length > SR_MAX_DEFAULT) this._srWindow.shift();
     }
 
     // Redraw SR every time a candle closes (throttled 300ms)

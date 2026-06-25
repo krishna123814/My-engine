@@ -23,19 +23,26 @@ IST_OFFSET = datetime.timedelta(hours=5, minutes=30)
 
 # ─── GitHub Raw URL Config ────────────────────────────────────────────────────
 GITHUB_URL     = "https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_1m.bin.gz"
-SNAPSHOT_FILE  = os.path.join(os.path.dirname(__file__), "bn_sr_snapshot.json.gz")
-SNAPSHOT_URL   = "https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz"
 
-# Har TF ke liye kitne resampled bars snapshot mein chahiye
+# ── nayi .pkl.gz file — snapshot ki jagah yahi use hogi ──────────────────────
+PKL_FILE       = os.path.join(os.path.dirname(__file__), "banknifty_all_tf.pkl.gz")
+PKL_URL        = "https://raw.githubusercontent.com/krishna123814/My-engine/main/banknifty_all_tf.pkl.gz"
+
+# Legacy names — main.py aur replay_data.py ka code tootne se bachane ke liye
+# (SNAPSHOT_FILE aur SNAPSHOT_URL abhi bhi import hote hain main.py mein)
+SNAPSHOT_FILE  = PKL_FILE
+SNAPSHOT_URL   = PKL_URL
+
+# Har TF ke liye kitne resampled bars pkl mein chahiye (full history)
 SR_SNAPSHOT_CONFIG = {
-    "5m":   ("minute", 5,    50),
-    "15m":  ("minute", 15,   50),
-    "45m":  ("minute", 45,   50),
-    "135m": ("minute", 135,  50),
-    "1d":   ("day",    1,    50),
-    "3d":   ("day",    3,    50),
-    "9d":   ("day",    9,    50),
-    "27d":  ("day",    27,   50),
+    "5m":   ("minute", 5,    0),   # 0 = sab bars rakhho (filter replay_data mein hoga)
+    "15m":  ("minute", 15,   0),
+    "45m":  ("minute", 45,   0),
+    "135m": ("minute", 135,  0),
+    "1d":   ("day",    1,    0),
+    "3d":   ("day",    3,    0),
+    "9d":   ("day",    9,    0),
+    "27d":  ("day",    27,   0),
 }
 
 
@@ -551,14 +558,16 @@ def _snap_resample_days(rows: list, n_days: int) -> list:
 def build_sr_snapshot(rows: list = None) -> dict:
     """
     bn_1m data se sabhi TF ke liye resampled bars banao aur
-    bn_sr_snapshot.json.gz mein save karo.
+    banknifty_all_tf.pkl.gz mein save karo (pehle wali json.gz ki jagah).
 
     rows: already loaded 1m data pass kar sakte ho (reload avoid karne ke liye).
           None dene par load_bin() se load hoga.
 
     Returns: {tf: bar_count, ...} — kitne bars har TF mein bane.
     """
-    import json
+    import pickle, gzip as _gz
+    import pandas as pd
+    from datetime import datetime
 
     if rows is None:
         rows = load_bin(auto_download=False)
@@ -566,50 +575,128 @@ def build_sr_snapshot(rows: list = None) -> dict:
         log.warning("build_sr_snapshot: koi data nahi mila — snapshot nahi bana")
         return {}
 
-    snapshot = {
-        "asset":     "BANKNIFTY",
-        "generated": rows[-1][0],   # last candle timestamp ms
-        "tfs":       {},
+    # 1m rows → pandas DataFrame (DatetimeIndex)
+    df = pd.DataFrame(rows, columns=["ts_ms", "Open", "High", "Low", "Close"])
+    df["Datetime"] = pd.to_datetime(df["ts_ms"], unit="ms", utc=True).dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
+    df = df.set_index("Datetime").sort_index()[["Open", "High", "Low", "Close"]]
+
+    def resample_ohlc(df, rule):
+        return df.resample(rule).agg(
+            {"Open": "first", "High": "max", "Low": "min", "Close": "last"}
+        ).dropna()
+
+    TF_RULES = {
+        "5m":   "5min",
+        "15m":  "15min",
+        "45m":  "45min",
+        "135m": "135min",
+        "1d":   "1D",
+        "3d":   "3D",
+        "9d":   "9D",
+        "27d":  "27D",
     }
+
+    bundle = {
+        "meta": {
+            "symbol":     "BANKNIFTY",
+            "created_on": datetime.now().strftime("%Y-%m-%d"),
+            "source":     "1m OHLC resampled",
+            "date_range": {
+                "from": str(df.index[0].date()),
+                "to":   str(df.index[-1].date()),
+            },
+            "timeframes": list(TF_RULES.keys()),
+            "columns":    ["Open", "High", "Low", "Close"],
+            "index":      "Datetime (pandas DatetimeIndex, IST)",
+            "how_to_open": {
+                "1_pandas": (
+                    "import pandas as pd\n"
+                    "data = pd.read_pickle('banknifty_all_tf.pkl.gz')\n"
+                    "df = data['15m']"
+                ),
+                "2_pickle_gzip": (
+                    "import pickle, gzip\n"
+                    "with gzip.open('banknifty_all_tf.pkl.gz', 'rb') as f:\n"
+                    "    data = pickle.load(f)\n"
+                    "df = data['1d']"
+                ),
+            },
+        }
+    }
+
     counts = {}
+    for tf, rule in TF_RULES.items():
+        resampled = resample_ohlc(df, rule)
+        bundle[tf] = resampled
+        counts[tf] = len(resampled)
+        log.info(f"  {tf}: {len(resampled):,} bars")
 
-    for tf, (typ, val, want) in SR_SNAPSHOT_CONFIG.items():
-        if typ == "minute":
-            all_bars = _snap_resample_minutes(rows, val)
-        else:
-            all_bars = _snap_resample_days(rows, val)
+    # Save as binary pickle + gzip
+    with _gz.open(PKL_FILE, "wb", compresslevel=9) as f:
+        pickle.dump(bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-        bars = all_bars[-want:] if len(all_bars) >= want else all_bars
-        # Float precision: 2 decimal places kafi hain BankNifty ke liye
-        bars = [[b[0], round(b[1], 2), round(b[2], 2), round(b[3], 2), round(b[4], 2)]
-                for b in bars]
-        snapshot["tfs"][tf] = bars
-        counts[tf] = len(bars)
-
-    # Save as gzip JSON
-    import gzip as _gz
-    json_bytes = json.dumps(snapshot, separators=(",", ":")).encode("utf-8")
-    with _gz.open(SNAPSHOT_FILE, "wb", compresslevel=9) as f:
-        f.write(json_bytes)
-
-    size_kb = os.path.getsize(SNAPSHOT_FILE) / 1024
-    log.info(f"✅ Snapshot saved: {SNAPSHOT_FILE} ({size_kb:.1f} KB) — {counts}")
-    print(f"✅ Snapshot: {size_kb:.1f} KB → {counts}")
+    size_mb = os.path.getsize(PKL_FILE) / 1024 / 1024
+    log.info(f"✅ pkl.gz saved: {PKL_FILE} ({size_mb:.2f} MB) — {counts}")
+    print(f"✅ banknifty_all_tf.pkl.gz: {size_mb:.2f} MB → {counts}")
     return counts
 
 
 def load_sr_snapshot() -> dict:
     """
-    bn_sr_snapshot.json.gz load karo.
-    Returns: {"tfs": {"5m": [[ts,o,h,l,c],...], ...}, "generated": ts_ms}
+    banknifty_all_tf.pkl.gz load karo.
+    Returns: {"tfs": {"5m": DataFrame, ...}, "meta": {...}}
     File nahi mili to empty dict return karta hai.
+
+    Replay ke saath compatible format:
+      snapshot["tfs"][tf] = list of [ts_ms, o, h, l, c]
     """
-    import json, gzip as _gz
-    if not os.path.exists(SNAPSHOT_FILE):
-        return {}
+    import pickle, gzip as _gz
+
+    # GitHub se download karo agar local file nahi hai
+    if not os.path.exists(PKL_FILE):
+        log.info("banknifty_all_tf.pkl.gz missing — GitHub se download try...")
+        try:
+            import requests as _req
+            resp = _req.get(PKL_URL, stream=True, timeout=120)
+            if resp.status_code == 200:
+                os.makedirs(os.path.dirname(PKL_FILE) or ".", exist_ok=True)
+                with open(PKL_FILE, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                log.info(f"✅ Downloaded banknifty_all_tf.pkl.gz")
+            else:
+                log.warning(f"GitHub download failed: HTTP {resp.status_code}")
+                return {}
+        except Exception as e:
+            log.warning(f"load_sr_snapshot download error: {e}")
+            return {}
+
     try:
-        with _gz.open(SNAPSHOT_FILE, "rb") as f:
-            return json.loads(f.read().decode("utf-8"))
+        with _gz.open(PKL_FILE, "rb") as f:
+            bundle = pickle.load(f)
+
+        # DataFrame → list of [ts_ms, o, h, l, c] — replay_data ke saath compatible
+        tfs_as_lists = {}
+        for tf, val in bundle.items():
+            if tf == "meta":
+                continue
+            try:
+                # pandas DataFrame
+                rows = []
+                for idx, row in val.iterrows():
+                    ts_ms = int(idx.timestamp() * 1000)
+                    rows.append([ts_ms,
+                                 round(float(row["Open"]),  2),
+                                 round(float(row["High"]),  2),
+                                 round(float(row["Low"]),   2),
+                                 round(float(row["Close"]), 2)])
+                tfs_as_lists[tf] = rows
+            except Exception as e:
+                log.warning(f"load_sr_snapshot: TF {tf} convert error: {e}")
+
+        return {"tfs": tfs_as_lists, "meta": bundle.get("meta", {})}
+
     except Exception as e:
         log.warning(f"load_sr_snapshot error: {e}")
         return {}
