@@ -12070,8 +12070,6 @@ const Replay = {
     if (start > end){ alert('Start date end date se pehle hona chahiye'); return; }
     this.closeRangeModal();
     this._showLoading(true);
-
-    // Debug panel reset + open — PEHLE panel banao, PHIR log karo
     Replay._dbgLines = [];
     Replay._showDebugPanel(true);
     Replay._dbgLog('▶ requestLoad() called');
@@ -12079,139 +12077,98 @@ const Replay = {
     const rpAsset   = this._asset;
     const rpStart   = start;
     const rpEnd     = end;
-    const rpStartTs = new Date(rpStart + 'T00:00:00Z').getTime();
-    const rpEndTs   = new Date(rpEnd   + 'T23:59:59Z').getTime();
+    const rpStartTs = new Date(rpStart + 'T00:00:00+05:30').getTime();
+    const rpEndTs   = new Date(rpEnd   + 'T23:59:59+05:30').getTime();
 
-    this._dbgLog(`▶ Replay — Asset: ${rpAsset}, From: ${rpStart}, To: ${rpEnd}`);
+    this._dbgLog(`▶ Asset: ${rpAsset}, From: ${rpStart}, To: ${rpEnd}`);
 
     try {
       if (rpAsset === 'BANKNIFTY') {
-        // ── GitHub snapshot se seedha fetch — koi Local API, koi bridge nahi ──
-        const GH_SNAPSHOT_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz';
-        this._dbgLog(`📡 GitHub snapshot fetch kar raha hai...`);
+        // ── GitHub snapshot fetch — seedha resampled bars, koi 1m nahi ────────
+        const GH_URL = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/bn_sr_snapshot.json.gz';
+        this._dbgLog(`📡 GitHub snapshot fetch...`);
 
-        let snapshotResp;
-        try {
-          snapshotResp = await fetch(GH_SNAPSHOT_URL, {cache: 'no-store'});
-          this._dbgLog(`📡 HTTP: ${snapshotResp.status}`);
-        } catch(e) {
-          this._dbgLog(`❌ Fetch error: ${e.message}`);
-          throw e;
-        }
-        if (!snapshotResp.ok) throw new Error('GitHub fetch failed: HTTP ' + snapshotResp.status);
+        const resp = await fetch(GH_URL, {cache: 'no-store'});
+        this._dbgLog(`📡 HTTP: ${resp.status}`);
+        if (!resp.ok) throw new Error('GitHub fetch failed: HTTP ' + resp.status);
 
-        // ── Decompress ───────────────────────────────────────────────────────
-        this._dbgLog(`⬇️ Decompress ho raha hai...`);
-        let snap;
-        try {
-          const compBuf = await snapshotResp.arrayBuffer();
-          const t0 = performance.now();
-          const ds = new DecompressionStream('gzip');
-          const w  = ds.writable.getWriter();
-          w.write(new Uint8Array(compBuf)); w.close();
-          const chunks = []; const r = ds.readable.getReader();
-          while (true) { const {done,value} = await r.read(); if(done) break; chunks.push(value); }
-          let len = 0; chunks.forEach(c => len += c.length);
-          const raw = new Uint8Array(len); let off = 0;
-          chunks.forEach(c => { raw.set(c, off); off += c.length; });
-          snap = JSON.parse(new TextDecoder().decode(raw));
-          this._dbgLog(`✅ Snapshot ready — ${(compBuf.byteLength/1024).toFixed(1)} KB in ${((performance.now()-t0)/1000).toFixed(2)}s`);
-        } catch(e) {
-          this._dbgLog(`❌ Decompress/parse error: ${e.message}`);
-          throw e;
+        // Decompress
+        const compBuf = await resp.arrayBuffer();
+        const t0 = performance.now();
+        const ds = new DecompressionStream('gzip');
+        const w  = ds.writable.getWriter();
+        w.write(new Uint8Array(compBuf)); w.close();
+        const chunks = []; const rdr = ds.readable.getReader();
+        while(true){ const {done,value} = await rdr.read(); if(done) break; chunks.push(value); }
+        let len=0; chunks.forEach(c=>len+=c.length);
+        const raw=new Uint8Array(len); let off=0; chunks.forEach(c=>{raw.set(c,off);off+=c.length;});
+        const snap = JSON.parse(new TextDecoder().decode(raw));
+        this._dbgLog(`✅ Snapshot ready — ${(compBuf.byteLength/1024).toFixed(1)} KB in ${((performance.now()-t0)/1000).toFixed(2)}s`);
+
+        if (!snap || !snap.tfs) throw new Error('Snapshot format galat — tfs missing');
+
+        // ── Har TF ke bars mein se date range filter karo ───────────────────
+        // Snapshot bars IST mein hain (BankNifty), filter seedha timestamp se
+        const filteredTfs = {};
+        let baseBarCount = 0;
+        for (const [tf, bars] of Object.entries(snap.tfs)) {
+          filteredTfs[tf] = bars.filter(b => b[0] >= rpStartTs && b[0] <= rpEndTs);
+          if (tf === '5m') baseBarCount = filteredTfs[tf].length;
+          this._dbgLog(`  ${tf}: ${bars.length} total → ${filteredTfs[tf].length} in range`);
         }
 
-        if (!snap || !snap.tfs) throw new Error('Snapshot format galat — tfs field nahi mili');
-
-        // ── base: snapshot ke 1m candles mein se date range filter karo ──────
-        // IST offset: BankNifty candles IST mein hain (UTC+5:30)
-        const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-        const startFilterTs = rpStartTs - IST_OFFSET_MS;
-        const endFilterTs   = rpEndTs   - IST_OFFSET_MS;
-
-        let base = [];
-        if (snap.base && snap.base.length > 0) {
-          base = snap.base.filter(r => r[0] >= startFilterTs && r[0] <= endFilterTs);
-          this._dbgLog(`✅ base: ${snap.base.length} total → ${base.length} candles in range`);
-        } else {
-          this._dbgLog(`⚠️ Snapshot mein base nahi hai — purani file hai, rebuild karo`);
-        }
+        // base = 5m bars (replay engine ka minimum TF)
+        const base = filteredTfs['5m'] || [];
 
         if (base.length === 0) {
-          this._dbgLog(`⚠️ Is date range mein koi candle nahi — snapshot last 60 trading days cover karta hai`);
           this._showLoading(false);
-          alert('Is date range mein koi data nahi mila.\n\nSnapshot last ~60 trading days cover karta hai.\nPurani dates ke liye snapshot rebuild karo.\n\nDebug panel mein details dekho ⬇');
+          alert('Is date range mein koi data nahi mila.\nSnapshot last 50 bars per TF cover karta hai.\n\nDebug panel mein details dekho ⬇');
           return;
         }
 
-        // ── sr_tfs: snapshot se directly ─────────────────────────────────────
-        const srTfs = snap.tfs;
-        this._dbgLog(`✅ sr_tfs: ${Object.entries(srTfs).map(([k,v])=>k+'='+v.length).join(', ')}`);
-
-        this._dbgLog(`🚀 setData (Snapshot path)...`);
+        this._dbgLog(`✅ base (5m): ${base.length} bars`);
+        this._dbgLog(`🚀 setData...`);
         this.setData(rpAsset, {
           base,
-          sr_base:       [],
-          sr_tfs:        srTfs,
-          meta:          { start: rpStart, end: rpEnd },
+          sr_base: [],
+          sr_tfs:  snap.tfs,   // SR ke liye poore unfiltered bars
+          tfs:     filteredTfs, // Replay ke liye filtered bars
+          meta:    { start: rpStart, end: rpEnd },
           replayStartTs: rpStartTs,
         });
-        this._dbgLog(`✅ Snapshot load COMPLETE! ${base.length} candles ready.`);
+        this._dbgLog(`✅ Load COMPLETE! ${base.length} x 5m bars ready.`);
 
       } else {
         // ── BTC: Binance REST API ─────────────────────────────────────────────
-        this._dbgLog(`₿ BTC mode — Binance API se fetch karenge`);
-        const startMs = rpStartTs;
-        const endMs   = rpEndTs;
-        const base    = [];
-        let curMs     = startMs;
-        let batchNum  = 0;
-
+        this._dbgLog(`₿ BTC — Binance fetch`);
+        const startMs = new Date(rpStart + 'T00:00:00Z').getTime();
+        const endMs   = new Date(rpEnd   + 'T23:59:59Z').getTime();
+        const base = [];
+        let curMs = startMs, batch = 0;
         while (curMs < endMs) {
-          batchNum++;
+          batch++;
           const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${curMs}&endTime=${endMs}&limit=1000`;
-          this._dbgLog(`📡 Binance batch #${batchNum}: ${new Date(curMs).toISOString().slice(0,16)}`);
-          let resp;
-          try {
-            resp = await fetch(url);
-            this._dbgLog(`   HTTP: ${resp.status}`);
-          } catch(fetchErr) {
-            this._dbgLog(`❌ BINANCE FETCH ERROR: ${fetchErr.message}`);
-            throw fetchErr;
-          }
-          if (!resp.ok) throw new Error('Binance fetch failed: HTTP ' + resp.status);
-          const rows = await resp.json();
-          this._dbgLog(`   Rows: ${Array.isArray(rows) ? rows.length : 'ERR: ' + JSON.stringify(rows).slice(0,60)}`);
-          if (!Array.isArray(rows) || rows.length === 0) break;
-          for (const x of rows) {
-            base.push([parseInt(x[0]), parseFloat(x[1]), parseFloat(x[2]), parseFloat(x[3]), parseFloat(x[4])]);
-          }
-          curMs = parseInt(rows[rows.length - 1][0]) + 60000;
+          this._dbgLog(`📡 Batch #${batch}: ${new Date(curMs).toISOString().slice(0,16)}`);
+          const r = await fetch(url);
+          if (!r.ok) throw new Error('Binance HTTP ' + r.status);
+          const rows = await r.json();
+          if (!Array.isArray(rows) || !rows.length) break;
+          for (const x of rows)
+            base.push([parseInt(x[0]),parseFloat(x[1]),parseFloat(x[2]),parseFloat(x[3]),parseFloat(x[4])]);
+          curMs = parseInt(rows[rows.length-1][0]) + 60000;
           if (rows.length < 1000) break;
         }
-
-        this._dbgLog(`✅ BTC fetch done — ${base.length} candles`);
-
-        if (base.length === 0) {
-          this._dbgLog(`⚠️ 0 candles — Binance se data nahi aaya`);
-          this._showLoading(false);
-          alert('Is date range mein koi BTC data nahi mila.\n\nDebug panel mein details dekho ⬇');
-          return;
-        }
-
-        this._dbgLog(`🚀 setData call ho raha hai...`);
+        this._dbgLog(`✅ BTC: ${base.length} candles`);
+        if (!base.length) { this._showLoading(false); alert('BTC data nahi mila.'); return; }
         this.setData(rpAsset, { base, meta: { start: rpStart, end: rpEnd } });
-        this._dbgLog(`✅ Replay data load COMPLETE!`);
+        this._dbgLog(`✅ BTC load COMPLETE!`);
       }
 
     } catch(err) {
-      this._dbgLog(`\n💥 EXCEPTION: ${err.name}: ${err.message}`);
-      if (err.stack) this._dbgLog(`Stack: ${err.stack.split('\n').slice(0,4).join(' | ')}`);
-      this._dbgLog(`\n👇 Log copy karke share karo`);
+      this._dbgLog(`💥 ${err.name}: ${err.message}`);
       this._showLoading(false);
-      alert('Replay data load nahi hua: ' + err.message + '\n\nDebug panel mein full log dekho ⬇');
+      alert('Replay load nahi hua: ' + err.message + '\n\nDebug panel dekho ⬇');
     } finally {
-      // Safety net: koi bhi path se exit ho — loading zaroor band karo
       this._showLoading(false);
     }
   },
