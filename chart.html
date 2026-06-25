@@ -12039,11 +12039,11 @@ const Replay = {
         // Button handlers
         document.getElementById('rp-dbg-copy').onclick = function() {
           const txt = document.getElementById('rp-dbg-pre').textContent;
-          if (navigator.clipboard) {
-            navigator.clipboard.writeText(txt).then(function(){ alert('Log copied!'); });
-          } else {
-            prompt('Log copy karo:', txt);
-          }
+          // FIX: navigator.clipboard.writeText() Android Chrome par fullscreen exit
+          // trigger karta hai (browser security policy). Isliye prompt() use karo —
+          // user manually Ctrl+A, Ctrl+C kar sakta hai bina fullscreen exit ke.
+          // Clipboard API intentionally avoid kiya gaya hai.
+          prompt('Log select karke copy karo (Ctrl+A → Ctrl+C / long-press → Copy All):', txt);
         };
         document.getElementById('rp-dbg-close').onclick = function() {
           Replay._showDebugPanel(false);
@@ -12360,11 +12360,15 @@ const Replay = {
             const {closed, current} = rs(row);
             if (closed) bars.push(closed);
           }
-          // Flush last forming candle
+          // Flush last forming candle — FIX: same row dobara push NAHI karo.
+          // Pehle same last row ko rs() mein dobara push kiya tha jisse wrong
+          // timestamp milta tha aur 5m chart par visible gap banta tha.
+          // FIX: far-future dummy row push karo taaki current bucket flush ho.
           if (ghSrBaseSliced.length > 0) {
-            const lastResult = rs(ghSrBaseSliced[ghSrBaseSliced.length - 1]);
-            if (lastResult.current && (!bars.length || bars[bars.length-1][0] !== lastResult.current[0])) {
-              bars.push(lastResult.current);
+            const _lr = ghSrBaseSliced[ghSrBaseSliced.length - 1];
+            const _flush = rs([_lr[0] + 999*60000, _lr[1], _lr[2], _lr[3], _lr[4]]);
+            if (_flush.closed && (!bars.length || bars[bars.length-1][0] !== _flush.closed[0])) {
+              bars.push(_flush.closed);
             }
           }
           ghSrTfs[def.tf] = bars;
@@ -12744,11 +12748,6 @@ const Replay = {
     Object.entries(charts).forEach(([tf, c]) => {
       try {
         const tfMin = c.tfMin || 1;
-        // Visible range PEHLE save karo (clear se bhi pehle) —
-        // warna _bnBuildSRNative ko null milta hai aur scrollToRealTime() fire
-        // hota hai jo sab charts ko right edge par reset kar deta hai.
-        let _preRange = null;
-        try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
         c.srSeries  = _bnClearSRNative(c.chart, c.srSeries);
         const bars  = replayBarsByTfMin[tfMin] || [];
         if (bars.length < 1) {
@@ -12760,7 +12759,7 @@ const Replay = {
         }
         const lines = _rpComputeSRForCell(tfMin);
         totalLines += lines.length;
-        c.srSeries  = _bnBuildSRNative(c.chart, lines, _preRange);
+        c.srSeries  = _bnBuildSRNative(c.chart, lines, null);
       } catch(e) {
         this._dbgLog('🔴 SR draw error tf=' + tf + ': ' + e.message);
       }
