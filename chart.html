@@ -699,28 +699,35 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 /* ── Bar Replay View (Stack View ka clone, static data ke liye) ──── */
 #replay-view{display:none;flex:1;overflow:hidden;min-height:0;flex-direction:column;}
 #replay-view.active{display:flex}
-#replay-toolbar{
-  display:flex;align-items:center;gap:6px;padding:4px 8px;
-  background:#1a1f2e;border-bottom:1px solid #2a2e39;flex-shrink:0;
-}
-.rp-asset-btn{
-  height:22px;padding:0 10px;background:transparent;border:1px solid #2a2e39;
-  border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;
-}
-.rp-asset-btn.active{border-color:#f0b429;color:#f0b429;background:#f0b42914}
-.rp-asset-btn:active{background:#2a2e39}
-.rp-sep{width:1px;height:14px;background:#2a2e39;margin:0 2px;flex-shrink:0}
-.rp-label{font-size:11px;color:#555;flex:1;text-align:right;padding-right:4px}
-#rp-up-btn,#rp-down-btn{
-  height:18px;padding:0 6px;background:transparent;border:1px solid #2a2e39;
-  border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;flex-shrink:0;
-}
-#rp-up-btn:active,#rp-down-btn:active{background:#2a2e39;color:#fff}
 #replay-container{
   flex:1;display:flex;flex-direction:column;
   background:#2a2e39;overflow-y:auto;min-height:0;
   touch-action:none;
 }
+
+/* ── Replay Floating Panel ──────────────────────────────────────────────── */
+#replay-float-panel{
+  display:none;
+  position:fixed;z-index:10500;
+  left:12px;top:80px;
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 4px 20px #0008;
+  min-width:220px;
+  user-select:none;
+}
+#replay-float-panel.visible{display:block}
+#replay-float-drag-handle{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 10px 6px;
+  cursor:grab;border-bottom:1px solid #2a2e39;
+}
+#replay-float-drag-handle:active{cursor:grabbing}
+#replay-float-title{font-size:12px;font-weight:700;color:#d1d4dc;}
+#replay-float-drag-icon{font-size:16px;color:#363c4e;letter-spacing:-2px;}
+#replay-float-body{
+  display:flex;align-items:center;gap:6px;padding:8px 10px;flex-wrap:wrap;
+}
+#rp-status-label{font-size:11px;color:#555;flex:1;min-width:100%;padding-top:4px;}
 .replay-cell{
   flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
   position:relative;display:flex;flex-direction:column;
@@ -1985,15 +1992,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 <!-- ═══ BAR REPLAY VIEW (Stack View ka copy, static data ke liye) ══════ -->
 <div id="replay-view">
-  <div id="replay-toolbar">
-    <button class="rp-asset-btn active" id="rp-bn-btn" onclick="replaySetAsset('bn')">BankNifty</button>
-    <button class="rp-asset-btn" id="rp-btc-btn" onclick="replaySetAsset('btc')">BTC</button>
-    <div class="rp-sep"></div>
-    <button id="rp-up-btn" onclick="_stackStepJump(document.getElementById('replay-container'), -1)" title="Scroll up">▲</button>
-    <button id="rp-down-btn" onclick="_stackStepJump(document.getElementById('replay-container'), 1)" title="Scroll down">▼</button>
-    <div class="rp-sep"></div>
-    <span class="rp-label" id="rp-status-label">Asset chuniye…</span>
-  </div>
   <div id="replay-container"></div>
 </div>
 
@@ -2006,8 +2004,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
-  <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
-  <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
+  <button id="stack-up-btn" onclick="_stackStepJump(_replayActive ? document.getElementById('replay-container') : document.getElementById('stack-container'), -1)" title="Scroll up">▲</button>
+  <button id="stack-down-btn" onclick="_stackStepJump(_replayActive ? document.getElementById('replay-container') : document.getElementById('stack-container'), 1)" title="Scroll down">▼</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -3432,6 +3430,7 @@ function _deactivateReplayView() {
   const rv = document.getElementById('replay-view');
   if (rv) rv.classList.remove('active');
   document.getElementById('gp-replay-row')?.classList.remove('active');
+  document.getElementById('replay-float-panel')?.classList.remove('visible');
   _destroyReplayCells();
 }
 
@@ -3594,6 +3593,7 @@ function selectReplayView() {
   S.layout = 'replay';
   try { _LS.setItem('tvLayout', 'replay'); } catch(_) {}
 
+  document.getElementById('replay-float-panel')?.classList.add('visible');
   _buildReplayCharts();
 }
 
@@ -11918,6 +11918,66 @@ if (document.readyState === 'loading') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') ping();
   });
+})();
+<!-- ═══ REPLAY FLOATING PANEL (draggable) ════════════════════════════════ -->
+<div id="replay-float-panel">
+  <div id="replay-float-drag-handle">
+    <span id="replay-float-title">⏯ Bar Replay</span>
+    <span id="replay-float-drag-icon">⠿</span>
+  </div>
+  <div id="replay-float-body">
+    <button class="rp-asset-btn active" id="rp-bn-btn" onclick="replaySetAsset('bn')">BankNifty</button>
+    <button class="rp-asset-btn" id="rp-btc-btn" onclick="replaySetAsset('btc')">BTC</button>
+    <div class="rp-sep"></div>
+    <span id="rp-status-label">Asset chuniye…</span>
+  </div>
+</div>
+
+<script>
+// ── Replay floating panel — drag logic ───────────────────────────────────
+(function () {
+  const PANEL_KEY = 'replayFloatPos';
+  const panel  = document.getElementById('replay-float-panel');
+  const handle = document.getElementById('replay-float-drag-handle');
+  if (!panel || !handle) return;
+
+  // Restore saved position
+  try {
+    const saved = JSON.parse(localStorage.getItem(PANEL_KEY) || 'null');
+    if (saved) { panel.style.left = saved.x + 'px'; panel.style.top = saved.y + 'px'; }
+  } catch(_) {}
+
+  let ox = 0, oy = 0, dragging = false;
+
+  function onStart(cx, cy) {
+    dragging = true;
+    const r = panel.getBoundingClientRect();
+    ox = cx - r.left; oy = cy - r.top;
+    panel.style.transition = 'none';
+    document.body.style.userSelect = 'none';
+  }
+  function onMove(cx, cy) {
+    if (!dragging) return;
+    const x = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  cx - ox));
+    const y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, cy - oy));
+    panel.style.left = x + 'px'; panel.style.top = y + 'px';
+  }
+  function onEnd() {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.userSelect = '';
+    try { localStorage.setItem(PANEL_KEY, JSON.stringify({ x: parseInt(panel.style.left), y: parseInt(panel.style.top) })); } catch(_) {}
+  }
+
+  // Mouse
+  handle.addEventListener('mousedown',  e => { onStart(e.clientX, e.clientY); e.preventDefault(); });
+  document.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+  document.addEventListener('mouseup',   () => onEnd());
+
+  // Touch
+  handle.addEventListener('touchstart', e => { const t = e.touches[0]; onStart(t.clientX, t.clientY); }, { passive: true });
+  document.addEventListener('touchmove', e => { if (!dragging) return; const t = e.touches[0]; onMove(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
+  document.addEventListener('touchend',  () => onEnd());
 })();
 </script>
 </body>
