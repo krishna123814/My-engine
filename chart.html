@@ -11831,10 +11831,13 @@ async function _replayFetchChunk(asset, tfStr, chunk) {
     throw new Error('HTTP ' + r.status);
   }
   const data = await r.json();
-  // Print server-side debug log lines
+  // Print server-side debug log lines (chunk 0 pe — download speed bhi yahan aata hai)
   if (data.debug && chunk === 0) {
     data.debug.forEach(line => {
-      const col = line.includes('❌') ? '#ef5350' : line.includes('Downloaded') ? '#26a69a' : '#9598a1';
+      let col = '#9598a1';
+      if (line.includes('❌') || line.includes('FAILED')) col = '#ef5350';
+      else if (line.includes('✅') || line.includes('Downloaded') || line.includes('KB/s')) col = '#26a69a';
+      else if (line.includes('Downloading') || line.includes('URL:')) col = '#f0b429';
       _replayLog('  ' + line, col);
     });
   }
@@ -12066,7 +12069,7 @@ async function selectReplayAsset(asset) {
   _replaySetStatus('Loading…');
   _replayLogClear();
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo('Data: Python → postMessage (Streamlit Cloud safe)');
+  _replayLogInfo('Lazy loading: pehla TF turant, baaki scroll pe');
   _replayLog('─'.repeat(38), '#2a2e39');
 
   const sc  = document.getElementById('replay-stack-container');
@@ -12074,7 +12077,11 @@ async function selectReplayAsset(asset) {
 
   const cellH = 'calc(100% / 4)';
 
-  // Pre-build DOM cells
+  // Cache: agar pehle load ho chuka hai to seedha use karo
+  if (!window._replayCandleCache) window._replayCandleCache = {};
+  const _cache = window._replayCandleCache;
+
+  // Pre-build DOM cells (skeleton — data baad mein aayega)
   for (let i = 0; i < total; i++) {
     const tfStr = tfs[i];
     const cell  = document.createElement('div');
@@ -12094,6 +12101,12 @@ async function selectReplayAsset(asset) {
     chartDiv.id = 'rcell-chart-' + i;
     chartDiv.style.position = 'relative';
 
+    const skelDiv = document.createElement('div');
+    skelDiv.id = 'rcell-skel-' + i;
+    skelDiv.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a3e4e;font-size:11px;pointer-events:none;';
+    skelDiv.textContent = '⏳ ' + tfStr + ' loading…';
+    chartDiv.appendChild(skelDiv);
+
     const badge = document.createElement('span');
     badge.className = 'cell-screen-badge';
     badge.textContent = (i+1) + ':' + total;
@@ -12103,32 +12116,69 @@ async function selectReplayAsset(asset) {
     cell.appendChild(badge);
     sc.appendChild(cell);
 
-    _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i });
+    _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i, loaded: false });
   }
 
-  // Request each TF from Python via postMessage — one by one
-  for (let i = 0; i < total; i++) {
-    const tfStr = tfs[i];
-    _replaySetStatus(`Requesting ${tfStr} (${i+1}/${total})…`);
-    _replayLog(`
-▶ [${i+1}/${total}] ${tfStr} — Python se data maang raha hun…`, '#d1d4dc');
+  // Ek TF load karna
+  async function _loadCell(i) {
+    const cellObj = _REPLAY.cells[i];
+    if (!cellObj || cellObj.loaded) return;
+    cellObj.loaded = true;
+
+    const tfStr = cellObj.tf;
+    const cacheKey = asset + '_' + tfStr;
+
+    _replayLog('\n\u25b6 [' + (i+1) + '/' + total + '] ' + tfStr + ' — loading…', '#d1d4dc');
+
     try {
-      const candles = await _replayRequestTF(asset, tfStr);
-      if (!candles || !candles.length) {
-        _replayLogWarn(`${tfStr} — 0 candles, skipping`);
-        continue;
+      let candles;
+      if (_cache[cacheKey]) {
+        candles = _cache[cacheKey];
+        _replayLogOk(tfStr + ' — cache se ' + candles.length + ' candles (instant)');
+      } else {
+        candles = await _replayRequestTF(asset, tfStr);
+        if (candles && candles.length) _cache[cacheKey] = candles;
       }
-      _replayLogOk(`${tfStr} — ${candles.length} candles mili`);
+
+      const sk = document.getElementById('rcell-skel-' + i);
+      if (sk) sk.remove();
+
+      if (!candles || !candles.length) {
+        _replayLogWarn(tfStr + ' — 0 candles, skipping');
+        return;
+      }
+      _replayLogOk(tfStr + ' — ' + candles.length + ' candles mili');
       _replayDrawCell(asset, i, tfStr, candles, sc);
     } catch(err) {
-      _replayLogErr(`${tfStr} FAILED: ${err.message || err}`);
+      _replayLogErr(tfStr + ' FAILED: ' + (err.message || err));
+      const sk = document.getElementById('rcell-skel-' + i);
+      if (sk) { sk.textContent = '❌ ' + tfStr + ' failed'; sk.style.color = '#ef5350'; }
     }
-    await new Promise(r2 => setTimeout(r2, 20));
   }
 
+  // Pehla TF turant load karo
+  await _loadCell(0);
   _replaySetStatus('');
+
+  // Baaki TFs: scroll pe lazy load
+  const _lazyObs = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const idx = parseInt(entry.target.dataset.ridx, 10);
+        if (!isNaN(idx) && idx > 0) {
+          _lazyObs.unobserve(entry.target);
+          _loadCell(idx);
+        }
+      }
+    });
+  }, { root: sc, rootMargin: '300px', threshold: 0.01 });
+
+  sc.querySelectorAll('.stack-cell').forEach((cell, idx) => {
+    if (idx > 0) _lazyObs.observe(cell);
+  });
+
   _replayLog('\n' + '─'.repeat(38), '#2a2e39');
-  _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
+  _replayLogOk('Lazy loading active — scroll karo baaki TFs load honge');
 
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
   _REPLAY.resizeObs = new ResizeObserver(() => {
@@ -12139,341 +12189,3 @@ async function selectReplayAsset(asset) {
   });
   _REPLAY.resizeObs.observe(sc);
 }
-
-// Status text in float box + header badge
-function _replaySetStatus(msg) {
-  const el = document.getElementById('replay-load-status');
-  if (el) el.textContent = msg;
-  const badge = document.getElementById('rp-hdr-status');
-  if (badge) badge.textContent = msg ? '⏵ ' + msg : '⏵ Replay';
-}
-
-// Step jump for replay stack (same as main stack)
-function _replayStackJump(dir) {
-  const sc = document.getElementById('replay-stack-container');
-  if (!sc) return;
-  const first = sc.querySelector('.stack-cell');
-  if (!first) return;
-  const chartH = first.getBoundingClientRect().height || sc.clientHeight / 4;
-  const target = sc.scrollTop + dir * chartH;
-  sc.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
-}
-
-// Make any box draggable by a handle element
-function _makeDraggable(box, drag) {
-  if (!box || !drag || box._dragInited) return;
-  box._dragInited = true;
-  let _ox=0, _oy=0, _bx=0, _by=0, _dragging=false;
-  function _start(e) {
-    _dragging = true;
-    const src = e.touches ? e.touches[0] : e;
-    _ox = src.clientX; _oy = src.clientY;
-    const r = box.getBoundingClientRect();
-    _bx = r.left; _by = r.top;
-    box.style.transform = 'none';
-    box.style.left = _bx + 'px';
-    box.style.top  = _by + 'px';
-    box.style.bottom = 'auto';
-    e.preventDefault();
-  }
-  function _move(e) {
-    if (!_dragging) return;
-    const src = e.touches ? e.touches[0] : e;
-    box.style.left = (_bx + src.clientX - _ox) + 'px';
-    box.style.top  = (_by + src.clientY - _oy) + 'px';
-    e.preventDefault();
-  }
-  function _end() { _dragging = false; }
-  drag.addEventListener('mousedown',  _start);
-  drag.addEventListener('touchstart', _start, { passive: false });
-  document.addEventListener('mousemove',  _move);
-  document.addEventListener('touchmove',  _move, { passive: false });
-  document.addEventListener('mouseup',   _end);
-  document.addEventListener('touchend',  _end);
-}
-
-// Draggable float box
-function _initReplayDrag() {
-  const box  = document.getElementById('replay-float-box');
-  const drag = document.getElementById('replay-float-drag');
-  if (!box || !drag || box._dragInited) return;
-  box._dragInited = true;
-
-  _makeDraggable(box, drag);
-  // Also init debug box drag
-  const dbox = document.getElementById('replay-debug-box');
-  const ddrag = document.getElementById('replay-debug-drag');
-  _makeDraggable(dbox, ddrag);
-}
-
-</script>
-
-<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
-<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
-<div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:99999;flex-direction:column;overflow:hidden;">
-
-  <!-- ── HEADER — exact replica of #hdr ── -->
-  <div id="rp-hdr" style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
-
-    <!-- Symbol button — tap to open asset picker float box -->
-    <div style="position:relative;flex-shrink:0;">
-      <button id="rp-sym-label" onclick="_replayOpenAssetPicker()"
-        style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;">
-        📊 BANKNIFTY
-      </button>
-    </div>
-
-    <!-- Replay badge (replaces LTP/CHG in main hdr) -->
-    <span id="rp-hdr-status"
-      style="height:18px;padding:0 6px;background:transparent;border:1px solid #f0b42955;border-radius:3px;color:#f0b429;font-size:9px;font-weight:700;display:flex;align-items:center;white-space:nowrap;flex-shrink:0;">
-      ⏵ Replay
-    </span>
-
-    <div style="flex:1;min-width:0;"></div>
-
-    <!-- Right-side buttons — same order as #hdr-right -->
-    <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
-
-      <!-- TF menu button (same as #tf-menu-btn) -->
-      <button onclick="toggleTfDropdown()"
-        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;flex-shrink:0;white-space:nowrap;">
-        ⏱ <span id="rp-tf-menu-label">--</span>
-      </button>
-
-      <!-- Draw button -->
-      <button onclick="toggleDrawPanel()"
-        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;flex-shrink:0;">
-        ✏️ Draw
-      </button>
-
-      <!-- Hamburger / TF-bar toggle -->
-      <button onclick="toggleTfBar()"
-        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-        ≡
-      </button>
-
-      <!-- Broker button -->
-      <button onclick="toggleBrokerPanel(event)"
-        style="height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-        🔑
-      </button>
-
-      <!-- Settings -->
-      <button onclick="toggleSettings()"
-        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-        ⚙
-      </button>
-
-      <!-- Close Replay (replaces fullscreen btn) -->
-      <button onclick="closeReplayView()"
-        style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">
-        ✕
-      </button>
-
-    </div>
-  </div>
-
-  <!-- ── TF BAR — exact replica of #tf-bar (real clickable buttons) ── -->
-  <div id="rp-tf-bar" style="height:14px;min-height:14px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
-    <button id="rp-tf-5m"   class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"    >5m</button>
-    <button id="rp-tf-15m"  class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"   >15m</button>
-    <button id="rp-tf-45m"  class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"   >45m</button>
-    <button id="rp-tf-135m" class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"  >135m</button>
-    <div class="tf-sep"></div>
-    <button id="rp-tf-160m" class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"  >160m</button>
-    <button id="rp-tf-8h"   class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"  >8H</button>
-    <div class="tf-sep"></div>
-    <button id="rp-tf-1d"   class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)" >1D</button>
-    <button id="rp-tf-3d"   class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)" >3D</button>
-    <button id="rp-tf-9d"   class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)">9D</button>
-    <button id="rp-tf-27d"  class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)">27D</button>
-  </div>
-
-  <!-- ── STACK CONTAINER ── -->
-  <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
-
-  <!-- ── BOTTOM BAR — exact replica of #bottom-bar ── -->
-  <div id="rp-bottom-bar" style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
-
-    <!-- Indicators -->
-    <button onclick="toggleIndPanel()"
-      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-      📊 Indicators
-    </button>
-
-    <div class="bot-sep"></div>
-
-    <!-- Auto fit -->
-    <button onclick="autoFitChart()"
-      style="height:18px;padding:0 8px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-      ⊡ Auto
-    </button>
-
-    <!-- Go to Date -->
-    <button onclick="toggleGotoDate()"
-      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
-      📅
-    </button>
-
-    <!-- Overlay -->
-    <button onclick="toggleOverlayMenu()"
-      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
-      ⧉
-    </button>
-
-    <!-- Layout / Grid picker -->
-    <button onclick="toggleGridPicker()"
-      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-left:auto;">
-      ⊞ Layout
-    </button>
-
-    <div class="bot-sep"></div>
-
-    <!-- Stack scroll ▲ ▼ -->
-    <button onclick="_replayStackJump(-1)"
-      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
-    <button onclick="_replayStackJump(1)"
-      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
-
-  </div>
-</div>
-
-<!-- ═══ REPLAY FLOATING BOX ══════════════════════════════════════════════════ -->
-<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:999999;min-width:190px;touch-action:none;user-select:none;">
-  <!-- Drag handle + Close button -->
-  <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
-    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</span>
-    <span style="font-size:12px;color:#555;">⠿</span>
-    <button onclick="closeReplayView()" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
-  </div>
-  <!-- Asset selector -->
-  <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
-    <div style="font-size:9px;color:#787b86;text-transform:uppercase;letter-spacing:.8px;font-weight:700;">Select Asset</div>
-    <div style="display:flex;gap:6px;">
-      <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"  style="flex:1;height:36px;background:#2962ff;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">📊 BankNifty</button>
-      <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="flex:1;height:36px;background:#2a2e39;border:1px solid #363c4e;border-radius:5px;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;">₿ BTC</button>
-    </div>
-    <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;"></div>
-
-    <!-- status only, no debug log here -->
-  </div>
-</div>
-
-<!-- ═══ REPLAY CLICK DIAGNOSTIC OVERLAY (always shows on Replay tap) ═══════════ -->
-<div id="rdbg-box" style="display:none;position:fixed;top:8px;left:6px;right:6px;bottom:8px;background:#131722;border:2px solid #f0b429;border-radius:10px;z-index:999999;flex-direction:column;font-family:monospace;">
-  <div style="background:#2a2e39;border-radius:8px 8px 0 0;padding:8px 10px;display:flex;align-items:center;gap:8px;">
-    <span style="font-size:12px;color:#f0b429;flex:1;font-weight:700;">🔍 REPLAY CLICK DIAGNOSTIC</span>
-    <button onclick="window._rdbgCopy()" style="height:26px;padding:0 12px;background:#2962ff;border:none;border-radius:4px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">Copy</button>
-    <button onclick="window._rdbgClear()" style="height:26px;padding:0 10px;background:#363c4e;border:none;border-radius:4px;color:#d1d4dc;font-size:11px;cursor:pointer;">Clear</button>
-    <button onclick="document.getElementById('rdbg-box').style.display='none';" style="height:26px;padding:0 12px;background:#ef5350;border:none;border-radius:4px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">✕ Close</button>
-  </div>
-  <pre id="rdbg-log" style="flex:1;margin:0;padding:10px;color:#d1d4dc;font-size:11px;line-height:1.6;overflow-y:auto;white-space:pre-wrap;word-break:break-all;background:#131722;"></pre>
-</div>
-<script>
-(function(){
-  window._RDBG_LOG = window._RDBG_LOG || [];
-  var _rdbgPush = window._rdbgPush || function(line){
-    var t = new Date().toLocaleTimeString();
-    window._RDBG_LOG.push('[' + t + '] ' + line);
-    var el = document.getElementById('rdbg-log');
-    if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
-  };
-  window._rdbgPush = _rdbgPush;
-  // Flush anything captured before this box existed in the DOM
-  var _el0 = document.getElementById('rdbg-log');
-  if (_el0) _el0.textContent = window._RDBG_LOG.join('\n');
-
-  window._rdbgShow = function(){
-    var box = document.getElementById('rdbg-box');
-    if (box) box.style.display = 'flex';
-    var el = document.getElementById('rdbg-log');
-    if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
-  };
-
-  window._rdbgClear = function(){
-    window._RDBG_LOG = [];
-    var el = document.getElementById('rdbg-log');
-    if (el) el.textContent = '';
-  };
-
-  function _rdbgFallbackCopy(text){
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed'; ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.focus(); ta.select();
-    try { document.execCommand('copy'); _rdbgPush('✅ Copied to clipboard (fallback method)'); }
-    catch(e){ _rdbgPush('❌ Copy failed: ' + e.message); }
-    document.body.removeChild(ta);
-  }
-
-  window._rdbgCopy = function(){
-    var text = window._RDBG_LOG.join('\n');
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text)
-        .then(function(){ _rdbgPush('✅ Copied to clipboard'); })
-        .catch(function(){ _rdbgFallbackCopy(text); });
-    } else {
-      _rdbgFallbackCopy(text);
-    }
-  };
-
-  // Main wrapper — this is what the Replay button now calls.
-  // It ALWAYS opens this diagnostic box first, then tries the real logic,
-  // catching and logging anything that goes wrong at every step.
-  window._replayClickHandler = function(){
-    window._rdbgShow();
-    _rdbgPush('▶ Replay button tapped (click registered ✅)');
-
-    try {
-      var gp = document.getElementById('grid-picker');
-      if (gp) { gp.classList.remove('open'); _rdbgPush('✅ grid-picker menu closed'); }
-      else { _rdbgPush('⚠️ grid-picker element not found'); }
-    } catch(e) { _rdbgPush('❌ Error closing grid-picker: ' + e.message); }
-
-    try {
-      if (typeof openReplayView !== 'function') {
-        _rdbgPush('❌ openReplayView() is NOT DEFINED — page JS likely broke earlier (a script error stopped function definitions from loading). Scroll up in this log for the first ❌ JS ERROR line — that is the real root cause.');
-        return;
-      }
-      _rdbgPush('… calling openReplayView()');
-      openReplayView();
-      _rdbgPush('✅ openReplayView() ran without throwing');
-
-      setTimeout(function(){
-        var rv = document.getElementById('replay-view');
-        var fb = document.getElementById('replay-float-box');
-        _rdbgPush('replay-view display = ' + (rv ? getComputedStyle(rv).display : 'ELEMENT NOT FOUND'));
-        _rdbgPush('replay-float-box display = ' + (fb ? getComputedStyle(fb).display : 'ELEMENT NOT FOUND'));
-        if (typeof _REPLAY !== 'undefined') {
-          _rdbgPush('_REPLAY.active = ' + _REPLAY.active + '  asset = ' + _REPLAY.asset);
-        }
-      }, 400);
-    } catch(e) {
-      _rdbgPush('❌ openReplayView() THREW AN ERROR: ' + e.message);
-      _rdbgPush('Stack trace: ' + (e.stack || 'not available'));
-    }
-  };
-})();
-</script>
-
-<!-- ═══ REPLAY DEBUG FLOATING WINDOW ═══════════════════════════════════════════ -->
-
-<div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;touch-action:none;user-select:none;flex-direction:column;">
-  <!-- Drag handle -->
-  <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
-    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
-    <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
-    <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
-  </div>
-  <div id="replay-debug-wrap" style="padding:6px 8px;">
-    <div id="replay-debug-log"
-      style="font-family:monospace;font-size:8px;color:#9598a1;background:#131722;border:1px solid #2a2e39;border-radius:4px;padding:6px 8px;max-height:260px;min-height:80px;overflow-y:auto;line-height:1.6;white-space:pre-wrap;word-break:break-all;">
-      Waiting…
-    </div>
-  </div>
-</div>
-
-</body>
-</html>

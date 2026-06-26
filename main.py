@@ -952,11 +952,22 @@ def _register_api_route():
                                 dl_start = _time.time()
                                 req = _ur.Request(gh_url, headers={"User-Agent": "Mozilla/5.0"})
                                 with _ur.urlopen(req, timeout=180) as resp:
-                                    file_bytes = resp.read()
+                                    _total_size = int(resp.headers.get("Content-Length", 0) or 0)
+                                    _dl_chunks = []
+                                    _downloaded = 0
+                                    _CH = 65536  # 64 KB chunks
+                                    while True:
+                                        _c = resp.read(_CH)
+                                        if not _c:
+                                            break
+                                        _dl_chunks.append(_c)
+                                        _downloaded += len(_c)
+                                    file_bytes = b"".join(_dl_chunks)
                                 dl_secs  = round(_time.time() - dl_start, 2)
                                 dl_kb    = round(len(file_bytes) / 1024, 1)
                                 dl_speed = round(dl_kb / max(dl_secs, 0.01), 1)
-                                debug_log.append(f"[6] Downloaded: {dl_kb} KB in {dl_secs}s  ({dl_speed} KB/s)")
+                                total_kb = round(_total_size / 1024, 1) if _total_size else dl_kb
+                                debug_log.append(f"[6] ✅ Downloaded: {dl_kb} KB / {total_kb} KB in {dl_secs}s  ⚡ {dl_speed} KB/s")
                                 with open(save_path, "wb") as _wf:
                                     _wf.write(file_bytes)
                                 gz_path = save_path
