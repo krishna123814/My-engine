@@ -11886,13 +11886,14 @@ async function selectReplayAsset(asset) {
   if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '160m';
 
   _replayDestroyCells();
+
+  const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
+
   _replaySetStatus('Loading…');
   _replayLogClear();
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
   _replayLogInfo(`API port: ${_replayApiPort()}`);
   _replayLog('─'.repeat(38), '#2a2e39');
-
-  const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
   const sc  = document.getElementById('replay-stack-container');
   if (!sc) return;
 
