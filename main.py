@@ -820,6 +820,10 @@ def _ensure_live_threads():
 _HIST_ENDPOINT_REGISTERED = False
 _HIST_ENDPOINT_LOCK = threading.Lock()
 
+# ── Replay in-memory cache (pkl.gz already parsed — reuse across reruns) ──────
+_REPLAY_MEM_CACHE: dict = {}   # {'bn': {tf: candles_list}, 'btc': {tf: candles_list}}
+_REPLAY_MEM_LOCK = threading.Lock()
+
 # In-memory cache per (resolution, from_date, to_date) — avoids repeat Fyers calls
 _HIST_CACHE: dict = {}
 _HIST_CACHE_TTL = 300  # 5 min
@@ -855,6 +859,83 @@ def _bn_history_handler_data(resolution: str, from_date: str, to_date: str) -> d
             continue
     _HIST_CACHE[key] = {"ts": now, "data": converted}
     return {"candles": converted, "cached": False}
+
+
+def _load_replay_data(asset: str) -> dict:
+    """Load pkl.gz replay data for 'bn' or 'btc'. Returns {tf_str: candles_list}.
+    Uses in-memory cache to avoid re-parsing on every Streamlit rerun."""
+    import pickle, gzip as _gz, os as _os, urllib.request as _ur
+
+    with _REPLAY_MEM_LOCK:
+        if asset in _REPLAY_MEM_CACHE:
+            return _REPLAY_MEM_CACHE[asset]
+
+    fname  = "banknifty_all_tf.pkl.gz" if asset == "bn" else "btc_all_tf.pkl.gz"
+    gh_url = (
+        "https://raw.githubusercontent.com/krishna123814/My-engine/main/" + fname
+    )
+
+    script_dir  = os.path.dirname(os.path.abspath(__file__))
+    search_dirs = [script_dir]
+    mount_src   = "/mount/src"
+    if os.path.isdir(mount_src):
+        for sub in os.listdir(mount_src):
+            search_dirs.append(os.path.join(mount_src, sub))
+
+    gz_path = None
+    for d in search_dirs:
+        candidate = os.path.join(d, fname)
+        if os.path.exists(candidate):
+            gz_path = candidate
+            break
+
+    if not gz_path:
+        save_path = os.path.join(script_dir, fname)
+        try:
+            import urllib.request as _ur2
+            req = _ur2.Request(gh_url, headers={"User-Agent": "Mozilla/5.0"})
+            with _ur2.urlopen(req, timeout=180) as resp:
+                data_bytes = resp.read()
+            with open(save_path, "wb") as wf:
+                wf.write(data_bytes)
+            gz_path = save_path
+        except Exception as e:
+            return {"__error__": str(e)}
+
+    try:
+        import pickle as _pk
+        import gzip as _gz2
+        with _gz2.open(gz_path, "rb") as gf:
+            raw_data = _pk.load(gf)
+    except Exception as e:
+        return {"__error__": str(e)}
+
+    result: dict = {}
+    for tf_key, df in raw_data.items():
+        if tf_key == "meta":
+            continue
+        candles = []
+        try:
+            for idx2, row in df.iterrows():
+                try:
+                    ts = int(idx2.timestamp()) if hasattr(idx2, "timestamp") else int(idx2)
+                    candles.append({
+                        "time":  ts,
+                        "open":  round(float(row.get("Open",  row.iloc[0])), 2),
+                        "high":  round(float(row.get("High",  row.iloc[1])), 2),
+                        "low":   round(float(row.get("Low",   row.iloc[2])), 2),
+                        "close": round(float(row.get("Close", row.iloc[3])), 2),
+                    })
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        result[str(tf_key)] = candles
+
+    with _REPLAY_MEM_LOCK:
+        _REPLAY_MEM_CACHE[asset] = result
+
+    return result
 
 
 def _register_api_route():
@@ -1557,6 +1638,27 @@ def _build_chart_html(
             "\n<script>window.__CHART_STATE_RESTORE__ = " + _cs_safe + ";</script>"
         )
         html = html.replace("</body>", cs_inject + "\n</body>")
+
+    # ── Replay data preload — pkl.gz background mein load, inline inject ────────
+    # Mixed-content block se bachne ke liye HTTP side-port ki jagah
+    # seedha window.__REPLAY_PRELOAD__ mein data inject karte hain.
+    # Pehli baar slow (GitHub download) lekin phir in-memory cache se instant.
+    try:
+        _bn_rdata  = _load_replay_data("bn")
+        _btc_rdata = _load_replay_data("btc")
+        _rp_bn_ok  = "__error__" not in _bn_rdata
+        _rp_btc_ok = "__error__" not in _btc_rdata
+        _rp_payload = {}
+        if _rp_bn_ok:
+            _rp_payload["bn"]  = _bn_rdata
+        if _rp_btc_ok:
+            _rp_payload["btc"] = _btc_rdata
+        if _rp_payload:
+            _rp_js_safe = json.dumps(_rp_payload).replace("</", "<\\/")
+            _rp_inject  = "\n<script>window.__REPLAY_PRELOAD__=" + _rp_js_safe + ";</script>"
+            html = html.replace("</body>", _rp_inject + "\n</body>")
+    except Exception:
+        pass  # replay unavailable — chart gracefully degrades
 
     return html
 

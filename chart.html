@@ -11719,17 +11719,26 @@ function _replayCopyLog() {
   const el = document.getElementById('replay-debug-log');
   if (!el) return;
   const text = el.innerText || el.textContent || '';
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      // Flash copy button green
-      const btn = document.querySelector('#replay-debug-drag button');
-      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.background='#26a69a'; setTimeout(()=>{ btn.textContent=orig; btn.style.background='#2962ff'; }, 1500); }
-    }).catch(() => _replayLogWarn('Copy failed — browser ne block kiya'));
-  } else {
-    // Fallback: select text
-    const r = document.createRange(); r.selectNodeContents(el);
-    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    try { document.execCommand('copy'); sel.removeAllRanges(); } catch(_) {}
+  // Clipboard API iframe mein block hoti hai — textarea trick use karo
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    // Flash button
+    const btn = document.getElementById('replay-copy-btn');
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = ok ? '✓ Copied!' : '✗ Failed';
+      btn.style.background = ok ? '#26a69a' : '#ef5350';
+      setTimeout(function() { btn.textContent = orig; btn.style.background = '#2962ff'; }, 1500);
+    }
+  } catch(e) {
+    _replayLogWarn('Copy failed: ' + e.message);
   }
 }
 function _replayLog(line, color) {
@@ -11746,59 +11755,68 @@ function _replayLogErr(line)  { _replayLog('❌ ' + line, '#ef5350'); }
 function _replayLogInfo(line) { _replayLog('ℹ️  ' + line, '#d1d4dc'); }
 function _replayLogWarn(line) { _replayLog('⚠️  ' + line, '#f0b429'); }
 
-// Fetch one chunk — with timing + debug
-async function _replayFetchChunk(asset, tfStr, chunk) {
+// Fetch ALL candles for one TF — reads from window.__REPLAY_PRELOAD__ (injected by Python)
+// instead of HTTP fetch (which fails on Streamlit Cloud due to mixed-content HTTPS→HTTP block).
+async function _replayFetchAll(asset, tfStr) {
+  const preload = (typeof window.__REPLAY_PRELOAD__ !== 'undefined') ? window.__REPLAY_PRELOAD__ : null;
+
+  // ── Path 1: preloaded data available ────────────────────────────────────
+  if (preload && preload[asset]) {
+    const assetData = preload[asset];
+    // Try exact key first, then case-insensitive match
+    let candles = assetData[tfStr];
+    if (!candles) {
+      const tfLower = tfStr.toLowerCase();
+      for (const k in assetData) {
+        if (k.toLowerCase() === tfLower) { candles = assetData[k]; break; }
+      }
+    }
+    if (candles && candles.length) {
+      _replayLogOk(`${tfStr} — ${candles.length} candles (preloaded)`);
+      return candles;
+    }
+    _replayLogWarn(`${tfStr} — preload mein nahi mila (keys: ${Object.keys(assetData).join(', ')})`);
+    return [];
+  }
+
+  // ── Path 2: fallback — side-port HTTP (localhost, non-Cloud environments) ─
+  _replayLogInfo(`${tfStr} — HTTP fallback (preload unavailable)`);
   const port = _replayApiPort();
   const host = window.location.hostname || 'localhost';
-  const url = `http://${host}:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
-  const t0 = Date.now();
-  // Fresh AbortController per request — prevents cross-TF timeout contamination
-  const _ac = new AbortController();
-  const _acTimer = setTimeout(() => _ac.abort(), 90000);
-  let r;
-  try {
-    r = await fetch(url, { cache: 'no-store', signal: _ac.signal });
-  } catch(fetchErr) {
-    clearTimeout(_acTimer);
-    throw fetchErr;
-  }
-  clearTimeout(_acTimer);
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-  if (!r.ok) {
-    let errBody = '';
-    try { const j = await r.json(); errBody = JSON.stringify(j.debug || j.error || j); } catch(_) {}
-    _replayLogErr(`HTTP ${r.status} for ${tfStr} chunk${chunk} (${elapsed}s)`);
-    if (errBody) _replayLog('   ' + errBody, '#ef5350');
-    throw new Error('HTTP ' + r.status);
-  }
-  const data = await r.json();
-  // Print server-side debug log lines
-  if (data.debug && chunk === 0) {
-    data.debug.forEach(line => {
-      const col = line.includes('❌') ? '#ef5350' : line.includes('Downloaded') ? '#26a69a' : '#9598a1';
-      _replayLog('  ' + line, col);
-    });
-  }
-  return data;
-}
-
-// Fetch ALL chunks for a TF — with progress logging
-async function _replayFetchAll(asset, tfStr) {
   let allCandles = [];
   let chunk = 0;
   const t0 = Date.now();
   while (true) {
-    const res = await _replayFetchChunk(asset, tfStr, chunk);
-    if (res.error) {
-      _replayLogErr(`Error in ${tfStr} chunk${chunk}: ${res.error}`);
-      throw new Error(res.error);
+    const url = `http://${host}:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
+    const _ac = new AbortController();
+    const _acTimer = setTimeout(() => _ac.abort(), 90000);
+    let r;
+    try {
+      r = await fetch(url, { cache: 'no-store', signal: _ac.signal });
+    } catch(fetchErr) {
+      clearTimeout(_acTimer);
+      throw fetchErr;
     }
-    allCandles = allCandles.concat(res.candles || []);
-    const pct = res.total_rows ? Math.round(allCandles.length / res.total_rows * 100) : '?';
-    _replayLog(`  chunk${chunk}: +${(res.candles||[]).length} candles  total=${allCandles.length}/${res.total_rows}  (${pct}%)`, '#787b86');
-    if (!res.has_more) break;
+    clearTimeout(_acTimer);
+    if (!r.ok) {
+      let errBody = '';
+      try { const j = await r.json(); errBody = JSON.stringify(j.debug || j.error || j); } catch(_) {}
+      _replayLogErr(`HTTP ${r.status} for ${tfStr} chunk${chunk}`);
+      if (errBody) _replayLog('   ' + errBody, '#ef5350');
+      throw new Error('HTTP ' + r.status);
+    }
+    const data = await r.json();
+    if (data.debug && chunk === 0) {
+      data.debug.forEach(function(line) {
+        var col = line.indexOf('❌') >= 0 ? '#ef5350' : line.indexOf('Downloaded') >= 0 ? '#26a69a' : '#9598a1';
+        _replayLog('  ' + line, col);
+      });
+    }
+    if (data.error) { _replayLogErr('Error: ' + data.error); throw new Error(data.error); }
+    allCandles = allCandles.concat(data.candles || []);
+    if (!data.has_more) break;
     chunk++;
-    await new Promise(res2 => setTimeout(res2, 30));
+    await new Promise(function(res2) { setTimeout(res2, 30); });
   }
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   _replayLogOk(`${tfStr} done — ${allCandles.length} candles in ${elapsed}s`);
@@ -11923,15 +11941,17 @@ async function selectReplayAsset(asset) {
 
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
 
-  _replaySetStatus('Connecting…');
+  _replaySetStatus('Loading…');
   _replayLogClear();
 
-  // Ensure API port is resolved before loading
-  await _replayEnsurePort();
-
-  _replaySetStatus('Loading…');
+  // Check if preloaded data available
+  const hasPreload = (typeof window.__REPLAY_PRELOAD__ !== 'undefined') && window.__REPLAY_PRELOAD__ && window.__REPLAY_PRELOAD__[asset];
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo(`API port: ${_replayApiPort()}`);
+  if (hasPreload) {
+    _replayLogInfo('Data source: preloaded (instant)');
+  } else {
+    _replayLogInfo(`Data source: HTTP fallback (port: ${_replayApiPort()})`);
+  }
   _replayLog('─'.repeat(38), '#2a2e39');
   const sc  = document.getElementById('replay-stack-container');
   if (!sc) return;
@@ -12281,7 +12301,7 @@ function _initReplayDrag() {
   <!-- Drag handle -->
   <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
     <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-    <button onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
+    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
     <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
     <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
   </div>
