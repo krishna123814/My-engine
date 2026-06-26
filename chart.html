@@ -12117,8 +12117,7 @@ async function selectReplayAsset(asset) {
   }
 
   _replaySetStatus('');
-  _replayLog('
-' + '─'.repeat(38), '#2a2e39');
+  _replayLog('\n' + '─'.repeat(38), '#2a2e39');
   _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
 
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
