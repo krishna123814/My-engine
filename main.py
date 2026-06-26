@@ -1651,6 +1651,38 @@ if sess_active or _btc_only:
 
         _bn_tick_pusher()
 
+    # ── Replay request BRIDGE — postMessage → query param ──────────────────────
+    # chart.html ka JS sirf window.parent.postMessage({type:'replay_request',...})
+    # bhejta hai. Python directly postMessage nahi sun sakta — isiliye yeh bridge
+    # script (top Streamlit page mein inject) us message ko sunke URL query param
+    # (?replay_asset=..&replay_tf=..) set karta hai + popstate fire karta hai,
+    # jisse Streamlit ko rerun trigger ho jaaye aur _replay_pusher() neeche wala
+    # fragment usse pick kar le.
+    def _replay_request_bridge():
+        _bridge_script = """
+<script>
+(function(){
+  if (window.parent._replayBridgeInstalled) return;
+  window.parent._replayBridgeInstalled = true;
+  window.parent.addEventListener('message', function(e){
+    try {
+      var d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d && d.type === 'replay_request' && d.asset && d.tf) {
+        var p = new URLSearchParams(window.parent.location.search);
+        p.set('replay_asset', d.asset);
+        p.set('replay_tf', d.tf);
+        window.parent.history.pushState({}, '', window.parent.location.pathname + '?' + p.toString());
+        window.parent.dispatchEvent(new PopStateEvent('popstate'));
+      }
+    } catch(err) {}
+  });
+})();
+</script>
+"""
+        components.html(_bridge_script, height=0, scrolling=False)
+
+    _replay_request_bridge()
+
     # ── Replay postMessage listener + data pusher ─────────────────────────────
     # chart.html JS replay_request bhejta hai query param set karke →
     # Streamlit rerun hota hai → Python .pkl.gz load karta hai →
