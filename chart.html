@@ -11692,22 +11692,45 @@ function _replayTfToMin(tfStr) {
 
 // Get API port (same as main chart uses _API_PORT injected by Python)
 function _replayApiPort() {
-  try {
-    const p = (typeof _API_PORT !== 'undefined' && _API_PORT > 0) ? _API_PORT : 8502;
-    return p;
-  } catch(_) { return 8502; }
+  if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) return _resolvedApiPort;
+  if (typeof _API_PORT !== 'undefined' && _API_PORT > 0) return _API_PORT;
+  return 8502;
+}
+
+async function _replayEnsurePort() {
+  if (_replayApiPort() > 0) return true;
+  if (typeof _probeApiPort === 'function') await _probeApiPort();
+  return _replayApiPort() > 0;
 }
 
 // ── Debug log helpers ────────────────────────────────────────────────────────
 function _replayLogClear() {
   const el = document.getElementById('replay-debug-log');
   if (el) el.textContent = '';
-  const wrap = document.getElementById('replay-debug-wrap');
-  if (wrap) wrap.style.display = 'block';
+  // Show the separate debug floating window
+  const box = document.getElementById('replay-debug-box');
+  if (box) box.style.display = 'flex';
 }
 function _replayClearLog() {
   const el = document.getElementById('replay-debug-log');
   if (el) el.textContent = 'Waiting…';
+}
+function _replayCopyLog() {
+  const el = document.getElementById('replay-debug-log');
+  if (!el) return;
+  const text = el.innerText || el.textContent || '';
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      // Flash copy button green
+      const btn = document.querySelector('#replay-debug-drag button');
+      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.background='#26a69a'; setTimeout(()=>{ btn.textContent=orig; btn.style.background='#2962ff'; }, 1500); }
+    }).catch(() => _replayLogWarn('Copy failed — browser ne block kiya'));
+  } else {
+    // Fallback: select text
+    const r = document.createRange(); r.selectNodeContents(el);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    try { document.execCommand('copy'); sel.removeAllRanges(); } catch(_) {}
+  }
 }
 function _replayLog(line, color) {
   const el = document.getElementById('replay-debug-log');
@@ -11726,9 +11749,20 @@ function _replayLogWarn(line) { _replayLog('⚠️  ' + line, '#f0b429'); }
 // Fetch one chunk — with timing + debug
 async function _replayFetchChunk(asset, tfStr, chunk) {
   const port = _replayApiPort();
-  const url = `http://localhost:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
+  const host = window.location.hostname || 'localhost';
+  const url = `http://${host}:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
   const t0 = Date.now();
-  const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(60000) });
+  // Fresh AbortController per request — prevents cross-TF timeout contamination
+  const _ac = new AbortController();
+  const _acTimer = setTimeout(() => _ac.abort(), 90000);
+  let r;
+  try {
+    r = await fetch(url, { cache: 'no-store', signal: _ac.signal });
+  } catch(fetchErr) {
+    clearTimeout(_acTimer);
+    throw fetchErr;
+  }
+  clearTimeout(_acTimer);
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   if (!r.ok) {
     let errBody = '';
@@ -11889,8 +11923,13 @@ async function selectReplayAsset(asset) {
 
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
 
-  _replaySetStatus('Loading…');
+  _replaySetStatus('Connecting…');
   _replayLogClear();
+
+  // Ensure API port is resolved before loading
+  await _replayEnsurePort();
+
+  _replaySetStatus('Loading…');
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
   _replayLogInfo(`API port: ${_replayApiPort()}`);
   _replayLog('─'.repeat(38), '#2a2e39');
@@ -12037,15 +12076,11 @@ function _replayStackJump(dir) {
   sc.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
 }
 
-// Draggable float box
-function _initReplayDrag() {
-  const box  = document.getElementById('replay-float-box');
-  const drag = document.getElementById('replay-float-drag');
+// Make any box draggable by a handle element
+function _makeDraggable(box, drag) {
   if (!box || !drag || box._dragInited) return;
   box._dragInited = true;
-
   let _ox=0, _oy=0, _bx=0, _by=0, _dragging=false;
-
   function _start(e) {
     _dragging = true;
     const src = e.touches ? e.touches[0] : e;
@@ -12055,6 +12090,7 @@ function _initReplayDrag() {
     box.style.transform = 'none';
     box.style.left = _bx + 'px';
     box.style.top  = _by + 'px';
+    box.style.bottom = 'auto';
     e.preventDefault();
   }
   function _move(e) {
@@ -12065,13 +12101,26 @@ function _initReplayDrag() {
     e.preventDefault();
   }
   function _end() { _dragging = false; }
-
   drag.addEventListener('mousedown',  _start);
   drag.addEventListener('touchstart', _start, { passive: false });
   document.addEventListener('mousemove',  _move);
   document.addEventListener('touchmove',  _move, { passive: false });
   document.addEventListener('mouseup',   _end);
   document.addEventListener('touchend',  _end);
+}
+
+// Draggable float box
+function _initReplayDrag() {
+  const box  = document.getElementById('replay-float-box');
+  const drag = document.getElementById('replay-float-drag');
+  if (!box || !drag || box._dragInited) return;
+  box._dragInited = true;
+
+  _makeDraggable(box, drag);
+  // Also init debug box drag
+  const dbox = document.getElementById('replay-debug-box');
+  const ddrag = document.getElementById('replay-debug-drag');
+  _makeDraggable(dbox, ddrag);
 }
 
 </script>
@@ -12223,16 +12272,23 @@ function _initReplayDrag() {
     </div>
     <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;"></div>
 
-    <!-- ── DEBUG LOG PANEL ── -->
-    <div id="replay-debug-wrap" style="display:none;margin-top:6px;border-top:1px solid #2a2e39;padding-top:8px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-        <span style="font-size:9px;color:#f0b429;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-        <button onclick="_replayClearLog()" style="font-size:9px;color:#787b86;background:none;border:none;cursor:pointer;padding:2px 4px;">Clear</button>
-      </div>
-      <div id="replay-debug-log"
-        style="font-family:monospace;font-size:8px;color:#9598a1;background:#131722;border:1px solid #2a2e39;border-radius:4px;padding:6px 8px;max-height:220px;overflow-y:auto;line-height:1.6;white-space:pre-wrap;word-break:break-all;">
-        Waiting…
-      </div>
+    <!-- status only, no debug log here -->
+  </div>
+</div>
+
+<!-- ═══ REPLAY DEBUG FLOATING WINDOW ═══════════════════════════════════════════ -->
+<div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;touch-action:none;user-select:none;flex-direction:column;">
+  <!-- Drag handle -->
+  <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
+    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
+    <button onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
+    <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
+    <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
+  </div>
+  <div id="replay-debug-wrap" style="padding:6px 8px;">
+    <div id="replay-debug-log"
+      style="font-family:monospace;font-size:8px;color:#9598a1;background:#131722;border:1px solid #2a2e39;border-radius:4px;padding:6px 8px;max-height:260px;min-height:80px;overflow-y:auto;line-height:1.6;white-space:pre-wrap;word-break:break-all;">
+      Waiting…
     </div>
   </div>
 </div>
