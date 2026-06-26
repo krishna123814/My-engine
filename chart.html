@@ -284,27 +284,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
 <script>
-/* ── EARLIEST POSSIBLE error catcher — must be the very first script in <head> ── */
-(function(){
-  window._RDBG_LOG = window._RDBG_LOG || [];
-  function _rdbgPush(line){
-    var t = new Date().toLocaleTimeString();
-    window._RDBG_LOG.push('[' + t + '] ' + line);
-    var el = document.getElementById('rdbg-log');
-    if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
-  }
-  window._rdbgPush = _rdbgPush;
-  window.addEventListener('error', function(e){
-    _rdbgPush('❌ JS ERROR: ' + e.message + '  @ line ' + e.lineno + ':' + e.colno + (e.filename ? ' in ' + e.filename : ''));
-  });
-  window.addEventListener('unhandledrejection', function(e){
-    var r = e.reason;
-    _rdbgPush('❌ PROMISE REJECTED: ' + (r && r.message ? r.message : r));
-  });
-  _rdbgPush('🟢 Page script started parsing (earliest checkpoint)');
-})();
-</script>
-<script>
 /* ── CSS-based self-fullscreen (no user gesture needed) ── */
 (function(){
   function _selfFS(){
@@ -2017,7 +1996,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
     </div>
-    <button id="gp-replay-row" onclick="_replayClickHandler();" style="
+    <button id="gp-replay-row" onclick="document.getElementById('grid-picker').classList.remove('open'); openReplayView();" style="
       display:flex;align-items:center;gap:8px;padding:10px 2px;
       width:100%;background:transparent;border:none;
       cursor:pointer;text-align:left;min-height:44px;
@@ -7708,22 +7687,8 @@ function _applyBNLiveTick(d) {
 window.addEventListener('message', function(evt) {
   try {
     const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (!msg) return;
-    // Live BankNifty tick
-    if (msg.type === 'bn_live') _applyBNLiveTick(msg.data);
-    // Replay data from Python (postMessage channel)
-    if (msg.type === 'replay_data') {
-      _replayReceiveTF(msg.asset, msg.tf, msg.candles || [], msg.error || null);
-    }
-    // Replay download progress from Python (GitHub .gz download)
-    if (msg.type === 'replay_progress') {
-      const line = '⬇ ' + msg.asset.toUpperCase() + ' ' + msg.tf + ' download: ' +
-        msg.downloaded_kb + 'KB / ' + (msg.total_kb || '?') + 'KB' +
-        (msg.pct != null ? ' (' + msg.pct + '%)' : '') +
-        '  @ ' + msg.speed_kbs + ' KB/s';
-      if (typeof window._rdbgPush === 'function') window._rdbgPush(line);
-      if (typeof _replayLog === 'function') _replayLog(line, '#2962ff');
-    }
+    if (msg && msg.type === 'bn_live') _applyBNLiveTick(msg.data);
+    // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
 
@@ -9665,59 +9630,7 @@ function _openSettingsColor(btn, onChangeCallback) {
   <div class="kb-row">
     <button class="kb-key kb-done" onmousedown="event.preventDefault();_kbDone()">✓ Done</button>
   </div>
-
-<!-- ══════════════════════════════════════════════════════════════════════════
-     REPLAY VIEW — fullscreen overlay with stacked TF charts
-     ══════════════════════════════════════════════════════════════════════════ -->
-<div id="replay-view" style="display:none;position:fixed;inset:0;z-index:9000;background:#131722;flex-direction:column;overflow:hidden;">
-
-  <!-- Header bar -->
-  <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#1e222d;border-bottom:1px solid #2a2e39;flex-shrink:0;">
-    <button onclick="closeReplayView()" style="background:#ef5350;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">✕ Close</button>
-    <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"  style="background:#2962ff;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;">📊 BANKNIFTY</button>
-    <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="background:#2a2e39;color:#9598a1;border:1px solid #363c4e;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;">₿ BTCUSDT</button>
-    <span id="rp-sym-label" style="color:#d1d4dc;font-size:12px;font-weight:700;flex:1;text-align:center;">📊 BANKNIFTY</span>
-    <span id="replay-load-status" style="color:#f0b429;font-size:11px;"></span>
-    <button onclick="_replayToggleLog()" style="background:#2a2e39;color:#9598a1;border:1px solid #363c4e;border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;">📋 Log</button>
-  </div>
-
-  <!-- TF quick-jump bar -->
-  <div id="rp-tf-bar" style="display:flex;gap:4px;padding:4px 10px;background:#1a1e2e;border-bottom:1px solid #2a2e39;flex-shrink:0;overflow-x:auto;">
-    <button class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"     style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">5m</button>
-    <button class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"    style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">15m</button>
-    <button class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"    style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">45m</button>
-    <button class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"   style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">135m</button>
-    <button class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"   style="background:#2a2e39;color:#3a3e4e;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;opacity:0.3;" disabled>160m</button>
-    <button class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"   style="background:#2a2e39;color:#3a3e4e;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;opacity:0.3;" disabled>8H</button>
-    <button class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)"  style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">1D</button>
-    <button class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)"  style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">3D</button>
-    <button class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)" style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">9D</button>
-    <button class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)" style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">27D</button>
-  </div>
-
-  <!-- Stacked chart cells (scrollable) -->
-  <div id="replay-stack-container" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
 </div>
-
-<!-- Replay float box (asset/TF picker — shows over main chart) -->
-<div id="replay-float-box" style="display:none;position:fixed;top:110px;right:10px;z-index:8500;background:#1e222d;border:1px solid #2962ff;border-radius:10px;padding:10px;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
-  <div style="color:#9598a1;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Replay Asset</div>
-  <button onclick="selectReplayAsset('bn');openReplayView();"  style="display:block;width:100%;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:6px;">📊 BANKNIFTY</button>
-  <button onclick="selectReplayAsset('btc');openReplayView();" style="display:block;width:100%;background:#f0b429;color:#131722;border:none;border-radius:6px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;">₿ BTCUSDT</button>
-  <button onclick="document.getElementById('replay-float-box').style.display='none'" style="display:block;width:100%;background:transparent;color:#555;border:none;padding:6px;font-size:11px;cursor:pointer;margin-top:6px;">Cancel</button>
-</div>
-
-<!-- Replay debug log floating panel -->
-<div id="replay-debug-box" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9100;background:#0d1117;border-top:2px solid #2962ff;flex-direction:column;max-height:40vh;">
-  <div style="display:flex;align-items:center;gap:8px;padding:4px 10px;background:#1e222d;border-bottom:1px solid #2a2e39;flex-shrink:0;">
-    <span style="color:#2962ff;font-size:11px;font-weight:700;">📋 Replay Log</span>
-    <span style="flex:1;"></span>
-    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="background:#2962ff;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">Copy</button>
-    <button onclick="document.getElementById('replay-debug-box').style.display='none'" style="background:#ef5350;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">✕</button>
-  </div>
-  <pre id="replay-debug-log" style="flex:1;overflow-y:auto;margin:0;padding:8px 10px;font-size:10px;line-height:1.5;color:#9598a1;font-family:monospace;white-space:pre-wrap;word-break:break-all;-webkit-overflow-scrolling:touch;"></pre>
-</div>
-
 
 <script>
 // ════════════════════════════════════════════════════════════════════════════
@@ -11749,79 +11662,6 @@ if (document.readyState === 'loading') {
 // ════════════════════════════════════════════════════════════════════════════
 
 // Replay state
-// ── Replay click handler (called from gear panel button) ─────────────────────
-function _replayClickHandler() {
-  // ── DEBUG LOG: Turant open karo ──────────────────────────────────────────────
-  const box = document.getElementById('replay-debug-box');
-  if (box) box.style.display = 'flex';
-  _replayLogClear();
-  _replayLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '#2962ff');
-  _replayLog('🔍 Replay Click — Debug Start', '#f0b429');
-  _replayLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '#2962ff');
-
-  // Step 1: gear-panel check
-  const gp = document.getElementById('gear-panel');
-  _replayLog('Step 1: gear-panel — ' + (gp ? 'MILA ✅' : 'NAHI MILA ❌'), gp ? '#26a69a' : '#ef5350');
-  if (gp) gp.style.display = 'none';
-
-  // Step 2: replay-float-box check
-  const fb = document.getElementById('replay-float-box');
-  _replayLog('Step 2: replay-float-box — ' + (fb ? 'MILA ✅' : 'NAHI MILA ❌'), fb ? '#26a69a' : '#ef5350');
-  if (!fb) {
-    _replayLogErr('STOP: replay-float-box DOM mein nahi hai!');
-    return;
-  }
-
-  // Step 3: toggle
-  const wasDisplay = fb.style.display;
-  const newDisplay = wasDisplay === 'block' ? 'none' : 'block';
-  fb.style.display = newDisplay;
-  _replayLog('Step 3: float-box display: "' + wasDisplay + '" → "' + newDisplay + '"', '#d1d4dc');
-
-  // Step 4: API port
-  const port = _replayApiPort();
-  _replayLog('Step 4: API port = ' + port + (port > 0 ? ' ✅' : ' ❌ (0 = port nahi mila)'), port > 0 ? '#26a69a' : '#ef5350');
-
-  // Step 5: _resolvedApiPort / _API_PORT check
-  const rap = (typeof _resolvedApiPort !== 'undefined') ? _resolvedApiPort : 'undefined';
-  const ap  = (typeof _API_PORT       !== 'undefined') ? _API_PORT       : 'undefined';
-  _replayLog('Step 5: _resolvedApiPort=' + rap + '  |  _API_PORT=' + ap, '#9598a1');
-
-  // Step 6: replay-view element check
-  const rv = document.getElementById('replay-view');
-  _replayLog('Step 6: replay-view — ' + (rv ? 'MILA ✅  display=' + rv.style.display : 'NAHI MILA ❌'), rv ? '#26a69a' : '#ef5350');
-
-  // Step 7: openReplayView function check
-  const hasOpenFn = (typeof openReplayView === 'function');
-  _replayLog('Step 7: openReplayView() function — ' + (hasOpenFn ? 'EXIST ✅' : 'NAHI HAI ❌'), hasOpenFn ? '#26a69a' : '#ef5350');
-
-  // Step 8: _REPLAY state
-  _replayLog('Step 8: _REPLAY.active=' + _REPLAY.active + '  asset=' + _REPLAY.asset + '  cells=' + _REPLAY.cells.length, '#9598a1');
-
-  _replayLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '#2962ff');
-  _replayLog('👆 Agar float-box nahi dikh raha to Step 2/3 dekho', '#f0b429');
-  _replayLog('👆 Agar data nahi aata to Step 4/5 (port) dekho', '#f0b429');
-  // ── END DEBUG ────────────────────────────────────────────────────────────────
-}
-
-// ── Replay drag (float box draggable on desktop) ──────────────────────────────
-function _initReplayDrag() {
-  // Simple stub — drag not needed on mobile
-}
-
-// ── Replay status text ────────────────────────────────────────────────────────
-function _replaySetStatus(msg) {
-  const el = document.getElementById('replay-load-status');
-  if (el) el.textContent = msg;
-}
-
-// ── Toggle debug log panel ────────────────────────────────────────────────────
-function _replayToggleLog() {
-  const box = document.getElementById('replay-debug-box');
-  if (!box) return;
-  box.style.display = (box.style.display === 'none' || !box.style.display) ? 'flex' : 'none';
-}
-
 const _REPLAY = {
   active: false,
   asset: 'bn',      // 'bn' or 'btc'
@@ -11873,50 +11713,26 @@ function _replayLogClear() {
 }
 function _replayClearLog() {
   const el = document.getElementById('replay-debug-log');
-  if (el) { el.innerHTML = ''; }
+  if (el) el.textContent = 'Waiting…';
 }
 function _replayCopyLog() {
   const el = document.getElementById('replay-debug-log');
   if (!el) return;
   const text = el.innerText || el.textContent || '';
-  const copyBtn = document.getElementById('replay-copy-btn');
-  function _flash(ok) {
-    if (!copyBtn) return;
-    copyBtn.textContent = ok ? '✓ Copied!' : '✗ Failed';
-    copyBtn.style.background = ok ? '#26a69a' : '#ef5350';
-    setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.background = '#2962ff'; }, 1800);
-  }
-  // Method 1: clipboard API (HTTPS only)
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => _flash(true)).catch(() => {
-      // Method 2: textarea trick (works in iframe too)
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
-        document.body.appendChild(ta);
-        ta.focus(); ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        _flash(ok);
-      } catch(e) { _flash(false); }
-    });
+    navigator.clipboard.writeText(text).then(() => {
+      // Flash copy button green
+      const btn = document.querySelector('#replay-debug-drag button');
+      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.background='#26a69a'; setTimeout(()=>{ btn.textContent=orig; btn.style.background='#2962ff'; }, 1500); }
+    }).catch(() => _replayLogWarn('Copy failed — browser ne block kiya'));
   } else {
-    // Method 2 direct
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
-      document.body.appendChild(ta);
-      ta.focus(); ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      _flash(ok);
-    } catch(e) { _flash(false); }
+    // Fallback: select text
+    const r = document.createRange(); r.selectNodeContents(el);
+    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    try { document.execCommand('copy'); sel.removeAllRanges(); } catch(_) {}
   }
 }
 function _replayLog(line, color) {
-  if (typeof window._rdbgPush === 'function') window._rdbgPush(line);
   const el = document.getElementById('replay-debug-log');
   if (!el) return;
   const span = document.createElement('span');
@@ -11956,13 +11772,10 @@ async function _replayFetchChunk(asset, tfStr, chunk) {
     throw new Error('HTTP ' + r.status);
   }
   const data = await r.json();
-  // Print server-side debug log lines (chunk 0 pe — download speed bhi yahan aata hai)
+  // Print server-side debug log lines
   if (data.debug && chunk === 0) {
     data.debug.forEach(line => {
-      let col = '#9598a1';
-      if (line.includes('❌') || line.includes('FAILED')) col = '#ef5350';
-      else if (line.includes('✅') || line.includes('Downloaded') || line.includes('KB/s')) col = '#26a69a';
-      else if (line.includes('Downloading') || line.includes('URL:')) col = '#f0b429';
+      const col = line.includes('❌') ? '#ef5350' : line.includes('Downloaded') ? '#26a69a' : '#9598a1';
       _replayLog('  ' + line, col);
     });
   }
@@ -12005,12 +11818,13 @@ function _replayDestroyCells() {
 function openReplayView() {
   const rv = document.getElementById('replay-view');
   const fb = document.getElementById('replay-float-box');
-  if (!rv || !fb) { console.error('replay-view or replay-float-box not found'); return; }
+  if (!rv || !fb) return;
   rv.style.display = 'flex';
   fb.style.display = 'block';
   _REPLAY.active = true;
   _initReplayDrag();
-  try { selectReplayAsset('bn'); } catch(e) { console.error('selectReplayAsset error:', e); }
+  // Default: load BankNifty
+  selectReplayAsset('bn');
 }
 
 // Close replay view
@@ -12072,92 +11886,6 @@ function _replayHighlightTf(activeTfMin) {
 }
 
 // Switch replay asset (bn / btc)
-// ── Replay data store: pending promises per TF ───────────────────────────────
-const _REPLAY_PENDING = {};  // { 'bn_5m': { resolve, reject, timer }, ... }
-
-// Called by postMessage listener when Python sends replay_data
-function _replayReceiveTF(asset, tfStr, candles, error) {
-  const key = asset + '_' + tfStr;
-  const pend = _REPLAY_PENDING[key];
-  if (!pend) return;
-  clearTimeout(pend.timer);
-  delete _REPLAY_PENDING[key];
-  if (error) pend.reject(new Error(error));
-  else pend.resolve(candles);
-}
-
-// Request one TF from Python via postMessage, wait for reply
-function _replayRequestTF(asset, tfStr) {
-  return new Promise((resolve, reject) => {
-    const key = asset + '_' + tfStr;
-    // Timeout: 3 min (pehli baar GitHub se download hoga)
-    const timer = setTimeout(() => {
-      delete _REPLAY_PENDING[key];
-      reject(new Error('timeout (3 min)'));
-    }, 180000);
-    _REPLAY_PENDING[key] = { resolve, reject, timer };
-
-    // postMessage to Streamlit parent — Python components.html listener pakdega
-    try {
-      window.parent.postMessage(
-        JSON.stringify({ type: 'replay_request', asset: asset, tf: tfStr }), '*'
-      );
-    } catch(e) {
-      clearTimeout(timer);
-      delete _REPLAY_PENDING[key];
-      reject(new Error('postMessage failed: ' + e.message));
-    }
-  });
-}
-
-function _replayDrawCell(asset, i, tfStr, candles, sc) {
-  const el = document.getElementById('rcell-chart-' + i);
-  if (!el || !candles || !candles.length) return;
-
-  const ch = LightweightCharts.createChart(el, {
-    width:  el.clientWidth  || 200,
-    height: el.clientHeight || 200,
-    layout: { background: { type: 'solid', color: S.bgColor || '#131722' }, textColor: S.textColor || '#d1d4dc', fontSize: 7 },
-    grid:   { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
-    crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
-    rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
-    localization: {
-      timeFormatter: (t) => fmtChartTime(t),
-      priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-    },
-    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-    handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-    kineticScroll: { mouse: true, touch: true },
-  });
-
-  const upClr = S.upColor || '#26a69a';
-  const dnClr = S.dnColor || '#ef5350';
-  const ser = ch.addCandlestickSeries({
-    upColor: upClr, downColor: dnClr,
-    borderUpColor: upClr, borderDownColor: dnClr,
-    wickUpColor: upClr, wickDownColor: dnClr,
-    priceLineVisible: true, lastValueVisible: true,
-  });
-
-  candles.sort((a, b) => a.time - b.time);
-  ser.setData(candles);
-
-  // Update overlay price
-  if (sc) {
-    const cell = sc.querySelector('[data-ridx="'+i+'"]');
-    if (cell && candles.length) {
-      const last = candles[candles.length - 1];
-      const pr = cell.querySelector('.co-price');
-      if (pr) pr.textContent = last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    }
-  }
-
-  _REPLAY.cells[i].chart  = ch;
-  _REPLAY.cells[i].series = ser;
-  attachMobileTouchUX(el, ch, () => ser);
-}
-
 async function selectReplayAsset(asset) {
   _REPLAY.asset = asset;
 
@@ -12167,9 +11895,13 @@ async function selectReplayAsset(asset) {
   if (btnBn)  { btnBn.style.background  = asset === 'bn'  ? '#2962ff' : '#2a2e39'; btnBn.style.color  = asset === 'bn'  ? '#fff' : '#9598a1'; btnBn.style.border  = asset === 'bn'  ? 'none' : '1px solid #363c4e'; }
   if (btnBtc) { btnBtc.style.background = asset === 'btc' ? '#f0b429' : '#2a2e39'; btnBtc.style.color = asset === 'btc' ? '#131722' : '#9598a1'; btnBtc.style.border = asset === 'btc' ? 'none' : '1px solid #363c4e'; }
 
+  // Update header sym label (now a button)
   const symLbl = document.getElementById('rp-sym-label');
   if (symLbl) symLbl.textContent = asset === 'bn' ? '📊 BANKNIFTY' : '₿ BTCUSDT';
 
+  // Update TF bar — dim/enable buttons based on asset
+  // BN uses: 5,15,45,135,1440,4320,12960,38880
+  // BTC uses: 160,480,1440,4320,12960,38880
   const bnTfs     = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
   const btcTfs    = [160, 480, 1440, 4320, 12960, 38880];
   const activeTfs = asset === 'bn' ? bnTfs : btcTfs;
@@ -12183,30 +11915,32 @@ async function selectReplayAsset(asset) {
       btn.disabled = !isActive;
     });
   }
+  // Reset TF header label
   const rpLbl = document.getElementById('rp-tf-menu-label');
   if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '160m';
 
   _replayDestroyCells();
 
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
-  const total = tfs.length;
+
+  _replaySetStatus('Connecting…');
+  _replayLogClear();
+
+  // Ensure API port is resolved before loading
+  await _replayEnsurePort();
 
   _replaySetStatus('Loading…');
-  _replayLogClear();
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo('Lazy loading: pehla TF turant, baaki scroll pe');
+  _replayLogInfo(`API port: ${_replayApiPort()}`);
   _replayLog('─'.repeat(38), '#2a2e39');
-
   const sc  = document.getElementById('replay-stack-container');
   if (!sc) return;
 
-  const cellH = 'calc(100% / 4)';
+  const total   = tfs.length;
+  const visible = asset === 'bn' ? 4 : 4;   // 4 charts visible at once (same as normal stackview)
+  const cellH   = 'calc(100% / ' + visible + ')';
 
-  // Cache: agar pehle load ho chuka hai to seedha use karo
-  if (!window._replayCandleCache) window._replayCandleCache = {};
-  const _cache = window._replayCandleCache;
-
-  // Pre-build DOM cells (skeleton — data baad mein aayega)
+  // Pre-build DOM cells
   for (let i = 0; i < total; i++) {
     const tfStr = tfs[i];
     const cell  = document.createElement('div');
@@ -12214,6 +11948,7 @@ async function selectReplayAsset(asset) {
     cell.dataset.ridx = i;
     cell.style.height = cellH;
 
+    // Overlay label
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
     overlay.innerHTML =
@@ -12226,12 +11961,7 @@ async function selectReplayAsset(asset) {
     chartDiv.id = 'rcell-chart-' + i;
     chartDiv.style.position = 'relative';
 
-    const skelDiv = document.createElement('div');
-    skelDiv.id = 'rcell-skel-' + i;
-    skelDiv.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a3e4e;font-size:11px;pointer-events:none;';
-    skelDiv.textContent = '⏳ ' + tfStr + ' loading…';
-    chartDiv.appendChild(skelDiv);
-
+    // Screen badge
     const badge = document.createElement('span');
     badge.className = 'cell-screen-badge';
     badge.textContent = (i+1) + ':' + total;
@@ -12241,70 +11971,82 @@ async function selectReplayAsset(asset) {
     cell.appendChild(badge);
     sc.appendChild(cell);
 
-    _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i, loaded: false });
+    _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i });
   }
 
-  // Ek TF load karna (arrow function — nested function declaration allowed nahi strict mode mein)
-  const _loadCell = async (i) => {
-    const cellObj = _REPLAY.cells[i];
-    if (!cellObj || cellObj.loaded) return;
-    cellObj.loaded = true;
-
-    const tfStr = cellObj.tf;
-    const cacheKey = asset + '_' + tfStr;
-
-    _replayLog('\n\u25b6 [' + (i+1) + '/' + total + '] ' + tfStr + ' — loading…', '#d1d4dc');
-
+  // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
+  for (let i = 0; i < total; i++) {
+    const tfStr = tfs[i];
+    _replaySetStatus(`Loading ${tfStr} (${i+1}/${total})…`);
+    _replayLog(`\n▶ [${i+1}/${total}] ${tfStr}`, '#d1d4dc');
     try {
-      let candles;
-      if (_cache[cacheKey]) {
-        candles = _cache[cacheKey];
-        _replayLogOk(tfStr + ' — cache se ' + candles.length + ' candles (instant)');
-      } else {
-        candles = await _replayRequestTF(asset, tfStr);
-        if (candles && candles.length) _cache[cacheKey] = candles;
-      }
-
-      const sk = document.getElementById('rcell-skel-' + i);
-      if (sk) sk.remove();
-
+      const candles = await _replayFetchAll(asset, tfStr);
       if (!candles || !candles.length) {
-        _replayLogWarn(tfStr + ' — 0 candles, skipping');
-        return;
+        _replayLogWarn(`${tfStr} — 0 candles received, skipping chart`);
+        continue;
       }
-      _replayLogOk(tfStr + ' — ' + candles.length + ' candles mili');
-      _replayDrawCell(asset, i, tfStr, candles, sc);
+
+      const el = document.getElementById('rcell-chart-' + i);
+      if (!el) continue;
+
+      // Create LightweightCharts instance
+      const ch = LightweightCharts.createChart(el, {
+        width:  el.clientWidth  || 200,
+        height: el.clientHeight || 200,
+        layout: { background: { type: 'solid', color: S.bgColor || '#131722' }, textColor: S.textColor || '#d1d4dc', fontSize: 7 },
+        grid:   { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
+        crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
+        rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
+        timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
+        localization: {
+          timeFormatter: (t) => fmtChartTime(t),
+          priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+        handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+        kineticScroll: { mouse: true, touch: true },
+      });
+
+      const upClr = S.upColor || '#26a69a';
+      const dnClr = S.dnColor || '#ef5350';
+      const ser = ch.addCandlestickSeries({
+        upColor: upClr, downColor: dnClr,
+        borderUpColor: upClr, borderDownColor: dnClr,
+        wickUpColor: upClr, wickDownColor: dnClr,
+        priceLineVisible: true, lastValueVisible: true,
+      });
+
+      // Sort candles by time (safety)
+      candles.sort((a, b) => a.time - b.time);
+      ser.setData(candles);
+
+      // Update overlay price
+      const cell = sc.querySelector('[data-ridx="'+i+'"]');
+      if (cell && candles.length) {
+        const last = candles[candles.length - 1];
+        const pr = cell.querySelector('.co-price');
+        if (pr) pr.textContent = last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+
+      _REPLAY.cells[i].chart  = ch;
+      _REPLAY.cells[i].series = ser;
+
+      attachMobileTouchUX(el, ch, () => ser);
+
     } catch(err) {
-      _replayLogErr(tfStr + ' FAILED: ' + (err.message || err));
-      const sk = document.getElementById('rcell-skel-' + i);
-      if (sk) { sk.textContent = '❌ ' + tfStr + ' failed'; sk.style.color = '#ef5350'; }
+      _replayLogErr(`${tfStr} FAILED: ${err.message || err}`);
+      console.warn('Replay load failed for', tfStr, err);
     }
+
+    // Yield between each TF load
+    await new Promise(r2 => setTimeout(r2, 10));
   }
 
-  // Pehla TF turant load karo
-  await _loadCell(0);
   _replaySetStatus('');
-
-  // Baaki TFs: scroll pe lazy load
-  const _lazyObs = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        const idx = parseInt(entry.target.dataset.ridx, 10);
-        if (!isNaN(idx) && idx > 0) {
-          _lazyObs.unobserve(entry.target);
-          _loadCell(idx);
-        }
-      }
-    });
-  }, { root: sc, rootMargin: '300px', threshold: 0.01 });
-
-  sc.querySelectorAll('.stack-cell').forEach((cell, idx) => {
-    if (idx > 0) _lazyObs.observe(cell);
-  });
-
   _replayLog('\n' + '─'.repeat(38), '#2a2e39');
-  _replayLogOk('Lazy loading active — scroll karo baaki TFs load honge');
+  _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
 
+  // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
   _REPLAY.resizeObs = new ResizeObserver(() => {
     _REPLAY.cells.forEach(c => {
@@ -12314,3 +12056,242 @@ async function selectReplayAsset(asset) {
   });
   _REPLAY.resizeObs.observe(sc);
 }
+
+// Status text in float box + header badge
+function _replaySetStatus(msg) {
+  const el = document.getElementById('replay-load-status');
+  if (el) el.textContent = msg;
+  const badge = document.getElementById('rp-hdr-status');
+  if (badge) badge.textContent = msg ? '⏵ ' + msg : '⏵ Replay';
+}
+
+// Step jump for replay stack (same as main stack)
+function _replayStackJump(dir) {
+  const sc = document.getElementById('replay-stack-container');
+  if (!sc) return;
+  const first = sc.querySelector('.stack-cell');
+  if (!first) return;
+  const chartH = first.getBoundingClientRect().height || sc.clientHeight / 4;
+  const target = sc.scrollTop + dir * chartH;
+  sc.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+}
+
+// Make any box draggable by a handle element
+function _makeDraggable(box, drag) {
+  if (!box || !drag || box._dragInited) return;
+  box._dragInited = true;
+  let _ox=0, _oy=0, _bx=0, _by=0, _dragging=false;
+  function _start(e) {
+    _dragging = true;
+    const src = e.touches ? e.touches[0] : e;
+    _ox = src.clientX; _oy = src.clientY;
+    const r = box.getBoundingClientRect();
+    _bx = r.left; _by = r.top;
+    box.style.transform = 'none';
+    box.style.left = _bx + 'px';
+    box.style.top  = _by + 'px';
+    box.style.bottom = 'auto';
+    e.preventDefault();
+  }
+  function _move(e) {
+    if (!_dragging) return;
+    const src = e.touches ? e.touches[0] : e;
+    box.style.left = (_bx + src.clientX - _ox) + 'px';
+    box.style.top  = (_by + src.clientY - _oy) + 'px';
+    e.preventDefault();
+  }
+  function _end() { _dragging = false; }
+  drag.addEventListener('mousedown',  _start);
+  drag.addEventListener('touchstart', _start, { passive: false });
+  document.addEventListener('mousemove',  _move);
+  document.addEventListener('touchmove',  _move, { passive: false });
+  document.addEventListener('mouseup',   _end);
+  document.addEventListener('touchend',  _end);
+}
+
+// Draggable float box
+function _initReplayDrag() {
+  const box  = document.getElementById('replay-float-box');
+  const drag = document.getElementById('replay-float-drag');
+  if (!box || !drag || box._dragInited) return;
+  box._dragInited = true;
+
+  _makeDraggable(box, drag);
+  // Also init debug box drag
+  const dbox = document.getElementById('replay-debug-box');
+  const ddrag = document.getElementById('replay-debug-drag');
+  _makeDraggable(dbox, ddrag);
+}
+
+</script>
+
+<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
+<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
+<div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:9000;flex-direction:column;overflow:hidden;">
+
+  <!-- ── HEADER — exact replica of #hdr ── -->
+  <div id="rp-hdr" style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+
+    <!-- Symbol button — tap to open asset picker float box -->
+    <div style="position:relative;flex-shrink:0;">
+      <button id="rp-sym-label" onclick="_replayOpenAssetPicker()"
+        style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;">
+        📊 BANKNIFTY
+      </button>
+    </div>
+
+    <!-- Replay badge (replaces LTP/CHG in main hdr) -->
+    <span id="rp-hdr-status"
+      style="height:18px;padding:0 6px;background:transparent;border:1px solid #f0b42955;border-radius:3px;color:#f0b429;font-size:9px;font-weight:700;display:flex;align-items:center;white-space:nowrap;flex-shrink:0;">
+      ⏵ Replay
+    </span>
+
+    <div style="flex:1;min-width:0;"></div>
+
+    <!-- Right-side buttons — same order as #hdr-right -->
+    <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
+
+      <!-- TF menu button (same as #tf-menu-btn) -->
+      <button onclick="toggleTfDropdown()"
+        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;flex-shrink:0;white-space:nowrap;">
+        ⏱ <span id="rp-tf-menu-label">--</span>
+      </button>
+
+      <!-- Draw button -->
+      <button onclick="toggleDrawPanel()"
+        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;flex-shrink:0;">
+        ✏️ Draw
+      </button>
+
+      <!-- Hamburger / TF-bar toggle -->
+      <button onclick="toggleTfBar()"
+        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        ≡
+      </button>
+
+      <!-- Broker button -->
+      <button onclick="toggleBrokerPanel(event)"
+        style="height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+        🔑
+      </button>
+
+      <!-- Settings -->
+      <button onclick="toggleSettings()"
+        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        ⚙
+      </button>
+
+      <!-- Close Replay (replaces fullscreen btn) -->
+      <button onclick="closeReplayView()"
+        style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">
+        ✕
+      </button>
+
+    </div>
+  </div>
+
+  <!-- ── TF BAR — exact replica of #tf-bar (real clickable buttons) ── -->
+  <div id="rp-tf-bar" style="height:14px;min-height:14px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+    <button id="rp-tf-5m"   class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"    >5m</button>
+    <button id="rp-tf-15m"  class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"   >15m</button>
+    <button id="rp-tf-45m"  class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"   >45m</button>
+    <button id="rp-tf-135m" class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"  >135m</button>
+    <div class="tf-sep"></div>
+    <button id="rp-tf-160m" class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"  >160m</button>
+    <button id="rp-tf-8h"   class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"  >8H</button>
+    <div class="tf-sep"></div>
+    <button id="rp-tf-1d"   class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)" >1D</button>
+    <button id="rp-tf-3d"   class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)" >3D</button>
+    <button id="rp-tf-9d"   class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)">9D</button>
+    <button id="rp-tf-27d"  class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)">27D</button>
+  </div>
+
+  <!-- ── STACK CONTAINER ── -->
+  <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
+
+  <!-- ── BOTTOM BAR — exact replica of #bottom-bar ── -->
+  <div id="rp-bottom-bar" style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+
+    <!-- Indicators -->
+    <button onclick="toggleIndPanel()"
+      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+      📊 Indicators
+    </button>
+
+    <div class="bot-sep"></div>
+
+    <!-- Auto fit -->
+    <button onclick="autoFitChart()"
+      style="height:18px;padding:0 8px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+      ⊡ Auto
+    </button>
+
+    <!-- Go to Date -->
+    <button onclick="toggleGotoDate()"
+      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
+      📅
+    </button>
+
+    <!-- Overlay -->
+    <button onclick="toggleOverlayMenu()"
+      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
+      ⧉
+    </button>
+
+    <!-- Layout / Grid picker -->
+    <button onclick="toggleGridPicker()"
+      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-left:auto;">
+      ⊞ Layout
+    </button>
+
+    <div class="bot-sep"></div>
+
+    <!-- Stack scroll ▲ ▼ -->
+    <button onclick="_replayStackJump(-1)"
+      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
+    <button onclick="_replayStackJump(1)"
+      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
+
+  </div>
+</div>
+
+<!-- ═══ REPLAY FLOATING BOX ══════════════════════════════════════════════════ -->
+<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:9100;min-width:190px;touch-action:none;user-select:none;">
+  <!-- Drag handle + Close button -->
+  <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
+    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</span>
+    <span style="font-size:12px;color:#555;">⠿</span>
+    <button onclick="closeReplayView()" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
+  </div>
+  <!-- Asset selector -->
+  <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+    <div style="font-size:9px;color:#787b86;text-transform:uppercase;letter-spacing:.8px;font-weight:700;">Select Asset</div>
+    <div style="display:flex;gap:6px;">
+      <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"  style="flex:1;height:36px;background:#2962ff;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">📊 BankNifty</button>
+      <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="flex:1;height:36px;background:#2a2e39;border:1px solid #363c4e;border-radius:5px;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;">₿ BTC</button>
+    </div>
+    <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;"></div>
+
+    <!-- status only, no debug log here -->
+  </div>
+</div>
+
+<!-- ═══ REPLAY DEBUG FLOATING WINDOW ═══════════════════════════════════════════ -->
+<div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;touch-action:none;user-select:none;flex-direction:column;">
+  <!-- Drag handle -->
+  <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
+    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
+    <button onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
+    <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
+    <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
+  </div>
+  <div id="replay-debug-wrap" style="padding:6px 8px;">
+    <div id="replay-debug-log"
+      style="font-family:monospace;font-size:8px;color:#9598a1;background:#131722;border:1px solid #2a2e39;border-radius:4px;padding:6px 8px;max-height:260px;min-height:80px;overflow-y:auto;line-height:1.6;white-space:pre-wrap;word-break:break-all;">
+      Waiting…
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
