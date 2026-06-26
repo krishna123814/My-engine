@@ -284,6 +284,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
 <script>
+/* ── EARLIEST POSSIBLE error catcher — must be the very first script in <head> ── */
+(function(){
+  window._RDBG_LOG = window._RDBG_LOG || [];
+  function _rdbgPush(line){
+    var t = new Date().toLocaleTimeString();
+    window._RDBG_LOG.push('[' + t + '] ' + line);
+    var el = document.getElementById('rdbg-log');
+    if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
+  }
+  window._rdbgPush = _rdbgPush;
+  window.addEventListener('error', function(e){
+    _rdbgPush('❌ JS ERROR: ' + e.message + '  @ line ' + e.lineno + ':' + e.colno + (e.filename ? ' in ' + e.filename : ''));
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e.reason;
+    _rdbgPush('❌ PROMISE REJECTED: ' + (r && r.message ? r.message : r));
+  });
+  _rdbgPush('🟢 Page script started parsing (earliest checkpoint)');
+})();
+</script>
+<script>
 /* ── CSS-based self-fullscreen (no user gesture needed) ── */
 (function(){
   function _selfFS(){
@@ -12341,27 +12362,23 @@ function _initReplayDrag() {
 </div>
 <script>
 (function(){
-  window._RDBG_LOG = [];
-  function _rdbgPush(line){
+  window._RDBG_LOG = window._RDBG_LOG || [];
+  var _rdbgPush = window._rdbgPush || function(line){
     var t = new Date().toLocaleTimeString();
     window._RDBG_LOG.push('[' + t + '] ' + line);
     var el = document.getElementById('rdbg-log');
     if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
-  }
+  };
   window._rdbgPush = _rdbgPush;
-
-  // Catch every JS error / failed promise on the page from the very start
-  window.addEventListener('error', function(e){
-    _rdbgPush('❌ JS ERROR: ' + e.message + '  @ line ' + e.lineno + ':' + e.colno);
-  });
-  window.addEventListener('unhandledrejection', function(e){
-    var r = e.reason;
-    _rdbgPush('❌ PROMISE REJECTED: ' + (r && r.message ? r.message : r));
-  });
+  // Flush anything captured before this box existed in the DOM
+  var _el0 = document.getElementById('rdbg-log');
+  if (_el0) _el0.textContent = window._RDBG_LOG.join('\n');
 
   window._rdbgShow = function(){
     var box = document.getElementById('rdbg-box');
     if (box) box.style.display = 'flex';
+    var el = document.getElementById('rdbg-log');
+    if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
   };
 
   window._rdbgClear = function(){
