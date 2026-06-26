@@ -1948,8 +1948,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
-  <div class="bot-sep"></div>
-  <button id="replay-btn" onclick="openReplayView()" title="Replay historical data from .gz files" style="color:#f0b429;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -1997,6 +1995,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <span class="gp-stack-label">Stack View (scrollable)</span>
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
+    </div>
+    <div id="gp-replay-row" class="gp-stack-row" onclick="openReplayView(); document.getElementById('grid-picker').classList.remove('open');" style="cursor:pointer;">
+      <span class="gp-stack-icon">⏵</span>
+      <span class="gp-stack-label" style="color:#f0b429;">Replay</span>
     </div>
     <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
