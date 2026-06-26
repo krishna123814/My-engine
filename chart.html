@@ -11765,6 +11765,26 @@ async function selectReplayAsset(asset) {
   if (btnBn)  { btnBn.style.background  = asset === 'bn'  ? '#2962ff' : '#2a2e39'; btnBn.style.color  = asset === 'bn'  ? '#fff' : '#9598a1'; btnBn.style.border  = asset === 'bn'  ? 'none' : '1px solid #363c4e'; }
   if (btnBtc) { btnBtc.style.background = asset === 'btc' ? '#f0b429' : '#2a2e39'; btnBtc.style.color = asset === 'btc' ? '#131722' : '#9598a1'; btnBtc.style.border = asset === 'btc' ? 'none' : '1px solid #363c4e'; }
 
+  // Update header sym label
+  const symLbl = document.getElementById('rp-sym-label');
+  if (symLbl) symLbl.textContent = asset === 'bn' ? '📊 BANKNIFTY' : '₿ BTCUSDT';
+
+  // Update TF bar — highlight active TFs for this asset, dim others
+  const bnTfIds  = ['rp-tf-5m','rp-tf-15m','rp-tf-45m','rp-tf-135m'];
+  const btcTfIds = ['rp-tf-160m','rp-tf-8h'];
+  const commonIds= ['rp-tf-1d','rp-tf-3d','rp-tf-9d','rp-tf-27d'];
+  const activeTfIds = asset === 'bn'
+    ? [...bnTfIds, ...commonIds]
+    : [...btcTfIds, ...commonIds];
+  const allTfIds = [...bnTfIds, ...btcTfIds, ...commonIds];
+  allTfIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isActive = activeTfIds.includes(id);
+    el.style.color  = isActive ? '#d1d4dc' : '#363c4e';
+    el.style.fontWeight = isActive ? '700' : '400';
+  });
+
   _replayDestroyCells();
   _replaySetStatus('Loading…');
 
@@ -11943,22 +11963,58 @@ function _initReplayDrag() {
 </script>
 
 <!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
+<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
 <div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:9000;flex-direction:column;overflow:hidden;">
-  <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
-  <div style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;">
-    <button onclick="closeReplayView()" style="height:18px;padding:0 8px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕ Close</button>
+
+  <!-- HEADER — exact copy of #hdr -->
+  <div style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;">
+    <span style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;display:flex;align-items:center;white-space:nowrap;" id="rp-sym-label">📊 BANKNIFTY</span>
     <div style="flex:1"></div>
-    <button onclick="_replayStackJump(-1)" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;">▲</button>
-    <button onclick="_replayStackJump(1)"  style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;">▼</button>
+    <span style="font-size:9px;color:#787b86;white-space:nowrap;padding:0 4px;" id="rp-hdr-status">⏵ Replay Mode</span>
+  </div>
+
+  <!-- TF BAR — exact copy of #tf-bar -->
+  <div style="height:14px;min-height:14px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;">
+    <span id="rp-tf-5m"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">5m</span>
+    <span id="rp-tf-15m"  style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">15m</span>
+    <span id="rp-tf-45m"  style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">45m</span>
+    <span id="rp-tf-135m" style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">135m</span>
+    <span style="width:1px;height:10px;background:#2a2e39;flex-shrink:0;"></span>
+    <span id="rp-tf-160m" style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">160m</span>
+    <span id="rp-tf-8h"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">8H</span>
+    <span style="width:1px;height:10px;background:#2a2e39;flex-shrink:0;"></span>
+    <span id="rp-tf-1d"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">1D</span>
+    <span id="rp-tf-3d"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">3D</span>
+    <span id="rp-tf-9d"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">9D</span>
+    <span id="rp-tf-27d"  style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">27D</span>
+  </div>
+
+  <!-- STACK CONTAINER -->
+  <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
+
+  <!-- BOTTOM BAR — exact copy of #bottom-bar -->
+  <div style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;">
+    <span style="font-size:10px;color:#787b86;padding:0 6px;">📊 Indicators</span>
+    <div style="width:1px;height:14px;background:#2a2e39;flex-shrink:0;"></div>
+    <span style="font-size:10px;color:#787b86;padding:0 6px;">⊡ Auto</span>
+    <span style="font-size:10px;color:#787b86;padding:0 4px;">📅</span>
+    <span style="font-size:10px;color:#787b86;padding:0 4px;">⧉</span>
+    <span style="font-size:10px;color:#787b86;padding:0 6px;">⊞ Layout</span>
+    <div style="width:1px;height:14px;background:#2a2e39;flex-shrink:0;"></div>
+    <button onclick="_replayStackJump(-1)" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
+    <button onclick="_replayStackJump(1)"  style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
   </div>
 </div>
 
 <!-- ═══ REPLAY FLOATING BOX ══════════════════════════════════════════════════ -->
-<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:9100;min-width:180px;touch-action:none;user-select:none;">
-  <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:6px 10px;display:flex;align-items:center;gap:6px;cursor:grab;">
-    <span style="font-size:10px;color:#787b86;flex:1;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</span>
-    <span style="font-size:14px;color:#363c4e;">⠿</span>
+<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:9100;min-width:190px;touch-action:none;user-select:none;">
+  <!-- Drag handle + Close button -->
+  <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
+    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</span>
+    <span style="font-size:12px;color:#555;">⠿</span>
+    <button onclick="closeReplayView()" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
   </div>
+  <!-- Asset selector -->
   <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
     <div style="font-size:9px;color:#787b86;text-transform:uppercase;letter-spacing:.8px;font-weight:700;">Select Asset</div>
     <div style="display:flex;gap:6px;">
