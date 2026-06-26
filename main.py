@@ -1689,7 +1689,7 @@ if sess_active or _btc_only:
     # replay_data postMessage se iframe ko bhejta hai.
     @st.fragment(run_every=1)
     def _replay_pusher():
-        import pickle, gzip as _gz, os as _os, json as _json, urllib.request as _ur
+        import pickle, gzip as _gz, os as _os, json as _json, urllib.request as _ur, time as _time
 
         _rqp     = st.query_params
         _r_asset = _rqp.get("replay_asset", "").strip().lower()
@@ -1702,6 +1702,22 @@ if sess_active or _btc_only:
             import json as _j
             _pay = _j.dumps({"type":"replay_data","asset":asset,"tf":tf,
                              "candles":candles,"error":error})
+            _pay = _pay.replace("</", "<\\/")
+            _s = ("<script>(function(){var f=window.parent.document"
+                  ".querySelectorAll('iframe');for(var i=0;i<f.length;i++)"
+                  "{try{f[i].contentWindow.postMessage("+_pay+",'*');}catch(e){}}"
+                  "})();</script>")
+            components.html(_s, height=0, scrolling=False)
+
+        def _send_progress(asset, tf, downloaded, total, speed_kbs):
+            import json as _j
+            pct = round(downloaded * 100 / total, 1) if total else None
+            _pay = _j.dumps({
+                "type": "replay_progress", "asset": asset, "tf": tf,
+                "downloaded_kb": round(downloaded / 1024, 1),
+                "total_kb": round(total / 1024, 1) if total else None,
+                "pct": pct, "speed_kbs": speed_kbs,
+            })
             _pay = _pay.replace("</", "<\\/")
             _s = ("<script>(function(){var f=window.parent.document"
                   ".querySelectorAll('iframe');for(var i=0;i<f.length;i++)"
@@ -1728,18 +1744,40 @@ if sess_active or _btc_only:
                 _gz_path = _c
                 break
 
-        # Download from GitHub if not found locally
+        # Download from GitHub if not found locally (chunked, with progress+speed)
         if not _gz_path:
             _save = _os.path.join(_script_dir, _fname)
             try:
                 _req = _ur.Request(_gh_url, headers={"User-Agent": "Mozilla/5.0"})
                 with _ur.urlopen(_req, timeout=180) as _resp:
-                    _bytes = _resp.read()
+                    _total   = int(_resp.headers.get("Content-Length", 0) or 0)
+                    _chunks  = []
+                    _downloaded = 0
+                    _t_start = _time.time()
+                    _last_sent = 0.0
+                    _CH = 65536
+                    while True:
+                        _chunk = _resp.read(_CH)
+                        if not _chunk:
+                            break
+                        _chunks.append(_chunk)
+                        _downloaded += len(_chunk)
+                        _now = _time.time()
+                        if (_now - _last_sent) >= 0.5:
+                            _elapsed = max(_now - _t_start, 0.01)
+                            _speed   = round((_downloaded / 1024) / _elapsed, 1)
+                            _send_progress(_r_asset, _r_tf, _downloaded, _total, _speed)
+                            _last_sent = _now
+                    # final 100% progress line
+                    _elapsed = max(_time.time() - _t_start, 0.01)
+                    _speed   = round((_downloaded / 1024) / _elapsed, 1)
+                    _send_progress(_r_asset, _r_tf, _downloaded, _total or _downloaded, _speed)
+                    _bytes = b"".join(_chunks)
                 with open(_save, "wb") as _wf:
                     _wf.write(_bytes)
                 _gz_path = _save
             except Exception as _dl_err:
-                _send(_r_asset, _r_tf, [], "GitHub download failed: " + str(_dl_err)[:100])
+                _send(_r_asset, _r_tf, [], "GitHub download failed: " + str(_dl_err)[:200])
                 return
 
         # Load pickle

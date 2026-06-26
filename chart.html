@@ -7715,6 +7715,15 @@ window.addEventListener('message', function(evt) {
     if (msg.type === 'replay_data') {
       _replayReceiveTF(msg.asset, msg.tf, msg.candles || [], msg.error || null);
     }
+    // Replay download progress from Python (GitHub .gz download)
+    if (msg.type === 'replay_progress') {
+      const line = '⬇ ' + msg.asset.toUpperCase() + ' ' + msg.tf + ' download: ' +
+        msg.downloaded_kb + 'KB / ' + (msg.total_kb || '?') + 'KB' +
+        (msg.pct != null ? ' (' + msg.pct + '%)' : '') +
+        '  @ ' + msg.speed_kbs + ' KB/s';
+      if (typeof window._rdbgPush === 'function') window._rdbgPush(line);
+      if (typeof _replayLog === 'function') _replayLog(line, '#2962ff');
+    }
   } catch(_) {}
 });
 
@@ -11782,6 +11791,7 @@ function _replayCopyLog() {
   }
 }
 function _replayLog(line, color) {
+  if (typeof window._rdbgPush === 'function') window._rdbgPush(line);
   const el = document.getElementById('replay-debug-log');
   if (!el) return;
   const span = document.createElement('span');
