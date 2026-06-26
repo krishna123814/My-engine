@@ -696,59 +696,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer}
 .ss-done-btn:active{background:#1e4fd6}
 
-/* ── Bar Replay View (Stack View ka clone, static data ke liye) ──── */
-#replay-view{display:none;flex:1;overflow:hidden;min-height:0;}
-#replay-view.active{display:flex;flex-direction:column}
-#replay-container{
-  flex:1;display:flex;flex-direction:column;
-  background:#2a2e39;overflow-y:auto;min-height:0;
-  touch-action:none;
-}
-
-/* ── Replay Floating Panel ──────────────────────────────────────────────── */
-#replay-float-panel{
-  display:none;
-  position:fixed;z-index:10500;
-  left:12px;top:80px;
-  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
-  box-shadow:0 4px 20px #0008;
-  min-width:220px;
-  user-select:none;
-}
-#replay-float-panel.visible{display:block}
-#replay-float-drag-handle{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:8px 10px 6px;
-  cursor:grab;border-bottom:1px solid #2a2e39;
-}
-#replay-float-drag-handle:active{cursor:grabbing}
-#replay-float-title{font-size:12px;font-weight:700;color:#d1d4dc;}
-#replay-float-drag-icon{font-size:16px;color:#363c4e;letter-spacing:-2px;}
-#replay-float-body{
-  display:flex;align-items:center;gap:6px;padding:8px 10px;flex-wrap:wrap;
-}
-#rp-status-label{font-size:11px;color:#555;flex:1;min-width:100%;padding-top:4px;}
-.replay-cell{
-  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
-  position:relative;display:flex;flex-direction:column;
-}
-.replay-cell .cell-overlay{
-  position:absolute;top:28px;left:4px;right:0;pointer-events:none;
-  display:flex;flex-wrap:wrap;align-items:baseline;gap:4px;z-index:5;
-}
-.replay-cell .cell-overlay > *{pointer-events:none;}
-.replay-cell .stack-pricescale-zone{
-  position:absolute;top:0;bottom:0;right:0;width:60px;z-index:6;cursor:ns-resize;
-}
-
-/* ── Gp row for Bar Replay in picker ─────────────────────────────── */
-.gp-replay-row{display:flex;align-items:center;gap:8px;padding:10px 2px;
-  border-bottom:1px solid #2a2e3955;cursor:pointer}
-.gp-replay-row .gp-replay-icon{font-size:18px;flex-shrink:0}
-.gp-replay-row .gp-replay-label{font-size:13px;color:#d1d4dc;font-weight:600;flex:1}
-.gp-replay-row.active{background:#f0b42922}
-.gp-replay-row.active .gp-replay-label{color:#f0b429}
-
 /* ── Grid View ───────────────────────────────────────────────────── */
 #grid-view{display:none;flex:1;overflow:hidden;min-height:0;}
 #grid-view.active{display:flex;flex-direction:column}
@@ -1990,11 +1937,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="stack-container"></div>
 </div>
 
-<!-- ═══ BAR REPLAY VIEW (Stack View ka copy, static data ke liye) ══════ -->
-<div id="replay-view">
-  <div id="replay-container"></div>
-</div>
-
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
@@ -2004,8 +1946,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
-  <button id="stack-up-btn" onclick="_stackStepJump(_replayActive ? document.getElementById('replay-container') : document.getElementById('stack-container'), -1)" title="Scroll up">▲</button>
-  <button id="stack-down-btn" onclick="_stackStepJump(_replayActive ? document.getElementById('replay-container') : document.getElementById('stack-container'), 1)" title="Scroll down">▼</button>
+  <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
+  <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -2053,10 +1995,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <span class="gp-stack-label">Stack View (scrollable)</span>
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
-    </div>
-    <div id="gp-replay-row" class="gp-replay-row" onclick="selectReplayView()">
-      <span class="gp-replay-icon">⏯</span>
-      <span class="gp-replay-label">Bar Replay</span>
     </div>
     <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
@@ -3364,8 +3302,6 @@ function selectStackView() {
   document.querySelectorAll('.gp-layout').forEach(b => b.classList.remove('active'));
   const row = document.getElementById('gp-stack-row');
   if (row) row.classList.add('active');
-  document.getElementById('gp-replay-row')?.classList.remove('active');
-  if (typeof _replayActive !== 'undefined' && _replayActive) _deactivateReplayView();
 
   _stackActive = true;
   _stackOnOff  = true;
@@ -3382,7 +3318,6 @@ function selectStackView() {
   wsEl.style.display = 'none';
   gv.classList.remove('active');
   sv.classList.add('active');
-  document.getElementById('replay-view')?.classList.remove('active');
   document.getElementById('grid-btn').classList.add('active');
   if (cmBtn) cmBtn.style.display = 'none';   // per-cell fullscreen not wired for stack yet
 
@@ -3391,217 +3326,6 @@ function selectStackView() {
   buildStack();
   setTimeout(_startCellTimers, 200);
   setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// BAR REPLAY VIEW
-// ════════════════════════════════════════════════════════════════════════════
-let _replayActive = false;
-let _replayAsset  = 'bn';   // 'bn' | 'btc'
-let _replayCells  = [];     // LightweightCharts instances inside replay
-
-// Stack View ke exact same TF config reuse karte hain (minutes mein)
-// BN: 5m,15m,45m,135m,1D,3D,9D,27D  → total 8, visible 4
-// BTC: 160m,8H,1D,3D,9D,27D          → total 6, visible 4
-const _REPLAY_CONFIG = {
-  bn: {
-    total:   8,
-    visible: 4,
-    tfs: [5, 15, 45, 135, 1440, 4320, 12960, 38880],
-    labels: ['5m','15m','45m','135m','1D','3D','9D','27D'],
-  },
-  btc: {
-    total:   6,
-    visible: 4,
-    tfs: [160, 480, 1440, 4320, 12960, 38880],
-    labels: ['160m','8H','1D','3D','9D','27D'],
-  },
-};
-
-function _destroyReplayCells() {
-  _replayCells.forEach(c => { try { c.chart.remove(); } catch(_){} });
-  _replayCells = [];
-  const rc = document.getElementById('replay-container');
-  if (rc) rc.innerHTML = '';
-}
-
-function _deactivateReplayView() {
-  _replayActive = false;
-  const rv = document.getElementById('replay-view');
-  if (rv) rv.classList.remove('active');
-  document.getElementById('gp-replay-row')?.classList.remove('active');
-  document.getElementById('replay-float-panel')?.classList.remove('visible');
-  _destroyReplayCells();
-}
-
-// ── Asset switcher inside replay toolbar ──────────────────────────────────
-function replaySetAsset(asset) {
-  _replayAsset = asset;
-  document.getElementById('rp-bn-btn')?.classList.toggle('active',  asset === 'bn');
-  document.getElementById('rp-btc-btn')?.classList.toggle('active', asset === 'btc');
-  _buildReplayCharts();
-}
-
-// ── Get raw candle data for replay — always empty for now ─────────────────
-// Data baad mein alag source se inject hoga
-function _replayGetCandles(tfMin) {
-  return [];
-}
-
-// ── Simple OHLCV resample (future use) ───────────────────────────────────
-function _replayResample(baseBars, targetMin) {
-  return [];
-}
-
-// ── Build one replay chart cell ───────────────────────────────────────────
-function _buildOneReplayCell(container, tfMin, tfLabel, idx, cfg, cellH) {
-  const cell = document.createElement('div');
-  cell.className = 'grid-cell replay-cell';
-  cell.style.height = (cellH || 300) + 'px';
-  cell.style.minHeight = (cellH || 300) + 'px';
-
-  const hdr = document.createElement('div');
-  hdr.className = 'cell-hdr';
-  const assetLabel = _replayAsset === 'bn' ? '📊 BN' : '₿ BTC';
-  hdr.innerHTML =
-    '<button class="cell-sym" style="pointer-events:none">' + assetLabel + ' ' + tfLabel + '</button>' +
-    '<span class="cell-price up">--</span>' +
-    '<span class="cell-chg" style="color:#555">--</span>';
-  cell.appendChild(hdr);
-
-  const chartDiv = document.createElement('div');
-  chartDiv.className = 'cell-chart';
-  chartDiv.style.position = 'relative';
-  cell.appendChild(chartDiv);
-  container.appendChild(cell);
-
-  const lwcChart = LightweightCharts.createChart(chartDiv, {
-    layout:      { background: { color: '#131722' }, textColor: '#d1d4dc' },
-    grid:        { vertLines: { color: '#2a2e39' }, horzLines: { color: '#2a2e39' } },
-    crosshair:   { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#2a2e39' },
-    timeScale:   { borderColor: '#2a2e39', timeVisible: true },
-    handleScroll: true,
-    handleScale:  true,
-  });
-
-  // Auto-resize
-  const ro = new ResizeObserver(() => {
-    try { lwcChart.applyOptions({ width: chartDiv.clientWidth, height: chartDiv.clientHeight }); }
-    catch(_) {}
-  });
-  ro.observe(chartDiv);
-
-  // Load candles
-  const rawCandles = _replayGetCandles(tfMin);
-  const series = lwcChart.addCandlestickSeries({
-    upColor:   '#26a69a', downColor: '#ef5350',
-    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-    wickUpColor:   '#26a69a', wickDownColor:   '#ef5350',
-  });
-  if (rawCandles && rawCandles.length) {
-    const data = rawCandles.map(c => ({
-      time:  typeof c.time !== 'undefined' ? c.time : Math.floor(c[0]/1000),
-      open:  c.open  ?? c[1], high:  c.high  ?? c[2],
-      low:   c.low   ?? c[3], close: c.close ?? c[4],
-    })).filter(c => c.time && c.open);
-    data.sort((a,b) => a.time - b.time);
-    // Deduplicate
-    const seen = {}; const deduped = [];
-    data.forEach(c => { if (!seen[c.time]) { seen[c.time]=1; deduped.push(c); } });
-    try { series.setData(deduped); } catch(_) {}
-    lwcChart.timeScale().fitContent();
-
-    // Update header with last price
-    const last = deduped[deduped.length - 1];
-    if (last) {
-      const priceEl = hdr.querySelector('.cell-price');
-      if (priceEl) priceEl.textContent = last.close.toFixed(_replayAsset==='bn'?2:0);
-    }
-    const assetFull = _replayAsset === 'bn' ? 'BankNifty' : 'BTC';
-    document.getElementById('rp-status-label').textContent =
-      assetFull + ' ' + tfLabel + ' — ' + deduped.length + ' candles';
-  } else {
-    document.getElementById('rp-status-label').textContent = 'Ready — data load hoga';
-  }
-
-  // ── SR Indicator — BankNifty aur BTC dono ke liye ────────────────────
-  if (rawCandles && rawCandles.length && typeof _bnBuildSRNative === 'function' && typeof swingCompute === 'function') {
-    try {
-      const srData = rawCandles.map(c => ({
-        time:  typeof c.time!=='undefined' ? c.time : Math.floor(c[0]/1000),
-        open:  c.open  ?? c[1], high: c.high  ?? c[2],
-        low:   c.low   ?? c[3], close:c.close ?? c[4],
-      })).filter(c=>c.time&&c.open);
-      srData.sort((a,b)=>a.time-b.time);
-      const seen2={}; const srDeduped=[];
-      srData.forEach(c=>{ if(!seen2[c.time]){seen2[c.time]=1;srDeduped.push(c);} });
-      if (srDeduped.length > 10) {
-        const lines = swingCompute(srDeduped, tfMin);
-        _bnBuildSRNative(lwcChart, lines, null);
-      }
-    } catch(_) {}
-  }
-
-  _replayCells.push({ chart: lwcChart, series, tf: tfMin });
-}
-
-// ── Build all replay charts for current asset ─────────────────────────────
-function _buildReplayCharts() {
-  _destroyReplayCells();
-  const container = document.getElementById('replay-container');
-  if (!container) return;
-  const cfg = _REPLAY_CONFIG[_replayAsset] || _REPLAY_CONFIG.bn;
-
-  // Container height milne ke baad hi cells banao (DOM paint ke baad)
-  requestAnimationFrame(() => {
-    const containerH = container.clientHeight || window.innerHeight;
-    const cellH = Math.floor(containerH / Math.max(1, cfg.visible));
-    cfg.tfs.forEach((tfMin, idx) => {
-      _buildOneReplayCell(container, tfMin, cfg.labels[idx], idx, cfg, cellH);
-    });
-  });
-}
-
-// ── Activate Bar Replay View (main entry point) ───────────────────────────
-function selectReplayView() {
-  document.getElementById('grid-picker').classList.remove('open');
-
-  // Dusre layouts deactivate karo
-  document.querySelectorAll('.gp-layout').forEach(b => b.classList.remove('active'));
-  document.getElementById('gp-stack-row')?.classList.remove('active');
-  if (typeof _stackActive !== 'undefined') {
-    _stackActive = false; _stackOnOff = false;
-    if (typeof _saveStackOnOff === 'function') _saveStackOnOff(false);
-    if (typeof _renderStackSwitch === 'function') _renderStackSwitch();
-    if (typeof destroyStackCells === 'function') destroyStackCells();
-  }
-  if (typeof destroyCharts === 'function') destroyCharts();
-  if (typeof destroyGridCells === 'function') destroyGridCells();
-
-  // Replay row active karo
-  document.getElementById('gp-replay-row')?.classList.add('active');
-  document.getElementById('grid-btn')?.classList.add('active');
-
-  // Views toggle
-  const wsEl = document.getElementById('workspace');
-  const gv   = document.getElementById('grid-view');
-  const sv   = document.getElementById('stack-view');
-  const rv   = document.getElementById('replay-view');
-  const cmBtn= document.getElementById('cell-maximize-btn');
-
-  if (wsEl) wsEl.style.display = 'none';
-  if (gv)   gv.classList.remove('active');
-  if (sv)   sv.classList.remove('active');
-  if (rv)   rv.classList.add('active');
-  if (cmBtn) cmBtn.style.display = 'none';
-
-  _replayActive = true;
-  S.layout = 'replay';
-  try { _LS.setItem('tvLayout', 'replay'); } catch(_) {}
-
-  document.getElementById('replay-float-panel')?.classList.add('visible');
-  _buildReplayCharts();
 }
 
 // Build all of a symbol's stack slots (Step 2: static, all rendered, no snap-scroll yet).
@@ -5537,8 +5261,6 @@ function setLayout(key, btn) {
   document.querySelectorAll('.gp-layout').forEach(b =>
     b.classList.toggle('active', b.dataset.layout===key));
   document.getElementById('gp-stack-row')?.classList.remove('active');
-  document.getElementById('gp-replay-row')?.classList.remove('active');
-  if (_replayActive) _deactivateReplayView();
   _stackActive = false;
   _stackOnOff  = false;
   _saveStackOnOff(false);
@@ -11925,66 +11647,6 @@ if (document.readyState === 'loading') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') ping();
   });
-})();
-<!-- ═══ REPLAY FLOATING PANEL (draggable) ════════════════════════════════ -->
-<div id="replay-float-panel">
-  <div id="replay-float-drag-handle">
-    <span id="replay-float-title">⏯ Bar Replay</span>
-    <span id="replay-float-drag-icon">⠿</span>
-  </div>
-  <div id="replay-float-body">
-    <button class="rp-asset-btn active" id="rp-bn-btn" onclick="replaySetAsset('bn')">BankNifty</button>
-    <button class="rp-asset-btn" id="rp-btc-btn" onclick="replaySetAsset('btc')">BTC</button>
-    <div class="rp-sep"></div>
-    <span id="rp-status-label">Asset chuniye…</span>
-  </div>
-</div>
-
-<script>
-// ── Replay floating panel — drag logic ───────────────────────────────────
-(function () {
-  const PANEL_KEY = 'replayFloatPos';
-  const panel  = document.getElementById('replay-float-panel');
-  const handle = document.getElementById('replay-float-drag-handle');
-  if (!panel || !handle) return;
-
-  // Restore saved position
-  try {
-    const saved = JSON.parse(localStorage.getItem(PANEL_KEY) || 'null');
-    if (saved) { panel.style.left = saved.x + 'px'; panel.style.top = saved.y + 'px'; }
-  } catch(_) {}
-
-  let ox = 0, oy = 0, dragging = false;
-
-  function onStart(cx, cy) {
-    dragging = true;
-    const r = panel.getBoundingClientRect();
-    ox = cx - r.left; oy = cy - r.top;
-    panel.style.transition = 'none';
-    document.body.style.userSelect = 'none';
-  }
-  function onMove(cx, cy) {
-    if (!dragging) return;
-    const x = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  cx - ox));
-    const y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, cy - oy));
-    panel.style.left = x + 'px'; panel.style.top = y + 'px';
-  }
-  function onEnd() {
-    if (!dragging) return;
-    dragging = false;
-    document.body.style.userSelect = '';
-    try { localStorage.setItem(PANEL_KEY, JSON.stringify({ x: parseInt(panel.style.left), y: parseInt(panel.style.top) })); } catch(_) {}
-  }
-
-  // Mouse
-  handle.addEventListener('mousedown',  e => { onStart(e.clientX, e.clientY); e.preventDefault(); });
-  document.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
-  document.addEventListener('mouseup',   () => onEnd());
-
-  // Touch
-  handle.addEventListener('touchstart', e => { const t = e.touches[0]; onStart(t.clientX, t.clientY); }, { passive: true });
-  document.addEventListener('touchmove', e => { if (!dragging) return; const t = e.touches[0]; onMove(t.clientX, t.clientY); e.preventDefault(); }, { passive: false });
-  document.addEventListener('touchend',  () => onEnd());
 })();
 </script>
 </body>
