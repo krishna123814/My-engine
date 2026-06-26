@@ -12119,8 +12119,8 @@ async function selectReplayAsset(asset) {
     _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i, loaded: false });
   }
 
-  // Ek TF load karna
-  async function _loadCell(i) {
+  // Ek TF load karna (arrow function — nested function declaration allowed nahi strict mode mein)
+  const _loadCell = async (i) => {
     const cellObj = _REPLAY.cells[i];
     if (!cellObj || cellObj.loaded) return;
     cellObj.loaded = true;
