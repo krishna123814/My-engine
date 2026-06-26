@@ -9665,7 +9665,59 @@ function _openSettingsColor(btn, onChangeCallback) {
   <div class="kb-row">
     <button class="kb-key kb-done" onmousedown="event.preventDefault();_kbDone()">✓ Done</button>
   </div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     REPLAY VIEW — fullscreen overlay with stacked TF charts
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div id="replay-view" style="display:none;position:fixed;inset:0;z-index:9000;background:#131722;flex-direction:column;overflow:hidden;">
+
+  <!-- Header bar -->
+  <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#1e222d;border-bottom:1px solid #2a2e39;flex-shrink:0;">
+    <button onclick="closeReplayView()" style="background:#ef5350;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">✕ Close</button>
+    <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"  style="background:#2962ff;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;">📊 BANKNIFTY</button>
+    <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="background:#2a2e39;color:#9598a1;border:1px solid #363c4e;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;">₿ BTCUSDT</button>
+    <span id="rp-sym-label" style="color:#d1d4dc;font-size:12px;font-weight:700;flex:1;text-align:center;">📊 BANKNIFTY</span>
+    <span id="replay-load-status" style="color:#f0b429;font-size:11px;"></span>
+    <button onclick="_replayToggleLog()" style="background:#2a2e39;color:#9598a1;border:1px solid #363c4e;border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;">📋 Log</button>
+  </div>
+
+  <!-- TF quick-jump bar -->
+  <div id="rp-tf-bar" style="display:flex;gap:4px;padding:4px 10px;background:#1a1e2e;border-bottom:1px solid #2a2e39;flex-shrink:0;overflow-x:auto;">
+    <button class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"     style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">5m</button>
+    <button class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"    style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">15m</button>
+    <button class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"    style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">45m</button>
+    <button class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"   style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">135m</button>
+    <button class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"   style="background:#2a2e39;color:#3a3e4e;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;opacity:0.3;" disabled>160m</button>
+    <button class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"   style="background:#2a2e39;color:#3a3e4e;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;opacity:0.3;" disabled>8H</button>
+    <button class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)"  style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">1D</button>
+    <button class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)"  style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">3D</button>
+    <button class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)" style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">9D</button>
+    <button class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)" style="background:#2a2e39;color:#d1d4dc;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">27D</button>
+  </div>
+
+  <!-- Stacked chart cells (scrollable) -->
+  <div id="replay-stack-container" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
 </div>
+
+<!-- Replay float box (asset/TF picker — shows over main chart) -->
+<div id="replay-float-box" style="display:none;position:fixed;top:110px;right:10px;z-index:8500;background:#1e222d;border:1px solid #2962ff;border-radius:10px;padding:10px;min-width:160px;box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+  <div style="color:#9598a1;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;">Replay Asset</div>
+  <button onclick="selectReplayAsset('bn');openReplayView();"  style="display:block;width:100%;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:6px;">📊 BANKNIFTY</button>
+  <button onclick="selectReplayAsset('btc');openReplayView();" style="display:block;width:100%;background:#f0b429;color:#131722;border:none;border-radius:6px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;">₿ BTCUSDT</button>
+  <button onclick="document.getElementById('replay-float-box').style.display='none'" style="display:block;width:100%;background:transparent;color:#555;border:none;padding:6px;font-size:11px;cursor:pointer;margin-top:6px;">Cancel</button>
+</div>
+
+<!-- Replay debug log floating panel -->
+<div id="replay-debug-box" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9100;background:#0d1117;border-top:2px solid #2962ff;flex-direction:column;max-height:40vh;">
+  <div style="display:flex;align-items:center;gap:8px;padding:4px 10px;background:#1e222d;border-bottom:1px solid #2a2e39;flex-shrink:0;">
+    <span style="color:#2962ff;font-size:11px;font-weight:700;">📋 Replay Log</span>
+    <span style="flex:1;"></span>
+    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="background:#2962ff;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">Copy</button>
+    <button onclick="document.getElementById('replay-debug-box').style.display='none'" style="background:#ef5350;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;">✕</button>
+  </div>
+  <pre id="replay-debug-log" style="flex:1;overflow-y:auto;margin:0;padding:8px 10px;font-size:10px;line-height:1.5;color:#9598a1;font-family:monospace;white-space:pre-wrap;word-break:break-all;-webkit-overflow-scrolling:touch;"></pre>
+</div>
+
 
 <script>
 // ════════════════════════════════════════════════════════════════════════════
@@ -11697,6 +11749,34 @@ if (document.readyState === 'loading') {
 // ════════════════════════════════════════════════════════════════════════════
 
 // Replay state
+// ── Replay click handler (called from gear panel button) ─────────────────────
+function _replayClickHandler() {
+  // Close gear panel first
+  const gp = document.getElementById('gear-panel');
+  if (gp) gp.style.display = 'none';
+  // Show asset picker float box
+  const fb = document.getElementById('replay-float-box');
+  if (fb) fb.style.display = fb.style.display === 'block' ? 'none' : 'block';
+}
+
+// ── Replay drag (float box draggable on desktop) ──────────────────────────────
+function _initReplayDrag() {
+  // Simple stub — drag not needed on mobile
+}
+
+// ── Replay status text ────────────────────────────────────────────────────────
+function _replaySetStatus(msg) {
+  const el = document.getElementById('replay-load-status');
+  if (el) el.textContent = msg;
+}
+
+// ── Toggle debug log panel ────────────────────────────────────────────────────
+function _replayToggleLog() {
+  const box = document.getElementById('replay-debug-box');
+  if (!box) return;
+  box.style.display = (box.style.display === 'none' || !box.style.display) ? 'flex' : 'none';
+}
+
 const _REPLAY = {
   active: false,
   asset: 'bn',      // 'bn' or 'btc'
