@@ -11763,6 +11763,46 @@ function _replayOpenAssetPicker() {
   fb.style.display = (fb.style.display === 'none' || !fb.style.display) ? 'block' : 'none';
 }
 
+// TF bar button click in replay — scroll to that TF cell
+function _replayTfClick(tfMin) {
+  const sc = document.getElementById('replay-stack-container');
+  if (!sc) return;
+  const asset = _REPLAY.asset || 'bn';
+  const tfs   = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
+
+  // Find matching TF string
+  const tfMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8h',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
+  const tfStr = (tfMap[tfMin] || '').toLowerCase();
+
+  // Find cell index by matching tf string (case-insensitive)
+  let idx = tfs.findIndex(t => t.toLowerCase() === tfStr);
+  if (idx < 0) return;
+
+  // Scroll to that cell
+  const cells = sc.querySelectorAll('.stack-cell');
+  if (!cells[idx]) return;
+  sc.scrollTo({ top: cells[idx].offsetTop, behavior: 'smooth' });
+
+  // Highlight active TF button
+  _replayHighlightTf(tfMin);
+}
+
+// Highlight active TF button in replay TF bar
+function _replayHighlightTf(activeTfMin) {
+  const bar = document.getElementById('rp-tf-bar');
+  if (!bar) return;
+  bar.querySelectorAll('.tf-btn').forEach(btn => {
+    const tf = parseInt(btn.dataset.tf, 10);
+    btn.classList.toggle('active', tf === activeTfMin);
+  });
+  // Update TF menu label in header
+  const lbl = document.getElementById('rp-tf-menu-label');
+  if (lbl) {
+    const nameMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8H',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
+    lbl.textContent = nameMap[activeTfMin] || '--';
+  }
+}
+
 // Switch replay asset (bn / btc)
 async function selectReplayAsset(asset) {
   _REPLAY.asset = asset;
@@ -11773,25 +11813,29 @@ async function selectReplayAsset(asset) {
   if (btnBn)  { btnBn.style.background  = asset === 'bn'  ? '#2962ff' : '#2a2e39'; btnBn.style.color  = asset === 'bn'  ? '#fff' : '#9598a1'; btnBn.style.border  = asset === 'bn'  ? 'none' : '1px solid #363c4e'; }
   if (btnBtc) { btnBtc.style.background = asset === 'btc' ? '#f0b429' : '#2a2e39'; btnBtc.style.color = asset === 'btc' ? '#131722' : '#9598a1'; btnBtc.style.border = asset === 'btc' ? 'none' : '1px solid #363c4e'; }
 
-  // Update header sym label
+  // Update header sym label (now a button)
   const symLbl = document.getElementById('rp-sym-label');
   if (symLbl) symLbl.textContent = asset === 'bn' ? '📊 BANKNIFTY' : '₿ BTCUSDT';
 
-  // Update TF bar — highlight active TFs for this asset, dim others
-  const bnTfIds  = ['rp-tf-5m','rp-tf-15m','rp-tf-45m','rp-tf-135m'];
-  const btcTfIds = ['rp-tf-160m','rp-tf-8h'];
-  const commonIds= ['rp-tf-1d','rp-tf-3d','rp-tf-9d','rp-tf-27d'];
-  const activeTfIds = asset === 'bn'
-    ? [...bnTfIds, ...commonIds]
-    : [...btcTfIds, ...commonIds];
-  const allTfIds = [...bnTfIds, ...btcTfIds, ...commonIds];
-  allTfIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const isActive = activeTfIds.includes(id);
-    el.style.color  = isActive ? '#d1d4dc' : '#363c4e';
-    el.style.fontWeight = isActive ? '700' : '400';
-  });
+  // Update TF bar — dim/enable buttons based on asset
+  // BN uses: 5,15,45,135,1440,4320,12960,38880
+  // BTC uses: 160,480,1440,4320,12960,38880
+  const bnTfs     = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
+  const btcTfs    = [160, 480, 1440, 4320, 12960, 38880];
+  const activeTfs = asset === 'bn' ? bnTfs : btcTfs;
+  const bar = document.getElementById('rp-tf-bar');
+  if (bar) {
+    bar.querySelectorAll('.tf-btn').forEach(btn => {
+      const tf = parseInt(btn.dataset.tf, 10);
+      const isActive = activeTfs.includes(tf);
+      btn.style.color  = isActive ? '#d1d4dc' : '#363c4e';
+      btn.style.opacity = isActive ? '1' : '0.3';
+      btn.disabled = !isActive;
+    });
+  }
+  // Reset TF header label
+  const rpLbl = document.getElementById('rp-tf-menu-label');
+  if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '160m';
 
   _replayDestroyCells();
   _replaySetStatus('Loading…');
@@ -11974,50 +12018,129 @@ function _initReplayDrag() {
 <!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
 <div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:9000;flex-direction:column;overflow:hidden;">
 
-  <!-- HEADER — matches main #hdr layout -->
-  <div style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow:hidden;">
-    <!-- Symbol button — tap to switch asset -->
-    <button onclick="_replayOpenAssetPicker()" style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;display:flex;align-items:center;white-space:nowrap;cursor:pointer;flex-shrink:0;" id="rp-sym-label">📊 BANKNIFTY</button>
-    <!-- Status label -->
-    <span style="font-size:9px;color:#f0b429;white-space:nowrap;padding:0 2px;font-weight:700;flex-shrink:0;" id="rp-hdr-status">⏵ Replay</span>
-    <div style="flex:1"></div>
-    <!-- Draw button -->
-    <button onclick="toggleDrawPanel()" style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;flex-shrink:0;" id="rp-draw-btn">✏️ Draw</button>
-    <!-- Settings button -->
-    <button onclick="toggleSettings()" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;flex-shrink:0;">⚙</button>
-    <!-- Close Replay -->
-    <button onclick="closeReplayView()" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
+  <!-- ── HEADER — exact replica of #hdr ── -->
+  <div id="rp-hdr" style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+
+    <!-- Symbol button — tap to open asset picker float box -->
+    <div style="position:relative;flex-shrink:0;">
+      <button id="rp-sym-label" onclick="_replayOpenAssetPicker()"
+        style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;">
+        📊 BANKNIFTY
+      </button>
+    </div>
+
+    <!-- Replay badge (replaces LTP/CHG in main hdr) -->
+    <span id="rp-hdr-status"
+      style="height:18px;padding:0 6px;background:transparent;border:1px solid #f0b42955;border-radius:3px;color:#f0b429;font-size:9px;font-weight:700;display:flex;align-items:center;white-space:nowrap;flex-shrink:0;">
+      ⏵ Replay
+    </span>
+
+    <div style="flex:1;min-width:0;"></div>
+
+    <!-- Right-side buttons — same order as #hdr-right -->
+    <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
+
+      <!-- TF menu button (same as #tf-menu-btn) -->
+      <button onclick="toggleTfDropdown()"
+        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;flex-shrink:0;white-space:nowrap;">
+        ⏱ <span id="rp-tf-menu-label">--</span>
+      </button>
+
+      <!-- Draw button -->
+      <button onclick="toggleDrawPanel()"
+        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;flex-shrink:0;">
+        ✏️ Draw
+      </button>
+
+      <!-- Hamburger / TF-bar toggle -->
+      <button onclick="toggleTfBar()"
+        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        ≡
+      </button>
+
+      <!-- Broker button -->
+      <button onclick="toggleBrokerPanel(event)"
+        style="height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+        🔑
+      </button>
+
+      <!-- Settings -->
+      <button onclick="toggleSettings()"
+        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        ⚙
+      </button>
+
+      <!-- Close Replay (replaces fullscreen btn) -->
+      <button onclick="closeReplayView()"
+        style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">
+        ✕
+      </button>
+
+    </div>
   </div>
 
-  <!-- TF BAR — exact copy of #tf-bar -->
-  <div style="height:14px;min-height:14px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;">
-    <span id="rp-tf-5m"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">5m</span>
-    <span id="rp-tf-15m"  style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">15m</span>
-    <span id="rp-tf-45m"  style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">45m</span>
-    <span id="rp-tf-135m" style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">135m</span>
-    <span style="width:1px;height:10px;background:#2a2e39;flex-shrink:0;"></span>
-    <span id="rp-tf-160m" style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">160m</span>
-    <span id="rp-tf-8h"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">8H</span>
-    <span style="width:1px;height:10px;background:#2a2e39;flex-shrink:0;"></span>
-    <span id="rp-tf-1d"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">1D</span>
-    <span id="rp-tf-3d"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">3D</span>
-    <span id="rp-tf-9d"   style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">9D</span>
-    <span id="rp-tf-27d"  style="padding:0 5px;font-size:9px;font-weight:700;color:#787b86;white-space:nowrap;flex-shrink:0;">27D</span>
+  <!-- ── TF BAR — exact replica of #tf-bar (real clickable buttons) ── -->
+  <div id="rp-tf-bar" style="height:14px;min-height:14px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+    <button id="rp-tf-5m"   class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"    >5m</button>
+    <button id="rp-tf-15m"  class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"   >15m</button>
+    <button id="rp-tf-45m"  class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"   >45m</button>
+    <button id="rp-tf-135m" class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"  >135m</button>
+    <div class="tf-sep"></div>
+    <button id="rp-tf-160m" class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"  >160m</button>
+    <button id="rp-tf-8h"   class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"  >8H</button>
+    <div class="tf-sep"></div>
+    <button id="rp-tf-1d"   class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)" >1D</button>
+    <button id="rp-tf-3d"   class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)" >3D</button>
+    <button id="rp-tf-9d"   class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)">9D</button>
+    <button id="rp-tf-27d"  class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)">27D</button>
   </div>
 
-  <!-- STACK CONTAINER -->
+  <!-- ── STACK CONTAINER ── -->
   <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
 
-  <!-- BOTTOM BAR — real working buttons matching main #bottom-bar -->
-  <div style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;">
-    <button onclick="toggleIndPanel()" style="height:18px;padding:0 6px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;">📊 Indicators</button>
-    <div style="width:1px;height:14px;background:#2a2e39;flex-shrink:0;"></div>
-    <button onclick="autoFitChart()" style="height:18px;padding:0 6px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;" title="Auto-fit">⊡ Auto</button>
-    <button onclick="toggleGotoDate()" style="height:18px;padding:0 5px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;" title="Go to date">📅</button>
-    <button onclick="toggleGridPicker()" style="height:18px;padding:0 5px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;" title="Layout">⊞ Layout</button>
-    <div style="width:1px;height:14px;background:#2a2e39;flex-shrink:0;"></div>
-    <button onclick="_replayStackJump(-1)" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
-    <button onclick="_replayStackJump(1)"  style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
+  <!-- ── BOTTOM BAR — exact replica of #bottom-bar ── -->
+  <div id="rp-bottom-bar" style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+
+    <!-- Indicators -->
+    <button onclick="toggleIndPanel()"
+      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+      📊 Indicators
+    </button>
+
+    <div class="bot-sep"></div>
+
+    <!-- Auto fit -->
+    <button onclick="autoFitChart()"
+      style="height:18px;padding:0 8px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+      ⊡ Auto
+    </button>
+
+    <!-- Go to Date -->
+    <button onclick="toggleGotoDate()"
+      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
+      📅
+    </button>
+
+    <!-- Overlay -->
+    <button onclick="toggleOverlayMenu()"
+      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
+      ⧉
+    </button>
+
+    <!-- Layout / Grid picker -->
+    <button onclick="toggleGridPicker()"
+      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-left:auto;">
+      ⊞ Layout
+    </button>
+
+    <div class="bot-sep"></div>
+
+    <!-- Stack scroll ▲ ▼ -->
+    <button onclick="_replayStackJump(-1)"
+      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
+    <button onclick="_replayStackJump(1)"
+      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
+
   </div>
 </div>
 
