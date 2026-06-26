@@ -11751,12 +11751,57 @@ if (document.readyState === 'loading') {
 // Replay state
 // ── Replay click handler (called from gear panel button) ─────────────────────
 function _replayClickHandler() {
-  // Close gear panel first
+  // ── DEBUG LOG: Turant open karo ──────────────────────────────────────────────
+  const box = document.getElementById('replay-debug-box');
+  if (box) box.style.display = 'flex';
+  _replayLogClear();
+  _replayLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '#2962ff');
+  _replayLog('🔍 Replay Click — Debug Start', '#f0b429');
+  _replayLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '#2962ff');
+
+  // Step 1: gear-panel check
   const gp = document.getElementById('gear-panel');
+  _replayLog('Step 1: gear-panel — ' + (gp ? 'MILA ✅' : 'NAHI MILA ❌'), gp ? '#26a69a' : '#ef5350');
   if (gp) gp.style.display = 'none';
-  // Show asset picker float box
+
+  // Step 2: replay-float-box check
   const fb = document.getElementById('replay-float-box');
-  if (fb) fb.style.display = fb.style.display === 'block' ? 'none' : 'block';
+  _replayLog('Step 2: replay-float-box — ' + (fb ? 'MILA ✅' : 'NAHI MILA ❌'), fb ? '#26a69a' : '#ef5350');
+  if (!fb) {
+    _replayLogErr('STOP: replay-float-box DOM mein nahi hai!');
+    return;
+  }
+
+  // Step 3: toggle
+  const wasDisplay = fb.style.display;
+  const newDisplay = wasDisplay === 'block' ? 'none' : 'block';
+  fb.style.display = newDisplay;
+  _replayLog('Step 3: float-box display: "' + wasDisplay + '" → "' + newDisplay + '"', '#d1d4dc');
+
+  // Step 4: API port
+  const port = _replayApiPort();
+  _replayLog('Step 4: API port = ' + port + (port > 0 ? ' ✅' : ' ❌ (0 = port nahi mila)'), port > 0 ? '#26a69a' : '#ef5350');
+
+  // Step 5: _resolvedApiPort / _API_PORT check
+  const rap = (typeof _resolvedApiPort !== 'undefined') ? _resolvedApiPort : 'undefined';
+  const ap  = (typeof _API_PORT       !== 'undefined') ? _API_PORT       : 'undefined';
+  _replayLog('Step 5: _resolvedApiPort=' + rap + '  |  _API_PORT=' + ap, '#9598a1');
+
+  // Step 6: replay-view element check
+  const rv = document.getElementById('replay-view');
+  _replayLog('Step 6: replay-view — ' + (rv ? 'MILA ✅  display=' + rv.style.display : 'NAHI MILA ❌'), rv ? '#26a69a' : '#ef5350');
+
+  // Step 7: openReplayView function check
+  const hasOpenFn = (typeof openReplayView === 'function');
+  _replayLog('Step 7: openReplayView() function — ' + (hasOpenFn ? 'EXIST ✅' : 'NAHI HAI ❌'), hasOpenFn ? '#26a69a' : '#ef5350');
+
+  // Step 8: _REPLAY state
+  _replayLog('Step 8: _REPLAY.active=' + _REPLAY.active + '  asset=' + _REPLAY.asset + '  cells=' + _REPLAY.cells.length, '#9598a1');
+
+  _replayLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', '#2962ff');
+  _replayLog('👆 Agar float-box nahi dikh raha to Step 2/3 dekho', '#f0b429');
+  _replayLog('👆 Agar data nahi aata to Step 4/5 (port) dekho', '#f0b429');
+  // ── END DEBUG ────────────────────────────────────────────────────────────────
 }
 
 // ── Replay drag (float box draggable on desktop) ──────────────────────────────
