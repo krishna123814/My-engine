@@ -1996,7 +1996,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
     </div>
-    <div id="gp-replay-row" class="gp-stack-row" onclick="openReplayView(); document.getElementById('grid-picker').classList.remove('open');" style="cursor:pointer;">
+    <div id="gp-replay-row" class="gp-stack-row" style="cursor:pointer;-webkit-tap-highlight-color:rgba(240,180,41,0.2);">
       <span class="gp-stack-icon">⏵</span>
       <span class="gp-stack-label" style="color:#f0b429;">Replay</span>
     </div>
@@ -5064,7 +5064,21 @@ function toggleTfBar() {
 function toggleGridPicker() {
   const p=document.getElementById('grid-picker');
   const open=p.classList.toggle('open');
-  if (open){ renderGridPicker(); renderSyncToggles(); }
+  if (open){ renderGridPicker(); renderSyncToggles(); _wireReplayRow(); }
+}
+
+function _wireReplayRow() {
+  const row = document.getElementById('gp-replay-row');
+  if (!row || row._replayWired) return;
+  row._replayWired = true;
+  function _doReplay(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    document.getElementById('grid-picker').classList.remove('open');
+    openReplayView();
+  }
+  row.addEventListener('touchend', _doReplay, { passive: false });
+  row.addEventListener('click',    _doReplay);
 }
 
 // Parse a grid-template-areas spec → geometry + ordered unique cell names.
