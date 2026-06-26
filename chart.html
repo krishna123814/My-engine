@@ -1996,7 +1996,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
     </div>
-    <button id="gp-replay-row" onclick="document.getElementById('grid-picker').classList.remove('open'); openReplayView();" style="
+    <button id="gp-replay-row" onclick="_replayClickHandler();" style="
       display:flex;align-items:center;gap:8px;padding:10px 2px;
       width:100%;background:transparent;border:none;
       cursor:pointer;text-align:left;min-height:44px;
@@ -12329,7 +12329,110 @@ function _initReplayDrag() {
   </div>
 </div>
 
+<!-- ═══ REPLAY CLICK DIAGNOSTIC OVERLAY (always shows on Replay tap) ═══════════ -->
+<div id="rdbg-box" style="display:none;position:fixed;top:8px;left:6px;right:6px;bottom:8px;background:#131722;border:2px solid #f0b429;border-radius:10px;z-index:999999;flex-direction:column;font-family:monospace;">
+  <div style="background:#2a2e39;border-radius:8px 8px 0 0;padding:8px 10px;display:flex;align-items:center;gap:8px;">
+    <span style="font-size:12px;color:#f0b429;flex:1;font-weight:700;">🔍 REPLAY CLICK DIAGNOSTIC</span>
+    <button onclick="window._rdbgCopy()" style="height:26px;padding:0 12px;background:#2962ff;border:none;border-radius:4px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">Copy</button>
+    <button onclick="window._rdbgClear()" style="height:26px;padding:0 10px;background:#363c4e;border:none;border-radius:4px;color:#d1d4dc;font-size:11px;cursor:pointer;">Clear</button>
+    <button onclick="document.getElementById('rdbg-box').style.display='none';" style="height:26px;padding:0 12px;background:#ef5350;border:none;border-radius:4px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">✕ Close</button>
+  </div>
+  <pre id="rdbg-log" style="flex:1;margin:0;padding:10px;color:#d1d4dc;font-size:11px;line-height:1.6;overflow-y:auto;white-space:pre-wrap;word-break:break-all;background:#131722;"></pre>
+</div>
+<script>
+(function(){
+  window._RDBG_LOG = [];
+  function _rdbgPush(line){
+    var t = new Date().toLocaleTimeString();
+    window._RDBG_LOG.push('[' + t + '] ' + line);
+    var el = document.getElementById('rdbg-log');
+    if (el) { el.textContent = window._RDBG_LOG.join('\n'); el.scrollTop = el.scrollHeight; }
+  }
+  window._rdbgPush = _rdbgPush;
+
+  // Catch every JS error / failed promise on the page from the very start
+  window.addEventListener('error', function(e){
+    _rdbgPush('❌ JS ERROR: ' + e.message + '  @ line ' + e.lineno + ':' + e.colno);
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var r = e.reason;
+    _rdbgPush('❌ PROMISE REJECTED: ' + (r && r.message ? r.message : r));
+  });
+
+  window._rdbgShow = function(){
+    var box = document.getElementById('rdbg-box');
+    if (box) box.style.display = 'flex';
+  };
+
+  window._rdbgClear = function(){
+    window._RDBG_LOG = [];
+    var el = document.getElementById('rdbg-log');
+    if (el) el.textContent = '';
+  };
+
+  function _rdbgFallbackCopy(text){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand('copy'); _rdbgPush('✅ Copied to clipboard (fallback method)'); }
+    catch(e){ _rdbgPush('❌ Copy failed: ' + e.message); }
+    document.body.removeChild(ta);
+  }
+
+  window._rdbgCopy = function(){
+    var text = window._RDBG_LOG.join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(function(){ _rdbgPush('✅ Copied to clipboard'); })
+        .catch(function(){ _rdbgFallbackCopy(text); });
+    } else {
+      _rdbgFallbackCopy(text);
+    }
+  };
+
+  // Main wrapper — this is what the Replay button now calls.
+  // It ALWAYS opens this diagnostic box first, then tries the real logic,
+  // catching and logging anything that goes wrong at every step.
+  window._replayClickHandler = function(){
+    window._rdbgShow();
+    _rdbgPush('▶ Replay button tapped (click registered ✅)');
+
+    try {
+      var gp = document.getElementById('grid-picker');
+      if (gp) { gp.classList.remove('open'); _rdbgPush('✅ grid-picker menu closed'); }
+      else { _rdbgPush('⚠️ grid-picker element not found'); }
+    } catch(e) { _rdbgPush('❌ Error closing grid-picker: ' + e.message); }
+
+    try {
+      if (typeof openReplayView !== 'function') {
+        _rdbgPush('❌ openReplayView() is NOT DEFINED — page JS likely broke earlier (a script error stopped function definitions from loading). Scroll up in this log for the first ❌ JS ERROR line — that is the real root cause.');
+        return;
+      }
+      _rdbgPush('… calling openReplayView()');
+      openReplayView();
+      _rdbgPush('✅ openReplayView() ran without throwing');
+
+      setTimeout(function(){
+        var rv = document.getElementById('replay-view');
+        var fb = document.getElementById('replay-float-box');
+        _rdbgPush('replay-view display = ' + (rv ? getComputedStyle(rv).display : 'ELEMENT NOT FOUND'));
+        _rdbgPush('replay-float-box display = ' + (fb ? getComputedStyle(fb).display : 'ELEMENT NOT FOUND'));
+        if (typeof _REPLAY !== 'undefined') {
+          _rdbgPush('_REPLAY.active = ' + _REPLAY.active + '  asset = ' + _REPLAY.asset);
+        }
+      }, 400);
+    } catch(e) {
+      _rdbgPush('❌ openReplayView() THREW AN ERROR: ' + e.message);
+      _rdbgPush('Stack trace: ' + (e.stack || 'not available'));
+    }
+  };
+})();
+</script>
+
 <!-- ═══ REPLAY DEBUG FLOATING WINDOW ═══════════════════════════════════════════ -->
+
 <div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;touch-action:none;user-select:none;flex-direction:column;">
   <!-- Drag handle -->
   <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
