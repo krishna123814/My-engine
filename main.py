@@ -896,6 +896,78 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
+                # ── Replay .gz data endpoint ─────────────────────────────────
+                if parsed.path == "/api/replay_gz":
+                    qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
+                    asset = (qs2.get("asset", ["bn"])[0]).lower()   # "bn" or "btc"
+                    tf    = qs2.get("tf", ["1D"])[0]                 # e.g. "5m", "1D"
+                    chunk = int(qs2.get("chunk", ["0"])[0])          # 0-based chunk index
+                    CHUNK_SIZE = 500                                  # candles per chunk
+
+                    try:
+                        import pickle, gzip as _gz, os as _os
+                        if asset == "bn":
+                            gz_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "banknifty_all_tf.pkl.gz")
+                        else:
+                            gz_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "btc_all_tf.pkl.gz")
+
+                        if not _os.path.exists(gz_path):
+                            body = json.dumps({"error": "file_not_found", "path": gz_path}).encode()
+                            self.send_response(404)
+                        else:
+                            with _gz.open(gz_path, "rb") as _f:
+                                _data = pickle.load(_f)
+
+                            df = _data.get(tf)
+                            if df is None:
+                                available = [k for k in _data.keys() if k != "meta"]
+                                body = json.dumps({"error": "tf_not_found", "available": available}).encode()
+                                self.send_response(404)
+                            else:
+                                # Convert DataFrame to list of OHLC dicts
+                                import pandas as _pd
+                                total_rows = len(df)
+                                start = chunk * CHUNK_SIZE
+                                end   = min(start + CHUNK_SIZE, total_rows)
+                                slice_df = df.iloc[start:end]
+
+                                candles = []
+                                for idx2, row in slice_df.iterrows():
+                                    try:
+                                        ts = int(idx2.timestamp()) if hasattr(idx2, "timestamp") else int(idx2)
+                                        candles.append({
+                                            "time":  ts,
+                                            "open":  round(float(row.get("Open", row.iloc[0])), 2),
+                                            "high":  round(float(row.get("High", row.iloc[1])), 2),
+                                            "low":   round(float(row.get("Low",  row.iloc[2])), 2),
+                                            "close": round(float(row.get("Close",row.iloc[3])), 2),
+                                        })
+                                    except Exception:
+                                        continue
+
+                                result = {
+                                    "candles":    candles,
+                                    "chunk":      chunk,
+                                    "total_rows": total_rows,
+                                    "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
+                                    "has_more":   end < total_rows,
+                                }
+                                body = json.dumps(result).encode()
+                                self.send_response(200)
+
+                    except Exception as _ex:
+                        body = json.dumps({"error": str(_ex)}).encode()
+                        self.send_response(500)
+
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                # ─────────────────────────────────────────────────────────────
+
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()
