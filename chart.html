@@ -11941,5 +11941,33 @@ function _initReplayDrag() {
 }
 
 </script>
+
+<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
+<div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:9000;flex-direction:column;overflow:hidden;">
+  <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
+  <div style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;">
+    <button onclick="closeReplayView()" style="height:18px;padding:0 8px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕ Close</button>
+    <div style="flex:1"></div>
+    <button onclick="_replayStackJump(-1)" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;">▲</button>
+    <button onclick="_replayStackJump(1)"  style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;">▼</button>
+  </div>
+</div>
+
+<!-- ═══ REPLAY FLOATING BOX ══════════════════════════════════════════════════ -->
+<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:9100;min-width:180px;touch-action:none;user-select:none;">
+  <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:6px 10px;display:flex;align-items:center;gap:6px;cursor:grab;">
+    <span style="font-size:10px;color:#787b86;flex:1;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</span>
+    <span style="font-size:14px;color:#363c4e;">⠿</span>
+  </div>
+  <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+    <div style="font-size:9px;color:#787b86;text-transform:uppercase;letter-spacing:.8px;font-weight:700;">Select Asset</div>
+    <div style="display:flex;gap:6px;">
+      <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"  style="flex:1;height:36px;background:#2962ff;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">📊 BankNifty</button>
+      <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="flex:1;height:36px;background:#2a2e39;border:1px solid #363c4e;border-radius:5px;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;">₿ BTC</button>
+    </div>
+    <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;"></div>
+  </div>
+</div>
+
 </body>
 </html>
