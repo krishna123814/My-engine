@@ -11846,13 +11846,12 @@ function _replayDestroyCells() {
 function openReplayView() {
   const rv = document.getElementById('replay-view');
   const fb = document.getElementById('replay-float-box');
-  if (!rv || !fb) return;
+  if (!rv || !fb) { console.error('replay-view or replay-float-box not found'); return; }
   rv.style.display = 'flex';
   fb.style.display = 'block';
   _REPLAY.active = true;
   _initReplayDrag();
-  // Default: load BankNifty
-  selectReplayAsset('bn');
+  try { selectReplayAsset('bn'); } catch(e) { console.error('selectReplayAsset error:', e); }
 }
 
 // Close replay view
@@ -11939,27 +11938,15 @@ function _replayRequestTF(asset, tfStr) {
     }, 180000);
     _REPLAY_PENDING[key] = { resolve, reject, timer };
 
-    // Streamlit me postMessage direct nahi pakda ja sakta Python se.
-    // Isliye parent window ka URL query param set karo — Streamlit rerun
-    // hota hai, Python _replay_pusher() chalti hai, data postMessage se aata hai.
+    // postMessage to Streamlit parent — Python components.html listener pakdega
     try {
-      const parentUrl = new URL(window.parent.location.href);
-      parentUrl.searchParams.set('replay_asset', asset);
-      parentUrl.searchParams.set('replay_tf', tfStr);
-      window.parent.history.replaceState(null, '', parentUrl.toString());
-      // Streamlit ko rerun karne ke liye query param change trigger
-      // Streamlit v1.27+ me automatic rerun hota hai query param change pe
+      window.parent.postMessage(
+        JSON.stringify({ type: 'replay_request', asset: asset, tf: tfStr }), '*'
+      );
     } catch(e) {
-      // Cross-origin fallback: postMessage try karo (local dev ke liye)
-      try {
-        window.parent.postMessage(
-          JSON.stringify({ type: 'replay_request', asset: asset, tf: tfStr }), '*'
-        );
-      } catch(e2) {
-        clearTimeout(timer);
-        delete _REPLAY_PENDING[key];
-        reject(new Error('Cannot communicate with parent: ' + e2.message));
-      }
+      clearTimeout(timer);
+      delete _REPLAY_PENDING[key];
+      reject(new Error('postMessage failed: ' + e.message));
     }
   });
 }
