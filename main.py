@@ -1651,6 +1651,105 @@ if sess_active or _btc_only:
 
         _bn_tick_pusher()
 
+    # ── Replay postMessage listener + data pusher ─────────────────────────────
+    # chart.html JS replay_request bhejta hai query param set karke →
+    # Streamlit rerun hota hai → Python .pkl.gz load karta hai →
+    # replay_data postMessage se iframe ko bhejta hai.
+    @st.fragment(run_every=1)
+    def _replay_pusher():
+        import pickle, gzip as _gz, os as _os, json as _json, urllib.request as _ur
+
+        _rqp     = st.query_params
+        _r_asset = _rqp.get("replay_asset", "").strip().lower()
+        _r_tf    = _rqp.get("replay_tf",    "").strip()
+        if not _r_asset or not _r_tf:
+            return
+        st.query_params.clear()
+
+        def _send(asset, tf, candles, error=None):
+            import json as _j
+            _pay = _j.dumps({"type":"replay_data","asset":asset,"tf":tf,
+                             "candles":candles,"error":error})
+            _pay = _pay.replace("</", "<\\/")
+            _s = ("<script>(function(){var f=window.parent.document"
+                  ".querySelectorAll('iframe');for(var i=0;i<f.length;i++)"
+                  "{try{f[i].contentWindow.postMessage("+_pay+",'*');}catch(e){}}"
+                  "})();</script>")
+            components.html(_s, height=0, scrolling=False)
+
+        _GH_RAW = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
+        _fname  = ("banknifty_all_tf.pkl.gz" if _r_asset == "bn"
+                   else "btc_all_tf.pkl.gz")
+        _gh_url = _GH_RAW + "/" + _fname
+
+        # Search locally first
+        _script_dir = _os.path.dirname(_os.path.abspath(__file__))
+        _search = [_script_dir]
+        if _os.path.isdir("/mount/src"):
+            for _sub in _os.listdir("/mount/src"):
+                _search.append(_os.path.join("/mount/src", _sub))
+
+        _gz_path = None
+        for _d in _search:
+            _c = _os.path.join(_d, _fname)
+            if _os.path.exists(_c):
+                _gz_path = _c
+                break
+
+        # Download from GitHub if not found locally
+        if not _gz_path:
+            _save = _os.path.join(_script_dir, _fname)
+            try:
+                _req = _ur.Request(_gh_url, headers={"User-Agent": "Mozilla/5.0"})
+                with _ur.urlopen(_req, timeout=180) as _resp:
+                    _bytes = _resp.read()
+                with open(_save, "wb") as _wf:
+                    _wf.write(_bytes)
+                _gz_path = _save
+            except Exception as _dl_err:
+                _send(_r_asset, _r_tf, [], "GitHub download failed: " + str(_dl_err)[:100])
+                return
+
+        # Load pickle
+        try:
+            with _gz.open(_gz_path, "rb") as _f:
+                _data = pickle.load(_f)
+        except Exception as _pe:
+            _send(_r_asset, _r_tf, [], "Pickle load failed: " + str(_pe)[:100])
+            return
+
+        # TF lookup
+        _df = _data.get(_r_tf)
+        if _df is None:
+            for _k in _data.keys():
+                if str(_k).lower() == _r_tf.lower():
+                    _df = _data[_k]
+                    break
+
+        if _df is None:
+            _avail = str([k for k in _data.keys() if k != "meta"])
+            _send(_r_asset, _r_tf, [], "TF not found. Available: " + _avail)
+            return
+
+        # Convert DataFrame to OHLC list
+        _candles = []
+        for _idx, _row in _df.iterrows():
+            try:
+                _ts = int(_idx.timestamp()) if hasattr(_idx, "timestamp") else int(_idx)
+                _candles.append({
+                    "time":  _ts,
+                    "open":  round(float(_row.get("Open",  _row.iloc[0])), 2),
+                    "high":  round(float(_row.get("High",  _row.iloc[1])), 2),
+                    "low":   round(float(_row.get("Low",   _row.iloc[2])), 2),
+                    "close": round(float(_row.get("Close", _row.iloc[3])), 2),
+                })
+            except Exception:
+                continue
+
+        _send(_r_asset, _r_tf, _candles)
+
+    _replay_pusher()
+
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
     _creds_main = load_creds()

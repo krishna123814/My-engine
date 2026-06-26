@@ -7687,8 +7687,13 @@ function _applyBNLiveTick(d) {
 window.addEventListener('message', function(evt) {
   try {
     const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'bn_live') _applyBNLiveTick(msg.data);
-    // Also accept BTC tick override from parent (future use)
+    if (!msg) return;
+    // Live BankNifty tick
+    if (msg.type === 'bn_live') _applyBNLiveTick(msg.data);
+    // Replay data from Python (postMessage channel)
+    if (msg.type === 'replay_data') {
+      _replayReceiveTF(msg.asset, msg.tf, msg.candles || [], msg.error || null);
+    }
   } catch(_) {}
 });
 
@@ -11713,23 +11718,46 @@ function _replayLogClear() {
 }
 function _replayClearLog() {
   const el = document.getElementById('replay-debug-log');
-  if (el) el.textContent = 'Waiting…';
+  if (el) { el.innerHTML = ''; }
 }
 function _replayCopyLog() {
   const el = document.getElementById('replay-debug-log');
   if (!el) return;
   const text = el.innerText || el.textContent || '';
+  const copyBtn = document.getElementById('replay-copy-btn');
+  function _flash(ok) {
+    if (!copyBtn) return;
+    copyBtn.textContent = ok ? '✓ Copied!' : '✗ Failed';
+    copyBtn.style.background = ok ? '#26a69a' : '#ef5350';
+    setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.style.background = '#2962ff'; }, 1800);
+  }
+  // Method 1: clipboard API (HTTPS only)
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      // Flash copy button green
-      const btn = document.querySelector('#replay-debug-drag button');
-      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.background='#26a69a'; setTimeout(()=>{ btn.textContent=orig; btn.style.background='#2962ff'; }, 1500); }
-    }).catch(() => _replayLogWarn('Copy failed — browser ne block kiya'));
+    navigator.clipboard.writeText(text).then(() => _flash(true)).catch(() => {
+      // Method 2: textarea trick (works in iframe too)
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        _flash(ok);
+      } catch(e) { _flash(false); }
+    });
   } else {
-    // Fallback: select text
-    const r = document.createRange(); r.selectNodeContents(el);
-    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    try { document.execCommand('copy'); sel.removeAllRanges(); } catch(_) {}
+    // Method 2 direct
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      _flash(ok);
+    } catch(e) { _flash(false); }
   }
 }
 function _replayLog(line, color) {
@@ -11886,6 +11914,104 @@ function _replayHighlightTf(activeTfMin) {
 }
 
 // Switch replay asset (bn / btc)
+// ── Replay data store: pending promises per TF ───────────────────────────────
+const _REPLAY_PENDING = {};  // { 'bn_5m': { resolve, reject, timer }, ... }
+
+// Called by postMessage listener when Python sends replay_data
+function _replayReceiveTF(asset, tfStr, candles, error) {
+  const key = asset + '_' + tfStr;
+  const pend = _REPLAY_PENDING[key];
+  if (!pend) return;
+  clearTimeout(pend.timer);
+  delete _REPLAY_PENDING[key];
+  if (error) pend.reject(new Error(error));
+  else pend.resolve(candles);
+}
+
+// Request one TF from Python via postMessage, wait for reply
+function _replayRequestTF(asset, tfStr) {
+  return new Promise((resolve, reject) => {
+    const key = asset + '_' + tfStr;
+    // Timeout: 3 min (pehli baar GitHub se download hoga)
+    const timer = setTimeout(() => {
+      delete _REPLAY_PENDING[key];
+      reject(new Error('timeout (3 min)'));
+    }, 180000);
+    _REPLAY_PENDING[key] = { resolve, reject, timer };
+
+    // Streamlit me postMessage direct nahi pakda ja sakta Python se.
+    // Isliye parent window ka URL query param set karo — Streamlit rerun
+    // hota hai, Python _replay_pusher() chalti hai, data postMessage se aata hai.
+    try {
+      const parentUrl = new URL(window.parent.location.href);
+      parentUrl.searchParams.set('replay_asset', asset);
+      parentUrl.searchParams.set('replay_tf', tfStr);
+      window.parent.history.replaceState(null, '', parentUrl.toString());
+      // Streamlit ko rerun karne ke liye query param change trigger
+      // Streamlit v1.27+ me automatic rerun hota hai query param change pe
+    } catch(e) {
+      // Cross-origin fallback: postMessage try karo (local dev ke liye)
+      try {
+        window.parent.postMessage(
+          JSON.stringify({ type: 'replay_request', asset: asset, tf: tfStr }), '*'
+        );
+      } catch(e2) {
+        clearTimeout(timer);
+        delete _REPLAY_PENDING[key];
+        reject(new Error('Cannot communicate with parent: ' + e2.message));
+      }
+    }
+  });
+}
+
+function _replayDrawCell(asset, i, tfStr, candles, sc) {
+  const el = document.getElementById('rcell-chart-' + i);
+  if (!el || !candles || !candles.length) return;
+
+  const ch = LightweightCharts.createChart(el, {
+    width:  el.clientWidth  || 200,
+    height: el.clientHeight || 200,
+    layout: { background: { type: 'solid', color: S.bgColor || '#131722' }, textColor: S.textColor || '#d1d4dc', fontSize: 7 },
+    grid:   { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
+    crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
+    rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
+    localization: {
+      timeFormatter: (t) => fmtChartTime(t),
+      priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    },
+    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+    handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+    kineticScroll: { mouse: true, touch: true },
+  });
+
+  const upClr = S.upColor || '#26a69a';
+  const dnClr = S.dnColor || '#ef5350';
+  const ser = ch.addCandlestickSeries({
+    upColor: upClr, downColor: dnClr,
+    borderUpColor: upClr, borderDownColor: dnClr,
+    wickUpColor: upClr, wickDownColor: dnClr,
+    priceLineVisible: true, lastValueVisible: true,
+  });
+
+  candles.sort((a, b) => a.time - b.time);
+  ser.setData(candles);
+
+  // Update overlay price
+  if (sc) {
+    const cell = sc.querySelector('[data-ridx="'+i+'"]');
+    if (cell && candles.length) {
+      const last = candles[candles.length - 1];
+      const pr = cell.querySelector('.co-price');
+      if (pr) pr.textContent = last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  }
+
+  _REPLAY.cells[i].chart  = ch;
+  _REPLAY.cells[i].series = ser;
+  attachMobileTouchUX(el, ch, () => ser);
+}
+
 async function selectReplayAsset(asset) {
   _REPLAY.asset = asset;
 
@@ -11895,13 +12021,9 @@ async function selectReplayAsset(asset) {
   if (btnBn)  { btnBn.style.background  = asset === 'bn'  ? '#2962ff' : '#2a2e39'; btnBn.style.color  = asset === 'bn'  ? '#fff' : '#9598a1'; btnBn.style.border  = asset === 'bn'  ? 'none' : '1px solid #363c4e'; }
   if (btnBtc) { btnBtc.style.background = asset === 'btc' ? '#f0b429' : '#2a2e39'; btnBtc.style.color = asset === 'btc' ? '#131722' : '#9598a1'; btnBtc.style.border = asset === 'btc' ? 'none' : '1px solid #363c4e'; }
 
-  // Update header sym label (now a button)
   const symLbl = document.getElementById('rp-sym-label');
   if (symLbl) symLbl.textContent = asset === 'bn' ? '📊 BANKNIFTY' : '₿ BTCUSDT';
 
-  // Update TF bar — dim/enable buttons based on asset
-  // BN uses: 5,15,45,135,1440,4320,12960,38880
-  // BTC uses: 160,480,1440,4320,12960,38880
   const bnTfs     = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
   const btcTfs    = [160, 480, 1440, 4320, 12960, 38880];
   const activeTfs = asset === 'bn' ? bnTfs : btcTfs;
@@ -11915,30 +12037,24 @@ async function selectReplayAsset(asset) {
       btn.disabled = !isActive;
     });
   }
-  // Reset TF header label
   const rpLbl = document.getElementById('rp-tf-menu-label');
   if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '160m';
 
   _replayDestroyCells();
 
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
-
-  _replaySetStatus('Connecting…');
-  _replayLogClear();
-
-  // Ensure API port is resolved before loading
-  await _replayEnsurePort();
+  const total = tfs.length;
 
   _replaySetStatus('Loading…');
+  _replayLogClear();
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo(`API port: ${_replayApiPort()}`);
+  _replayLogInfo('Data: Python → postMessage (Streamlit Cloud safe)');
   _replayLog('─'.repeat(38), '#2a2e39');
+
   const sc  = document.getElementById('replay-stack-container');
   if (!sc) return;
 
-  const total   = tfs.length;
-  const visible = asset === 'bn' ? 4 : 4;   // 4 charts visible at once (same as normal stackview)
-  const cellH   = 'calc(100% / ' + visible + ')';
+  const cellH = 'calc(100% / 4)';
 
   // Pre-build DOM cells
   for (let i = 0; i < total; i++) {
@@ -11948,7 +12064,6 @@ async function selectReplayAsset(asset) {
     cell.dataset.ridx = i;
     cell.style.height = cellH;
 
-    // Overlay label
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
     overlay.innerHTML =
@@ -11961,7 +12076,6 @@ async function selectReplayAsset(asset) {
     chartDiv.id = 'rcell-chart-' + i;
     chartDiv.style.position = 'relative';
 
-    // Screen badge
     const badge = document.createElement('span');
     badge.className = 'cell-screen-badge';
     badge.textContent = (i+1) + ':' + total;
@@ -11974,79 +12088,31 @@ async function selectReplayAsset(asset) {
     _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i });
   }
 
-  // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
+  // Request each TF from Python via postMessage — one by one
   for (let i = 0; i < total; i++) {
     const tfStr = tfs[i];
-    _replaySetStatus(`Loading ${tfStr} (${i+1}/${total})…`);
-    _replayLog(`\n▶ [${i+1}/${total}] ${tfStr}`, '#d1d4dc');
+    _replaySetStatus(`Requesting ${tfStr} (${i+1}/${total})…`);
+    _replayLog(`
+▶ [${i+1}/${total}] ${tfStr} — Python se data maang raha hun…`, '#d1d4dc');
     try {
-      const candles = await _replayFetchAll(asset, tfStr);
+      const candles = await _replayRequestTF(asset, tfStr);
       if (!candles || !candles.length) {
-        _replayLogWarn(`${tfStr} — 0 candles received, skipping chart`);
+        _replayLogWarn(`${tfStr} — 0 candles, skipping`);
         continue;
       }
-
-      const el = document.getElementById('rcell-chart-' + i);
-      if (!el) continue;
-
-      // Create LightweightCharts instance
-      const ch = LightweightCharts.createChart(el, {
-        width:  el.clientWidth  || 200,
-        height: el.clientHeight || 200,
-        layout: { background: { type: 'solid', color: S.bgColor || '#131722' }, textColor: S.textColor || '#d1d4dc', fontSize: 7 },
-        grid:   { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
-        crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
-        rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-        timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
-        localization: {
-          timeFormatter: (t) => fmtChartTime(t),
-          priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-        handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-        kineticScroll: { mouse: true, touch: true },
-      });
-
-      const upClr = S.upColor || '#26a69a';
-      const dnClr = S.dnColor || '#ef5350';
-      const ser = ch.addCandlestickSeries({
-        upColor: upClr, downColor: dnClr,
-        borderUpColor: upClr, borderDownColor: dnClr,
-        wickUpColor: upClr, wickDownColor: dnClr,
-        priceLineVisible: true, lastValueVisible: true,
-      });
-
-      // Sort candles by time (safety)
-      candles.sort((a, b) => a.time - b.time);
-      ser.setData(candles);
-
-      // Update overlay price
-      const cell = sc.querySelector('[data-ridx="'+i+'"]');
-      if (cell && candles.length) {
-        const last = candles[candles.length - 1];
-        const pr = cell.querySelector('.co-price');
-        if (pr) pr.textContent = last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      }
-
-      _REPLAY.cells[i].chart  = ch;
-      _REPLAY.cells[i].series = ser;
-
-      attachMobileTouchUX(el, ch, () => ser);
-
+      _replayLogOk(`${tfStr} — ${candles.length} candles mili`);
+      _replayDrawCell(asset, i, tfStr, candles, sc);
     } catch(err) {
       _replayLogErr(`${tfStr} FAILED: ${err.message || err}`);
-      console.warn('Replay load failed for', tfStr, err);
     }
-
-    // Yield between each TF load
-    await new Promise(r2 => setTimeout(r2, 10));
+    await new Promise(r2 => setTimeout(r2, 20));
   }
 
   _replaySetStatus('');
-  _replayLog('\n' + '─'.repeat(38), '#2a2e39');
+  _replayLog('
+' + '─'.repeat(38), '#2a2e39');
   _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
 
-  // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
   _REPLAY.resizeObs = new ResizeObserver(() => {
     _REPLAY.cells.forEach(c => {
@@ -12281,7 +12347,7 @@ function _initReplayDrag() {
   <!-- Drag handle -->
   <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
     <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-    <button onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
+    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
     <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
     <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
   </div>
