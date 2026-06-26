@@ -709,6 +709,55 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#2a2e39;overflow-y:auto;min-height:0;
   touch-action:none;   /* no touch gesture scrolls this — only the ▲▼ buttons' animated scroll does */
 }
+
+/* ── Replay View — Stack View ki copy, file-data mode ── */
+#replay-view{
+  display:none;flex:1;overflow:hidden;min-height:0;
+  flex-direction:column;
+}
+#replay-view.active{display:flex}
+#replay-topbar{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 8px;background:#1e222d;
+  border-bottom:1px solid #2a2e39;flex-shrink:0;
+  min-height:32px;
+}
+#replay-title{
+  font:700 11px sans-serif;color:#2962ff;
+  white-space:nowrap;
+}
+#replay-file-label{
+  display:inline-flex;align-items:center;gap:4px;
+  background:#2a2e39;border:1px solid #363c4e;border-radius:6px;
+  color:#d1d4dc;font:600 10px sans-serif;
+  padding:4px 8px;cursor:pointer;white-space:nowrap;
+  min-height:26px;
+}
+#replay-file-label input[type=file]{display:none}
+#replay-file-status{
+  font:500 10px sans-serif;color:#787b86;
+  flex:1;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;
+}
+#replay-close-btn{
+  background:none;border:1px solid #363c4e;border-radius:6px;
+  color:#787b86;font:600 12px sans-serif;
+  padding:3px 8px;cursor:pointer;min-height:26px;
+}
+#replay-close-btn:active{color:#ef5350;border-color:#ef5350;}
+#replay-container{
+  flex:1;display:flex;flex-direction:column;
+  background:#2a2e39;overflow-y:auto;min-height:0;
+  touch-action:none;
+}
+#replay-btn{
+  background:#1e3a5f;border:1px solid #2962ff;border-radius:6px;
+  color:#2962ff;font:700 10px sans-serif;
+  padding:3px 8px;min-height:28px;cursor:pointer;
+  white-space:nowrap;
+}
+#replay-btn.active{background:#2962ff;color:#fff;}
+#replay-btn:active{background:#1a4080;}
 .stack-cell{
   flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
   position:relative;
@@ -1937,6 +1986,20 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="stack-container"></div>
 </div>
 
+<!-- ═══ REPLAY VIEW (stack view ki copy — file se data, no live) ═════════ -->
+<div id="replay-view">
+  <div id="replay-topbar">
+    <span id="replay-title">▶ Replay Mode</span>
+    <label id="replay-file-label" title="JSON file upload karo">
+      📂 File Load
+      <input type="file" id="replay-file-inp" accept=".json" onchange="replayLoadFile(this)">
+    </label>
+    <span id="replay-file-status">— koi file nahi</span>
+    <button id="replay-close-btn" onclick="closeReplayView()" title="Replay band karo">✕</button>
+  </div>
+  <div id="replay-container"></div>
+</div>
+
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
@@ -1945,6 +2008,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
+  <div class="bot-sep"></div>
+  <button id="replay-btn" onclick="toggleReplayView()" title="Replay: file se data load karo">▶ Replay</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
@@ -11648,6 +11713,382 @@ if (document.readyState === 'loading') {
     if (document.visibilityState === 'visible') ping();
   });
 })();
+
+// ════════════════════════════════════════════════════════════════════════════
+// REPLAY VIEW — Stack View ki scrollable copy, sirf file data, no live feed
+// ════════════════════════════════════════════════════════════════════════════
+(function() {
+  'use strict';
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let _replayActive   = false;
+  let _replayCells    = [];       // {chart, series, el, tf, asset}
+  let _replayData     = {};       // {assetKey: [{time, open, high, low, close},...]}
+  let _replayResizeObs= null;
+  let _replayScrollAnim = null;
+
+  // ── Toggle: bottom-bar REPLAY button ka click ──────────────────────────────
+  window.toggleReplayView = function() {
+    if (_replayActive) {
+      closeReplayView();
+    } else {
+      openReplayView();
+    }
+  };
+
+  window.openReplayView = function() {
+    if (_replayActive) return;
+    _replayActive = true;
+
+    // Pehle jo bhi layout active hai usse close karo
+    const wsEl = document.getElementById('workspace');
+    const gvEl = document.getElementById('grid-view');
+    const svEl = document.getElementById('stack-view');
+    const rvEl = document.getElementById('replay-view');
+    if (wsEl) wsEl.style.display = 'none';
+    if (gvEl) gvEl.classList.remove('active');
+    if (svEl) svEl.classList.remove('active');
+    if (rvEl) rvEl.classList.add('active');
+
+    const btn = document.getElementById('replay-btn');
+    if (btn) btn.classList.add('active');
+
+    _buildReplayStack();
+  };
+
+  window.closeReplayView = function() {
+    if (!_replayActive) return;
+    _replayActive = false;
+    _destroyReplayCells();
+
+    const rvEl = document.getElementById('replay-view');
+    if (rvEl) rvEl.classList.remove('active');
+
+    const btn = document.getElementById('replay-btn');
+    if (btn) btn.classList.remove('active');
+
+    // Previous layout restore karo
+    const savedLayout = (function(){ try{ return localStorage.getItem('tvLayout') || '1x1'; }catch(_){ return '1x1'; }})();
+    if (savedLayout === 'stack') {
+      selectStackView();
+    } else {
+      setLayout(savedLayout === '1x1' ? '1x1' : (window.LAYOUTS && window.LAYOUTS[savedLayout] ? savedLayout : '1x1'), null);
+    }
+  };
+
+  // ── File upload handler ────────────────────────────────────────────────────
+  window.replayLoadFile = function(inp) {
+    if (!inp || !inp.files || !inp.files[0]) return;
+    const file = inp.files[0];
+    const statusEl = document.getElementById('replay-file-status');
+    if (statusEl) statusEl.textContent = '⏳ Loading…';
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        // Expected format: {candles: [{time,open,high,low,close},...]}
+        // OR flat array of candles
+        // OR {data: [...candles...]}
+        let candles = null;
+        if (Array.isArray(parsed)) {
+          candles = parsed;
+        } else if (parsed && Array.isArray(parsed.candles)) {
+          candles = parsed.candles;
+        } else if (parsed && Array.isArray(parsed.data)) {
+          candles = parsed.data;
+        }
+
+        if (!candles || !candles.length) {
+          if (statusEl) statusEl.textContent = '❌ Candles nahi mili';
+          return;
+        }
+
+        // Normalize: time in seconds
+        candles = candles.map(c => {
+          let t = c.time || c.t || c[0];
+          if (t > 1e12) t = Math.floor(t / 1000);  // ms → sec
+          return {
+            time:  t,
+            open:  parseFloat(c.open  || c.o || c[1]),
+            high:  parseFloat(c.high  || c.h || c[2]),
+            low:   parseFloat(c.low   || c.l || c[3]),
+            close: parseFloat(c.close || c.c || c[4]),
+          };
+        }).filter(c => c.time && !isNaN(c.close));
+        candles.sort((a, b) => a.time - b.time);
+
+        _replayData['FILE'] = candles;
+        if (statusEl) statusEl.textContent = '✅ ' + file.name + ' (' + candles.length + ' bars)';
+
+        // Saare replay cells ko yeh data dalo
+        _applyFileDataToCells();
+      } catch(err) {
+        if (statusEl) statusEl.textContent = '❌ Parse error: ' + err.message;
+      }
+      // Reset input so same file dob select ho sake
+      inp.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  // ── Build replay stack — exact copy of buildStack() without live feed ───────
+  function _buildReplayStack() {
+    _destroyReplayCells();
+    const cfgKey = (typeof _stackKeyForCurrentAsset === 'function')
+      ? _stackKeyForCurrentAsset()
+      : 'btc';
+    const stackCfg = (typeof STACK !== 'undefined' && STACK[cfgKey]) ? STACK[cfgKey] : { total: 6, visible: 4, step: 1, tfs: [] };
+    const total   = Math.max(1, stackCfg.total || 6);
+    const visible = Math.max(1, stackCfg.visible || 4);
+
+    const rc = document.getElementById('replay-container');
+    if (!rc) return;
+    rc.innerHTML = '';
+
+    for (let i = 0; i < total; i++) {
+      const rawTf  = (stackCfg.tfs && stackCfg.tfs[i]) || '';
+      const tfMin  = (typeof parseTfStr === 'function' && parseTfStr(rawTf)) || 1440;
+      const letter = (typeof STACK_LETTERS !== 'undefined' ? STACK_LETTERS[i] : String.fromCharCode(65 + i)) || String(i + 1);
+
+      const cellObj = { tf: tfMin, chart: null, series: null, el: null };
+      _replayCells.push(cellObj);
+
+      const cell = document.createElement('div');
+      cell.className = 'grid-cell stack-cell replay-cell';
+      cell.dataset.ridx = i;
+      cell.style.height = 'calc(100% / ' + visible + ')';
+
+      // Overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'cell-overlay';
+      overlay.style.pointerEvents = 'none';
+      overlay.innerHTML =
+        '<span class="co-sym">📂 FILE</span>' +
+        '<span class="co-tf"> · ' + (typeof tfMinToLabel === 'function' ? tfMinToLabel(tfMin) : tfMin + 'm') + ' · ' + letter + '</span>' +
+        '<span class="co-price up" id="rp-price-' + i + '">--</span>' +
+        '<span class="co-chg" style="color:#555" id="rp-chg-' + i + '">--</span>' +
+        '<span class="co-ohlc-grp">' +
+          '<span class="co-o">O <b class="co-ov" id="rp-o-' + i + '">--</b></span> ' +
+          '<span class="co-h">H <b class="co-hv" id="rp-h-' + i + '">--</b></span> ' +
+          '<span class="co-l">L <b class="co-lv" id="rp-l-' + i + '">--</b></span> ' +
+          '<span class="co-c">C <b class="co-cv" id="rp-c-' + i + '">--</b></span>' +
+        '</span>';
+
+      const chartDiv = document.createElement('div');
+      chartDiv.className = 'cell-chart';
+      chartDiv.id = 'replay-chart-' + i;
+      chartDiv.style.position = 'relative';
+
+      // Screen badge
+      const badge = document.createElement('span');
+      badge.className = 'cell-screen-badge';
+      badge.textContent = (i + 1) + ':' + total;
+
+      cell.appendChild(overlay);
+      cell.appendChild(chartDiv);
+      cell.appendChild(badge);
+      rc.appendChild(cell);
+      cellObj.el = chartDiv;
+    }
+
+    // Build charts in next frame (DOM must be rendered)
+    requestAnimationFrame(() => {
+      _replayCells.forEach((c, i) => _buildReplayCellChart(c, i));
+      // If file already loaded, apply data
+      if (_replayData['FILE'] && _replayData['FILE'].length) {
+        setTimeout(_applyFileDataToCells, 200);
+      }
+    });
+
+    // ResizeObserver
+    if (_replayResizeObs) { try{ _replayResizeObs.disconnect(); }catch(_){} }
+    _replayResizeObs = new ResizeObserver(() => {
+      _replayCells.forEach((c, i) => {
+        if (!c.chart) return;
+        const el = document.getElementById('replay-chart-' + i);
+        if (!el) return;
+        c.chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      });
+    });
+    _replayResizeObs.observe(rc);
+
+    // ▲▼ button redirect replay-container pe
+    _replayWireScrollBtns();
+  }
+
+  function _buildReplayCellChart(cellObj, i) {
+    const el = document.getElementById('replay-chart-' + i);
+    if (!el) return;
+    if (cellObj.chart) { try{ cellObj.chart.remove(); }catch(_){} cellObj.chart = null; }
+
+    // Chart options — same as grid cells
+    const opts = {
+      width:  el.clientWidth  || 300,
+      height: el.clientHeight || 200,
+      layout: {
+        background: { type: 'solid', color: (typeof S !== 'undefined' && S.bgColor) || '#131722' },
+        textColor:  (typeof S !== 'undefined' && S.textColor) || '#d1d4dc',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines:  { color: '#2a2e39', style: 1 },
+        horzLines:  { color: '#2a2e39', style: 1 },
+      },
+      crosshair: { mode: 1 },
+      rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.08, bottom: 0.04 } },
+      timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
+      handleScroll: true,
+      handleScale:  true,
+    };
+
+    try {
+      cellObj.chart = LightweightCharts.createChart(el, opts);
+    } catch(_) { return; }
+
+    // Add candlestick series
+    const upColor = (typeof S !== 'undefined' && S.upColor) || '#26a69a';
+    const dnColor = (typeof S !== 'undefined' && S.dnColor) || '#ef5350';
+    cellObj.series = cellObj.chart.addCandlestickSeries({
+      upColor, downColor: dnColor,
+      borderUpColor: upColor, borderDownColor: dnColor,
+      wickUpColor: upColor, wickDownColor: dnColor,
+      priceLineVisible: true,
+    });
+
+    // Crosshair move → update OHLC overlay
+    cellObj.chart.subscribeCrosshairMove(param => {
+      if (!param || !param.seriesData || !cellObj.series) return;
+      const bar = param.seriesData.get(cellObj.series);
+      if (!bar) return;
+      const fmt = v => v != null ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+      const oEl = document.getElementById('rp-o-' + i);
+      const hEl = document.getElementById('rp-h-' + i);
+      const lEl = document.getElementById('rp-l-' + i);
+      const cEl = document.getElementById('rp-c-' + i);
+      if (oEl) oEl.textContent = fmt(bar.open);
+      if (hEl) hEl.textContent = fmt(bar.high);
+      if (lEl) lEl.textContent = fmt(bar.low);
+      if (cEl) cEl.textContent = fmt(bar.close);
+      const prEl = document.getElementById('rp-price-' + i);
+      if (prEl) { prEl.textContent = fmt(bar.close); prEl.className = 'co-price ' + (bar.close >= bar.open ? 'up' : 'dn'); }
+    });
+
+    // Load existing file data if available
+    if (_replayData['FILE'] && _replayData['FILE'].length) {
+      _setReplayCellData(cellObj, i, _replayData['FILE']);
+    }
+  }
+
+  function _setReplayCellData(cellObj, i, candles) {
+    if (!cellObj.series || !candles || !candles.length) return;
+    const tfMin = cellObj.tf || 1440;
+
+    // Resample to cell's TF
+    let data;
+    if (typeof resampleForTF === 'function') {
+      // resampleForTF expects raw 1m-style array
+      data = resampleForTF(candles, tfMin, 'FILE');
+    } else {
+      // Fallback: bucket by tfMin manually
+      data = _manualResample(candles, tfMin);
+    }
+    if (!data || !data.length) return;
+
+    try {
+      cellObj.series.setData([]);
+      cellObj.series.setData(data);
+      if (cellObj.chart) {
+        try { cellObj.chart.timeScale().fitContent(); } catch(_) {}
+      }
+    } catch(_) {}
+
+    // Update price display
+    const last = data[data.length - 1];
+    if (last) {
+      const fmt = v => v != null ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+      const prEl = document.getElementById('rp-price-' + i);
+      if (prEl) { prEl.textContent = fmt(last.close); }
+    }
+  }
+
+  // Simple manual resampler (fallback if resampleForTF unavailable)
+  function _manualResample(candles, tfMin) {
+    const tfSec = tfMin * 60;
+    const buckets = {};
+    candles.forEach(c => {
+      const b = Math.floor(c.time / tfSec) * tfSec;
+      if (!buckets[b]) buckets[b] = { time: b, open: c.open, high: c.high, low: c.low, close: c.close };
+      else {
+        buckets[b].high  = Math.max(buckets[b].high,  c.high);
+        buckets[b].low   = Math.min(buckets[b].low,   c.low);
+        buckets[b].close = c.close;
+      }
+    });
+    return Object.values(buckets).sort((a, b) => a.time - b.time);
+  }
+
+  function _applyFileDataToCells() {
+    const candles = _replayData['FILE'];
+    if (!candles || !candles.length) return;
+    _replayCells.forEach((c, i) => _setReplayCellData(c, i, candles));
+  }
+
+  function _destroyReplayCells() {
+    if (_replayResizeObs) { try{ _replayResizeObs.disconnect(); }catch(_){} _replayResizeObs = null; }
+    _replayCells.forEach(c => { try{ if (c.chart) c.chart.remove(); }catch(_){} });
+    _replayCells.length = 0;
+    const rc = document.getElementById('replay-container');
+    if (rc) rc.innerHTML = '';
+    if (_replayScrollAnim) { cancelAnimationFrame(_replayScrollAnim.raf); _replayScrollAnim = null; }
+  }
+
+  // ── ▲▼ scroll buttons ko replay-container pe wire karo ────────────────────
+  function _replayWireScrollBtns() {
+    const rc = document.getElementById('replay-container');
+    if (!rc) return;
+    const upBtn   = document.getElementById('stack-up-btn');
+    const downBtn = document.getElementById('stack-down-btn');
+    if (upBtn) {
+      upBtn._replayHandler = function() { if (_replayActive) _replayStepJump(rc, -1); };
+      upBtn.addEventListener('click', upBtn._replayHandler);
+    }
+    if (downBtn) {
+      downBtn._replayHandler = function() { if (_replayActive) _replayStepJump(rc, 1); };
+      downBtn.addEventListener('click', downBtn._replayHandler);
+    }
+  }
+
+  function _replayStepJump(containerEl, dir) {
+    const first = containerEl.querySelector('.stack-cell');
+    const chartH = first ? first.getBoundingClientRect().height : containerEl.clientHeight;
+    if (!chartH) return;
+    const nearest = Math.round(containerEl.scrollTop / chartH);
+    const target  = (nearest + dir) * chartH;
+    _replaySnapTo(containerEl, target);
+  }
+
+  function _replaySnapTo(containerEl, targetTop) {
+    const max = containerEl.scrollHeight - containerEl.clientHeight;
+    const dest = Math.max(0, Math.min(max, targetTop));
+    if (_replayScrollAnim) { cancelAnimationFrame(_replayScrollAnim.raf); _replayScrollAnim = null; }
+    const startTop  = containerEl.scrollTop;
+    const delta     = dest - startTop;
+    if (Math.abs(delta) < 1) return;
+    const startTime = performance.now();
+    const dur = 280;
+    const anim = { raf: 0 };
+    const step = (now) => {
+      const t = Math.min(1, (now - startTime) / dur);
+      containerEl.scrollTop = startTop + delta * (1 - Math.pow(1 - t, 3));
+      if (t < 1) { anim.raf = requestAnimationFrame(step); }
+      else       { containerEl.scrollTop = dest; _replayScrollAnim = null; }
+    };
+    anim.raf = requestAnimationFrame(step);
+    _replayScrollAnim = anim;
+  }
+
+})();
+
 </script>
 </body>
 </html>
