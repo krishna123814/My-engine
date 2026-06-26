@@ -11755,6 +11755,14 @@ function closeReplayView() {
   _replayDestroyCells();
 }
 
+// Open asset picker float box from header symbol button tap
+function _replayOpenAssetPicker() {
+  const fb = document.getElementById('replay-float-box');
+  if (!fb) return;
+  // Toggle: agar already visible hai to hide karo
+  fb.style.display = (fb.style.display === 'none' || !fb.style.display) ? 'block' : 'none';
+}
+
 // Switch replay asset (bn / btc)
 async function selectReplayAsset(asset) {
   _REPLAY.asset = asset;
@@ -11966,11 +11974,19 @@ function _initReplayDrag() {
 <!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
 <div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:9000;flex-direction:column;overflow:hidden;">
 
-  <!-- HEADER — exact copy of #hdr -->
-  <div style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;">
-    <span style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;display:flex;align-items:center;white-space:nowrap;" id="rp-sym-label">📊 BANKNIFTY</span>
+  <!-- HEADER — matches main #hdr layout -->
+  <div style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow:hidden;">
+    <!-- Symbol button — tap to switch asset -->
+    <button onclick="_replayOpenAssetPicker()" style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;display:flex;align-items:center;white-space:nowrap;cursor:pointer;flex-shrink:0;" id="rp-sym-label">📊 BANKNIFTY</button>
+    <!-- Status label -->
+    <span style="font-size:9px;color:#f0b429;white-space:nowrap;padding:0 2px;font-weight:700;flex-shrink:0;" id="rp-hdr-status">⏵ Replay</span>
     <div style="flex:1"></div>
-    <span style="font-size:9px;color:#787b86;white-space:nowrap;padding:0 4px;" id="rp-hdr-status">⏵ Replay Mode</span>
+    <!-- Draw button -->
+    <button onclick="toggleDrawPanel()" style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;flex-shrink:0;" id="rp-draw-btn">✏️ Draw</button>
+    <!-- Settings button -->
+    <button onclick="toggleSettings()" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;flex-shrink:0;">⚙</button>
+    <!-- Close Replay -->
+    <button onclick="closeReplayView()" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
   </div>
 
   <!-- TF BAR — exact copy of #tf-bar -->
@@ -11992,14 +12008,13 @@ function _initReplayDrag() {
   <!-- STACK CONTAINER -->
   <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
 
-  <!-- BOTTOM BAR — exact copy of #bottom-bar -->
+  <!-- BOTTOM BAR — real working buttons matching main #bottom-bar -->
   <div style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;">
-    <span style="font-size:10px;color:#787b86;padding:0 6px;">📊 Indicators</span>
+    <button onclick="toggleIndPanel()" style="height:18px;padding:0 6px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;">📊 Indicators</button>
     <div style="width:1px;height:14px;background:#2a2e39;flex-shrink:0;"></div>
-    <span style="font-size:10px;color:#787b86;padding:0 6px;">⊡ Auto</span>
-    <span style="font-size:10px;color:#787b86;padding:0 4px;">📅</span>
-    <span style="font-size:10px;color:#787b86;padding:0 4px;">⧉</span>
-    <span style="font-size:10px;color:#787b86;padding:0 6px;">⊞ Layout</span>
+    <button onclick="autoFitChart()" style="height:18px;padding:0 6px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;" title="Auto-fit">⊡ Auto</button>
+    <button onclick="toggleGotoDate()" style="height:18px;padding:0 5px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;" title="Go to date">📅</button>
+    <button onclick="toggleGridPicker()" style="height:18px;padding:0 5px;background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;flex-shrink:0;" title="Layout">⊞ Layout</button>
     <div style="width:1px;height:14px;background:#2a2e39;flex-shrink:0;"></div>
     <button onclick="_replayStackJump(-1)" style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
     <button onclick="_replayStackJump(1)"  style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
