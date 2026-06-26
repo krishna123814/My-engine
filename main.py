@@ -900,63 +900,154 @@ def _register_api_route():
                 if parsed.path == "/api/replay_gz":
                     qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
                     asset = (qs2.get("asset", ["bn"])[0]).lower()   # "bn" or "btc"
-                    tf    = qs2.get("tf", ["1D"])[0]                 # e.g. "5m", "1D"
+                    tf    = qs2.get("tf", ["1D"])[0]                 # e.g. "5m", "1d"
                     chunk = int(qs2.get("chunk", ["0"])[0])          # 0-based chunk index
                     CHUNK_SIZE = 500                                  # candles per chunk
 
-                    try:
-                        import pickle, gzip as _gz, os as _os
-                        if asset == "bn":
-                            gz_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "banknifty_all_tf.pkl.gz")
-                        else:
-                            gz_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "btc_all_tf.pkl.gz")
+                    # ── GitHub raw URL for .pkl.gz files ─────────────────────
+                    _GH_RAW_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
+                    _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_all_tf.pkl.gz"
+                    _GH_BTC_URL  = f"{_GH_RAW_BASE}/btc_all_tf.pkl.gz"
 
-                        if not _os.path.exists(gz_path):
-                            body = json.dumps({"error": "file_not_found", "path": gz_path}).encode()
+                    # ── In-memory cache to avoid re-loading every request ─────
+                    if not hasattr(self.__class__, '_replay_cache'):
+                        self.__class__._replay_cache = {}  # {'bn': data_dict, 'btc': data_dict}
+
+                    debug_log = []
+                    t0 = time.time()
+
+                    try:
+                        import pickle, gzip as _gz, os as _os, urllib.request as _ur, time as _time
+
+                        fname   = "banknifty_all_tf.pkl.gz" if asset == "bn" else "btc_all_tf.pkl.gz"
+                        gh_url  = _GH_BN_URL if asset == "bn" else _GH_BTC_URL
+
+                        # Search paths: script dir first, then /mount/src/* (Streamlit Cloud)
+                        script_dir = _os.path.dirname(_os.path.abspath(__file__))
+                        search_dirs = [script_dir]
+                        # Add Streamlit Cloud /mount/src/<repo> paths
+                        mount_src = "/mount/src"
+                        if _os.path.isdir(mount_src):
+                            for sub in _os.listdir(mount_src):
+                                search_dirs.append(_os.path.join(mount_src, sub))
+
+                        gz_path = None
+                        for d in search_dirs:
+                            candidate = _os.path.join(d, fname)
+                            if _os.path.exists(candidate):
+                                gz_path = candidate
+                                break
+
+                        debug_log.append(f"[1] asset={asset}  tf={tf}  chunk={chunk}")
+                        debug_log.append(f"[2] Script dir: {script_dir}")
+                        debug_log.append(f"[3] Searched: {search_dirs}")
+                        debug_log.append(f"[4] Found at: {gz_path or 'NOT FOUND locally'}")
+
+                        # ── Step A: Download from GitHub if not found locally ──
+                        if not gz_path:
+                            save_path = _os.path.join(script_dir, fname)
+                            debug_log.append(f"[5] Downloading from GitHub…")
+                            debug_log.append(f"[5] URL: {gh_url}")
+                            try:
+                                dl_start = _time.time()
+                                req = _ur.Request(gh_url, headers={"User-Agent": "Mozilla/5.0"})
+                                with _ur.urlopen(req, timeout=180) as resp:
+                                    file_bytes = resp.read()
+                                dl_secs  = round(_time.time() - dl_start, 2)
+                                dl_kb    = round(len(file_bytes) / 1024, 1)
+                                dl_speed = round(dl_kb / max(dl_secs, 0.01), 1)
+                                debug_log.append(f"[6] Downloaded: {dl_kb} KB in {dl_secs}s  ({dl_speed} KB/s)")
+                                with open(save_path, "wb") as _wf:
+                                    _wf.write(file_bytes)
+                                gz_path = save_path
+                                debug_log.append(f"[7] Saved to: {gz_path}")
+                            except Exception as _dl_err:
+                                debug_log.append(f"[6] ❌ GitHub download FAILED: {_dl_err}")
+                                body = json.dumps({"error": f"github_download_failed: {_dl_err}", "debug": debug_log}).encode()
+                                self.send_response(503)
+                                self.send_header("Content-Type", "application/json")
+                                self.send_header("Access-Control-Allow-Origin", "*")
+                                self.send_header("Content-Length", str(len(body)))
+                                self.end_headers()
+                                self.wfile.write(body)
+                                return
+                        else:
+                            fsize_kb = round(_os.path.getsize(gz_path) / 1024, 1)
+                            debug_log.append(f"[5] File found ({fsize_kb} KB) — no download needed")
+
+                        # ── Step B: Load pickle (use in-memory cache) ─────────
+                        cache = self.__class__._replay_cache
+                        if asset not in cache:
+                            debug_log.append(f"[8] Loading pickle into memory…")
+                            load_start = _time.time()
+                            with _gz.open(gz_path, "rb") as _f:
+                                cache[asset] = pickle.load(_f)
+                            load_secs = round(_time.time() - load_start, 2)
+                            debug_log.append(f"[9] Loaded in {load_secs}s")
+                        else:
+                            debug_log.append(f"[8] Using cached data (already in memory)")
+
+                        _data = cache[asset]
+                        available_keys = [k for k in _data.keys() if k != "meta"]
+                        debug_log.append(f"[10] Available TF keys: {available_keys}")
+
+                        # ── Step C: TF lookup (exact → lowercase fallback) ─────
+                        df = _data.get(tf)
+                        matched_key = tf
+                        if df is None:
+                            for k in _data.keys():
+                                if k.lower() == tf.lower():
+                                    df = _data[k]
+                                    matched_key = k
+                                    debug_log.append(f"[11] '{tf}' matched via lowercase → '{k}'")
+                                    break
+                        if df is None:
+                            debug_log.append(f"[11] ❌ TF '{tf}' NOT found. Keys: {available_keys}")
+                            body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
                             self.send_response(404)
                         else:
-                            with _gz.open(gz_path, "rb") as _f:
-                                _data = pickle.load(_f)
+                            total_rows = len(df)
+                            start  = chunk * CHUNK_SIZE
+                            end    = min(start + CHUNK_SIZE, total_rows)
+                            slice_df = df.iloc[start:end]
+                            debug_log.append(f"[11] TF='{matched_key}'  rows={total_rows}  chunk={chunk}  slice={start}→{end}")
 
-                            df = _data.get(tf)
-                            if df is None:
-                                available = [k for k in _data.keys() if k != "meta"]
-                                body = json.dumps({"error": "tf_not_found", "available": available}).encode()
-                                self.send_response(404)
-                            else:
-                                # Convert DataFrame to list of OHLC dicts
-                                import pandas as _pd
-                                total_rows = len(df)
-                                start = chunk * CHUNK_SIZE
-                                end   = min(start + CHUNK_SIZE, total_rows)
-                                slice_df = df.iloc[start:end]
+                            # ── Step D: Convert to OHLC candles ───────────────
+                            candles  = []
+                            bad_rows = 0
+                            for idx2, row in slice_df.iterrows():
+                                try:
+                                    ts = int(idx2.timestamp()) if hasattr(idx2, "timestamp") else int(idx2)
+                                    candles.append({
+                                        "time":  ts,
+                                        "open":  round(float(row.get("Open",  row.iloc[0])), 2),
+                                        "high":  round(float(row.get("High",  row.iloc[1])), 2),
+                                        "low":   round(float(row.get("Low",   row.iloc[2])), 2),
+                                        "close": round(float(row.get("Close", row.iloc[3])), 2),
+                                    })
+                                except Exception:
+                                    bad_rows += 1
 
-                                candles = []
-                                for idx2, row in slice_df.iterrows():
-                                    try:
-                                        ts = int(idx2.timestamp()) if hasattr(idx2, "timestamp") else int(idx2)
-                                        candles.append({
-                                            "time":  ts,
-                                            "open":  round(float(row.get("Open", row.iloc[0])), 2),
-                                            "high":  round(float(row.get("High", row.iloc[1])), 2),
-                                            "low":   round(float(row.get("Low",  row.iloc[2])), 2),
-                                            "close": round(float(row.get("Close",row.iloc[3])), 2),
-                                        })
-                                    except Exception:
-                                        continue
+                            total_elapsed = round(time.time() - t0, 2)
+                            debug_log.append(f"[12] Candles={len(candles)}  bad_rows={bad_rows}  total={total_elapsed}s")
 
-                                result = {
-                                    "candles":    candles,
-                                    "chunk":      chunk,
-                                    "total_rows": total_rows,
-                                    "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
-                                    "has_more":   end < total_rows,
-                                }
-                                body = json.dumps(result).encode()
-                                self.send_response(200)
+                            result = {
+                                "candles":      candles,
+                                "chunk":        chunk,
+                                "total_rows":   total_rows,
+                                "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
+                                "has_more":     end < total_rows,
+                                "debug":        debug_log,
+                            }
+                            body = json.dumps(result).encode()
+                            self.send_response(200)
 
                     except Exception as _ex:
-                        body = json.dumps({"error": str(_ex)}).encode()
+                        import traceback
+                        tb = traceback.format_exc()
+                        debug_log.append(f"[!!] EXCEPTION: {_ex}")
+                        debug_log.append(f"[!!] TRACEBACK:\n{tb}")
+                        body = json.dumps({"error": str(_ex), "traceback": tb, "debug": debug_log}).encode()
                         self.send_response(500)
 
                     self.send_header("Content-Type", "application/json")

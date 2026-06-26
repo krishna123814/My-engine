@@ -11670,8 +11670,8 @@ const _REPLAY = {
 };
 
 // BankNifty replay TFs (matches .gz keys)
-const _REPLAY_BN_TFS  = ['5m','15m','45m','135m','1D','3D','9D','27D'];
-// BTC replay TFs (matches .gz keys)
+const _REPLAY_BN_TFS  = ['5m','15m','45m','135m','1d','3d','9d','27d'];
+// BTC replay TFs (matches .gz keys exactly)
 const _REPLAY_BTC_TFS = ['160m','8h','1d','3d','9d','27d'];
 
 // TF string → minutes (for resample + chart options)
@@ -11698,28 +11698,76 @@ function _replayApiPort() {
   } catch(_) { return 8502; }
 }
 
-// Fetch one chunk of gz data
+// ── Debug log helpers ────────────────────────────────────────────────────────
+function _replayLogClear() {
+  const el = document.getElementById('replay-debug-log');
+  if (el) el.textContent = '';
+  const wrap = document.getElementById('replay-debug-wrap');
+  if (wrap) wrap.style.display = 'block';
+}
+function _replayClearLog() {
+  const el = document.getElementById('replay-debug-log');
+  if (el) el.textContent = 'Waiting…';
+}
+function _replayLog(line, color) {
+  const el = document.getElementById('replay-debug-log');
+  if (!el) return;
+  const span = document.createElement('span');
+  span.style.color = color || '#9598a1';
+  span.textContent = line + '\n';
+  el.appendChild(span);
+  el.scrollTop = el.scrollHeight;  // auto-scroll to bottom
+}
+function _replayLogOk(line)   { _replayLog('✅ ' + line, '#26a69a'); }
+function _replayLogErr(line)  { _replayLog('❌ ' + line, '#ef5350'); }
+function _replayLogInfo(line) { _replayLog('ℹ️  ' + line, '#d1d4dc'); }
+function _replayLogWarn(line) { _replayLog('⚠️  ' + line, '#f0b429'); }
+
+// Fetch one chunk — with timing + debug
 async function _replayFetchChunk(asset, tfStr, chunk) {
   const port = _replayApiPort();
   const url = `http://localhost:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
-  const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(20000) });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  return await r.json();
+  const t0 = Date.now();
+  const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(60000) });
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+  if (!r.ok) {
+    let errBody = '';
+    try { const j = await r.json(); errBody = JSON.stringify(j.debug || j.error || j); } catch(_) {}
+    _replayLogErr(`HTTP ${r.status} for ${tfStr} chunk${chunk} (${elapsed}s)`);
+    if (errBody) _replayLog('   ' + errBody, '#ef5350');
+    throw new Error('HTTP ' + r.status);
+  }
+  const data = await r.json();
+  // Print server-side debug log lines
+  if (data.debug && chunk === 0) {
+    data.debug.forEach(line => {
+      const col = line.includes('❌') ? '#ef5350' : line.includes('Downloaded') ? '#26a69a' : '#9598a1';
+      _replayLog('  ' + line, col);
+    });
+  }
+  return data;
 }
 
-// Fetch ALL chunks for a TF (chunked to avoid mobile hang)
+// Fetch ALL chunks for a TF — with progress logging
 async function _replayFetchAll(asset, tfStr) {
   let allCandles = [];
   let chunk = 0;
+  const t0 = Date.now();
   while (true) {
     const res = await _replayFetchChunk(asset, tfStr, chunk);
-    if (res.error) throw new Error(res.error);
+    if (res.error) {
+      _replayLogErr(`Error in ${tfStr} chunk${chunk}: ${res.error}`);
+      throw new Error(res.error);
+    }
     allCandles = allCandles.concat(res.candles || []);
+    const pct = res.total_rows ? Math.round(allCandles.length / res.total_rows * 100) : '?';
+    _replayLog(`  chunk${chunk}: +${(res.candles||[]).length} candles  total=${allCandles.length}/${res.total_rows}  (${pct}%)`, '#787b86');
     if (!res.has_more) break;
     chunk++;
-    // Yield to browser between chunks — prevent hang
     await new Promise(res2 => setTimeout(res2, 30));
   }
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+  _replayLogOk(`${tfStr} done — ${allCandles.length} candles in ${elapsed}s`);
   return allCandles;
 }
 
@@ -11839,6 +11887,10 @@ async function selectReplayAsset(asset) {
 
   _replayDestroyCells();
   _replaySetStatus('Loading…');
+  _replayLogClear();
+  _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
+  _replayLogInfo(`API port: ${_replayApiPort()}`);
+  _replayLog('─'.repeat(38), '#2a2e39');
 
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
   const sc  = document.getElementById('replay-stack-container');
@@ -11885,10 +11937,14 @@ async function selectReplayAsset(asset) {
   // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
   for (let i = 0; i < total; i++) {
     const tfStr = tfs[i];
-    _replaySetStatus('Loading ' + tfStr + ' (' + (i+1) + '/' + total + ')…');
+    _replaySetStatus(`Loading ${tfStr} (${i+1}/${total})…`);
+    _replayLog(`\n▶ [${i+1}/${total}] ${tfStr}`, '#d1d4dc');
     try {
       const candles = await _replayFetchAll(asset, tfStr);
-      if (!candles || !candles.length) continue;
+      if (!candles || !candles.length) {
+        _replayLogWarn(`${tfStr} — 0 candles received, skipping chart`);
+        continue;
+      }
 
       const el = document.getElementById('rcell-chart-' + i);
       if (!el) continue;
@@ -11938,6 +11994,7 @@ async function selectReplayAsset(asset) {
       attachMobileTouchUX(el, ch, () => ser);
 
     } catch(err) {
+      _replayLogErr(`${tfStr} FAILED: ${err.message || err}`);
       console.warn('Replay load failed for', tfStr, err);
     }
 
@@ -11946,6 +12003,8 @@ async function selectReplayAsset(asset) {
   }
 
   _replaySetStatus('');
+  _replayLog('\n' + '─'.repeat(38), '#2a2e39');
+  _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
 
   // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
@@ -11958,10 +12017,12 @@ async function selectReplayAsset(asset) {
   _REPLAY.resizeObs.observe(sc);
 }
 
-// Status text in float box
+// Status text in float box + header badge
 function _replaySetStatus(msg) {
   const el = document.getElementById('replay-load-status');
   if (el) el.textContent = msg;
+  const badge = document.getElementById('rp-hdr-status');
+  if (badge) badge.textContent = msg ? '⏵ ' + msg : '⏵ Replay';
 }
 
 // Step jump for replay stack (same as main stack)
@@ -12160,6 +12221,18 @@ function _initReplayDrag() {
       <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="flex:1;height:36px;background:#2a2e39;border:1px solid #363c4e;border-radius:5px;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;">₿ BTC</button>
     </div>
     <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;"></div>
+
+    <!-- ── DEBUG LOG PANEL ── -->
+    <div id="replay-debug-wrap" style="display:none;margin-top:6px;border-top:1px solid #2a2e39;padding-top:8px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:9px;color:#f0b429;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
+        <button onclick="_replayClearLog()" style="font-size:9px;color:#787b86;background:none;border:none;cursor:pointer;padding:2px 4px;">Clear</button>
+      </div>
+      <div id="replay-debug-log"
+        style="font-family:monospace;font-size:8px;color:#9598a1;background:#131722;border:1px solid #2a2e39;border-radius:4px;padding:6px 8px;max-height:220px;overflow-y:auto;line-height:1.6;white-space:pre-wrap;word-break:break-all;">
+        Waiting…
+      </div>
+    </div>
   </div>
 </div>
 
