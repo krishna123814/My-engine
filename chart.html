@@ -1996,10 +1996,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
     </div>
-    <div id="gp-replay-row" class="gp-stack-row" style="cursor:pointer;-webkit-tap-highlight-color:rgba(240,180,41,0.2);">
-      <span class="gp-stack-icon">⏵</span>
-      <span class="gp-stack-label" style="color:#f0b429;">Replay</span>
-    </div>
+    <button id="gp-replay-row" onclick="document.getElementById('grid-picker').classList.remove('open'); openReplayView();" style="
+      display:flex;align-items:center;gap:8px;padding:10px 2px;
+      width:100%;background:transparent;border:none;
+      cursor:pointer;text-align:left;min-height:44px;
+      -webkit-tap-highlight-color:rgba(240,180,41,0.2);">
+      <span style="font-size:18px;flex-shrink:0;">⏵</span>
+      <span style="font-size:13px;color:#f0b429;font-weight:600;flex:1;">Replay</span>
+    </button>
     <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
     <div id="gp-layouts"></div>
@@ -5064,21 +5068,7 @@ function toggleTfBar() {
 function toggleGridPicker() {
   const p=document.getElementById('grid-picker');
   const open=p.classList.toggle('open');
-  if (open){ renderGridPicker(); renderSyncToggles(); _wireReplayRow(); }
-}
-
-function _wireReplayRow() {
-  const row = document.getElementById('gp-replay-row');
-  if (!row || row._replayWired) return;
-  row._replayWired = true;
-  function _doReplay(e) {
-    e.stopPropagation();
-    e.preventDefault();
-    document.getElementById('grid-picker').classList.remove('open');
-    openReplayView();
-  }
-  row.addEventListener('touchend', _doReplay, { passive: false });
-  row.addEventListener('click',    _doReplay);
+  if (open){ renderGridPicker(); renderSyncToggles(); }
 }
 
 // Parse a grid-template-areas spec → geometry + ordered unique cell names.
