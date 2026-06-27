@@ -12251,11 +12251,30 @@ async function selectReplayAsset(asset) {
 
       // Sort candles by time (safety)
       candles.sort((a, b) => a.time - b.time);
-      // Replay mode = step-by-step reveal, so chart starts EMPTY.
-      // Full data is kept on the cell for the step-engine to draw from.
-      ser.setData([]);
 
+      // ── Historical candles (pre-range) is TF ke liye bhi resample karo ──
+      // Ye chart par pehle se visible rahenge; replay sirf 'candles' (filtered
+      // range) ke upar step karega.
+      const baseTfStr2 = asset === 'bn' ? '5m' : '160m';
+      let histCandlesForTF = [];
+      if (_fromSec > 0) {
+        const allRaw2 = await _replayFetchAll(asset, baseTfStr2);
+        const histRaw2 = allRaw2.filter(c => c.time < _fromSec);
+        const hist500  = histRaw2.length > 500 ? histRaw2.slice(-500) : histRaw2;
+        if (tfStr === baseTfStr2) {
+          histCandlesForTF = hist500;
+        } else {
+          histCandlesForTF = _replayResample(hist500, asset, tfStr);
+        }
+      }
+
+      // Chart par hist candles pehle se dikhao (visible, already-revealed)
+      ser.setData(histCandlesForTF);
+
+      // full = sirf replay-range candles (step engine inhe reveal karega)
       _REPLAY.cells[i].full = candles;
+      // hist = pehle se chart par set ki gayi candles (S/R ke liye bhi use hongi)
+      _REPLAY.cells[i].hist = histCandlesForTF;
 
       _REPLAY.cells[i].chart  = ch;
       _REPLAY.cells[i].series = ser;
@@ -12449,15 +12468,12 @@ async function _rpStep() {
   // Strategy: hist (pre-range 500 candles) + replay ke ab tak revealed base
   // candles milake swingCompute karo. Phir har cell ke chart par natively draw.
   try {
-    const hist5m = eng._hist5m || [];
     // Base cell ke revealed candles (index 0 → eng.idx)
     const revealedBase = baseCell.full.slice(0, eng.idx + 1);
-    // Combined: hist first, phir replay candles
-    const combined5m = hist5m.concat(revealedBase);
 
     // Clear old SR lines (sabhi replay cells ke liye)
-    for (const old of (_REPLAY.srSeries || [])) {
-      try { old.chartObj.removeSeries(old.s); } catch(_) {}
+    for (const oldSr of (_REPLAY.srSeries || [])) {
+      try { oldSr.chartObj.removeSeries(oldSr.s); } catch(_) {}
     }
     _REPLAY.srSeries = [];
 
@@ -12467,14 +12483,19 @@ async function _rpStep() {
       if (!rc.chart || !rc.series) continue;
       const tfMin = _replayTfToMin(rc.tf || '');
 
-      // combined5m ko is cell ke TF mein resample karo
+      // hist (pre-range) + revealed replay candles = S/R ke liye combined data
+      // rc.hist already is TF ke liye resampled hai (load time par set hua tha)
+      const rcHist = rc.hist || [];
+
+      // barsForTF: hist + replay revealed, is cell ke TF mein
       let barsForTF;
       if (rc.tf === eng.baseTf) {
-        // Base TF cell: combined5m directly use karo
-        barsForTF = combined5m;
+        // Base TF: hist + revealedBase directly
+        barsForTF = rcHist.concat(revealedBase);
       } else {
-        // Higher TF: resample combined5m → tfMin
-        barsForTF = _replayResample(combined5m, asset, rc.tf);
+        // Higher TF: hist already resampled hai; revealed base ko bhi resample karo
+        const revResampled = _replayResample(revealedBase, asset, rc.tf);
+        barsForTF = rcHist.concat(revResampled);
       }
 
       if (!barsForTF || barsForTF.length < 3) continue;
@@ -12581,6 +12602,16 @@ function _initReplayDrag() {
   const box  = document.getElementById('replay-float-box');
   const drag = document.getElementById('replay-float-drag');
   _makeDraggable(box, drag);
+}
+
+// Minimize / restore replay float box
+let _replayMinimized = false;
+function _replayToggleMinimize() {
+  _replayMinimized = !_replayMinimized;
+  const body = document.getElementById('replay-float-body');
+  const btn  = document.getElementById('rp-minimize-btn');
+  if (body) body.style.display = _replayMinimized ? 'none' : 'flex';
+  if (btn)  btn.textContent    = _replayMinimized ? '□' : '─';
 }
 
 </script>
@@ -12690,11 +12721,12 @@ function _initReplayDrag() {
   <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:4px 8px;display:flex;align-items:center;gap:5px;cursor:grab;">
     <span style="font-size:10px;color:#f0b429;font-weight:700;letter-spacing:.5px;flex:1;">🎬 REPLAY</span>
     <span style="font-size:11px;color:#444;margin-right:2px;">⠿</span>
+    <button onclick="_replayToggleMinimize()" id="rp-minimize-btn" title="Minimize" style="height:16px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;margin-right:3px;">─</button>
     <button onclick="closeReplayView()" style="height:16px;padding:0 6px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
   </div>
 
   <!-- ── Body ── -->
-  <div style="padding:7px 8px;display:flex;flex-direction:column;gap:6px;">
+  <div id="replay-float-body" style="padding:7px 8px;display:flex;flex-direction:column;gap:6px;">
 
     <!-- Row 1: Asset + Date Range label -->
     <div style="display:flex;align-items:center;gap:5px;">
