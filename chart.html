@@ -11805,7 +11805,8 @@ async function _replayGhLoad(asset) {
       try {
         const tsStr = (row.ts || '').trim();
         // "2015-01-09 09:15" — IST → UTC
-        const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
+        const _p=tsStr.split(/[- :]/);
+        const ts=Math.floor(Date.UTC(+_p[0],+_p[1]-1,+_p[2],+((_p[3])||0),+((_p[4])||0))/1000)-IST_OFF;
         const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
         if (isNaN(ts)||isNaN(o)) continue;
         raw5m.push({time:ts, open:o, high:h, low:l, close:c});
@@ -11820,7 +11821,8 @@ async function _replayGhLoad(asset) {
         try {
           const tsStr = (row.t || '').trim();
           // "2017-01-01 05:30:00" — IST → UTC
-          const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
+          const _p=tsStr.split(/[- :]/);
+          const ts=Math.floor(Date.UTC(+_p[0],+_p[1]-1,+_p[2],+((_p[3])||0),+((_p[4])||0))/1000)-IST_OFF;
           const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
           if (isNaN(ts)||isNaN(o)) continue;
           raw5m.push({time:ts, open:o, high:h, low:l, close:c});
@@ -11841,7 +11843,8 @@ async function _replayGhLoad(asset) {
     for (const row of rows135) {
       try {
         const tsStr = (row.ts || '').trim();
-        const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
+        const _p=tsStr.split(/[- :]/);
+        const ts=Math.floor(Date.UTC(+_p[0],+_p[1]-1,+_p[2],+((_p[3])||0),+((_p[4])||0))/1000)-IST_OFF;
         const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
         if (isNaN(ts)||isNaN(o)) continue;
         candles135.push({time:ts, open:o, high:h, low:l, close:c});
