@@ -4047,7 +4047,7 @@ function resample(rows, tfMin, asset) {
   // misalignment leaked straight into the 135m chart (e.g. candles starting
   // 10:00 instead of 9:15/11:30/13:45). Bucketing by real clock position
   // fixes that at the source.
-  if (isNSE && tfMin < 1440) {
+  if (isNSE && tfMin <= 1440) {
     const IST_OFFSET_SEC = 5.5 * 3600;
     const SESSION_START  = 9 * 60 + 15;   // 555 min = 9:15 AM
     const SESSION_END    = 15 * 60 + 30;  // 930 min = 3:30 PM
