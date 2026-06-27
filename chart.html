@@ -11861,10 +11861,7 @@ async function _replayFetchChunk(asset, tfStr, chunk) {
 
 // Destroy all replay cell charts
 function _replayDestroyCells() {
-  _REPLAY.cells.forEach(c => {
-    try { c.chart.remove(); } catch(_) {}
-    try { if (c._srCanvas) c._srCanvas.remove(); } catch(_) {}
-  });
+  _REPLAY.cells.forEach(c => { try { c.chart.remove(); } catch(_) {} });
   _REPLAY.cells = [];
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} _REPLAY.resizeObs = null; }
   const sc = document.getElementById('replay-stack-container');
@@ -12087,9 +12084,6 @@ async function selectReplayAsset(asset) {
 
       _REPLAY.cells[i].chart  = ch;
       _REPLAY.cells[i].series = ser;
-      _REPLAY.cells[i].tfMin    = _replayTfToMin(tfStr);
-      _REPLAY.cells[i].assetKey = asset === 'bn' ? BN_ASSET : BTC_ASSET;
-      _REPLAY.cells[i].candles  = candles;   // saare candles save — SR inject ke liye
 
       attachMobileTouchUX(el, ch, () => ser);
 
@@ -12105,118 +12099,6 @@ async function selectReplayAsset(asset) {
   _replaySetStatus('');
   _replayLog('\n' + '─'.repeat(38), '#2a2e39');
   _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
-
-  // ── Step 1: Sabhi TF data ek saath global arrays mein inject karo ────────
-  // (Loop ke andar override hota tha — pehle sab collect, phir inject)
-  try {
-    if (asset === 'bn') {
-      // BN: 5m→BN_5M, 15m→BN_15M, 45m→BN_45M, 135m bhi BN_45M se resample hoga,
-      //     1d/3d/9d/27d → BN_DAILY (sabse bada jo available ho woh inject karo)
-      for (const rc of _REPLAY.cells) {
-        if (!rc.candles || !rc.candles.length || !rc.tfMin) continue;
-        if      (rc.tfMin >= 1440 && Array.isArray(BN_DAILY)) { BN_DAILY.length=0; rc.candles.forEach(c2=>BN_DAILY.push(c2)); }
-        else if (rc.tfMin >= 45   && Array.isArray(BN_45M))   { BN_45M.length=0;   rc.candles.forEach(c2=>BN_45M.push(c2));   }
-        else if (rc.tfMin >= 15   && Array.isArray(BN_15M))   { BN_15M.length=0;   rc.candles.forEach(c2=>BN_15M.push(c2));   }
-        else if (rc.tfMin >= 5    && Array.isArray(BN_5M))    { BN_5M.length=0;    rc.candles.forEach(c2=>BN_5M.push(c2));    }
-      }
-      // 135m → BN_45M se resample hoga automatically (swingComputeMultiTF handle karta hai)
-      _replayLogInfo('BN data injected: 5m/15m/45m/1d arrays updated');
-    } else {
-      // BTC: 160m/8h→BTC_15M (smallest), 1d+ → BTC_DAILY
-      for (const rc of _REPLAY.cells) {
-        if (!rc.candles || !rc.candles.length || !rc.tfMin) continue;
-        if (rc.tfMin >= 1440 && Array.isArray(BTC_DAILY)) { BTC_DAILY.length=0; rc.candles.forEach(c2=>BTC_DAILY.push(c2)); }
-        else if (Array.isArray(BTC_15M))                   { BTC_15M.length=0;  rc.candles.forEach(c2=>BTC_15M.push(c2));   }
-      }
-      _replayLogInfo('BTC data injected: 15m/daily arrays updated');
-    }
-  } catch(injErr) {
-    _replayLogWarn('Data inject error: ' + injErr.message);
-  }
-
-  // ── Step 2: SWING_TF_LIST — replay TFs enable karo ──────────────────────
-  try {
-    if (typeof SWING_TF_LIST !== 'undefined') {
-      _REPLAY.cells.forEach(rc => {
-        if (!rc.tfMin) return;
-        const exists = SWING_TF_LIST.some(t => t.min === rc.tfMin);
-        if (!exists) SWING_TF_LIST.push({ min: rc.tfMin, enabled: true, _replayTemp: true });
-        else { const t = SWING_TF_LIST.find(t => t.min === rc.tfMin); if (t) t.enabled = true; }
-      });
-    }
-  } catch(_) {}
-
-  // ── Step 3: Har replay cell pe SR canvas draw karo (lightweight) ─────────
-  // _bnBuildSRNative se nahi — woh har line ke liye ek LWC series banata hai
-  // jo 8 charts × 20+ lines = 160+ series → mobile hang. Canvas ek draw call mein sab kare.
-  if (typeof swingComputeMultiTF === 'function') {
-    _replayLogInfo('SR lines draw ho rahi hain…');
-    for (let i = 0; i < _REPLAY.cells.length; i++) {
-      const rc = _REPLAY.cells[i];
-      if (!rc.chart || !rc.series || !rc.assetKey || !rc.tfMin || !rc.el) continue;
-      try {
-        const lines = swingComputeMultiTF(rc.assetKey, rc.tfMin);
-        if (!lines || !lines.length) { _replayLogWarn(`SR [${rc.tf}]: 0 lines`); continue; }
-
-        // Canvas create karo — same size as chart div, pointer-events:none overlay
-        if (rc._srCanvas) { try { rc._srCanvas.remove(); } catch(_) {} }
-        const cvs = document.createElement('canvas');
-        const dpr = window.devicePixelRatio || 1;
-        const W = rc.el.clientWidth  || 300;
-        const H = rc.el.clientHeight || 200;
-        cvs.width  = W * dpr;
-        cvs.height = H * dpr;
-        cvs.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:5;`;
-        rc.el.style.position = 'relative';
-        rc.el.appendChild(cvs);
-        rc._srCanvas = cvs;
-        const ctx = cvs.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-        // Draw all SR lines
-        function _drawReplaySR(chartObj, series, canvas2, lines2) {
-          const ctx2 = canvas2.getContext('2d');
-          const dpr2 = window.devicePixelRatio || 1;
-          const cssW = canvas2.width / dpr2;
-          const cssH = canvas2.height / dpr2;
-          ctx2.setTransform(dpr2, 0, 0, dpr2, 0, 0);
-          ctx2.clearRect(0, 0, cssW, cssH);
-          for (const ln of lines2) {
-            try {
-              const y = series.priceToCoordinate(ln.price);
-              if (y == null || y < 0 || y > cssH) continue;
-              let x0 = chartObj.timeScale().timeToCoordinate(ln.startTime);
-              const xS = (x0 == null || x0 < 0) ? 0 : x0;
-              const xE = ln.isInfinite ? cssW - 65 : Math.min(cssW - 65,
-                (chartObj.timeScale().timeToCoordinate(ln.endTime) || cssW - 65));
-              if (xE <= xS) continue;
-              ctx2.beginPath();
-              ctx2.moveTo(xS, y);
-              ctx2.lineTo(xE, y);
-              ctx2.strokeStyle = ln.color || '#888';
-              ctx2.lineWidth = 1;
-              ctx2.globalAlpha = 0.85;
-              ctx2.stroke();
-            } catch(_) {}
-          }
-          ctx2.globalAlpha = 1;
-        }
-
-        _drawReplaySR(rc.chart, rc.series, cvs, lines);
-        rc._srLines = lines;
-
-        // Redraw on timeScale change (pan/zoom)
-        rc.chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
-          if (rc._srCanvas && rc._srLines) _drawReplaySR(rc.chart, rc.series, rc._srCanvas, rc._srLines);
-        });
-
-        _replayLogOk(`SR [${rc.tf}]: ${lines.length} lines`);
-      } catch(srErr) {
-        _replayLogWarn(`SR [${rc.tf}] error: ${srErr.message || srErr}`);
-      }
-      await new Promise(r2 => setTimeout(r2, 8));
-    }
-  }
 
   // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
