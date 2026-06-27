@@ -778,7 +778,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 
 /* ── Indicators Panel ────────────────────────────────────────────── */
 #ind-panel{
-  display:none;position:fixed;inset:0;z-index:8888;
+  display:none;position:fixed;inset:0;z-index:9200;
   background:#0009;backdrop-filter:blur(4px);
   align-items:flex-end;justify-content:center;
 }
@@ -5752,7 +5752,8 @@ function updateCellPrice(idx, data) {
 // ════════════════════════════════════════════════════════════════════════════
 function toggleIndPanel() {
   const p=document.getElementById('ind-panel'), b=document.getElementById('ind-btn');
-  b.classList.toggle('active', p.classList.toggle('open'));
+  const isOpen = p.classList.toggle('open');
+  if(b) b.classList.toggle('active', isOpen);
 }
 function indPanelBg(e) { if(e.target===document.getElementById('ind-panel'))toggleIndPanel(); }
 
