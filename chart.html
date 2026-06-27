@@ -12132,19 +12132,24 @@ function _replayStackJump(dir) {
 
 // Make any box draggable by a handle element
 function _makeDraggable(box, drag) {
-  if (!box || !drag || box._dragInited) return;
+  if (!box || !drag) return;
+  // Reset flag so re-init works correctly
   box._dragInited = true;
   let _ox=0, _oy=0, _bx=0, _by=0, _dragging=false;
   function _start(e) {
+    // Button tap pe drag shuru nahi hona chahiye
+    if (e.target && e.target.tagName === 'BUTTON') return;
     _dragging = true;
     const src = e.touches ? e.touches[0] : e;
     _ox = src.clientX; _oy = src.clientY;
     const r = box.getBoundingClientRect();
     _bx = r.left; _by = r.top;
-    box.style.transform = 'none';
-    box.style.left = _bx + 'px';
-    box.style.top  = _by + 'px';
-    box.style.bottom = 'auto';
+    // Convert any bottom/transform positioning to top+left
+    box.style.transform  = 'none';
+    box.style.left       = _bx + 'px';
+    box.style.top        = _by + 'px';
+    box.style.bottom     = 'auto';
+    box.style.right      = 'auto';
     e.preventDefault();
   }
   function _move(e) {
@@ -12167,13 +12172,9 @@ function _makeDraggable(box, drag) {
 function _initReplayDrag() {
   const box  = document.getElementById('replay-float-box');
   const drag = document.getElementById('replay-float-drag');
-  if (!box || !drag || box._dragInited) return;
-  box._dragInited = true;
-
-  _makeDraggable(box, drag);
-  // Also init debug box drag
-  const dbox = document.getElementById('replay-debug-box');
+  const dbox  = document.getElementById('replay-debug-box');
   const ddrag = document.getElementById('replay-debug-drag');
+  _makeDraggable(box, drag);
   _makeDraggable(dbox, ddrag);
 }
 
