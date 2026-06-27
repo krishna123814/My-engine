@@ -12022,6 +12022,14 @@ function openReplayView() {
   fb.style.display = 'block';
   _REPLAY.active = true;
   _initReplayDrag();
+
+  // ── Normal chart ka purana SR clear karo (replay ki apni fresh SR hogi) ──
+  try {
+    if (typeof _bnClearSRNative === 'function' && typeof chart !== 'undefined') {
+      _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries || []);
+    }
+  } catch(_) {}
+
   // Sirf UI set karo — data Load button pe fetch hoga
   _REPLAY.asset = 'bn';
   const btnBn  = document.getElementById('replay-btn-bn');
@@ -12039,6 +12047,13 @@ function closeReplayView() {
   if (fb) fb.style.display = 'none';
   _REPLAY.active = false;
   _replayDestroyCells();
+
+  // Normal chart ka SR wapas draw karo (replay band hone ke baad)
+  try {
+    if (typeof initSwingIndicator === 'function') {
+      setTimeout(() => { try { initSwingIndicator(); } catch(_) {} }, 100);
+    }
+  } catch(_) {}
 }
 
 // Open asset picker float box from header symbol button tap
