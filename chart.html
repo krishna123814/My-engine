@@ -2001,7 +2001,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       width:100%;background:transparent;border:none;
       cursor:pointer;text-align:left;min-height:44px;
       -webkit-tap-highlight-color:rgba(240,180,41,0.2);">
-      <span style="font-size:18px;flex-shrink:0;">⏵</span>
+      <span style="font-size:18px;flex-shrink:0;">🎬</span>
       <span style="font-size:13px;color:#f0b429;font-weight:600;flex:1;">Replay</span>
     </button>
     <div class="gp-divider"></div>
@@ -11661,45 +11661,58 @@ if (document.readyState === 'loading') {
 // REPLAY VIEW — .gz historical data, BankNifty + BTC
 // ════════════════════════════════════════════════════════════════════════════
 
-// Replay state
+// ── Replay State — BN & BTC independent ─────────────────────────────────────
 const _REPLAY = {
   active: false,
-  asset: 'bn',      // 'bn' or 'btc'
-  cells: [],        // {chart, series, tf} per slot
+  asset: 'bn',
+  cells: [],
   resizeObs: null,
 };
 
-// BankNifty replay TFs (matches .gz keys)
+// BN replay states (independent)
+const _BN_REPLAY_STATE = {
+  step: 0, playing: false, speed: 1, timer: null,
+  masterTimeline: [],   // 5m candles in date range
+  allData: {},          // { '5m': [...], '15m': [...], ... }
+  fromTs: 0, toTs: 0,
+};
+// BTC replay states (independent)
+const _BTC_REPLAY_STATE = {
+  step: 0, playing: false, speed: 1, timer: null,
+  masterTimeline: [],   // 160m candles in date range
+  allData: {},
+  fromTs: 0, toTs: 0,
+};
+
+// Fixed TF configs
 const _REPLAY_BN_TFS  = ['5m','15m','45m','135m','1d','3d','9d','27d'];
-// BTC replay TFs (matches .gz keys exactly)
 const _REPLAY_BTC_TFS = ['160m','8h','1d','3d','9d','27d'];
 
-// TF string → minutes (for resample + chart options)
-function _replayTfToMin(tfStr) {
+// Candles to show per TF (from confirmed spec)
+const _REPLAY_CANDLE_COUNT = {
+  '5m':50, '15m':75, '45m':75, '135m':80,
+  '160m':50, '8h':75,
+  '1d':100, '3d':100, '9d':100, '27d':100,
+};
+
+// TF string → seconds
+function _rpTfToSec(tfStr) {
   const s = (tfStr||'').toLowerCase();
-  if (s === '5m')   return 5;
-  if (s === '15m')  return 15;
-  if (s === '45m')  return 45;
-  if (s === '135m') return 135;
-  if (s === '160m') return 160;
-  if (s === '8h')   return 480;
-  if (s === '1d')   return 1440;
-  if (s === '3d')   return 4320;
-  if (s === '9d')   return 12960;
-  if (s === '27d')  return 38880;
-  return 1440;
+  const map = {'5m':300,'15m':900,'45m':2700,'135m':8100,
+               '160m':9600,'8h':28800,
+               '1d':86400,'3d':259200,'9d':777600,'27d':2332800};
+  return map[s] || 86400;
 }
 
-// ── GitHub Direct Fetch (Option B) ──────────────────────────────────────────
-// localhost:8502 phone se reachable nahi — directly GitHub raw se fetch karo
+// GitHub URLs
 const _GH_RAW_BASE = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
 const _GH_BN_URL   = _GH_RAW_BASE + '/banknifty_all_timeframes.json.gz';
 const _GH_BTC_URL  = _GH_RAW_BASE + '/Bitcoin_BTCUSDT_master_all_timeframes.json.gz';
 
-// In-memory cache — ek baar download ho toh dobara nahi
-const _REPLAY_GH_CACHE = {};  // { 'bn': parsedObj, 'btc': parsedObj }
+// In-memory cache (ek baar download)
+const _REPLAY_GH_CACHE = {};
 
-// DecompressionStream se gzip decompress karo (modern browsers support karte hain)
+// Decompress gzip
 async function _replayDecompressGz(arrayBuffer) {
   if (typeof DecompressionStream !== 'undefined') {
     const ds = new DecompressionStream('gzip');
@@ -11713,309 +11726,157 @@ async function _replayDecompressGz(arrayBuffer) {
       if (done) break;
       chunks.push(value);
     }
-    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const total = chunks.reduce((s,c) => s+c.length, 0);
     const out = new Uint8Array(total);
     let offset = 0;
     for (const c of chunks) { out.set(c, offset); offset += c.length; }
     return new TextDecoder().decode(out);
   }
-  // Fallback: pako library nahi hai — raw text try karo (non-gz)
   return new TextDecoder().decode(arrayBuffer);
 }
 
-// Download + parse karo GitHub se (with cache)
+// Download + parse from GitHub (cached)
 async function _replayGhLoad(asset) {
-  if (_REPLAY_GH_CACHE[asset]) {
-    _replayLogInfo(`${asset.toUpperCase()}: cache se mil gaya`);
-    return _REPLAY_GH_CACHE[asset];
-  }
+  if (_REPLAY_GH_CACHE[asset]) return _REPLAY_GH_CACHE[asset];
   const url = asset === 'bn' ? _GH_BN_URL : _GH_BTC_URL;
-  _replayLogInfo(`Downloading ${asset.toUpperCase()} from GitHub…`);
-  _replayLog('  ' + url, '#787b86');
-  const t0 = Date.now();
+  _rpSetStatus(`${asset.toUpperCase()} download ho raha hai…`);
   const resp = await fetch(url, { cache: 'force-cache' });
   if (!resp.ok) throw new Error(`GitHub fetch failed: HTTP ${resp.status}`);
   const buf  = await resp.arrayBuffer();
-  const kb   = Math.round(buf.byteLength / 1024);
-  const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  _replayLogOk(`Downloaded ${kb} KB in ${secs}s`);
-  _replayLog('  Decompressing…', '#787b86');
+  _rpSetStatus('Decompressing…');
   const text = await _replayDecompressGz(buf);
-  _replayLog('  Parsing JSON…', '#787b86');
+  _rpSetStatus('Parsing JSON…');
   const obj  = JSON.parse(text);
   _REPLAY_GH_CACHE[asset] = obj;
-  _replayLogOk(`Parsed OK`);
   return obj;
 }
 
-// Parse raw JSON obj → OHLC candles for a given TF key
-function _replayParseCandles(obj, asset, tfStr) {
-  // BN: {"data": {"5m": [...], ...}}   BTC: {"160m": [...], ...}
+// Parse all TFs for an asset from raw obj
+function _replayParseAllTFs(obj, asset, tfs) {
   let data = (asset === 'bn' && obj.data && typeof obj.data === 'object') ? obj.data : obj;
-  // Exact match pehle, fir case-insensitive
-  let rows = data[tfStr];
-  if (!rows) {
-    const key = Object.keys(data).find(k => k.toLowerCase() === tfStr.toLowerCase());
-    if (key) rows = data[key];
+  const result = {};
+  for (const tfStr of tfs) {
+    let rows = data[tfStr];
+    if (!rows) {
+      const key = Object.keys(data).find(k => k.toLowerCase() === tfStr.toLowerCase());
+      if (key) rows = data[key];
+    }
+    if (!rows || !rows.length) { result[tfStr] = []; continue; }
+    const IST_OFFSET_SEC = 19800;
+    const candles = [];
+    for (const row of rows) {
+      try {
+        const tsStr = (row.ts || row.Datetime || '').trim();
+        let ts;
+        if (tsStr.includes('T')) {
+          ts = Math.floor(new Date(tsStr).getTime() / 1000);
+        } else if (tsStr.includes(' ')) {
+          ts = Math.floor(new Date(tsStr.replace(' ','T') + 'Z').getTime() / 1000) - IST_OFFSET_SEC;
+        } else {
+          ts = Math.floor(new Date(tsStr + 'T00:00:00Z').getTime() / 1000);
+        }
+        const o = parseFloat(row.o ?? row.Open);
+        const h = parseFloat(row.h ?? row.High);
+        const l = parseFloat(row.l ?? row.Low);
+        const c = parseFloat(row.c ?? row.Close);
+        if (isNaN(ts) || isNaN(o)) continue;
+        candles.push({ time: ts, open: o, high: h, low: l, close: c });
+      } catch(_) {}
+    }
+    candles.sort((a,b) => a.time - b.time);
+    result[tfStr] = candles;
   }
-  if (!rows || !rows.length) return [];
-
-  const IST_OFFSET_SEC = 5 * 3600 + 30 * 60;  // 19800
-  const candles = [];
-  for (const row of rows) {
-    try {
-      const tsStr = (row.ts || row.Datetime || '').trim();
-      let ts;
-      if (tsStr.includes('T')) {
-        // "2017-01-01T05:30:00.000" — UTC
-        ts = Math.floor(new Date(tsStr).getTime() / 1000);
-      } else if (tsStr.includes(' ')) {
-        // "2015-01-09 09:15" — IST → UTC
-        ts = Math.floor(new Date(tsStr.replace(' ', 'T') + 'Z').getTime() / 1000) - IST_OFFSET_SEC;
-      } else {
-        // "2015-01-09" — date only UTC
-        ts = Math.floor(new Date(tsStr + 'T00:00:00Z').getTime() / 1000);
-      }
-      const o = parseFloat(row.o ?? row.Open);
-      const h = parseFloat(row.h ?? row.High);
-      const l = parseFloat(row.l ?? row.Low);
-      const c = parseFloat(row.c ?? row.Close);
-      if (isNaN(ts) || isNaN(o)) continue;
-      candles.push({ time: ts, open: o, high: h, low: l, close: c });
-    } catch(_) {}
-  }
-  return candles;
+  return result;
 }
 
-// Legacy port functions — no longer used but kept to avoid reference errors
-function _replayApiPort() { return 0; }
-async function _replayEnsurePort() { return true; }
-
-// ── Replacement fetch functions ──────────────────────────────────────────────
-// _replayFetchAll ab GitHub se directly fetch karta hai (chunk loop nahi)
-async function _replayFetchAll(asset, tfStr) {
-  const obj      = await _replayGhLoad(asset);
-  const candles  = _replayParseCandles(obj, asset, tfStr);
-  const avail    = Object.keys((asset === 'bn' && obj.data) ? obj.data : obj).filter(k => k !== 'meta');
-  _replayLogInfo(`Available keys: ${avail.join(', ')}`);
-  if (!candles.length) {
-    _replayLogWarn(`${tfStr} — 0 candles (key nahi mila?)`);
-  } else {
-    _replayLogOk(`${tfStr} — ${candles.length} candles`);
-  }
-  return candles;
+// Filter candles: from→to range, return last N candles up to toTs
+function _rpFilterCandles(candles, fromTs, toTs, maxCount) {
+  // Candles upto toTs
+  const inRange = candles.filter(c => c.time >= fromTs && c.time <= toTs);
+  // Last maxCount
+  if (inRange.length > maxCount) return inRange.slice(inRange.length - maxCount);
+  return inRange;
 }
 
-// ── Debug log helpers ────────────────────────────────────────────────────────
-function _replayLogClear() {
-  const el = document.getElementById('replay-debug-log');
-  if (el) el.textContent = '';
-  // Show the separate debug floating window
-  const box = document.getElementById('replay-debug-box');
-  if (box) box.style.display = 'flex';
-}
-function _replayClearLog() {
-  const el = document.getElementById('replay-debug-log');
-  if (el) el.innerHTML = '';
-}
-function _replayCopyLog() {
-  const el = document.getElementById('replay-debug-log');
-  if (!el) return;
-  const text = el.innerText || el.textContent || '';
-  const _flashBtn = (ok) => {
-    const btn = document.getElementById('replay-copy-btn');
-    if (!btn) return;
-    const orig = btn.textContent;
-    btn.textContent = ok ? '✓ Copied!' : '✓ Select karo';
-    btn.style.background = '#26a69a';
-    setTimeout(() => { btn.textContent = orig; btn.style.background = '#2962ff'; }, 2000);
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => _flashBtn(true)).catch(() => {
-      prompt('Log copy karo (Select All → Copy):', text);
-      _flashBtn(false);
-    });
-  } else {
-    prompt('Log copy karo (Select All → Copy):', text);
-    _flashBtn(false);
-  }
-}
-function _replayLog(line, color) {
-  const el = document.getElementById('replay-debug-log');
-  if (!el) return;
-  const span = document.createElement('span');
-  span.style.color = color || '#9598a1';
-  span.textContent = line + '\n';
-  el.appendChild(span);
-  el.scrollTop = el.scrollHeight;  // auto-scroll to bottom
-}
-function _replayLogOk(line)   { _replayLog('✅ ' + line, '#26a69a'); }
-function _replayLogErr(line)  { _replayLog('❌ ' + line, '#ef5350'); }
-function _replayLogInfo(line) { _replayLog('ℹ️  ' + line, '#d1d4dc'); }
-function _replayLogWarn(line) { _replayLog('⚠️  ' + line, '#f0b429'); }
-
-// _replayFetchChunk — legacy stub (no longer used, _replayFetchAll ab GitHub se directly fetch karta hai)
-async function _replayFetchChunk(asset, tfStr, chunk) {
-  throw new Error('_replayFetchChunk: ab use nahi hota — _replayFetchAll directly GitHub se fetch karta hai');
+// Get current RS based on asset
+function _rpGetRS(asset) {
+  return asset === 'bn' ? _BN_REPLAY_STATE : _BTC_REPLAY_STATE;
 }
 
-// Destroy all replay cell charts
-function _replayDestroyCells() {
-  _REPLAY.cells.forEach(c => { try { c.chart.remove(); } catch(_) {} });
-  _REPLAY.cells = [];
-  if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} _REPLAY.resizeObs = null; }
-  const sc = document.getElementById('replay-stack-container');
-  if (sc) sc.innerHTML = '';
-}
-
-// Open replay view
-function openReplayView() {
-  const rv = document.getElementById('replay-view');
-  const fb = document.getElementById('replay-float-box');
-  if (!rv || !fb) return;
-  rv.style.display = 'flex';
-  fb.style.display = 'block';
-  _REPLAY.active = true;
-  _initReplayDrag();
-  // Default: load BankNifty
-  selectReplayAsset('bn');
-}
-
-// Close replay view
-function closeReplayView() {
-  const rv = document.getElementById('replay-view');
-  const fb = document.getElementById('replay-float-box');
-  if (rv) rv.style.display = 'none';
-  if (fb) fb.style.display = 'none';
-  _REPLAY.active = false;
-  _replayDestroyCells();
-}
-
-// Open asset picker float box from header symbol button tap
-function _replayOpenAssetPicker() {
-  const fb = document.getElementById('replay-float-box');
-  if (!fb) return;
-  // Toggle: agar already visible hai to hide karo
-  fb.style.display = (fb.style.display === 'none' || !fb.style.display) ? 'block' : 'none';
-}
-
-// TF bar button click in replay — scroll to that TF cell
-function _replayTfClick(tfMin) {
-  const sc = document.getElementById('replay-stack-container');
-  if (!sc) return;
-  const asset = _REPLAY.asset || 'bn';
-  const tfs   = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
-
-  // Find matching TF string
-  const tfMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8h',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
-  const tfStr = (tfMap[tfMin] || '').toLowerCase();
-
-  // Find cell index by matching tf string (case-insensitive)
-  let idx = tfs.findIndex(t => t.toLowerCase() === tfStr);
-  if (idx < 0) return;
-
-  // Scroll to that cell
-  const cells = sc.querySelectorAll('.stack-cell');
-  if (!cells[idx]) return;
-  sc.scrollTo({ top: cells[idx].offsetTop, behavior: 'smooth' });
-
-  // Highlight active TF button
-  _replayHighlightTf(tfMin);
-}
-
-// Highlight active TF button in replay TF bar
-function _replayHighlightTf(activeTfMin) {
-  const bar = document.getElementById('rp-tf-bar');
-  if (!bar) return;
-  bar.querySelectorAll('.tf-btn').forEach(btn => {
-    const tf = parseInt(btn.dataset.tf, 10);
-    btn.classList.toggle('active', tf === activeTfMin);
-  });
-  // Update TF menu label in header
-  const lbl = document.getElementById('rp-tf-menu-label');
-  if (lbl) {
-    const nameMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8H',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
-    lbl.textContent = nameMap[activeTfMin] || '--';
-  }
-}
-
-// Switch replay asset (bn / btc)
-async function selectReplayAsset(asset) {
-  _REPLAY.asset = asset;
-
-  // Update button styles
-  const btnBn  = document.getElementById('replay-btn-bn');
-  const btnBtc = document.getElementById('replay-btn-btc');
-  if (btnBn)  { btnBn.style.background  = asset === 'bn'  ? '#2962ff' : '#2a2e39'; btnBn.style.color  = asset === 'bn'  ? '#fff' : '#9598a1'; btnBn.style.border  = asset === 'bn'  ? 'none' : '1px solid #363c4e'; }
-  if (btnBtc) { btnBtc.style.background = asset === 'btc' ? '#f0b429' : '#2a2e39'; btnBtc.style.color = asset === 'btc' ? '#131722' : '#9598a1'; btnBtc.style.border = asset === 'btc' ? 'none' : '1px solid #363c4e'; }
-
-  // Update header sym label (now a button)
-  const symLbl = document.getElementById('rp-sym-label');
-  if (symLbl) symLbl.textContent = asset === 'bn' ? '📊 BANKNIFTY' : '₿ BTCUSDT';
-
-  // Update TF bar — dim/enable buttons based on asset
-  // BN uses: 5,15,45,135,1440,4320,12960,38880
-  // BTC uses: 160,480,1440,4320,12960,38880
-  const bnTfs     = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
-  const btcTfs    = [160, 480, 1440, 4320, 12960, 38880];
-  const activeTfs = asset === 'bn' ? bnTfs : btcTfs;
-  const bar = document.getElementById('rp-tf-bar');
-  if (bar) {
-    bar.querySelectorAll('.tf-btn').forEach(btn => {
-      const tf = parseInt(btn.dataset.tf, 10);
-      const isActive = activeTfs.includes(tf);
-      btn.style.color  = isActive ? '#d1d4dc' : '#363c4e';
-      btn.style.opacity = isActive ? '1' : '0.3';
-      btn.disabled = !isActive;
-    });
-  }
-  // Reset TF header label
-  const rpLbl = document.getElementById('rp-tf-menu-label');
-  if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '160m';
-
-  _replayDestroyCells();
-
+// ── Load replay data for asset + date range ──────────────────────────────────
+async function _rpLoad(asset) {
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
+  const masterTf = asset === 'bn' ? '5m' : '160m';
+  const rs = _rpGetRS(asset);
 
-  _replaySetStatus('Connecting…');
-  _replayLogClear();
+  // Stop any running replay
+  _rpStop(asset);
 
-  // Ensure API port is resolved before loading
-  await _replayEnsurePort();
+  _rpSetStatus('Data load ho raha hai…');
+  _replayDestroyCells();
 
-  _replaySetStatus('Loading…');
-  _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo(`API port: ${_replayApiPort()}`);
-  _replayLog('─'.repeat(38), '#2a2e39');
-  const sc  = document.getElementById('replay-stack-container');
+  try {
+    const obj = await _replayGhLoad(asset);
+    _rpSetStatus('Candles parse ho rahe hain…');
+    rs.allData = _replayParseAllTFs(obj, asset, tfs);
+
+    // Build master timeline (masterTf candles in date range)
+    const masterCandles = rs.allData[masterTf] || [];
+    rs.masterTimeline = masterCandles.filter(c => c.time >= rs.fromTs && c.time <= rs.toTs);
+
+    if (!rs.masterTimeline.length) {
+      _rpSetStatus('❌ Is date range mein data nahi mila');
+      return;
+    }
+
+    _rpSetStatus(`${rs.masterTimeline.length} steps ready — Charts build ho rahe hain…`);
+
+    // Build chart cells
+    await _rpBuildCells(asset);
+
+    // Set to step 0 — show initial slice
+    rs.step = 0;
+    _rpApplyStep(asset);
+    _rpUpdateControls(asset);
+    _rpSetStatus('');
+
+  } catch(err) {
+    _rpSetStatus('❌ Error: ' + (err.message || err));
+    console.error('Replay load error:', err);
+  }
+}
+
+// Build 8 (BN) or 6 (BTC) chart cells
+async function _rpBuildCells(asset) {
+  const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
+  const sc = document.getElementById('replay-stack-container');
   if (!sc) return;
+  sc.innerHTML = '';
+  _REPLAY.cells = [];
 
-  const total   = tfs.length;
-  const visible = asset === 'bn' ? 4 : 4;   // 4 charts visible at once (same as normal stackview)
-  const cellH   = 'calc(100% / ' + visible + ')';
+  const total = tfs.length;
+  const cellH = `calc(100% / 4)`;  // 4 visible at once
 
-  // Pre-build DOM cells
   for (let i = 0; i < total; i++) {
     const tfStr = tfs[i];
-    const cell  = document.createElement('div');
+
+    const cell = document.createElement('div');
     cell.className = 'grid-cell stack-cell';
     cell.dataset.ridx = i;
     cell.style.height = cellH;
 
-    // Overlay label
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
     overlay.innerHTML =
       '<span class="co-sym">'+(asset==='bn'?'📊 BN':'₿ BTC')+'</span>'+
       '<span class="co-tf"> · '+tfStr+' · '+(i+1)+'</span>'+
-      '<span class="co-price up">--</span>';
+      '<span class="co-price up" id="rp-price-'+i+'">--</span>';
 
     const chartDiv = document.createElement('div');
     chartDiv.className = 'cell-chart';
     chartDiv.id = 'rcell-chart-' + i;
     chartDiv.style.position = 'relative';
 
-    // Screen badge
     const badge = document.createElement('span');
     badge.className = 'cell-screen-badge';
     badge.textContent = (i+1) + ':' + total;
@@ -12025,82 +11886,40 @@ async function selectReplayAsset(asset) {
     cell.appendChild(badge);
     sc.appendChild(cell);
 
-    _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i });
+    // Create chart
+    const ch = LightweightCharts.createChart(chartDiv, {
+      width:  chartDiv.clientWidth  || 200,
+      height: chartDiv.clientHeight || 200,
+      layout: { background: { type:'solid', color: S.bgColor||'#131722' }, textColor: S.textColor||'#d1d4dc', fontSize:7 },
+      grid:   { vertLines:{color:'transparent'}, horzLines:{color:'transparent'} },
+      crosshair: { mode:0, vertLine:{labelVisible:true}, horzLine:{labelVisible:true} },
+      rightPriceScale: { borderColor:'#2a2e39', scaleMargins:{top:0.25,bottom:0.25}, autoScale:true },
+      timeScale: { borderColor:'#2a2e39', timeVisible:true, secondsVisible:false, rightOffset:5, barSpacing:4, minBarSpacing:1 },
+      localization: {
+        timeFormatter: (t) => fmtChartTime(t),
+        priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
+      },
+      handleScroll: { mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:true },
+      handleScale:  { axisPressedMouseMove:true, mouseWheel:true, pinch:true },
+      kineticScroll: { mouse:true, touch:true },
+    });
+
+    const upClr = S.upColor||'#26a69a';
+    const dnClr = S.dnColor||'#ef5350';
+    const ser = ch.addCandlestickSeries({
+      upColor:upClr, downColor:dnClr,
+      borderUpColor:upClr, borderDownColor:dnClr,
+      wickUpColor:upClr, wickDownColor:dnClr,
+      priceLineVisible:true, lastValueVisible:true,
+    });
+
+    _REPLAY.cells.push({ chart:ch, series:ser, tf:tfStr, el:chartDiv, idx:i });
+    attachMobileTouchUX(chartDiv, ch, () => ser);
+
+    await new Promise(r => setTimeout(r, 5));
   }
 
-  // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
-  for (let i = 0; i < total; i++) {
-    const tfStr = tfs[i];
-    _replaySetStatus(`Loading ${tfStr} (${i+1}/${total})…`);
-    _replayLog(`\n▶ [${i+1}/${total}] ${tfStr}`, '#d1d4dc');
-    try {
-      const candles = await _replayFetchAll(asset, tfStr);
-      if (!candles || !candles.length) {
-        _replayLogWarn(`${tfStr} — 0 candles received, skipping chart`);
-        continue;
-      }
-
-      const el = document.getElementById('rcell-chart-' + i);
-      if (!el) continue;
-
-      // Create LightweightCharts instance
-      const ch = LightweightCharts.createChart(el, {
-        width:  el.clientWidth  || 200,
-        height: el.clientHeight || 200,
-        layout: { background: { type: 'solid', color: S.bgColor || '#131722' }, textColor: S.textColor || '#d1d4dc', fontSize: 7 },
-        grid:   { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
-        crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
-        rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-        timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
-        localization: {
-          timeFormatter: (t) => fmtChartTime(t),
-          priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-        },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
-        handleScale:  { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
-        kineticScroll: { mouse: true, touch: true },
-      });
-
-      const upClr = S.upColor || '#26a69a';
-      const dnClr = S.dnColor || '#ef5350';
-      const ser = ch.addCandlestickSeries({
-        upColor: upClr, downColor: dnClr,
-        borderUpColor: upClr, borderDownColor: dnClr,
-        wickUpColor: upClr, wickDownColor: dnClr,
-        priceLineVisible: true, lastValueVisible: true,
-      });
-
-      // Sort candles by time (safety)
-      candles.sort((a, b) => a.time - b.time);
-      ser.setData(candles);
-
-      // Update overlay price
-      const cell = sc.querySelector('[data-ridx="'+i+'"]');
-      if (cell && candles.length) {
-        const last = candles[candles.length - 1];
-        const pr = cell.querySelector('.co-price');
-        if (pr) pr.textContent = last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      }
-
-      _REPLAY.cells[i].chart  = ch;
-      _REPLAY.cells[i].series = ser;
-
-      attachMobileTouchUX(el, ch, () => ser);
-
-    } catch(err) {
-      _replayLogErr(`${tfStr} FAILED: ${err.message || err}`);
-      console.warn('Replay load failed for', tfStr, err);
-    }
-
-    // Yield between each TF load
-    await new Promise(r2 => setTimeout(r2, 10));
-  }
-
-  _replaySetStatus('');
-  _replayLog('\n' + '─'.repeat(38), '#2a2e39');
-  _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
-
-  // ResizeObserver for replay cells
+  // ResizeObserver
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
   _REPLAY.resizeObs = new ResizeObserver(() => {
     _REPLAY.cells.forEach(c => {
@@ -12111,249 +11930,520 @@ async function selectReplayAsset(asset) {
   _REPLAY.resizeObs.observe(sc);
 }
 
-// Status text in float box + header badge
-function _replaySetStatus(msg) {
-  const el = document.getElementById('replay-load-status');
-  if (el) el.textContent = msg;
-  const badge = document.getElementById('rp-hdr-status');
-  if (badge) badge.textContent = msg ? '⏵ ' + msg : '⏵ Replay';
+// Apply current step to all charts (SYNC)
+function _rpApplyStep(asset) {
+  const rs = _rpGetRS(asset);
+  const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
+  if (!rs.masterTimeline.length) return;
+
+  const step = Math.min(rs.step, rs.masterTimeline.length - 1);
+  const currentTs = rs.masterTimeline[step].time;
+
+  _REPLAY.cells.forEach((cell, i) => {
+    if (!cell.series) return;
+    const tfStr = tfs[i];
+    const maxCount = _REPLAY_CANDLE_COUNT[tfStr] || 100;
+    const allC = (rs.allData[tfStr] || []);
+
+    // Candles from fromTs up to currentTs, last maxCount
+    const visible = allC.filter(c => c.time >= rs.fromTs && c.time <= currentTs);
+    const slice   = visible.length > maxCount ? visible.slice(visible.length - maxCount) : visible;
+
+    if (slice.length) {
+      cell.series.setData(slice);
+      // Update price overlay
+      const pr = document.getElementById('rp-price-' + i);
+      if (pr) {
+        const last = slice[slice.length-1];
+        pr.textContent = last.close.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+        pr.className = 'co-price ' + (last.close >= last.open ? 'up' : 'down');
+      }
+    }
+  });
+
+  // Update step display
+  const stepEl = document.getElementById('rp-step-display');
+  if (stepEl) stepEl.textContent = `Step ${step+1} / ${rs.masterTimeline.length}`;
+
+  // Update scrubber
+  const scrub = document.getElementById('rp-scrubber');
+  if (scrub) scrub.value = step;
+
+  // Update date display
+  const dateEl = document.getElementById('rp-current-date');
+  if (dateEl) {
+    const d = new Date(currentTs * 1000);
+    const fmt = d.toISOString().slice(0,10);
+    dateEl.textContent = fmt;
+  }
 }
 
-// Step jump for replay stack (same as main stack)
+// Play / Pause
+function _rpPlay(asset) {
+  const rs = _rpGetRS(asset);
+  if (rs.step >= rs.masterTimeline.length - 1) rs.step = 0;  // restart from beginning
+  rs.playing = true;
+  _rpUpdateControls(asset);
+
+  function _tick() {
+    if (!rs.playing) return;
+    if (rs.step >= rs.masterTimeline.length - 1) {
+      rs.playing = false;
+      _rpUpdateControls(asset);
+      _rpSetStatus('Replay khatam ✓');
+      return;
+    }
+    rs.step++;
+    _rpApplyStep(asset);
+    const intervalMs = Math.round(1000 / rs.speed);
+    rs.timer = setTimeout(_tick, intervalMs);
+  }
+  rs.timer = setTimeout(_tick, Math.round(1000 / rs.speed));
+}
+
+function _rpPause(asset) {
+  const rs = _rpGetRS(asset);
+  rs.playing = false;
+  if (rs.timer) { clearTimeout(rs.timer); rs.timer = null; }
+  _rpUpdateControls(asset);
+}
+
+function _rpStop(asset) {
+  const rs = _rpGetRS(asset);
+  rs.playing = false;
+  if (rs.timer) { clearTimeout(rs.timer); rs.timer = null; }
+}
+
+function _rpTogglePlay(asset) {
+  const rs = _rpGetRS(asset);
+  if (rs.playing) _rpPause(asset); else _rpPlay(asset);
+}
+
+function _rpSkip(asset, delta) {
+  const rs = _rpGetRS(asset);
+  _rpPause(asset);
+  rs.step = Math.max(0, Math.min(rs.masterTimeline.length-1, rs.step + delta));
+  _rpApplyStep(asset);
+}
+
+function _rpGoStart(asset) {
+  const rs = _rpGetRS(asset);
+  _rpPause(asset);
+  rs.step = 0;
+  _rpApplyStep(asset);
+}
+
+function _rpGoEnd(asset) {
+  const rs = _rpGetRS(asset);
+  _rpPause(asset);
+  rs.step = rs.masterTimeline.length - 1;
+  _rpApplyStep(asset);
+}
+
+function _rpSetSpeed(asset, spd) {
+  const rs = _rpGetRS(asset);
+  rs.speed = spd;
+  // Update speed buttons
+  document.querySelectorAll('.rp-spd-btn').forEach(b => {
+    b.style.background = parseFloat(b.dataset.spd) === spd ? '#2962ff' : '#2a2e39';
+    b.style.color      = parseFloat(b.dataset.spd) === spd ? '#fff'    : '#9598a1';
+  });
+  // If playing, restart tick with new speed
+  if (rs.playing) { _rpPause(asset); _rpPlay(asset); }
+}
+
+function _rpScrub(asset, val) {
+  const rs = _rpGetRS(asset);
+  _rpPause(asset);
+  rs.step = parseInt(val, 10);
+  _rpApplyStep(asset);
+}
+
+// Update play/pause button icon
+function _rpUpdateControls(asset) {
+  const rs = _rpGetRS(asset);
+  const btn = document.getElementById('rp-play-btn');
+  if (btn) btn.textContent = rs.playing ? '⏸' : '▶';
+
+  // Scrubber max
+  const scrub = document.getElementById('rp-scrubber');
+  if (scrub) scrub.max = Math.max(0, rs.masterTimeline.length - 1);
+
+  // Header badge
+  const badge = document.getElementById('rp-hdr-status');
+  if (badge) {
+    if (rs.playing) {
+      badge.style.background = '#1b3a1b';
+      badge.style.borderColor = '#26a69a';
+      badge.style.color = '#26a69a';
+      badge.textContent = '▶ REPLAY';
+    } else {
+      badge.style.background = 'transparent';
+      badge.style.borderColor = '#f0b42955';
+      badge.style.color = '#f0b429';
+      badge.textContent = '⏸ REPLAY';
+    }
+  }
+}
+
+// ── Date range picker logic ──────────────────────────────────────────────────
+function _rpDateChanged(asset) {
+  // Read from/to date inputs
+  const fromEl = document.getElementById('rp-date-from');
+  const toEl   = document.getElementById('rp-date-to');
+  if (!fromEl || !toEl) return;
+
+  const fromStr = fromEl.value;
+  const toStr   = toEl.value;
+  if (!fromStr || !toStr) return;
+
+  const fromTs = Math.floor(new Date(fromStr + 'T00:00:00Z').getTime() / 1000);
+  const toTs   = Math.floor(new Date(toStr   + 'T23:59:59Z').getTime() / 1000);
+
+  const rs = _rpGetRS(asset);
+  rs.fromTs = fromTs;
+  rs.toTs   = toTs;
+}
+
+// Called when user taps "Load Replay"
+async function _rpLoadBtn() {
+  const asset = _REPLAY.asset;
+  _rpDateChanged(asset);
+  const rs = _rpGetRS(asset);
+  if (!rs.fromTs || !rs.toTs || rs.fromTs >= rs.toTs) {
+    _rpSetStatus('❌ Valid date range select karo');
+    return;
+  }
+  await _rpLoad(asset);
+}
+
+// ── Open / Close ─────────────────────────────────────────────────────────────
+function openReplayView() {
+  const rv = document.getElementById('replay-view');
+  const fb = document.getElementById('replay-float-box');
+  if (!rv || !fb) return;
+  rv.style.display = 'flex';
+  fb.style.display = 'block';
+  _REPLAY.active = true;
+  _initReplayDrag();
+  selectReplayAsset('bn');
+
+  // Set default date range: last 90 days → today
+  const today = new Date();
+  const from90 = new Date(today.getTime() - 90*24*3600*1000);
+  const fmt = d => d.toISOString().slice(0,10);
+  const fromEl = document.getElementById('rp-date-from');
+  const toEl   = document.getElementById('rp-date-to');
+  if (fromEl && !fromEl.value) fromEl.value = fmt(from90);
+  if (toEl   && !toEl.value)   toEl.value   = fmt(today);
+}
+
+function closeReplayView() {
+  const rv = document.getElementById('replay-view');
+  const fb = document.getElementById('replay-float-box');
+  if (rv) rv.style.display = 'none';
+  if (fb) fb.style.display = 'none';
+  _REPLAY.active = false;
+  _rpStop('bn'); _rpStop('btc');
+  _replayDestroyCells();
+}
+
+function _replayDestroyCells() {
+  _REPLAY.cells.forEach(c => { try { c.chart.remove(); } catch(_) {} });
+  _REPLAY.cells = [];
+  if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} _REPLAY.resizeObs = null; }
+  const sc = document.getElementById('replay-stack-container');
+  if (sc) sc.innerHTML = '';
+}
+
+// Asset switch
+async function selectReplayAsset(asset) {
+  _REPLAY.asset = asset;
+
+  // Pause other asset
+  const other = asset === 'bn' ? 'btc' : 'bn';
+  _rpStop(other);
+
+  // Update button styles
+  const btnBn  = document.getElementById('replay-btn-bn');
+  const btnBtc = document.getElementById('replay-btn-btc');
+  if (btnBn)  { btnBn.style.background  = asset==='bn'  ? '#2962ff' : '#2a2e39'; btnBn.style.color  = asset==='bn'  ? '#fff' : '#9598a1'; btnBn.style.border  = asset==='bn'  ? 'none' : '1px solid #363c4e'; }
+  if (btnBtc) { btnBtc.style.background = asset==='btc' ? '#f0b429' : '#2a2e39'; btnBtc.style.color = asset==='btc' ? '#131722' : '#9598a1'; btnBtc.style.border = asset==='btc' ? 'none' : '1px solid #363c4e'; }
+
+  const symLbl = document.getElementById('rp-sym-label');
+  if (symLbl) symLbl.textContent = asset==='bn' ? '📊 BANKNIFTY' : '₿ BTCUSDT';
+
+  // TF bar dim/enable
+  const bnTfs  = [5,15,45,135,1440,4320,12960,38880];
+  const btcTfs = [160,480,1440,4320,12960,38880];
+  const activeTfs = asset==='bn' ? bnTfs : btcTfs;
+  const bar = document.getElementById('rp-tf-bar');
+  if (bar) {
+    bar.querySelectorAll('.tf-btn').forEach(btn => {
+      const tf = parseInt(btn.dataset.tf,10);
+      const ok = activeTfs.includes(tf);
+      btn.style.color   = ok ? '#d1d4dc' : '#363c4e';
+      btn.style.opacity = ok ? '1' : '0.3';
+      btn.disabled = !ok;
+    });
+  }
+
+  // Speed buttons default
+  document.querySelectorAll('.rp-spd-btn').forEach(b => {
+    b.style.background = b.dataset.spd === '1' ? '#2962ff' : '#2a2e39';
+    b.style.color      = b.dataset.spd === '1' ? '#fff'    : '#9598a1';
+  });
+
+  _replayDestroyCells();
+  _rpSetStatus('');
+  _rpUpdateControls(asset);
+
+  // Restore step display if data already loaded
+  const rs = _rpGetRS(asset);
+  const stepEl = document.getElementById('rp-step-display');
+  if (stepEl) stepEl.textContent = rs.masterTimeline.length ? `Step ${rs.step+1} / ${rs.masterTimeline.length}` : '--';
+
+  // If asset already has data, rebuild cells
+  if (rs.masterTimeline.length) {
+    await _rpBuildCells(asset);
+    _rpApplyStep(asset);
+  }
+}
+
+// TF click → scroll to that cell
+function _replayTfClick(tfMin) {
+  const sc = document.getElementById('replay-stack-container');
+  if (!sc) return;
+  const asset = _REPLAY.asset||'bn';
+  const tfs   = asset==='bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
+  const tfMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8h',1440:'1d',4320:'3d',12960:'9d',38880:'27d'};
+  const tfStr = (tfMap[tfMin]||'').toLowerCase();
+  let idx = tfs.findIndex(t => t.toLowerCase()===tfStr);
+  if (idx<0) return;
+  const cells = sc.querySelectorAll('.stack-cell');
+  if (!cells[idx]) return;
+  sc.scrollTo({top:cells[idx].offsetTop, behavior:'smooth'});
+}
+
 function _replayStackJump(dir) {
   const sc = document.getElementById('replay-stack-container');
   if (!sc) return;
   const first = sc.querySelector('.stack-cell');
   if (!first) return;
-  const chartH = first.getBoundingClientRect().height || sc.clientHeight / 4;
-  const target = sc.scrollTop + dir * chartH;
-  sc.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+  const chartH = first.getBoundingClientRect().height || sc.clientHeight/4;
+  sc.scrollTo({top: Math.max(0, sc.scrollTop + dir*chartH), behavior:'smooth'});
 }
 
-// Make any box draggable by a handle element
+// Status helper
+function _rpSetStatus(msg) {
+  const el = document.getElementById('replay-load-status');
+  if (el) el.textContent = msg;
+}
+
+// Legacy stubs
+function _replayApiPort() { return 0; }
+async function _replayEnsurePort() { return true; }
+function _replaySetStatus(msg) { _rpSetStatus(msg); }
+function _replayLogClear() {}
+function _replayLog() {}
+function _replayLogOk() {}
+function _replayLogErr() {}
+function _replayLogInfo() {}
+function _replayLogWarn() {}
+function _replayOpenAssetPicker() {
+  const fb = document.getElementById('replay-float-box');
+  if (!fb) return;
+  fb.style.display = (fb.style.display==='none'||!fb.style.display) ? 'block' : 'none';
+}
+
+// Draggable
 function _makeDraggable(box, drag) {
-  if (!box || !drag) return;
-  // Reset flag so re-init works correctly
+  if (!box||!drag) return;
   box._dragInited = true;
-  let _ox=0, _oy=0, _bx=0, _by=0, _dragging=false;
+  let _ox=0,_oy=0,_bx=0,_by=0,_dragging=false;
   function _start(e) {
-    // Button tap pe drag shuru nahi hona chahiye
-    if (e.target && e.target.tagName === 'BUTTON') return;
-    _dragging = true;
-    const src = e.touches ? e.touches[0] : e;
-    _ox = src.clientX; _oy = src.clientY;
-    const r = box.getBoundingClientRect();
-    _bx = r.left; _by = r.top;
-    // Convert any bottom/transform positioning to top+left
-    box.style.transform  = 'none';
-    box.style.left       = _bx + 'px';
-    box.style.top        = _by + 'px';
-    box.style.bottom     = 'auto';
-    box.style.right      = 'auto';
+    if(e.target&&e.target.tagName==='BUTTON') return;
+    _dragging=true;
+    const src=e.touches?e.touches[0]:e;
+    _ox=src.clientX; _oy=src.clientY;
+    const r=box.getBoundingClientRect();
+    _bx=r.left; _by=r.top;
+    box.style.transform='none'; box.style.left=_bx+'px'; box.style.top=_by+'px';
+    box.style.bottom='auto'; box.style.right='auto';
     e.preventDefault();
   }
   function _move(e) {
-    if (!_dragging) return;
-    const src = e.touches ? e.touches[0] : e;
-    box.style.left = (_bx + src.clientX - _ox) + 'px';
-    box.style.top  = (_by + src.clientY - _oy) + 'px';
+    if(!_dragging) return;
+    const src=e.touches?e.touches[0]:e;
+    box.style.left=(_bx+src.clientX-_ox)+'px';
+    box.style.top=(_by+src.clientY-_oy)+'px';
     e.preventDefault();
   }
-  function _end() { _dragging = false; }
-  drag.addEventListener('mousedown',  _start);
-  drag.addEventListener('touchstart', _start, { passive: false });
-  document.addEventListener('mousemove',  _move);
-  document.addEventListener('touchmove',  _move, { passive: false });
-  document.addEventListener('mouseup',   _end);
-  document.addEventListener('touchend',  _end);
+  function _end() { _dragging=false; }
+  drag.addEventListener('mousedown',_start);
+  drag.addEventListener('touchstart',_start,{passive:false});
+  document.addEventListener('mousemove',_move);
+  document.addEventListener('touchmove',_move,{passive:false});
+  document.addEventListener('mouseup',_end);
+  document.addEventListener('touchend',_end);
 }
 
-// Draggable float box
 function _initReplayDrag() {
-  const box  = document.getElementById('replay-float-box');
-  const drag = document.getElementById('replay-float-drag');
-  const dbox  = document.getElementById('replay-debug-box');
-  const ddrag = document.getElementById('replay-debug-drag');
-  _makeDraggable(box, drag);
-  _makeDraggable(dbox, ddrag);
+  _makeDraggable(document.getElementById('replay-float-box'), document.getElementById('replay-float-drag'));
 }
+
 
 </script>
 
 <!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
-<!-- ═══ REPLAY VIEW ══════════════════════════════════════════════════════════ -->
 <div id="replay-view" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100dvh;background:#131722;z-index:9000;flex-direction:column;overflow:hidden;">
 
-  <!-- ── HEADER — exact replica of #hdr ── -->
+  <!-- ── HEADER ── -->
   <div id="rp-hdr" style="height:22px;min-height:22px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:4px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
-
-    <!-- Symbol button — tap to open asset picker float box -->
     <div style="position:relative;flex-shrink:0;">
       <button id="rp-sym-label" onclick="_replayOpenAssetPicker()"
         style="height:18px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#f0b429;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;">
         📊 BANKNIFTY
       </button>
     </div>
-
-    <!-- Replay badge (replaces LTP/CHG in main hdr) -->
     <span id="rp-hdr-status"
       style="height:18px;padding:0 6px;background:transparent;border:1px solid #f0b42955;border-radius:3px;color:#f0b429;font-size:9px;font-weight:700;display:flex;align-items:center;white-space:nowrap;flex-shrink:0;">
-      ⏵ Replay
+      🎬 REPLAY
     </span>
-
     <div style="flex:1;min-width:0;"></div>
-
-    <!-- Right-side buttons — same order as #hdr-right -->
     <div style="display:flex;align-items:center;gap:3px;flex-shrink:0;">
-
-      <!-- TF menu button (same as #tf-menu-btn) -->
-      <button onclick="toggleTfDropdown()"
-        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:3px;flex-shrink:0;white-space:nowrap;">
-        ⏱ <span id="rp-tf-menu-label">--</span>
-      </button>
-
-      <!-- Draw button -->
       <button onclick="toggleDrawPanel()"
         style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;flex-shrink:0;">
         ✏️ Draw
       </button>
-
-      <!-- Hamburger / TF-bar toggle -->
       <button onclick="toggleTfBar()"
-        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-        ≡
-      </button>
-
-      <!-- Broker button -->
-      <button onclick="toggleBrokerPanel(event)"
-        style="height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-        🔑
-      </button>
-
-      <!-- Settings -->
-      <button onclick="toggleSettings()"
-        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-        ⚙
-      </button>
-
-      <!-- Close Replay (replaces fullscreen btn) -->
+        style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">≡</button>
       <button onclick="closeReplayView()"
-        style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">
-        ✕
-      </button>
-
+        style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
     </div>
   </div>
 
-  <!-- ── TF BAR — exact replica of #tf-bar (real clickable buttons) ── -->
+  <!-- ── TF BAR ── -->
   <div id="rp-tf-bar" style="height:14px;min-height:14px;background:#1e222d;border-bottom:1px solid #2a2e39;display:flex;align-items:center;padding:0 4px;gap:2px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
-    <button id="rp-tf-5m"   class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"    >5m</button>
-    <button id="rp-tf-15m"  class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"   >15m</button>
-    <button id="rp-tf-45m"  class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"   >45m</button>
-    <button id="rp-tf-135m" class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"  >135m</button>
+    <button class="tf-btn" data-tf="5"     onclick="_replayTfClick(5)"    >5m</button>
+    <button class="tf-btn" data-tf="15"    onclick="_replayTfClick(15)"   >15m</button>
+    <button class="tf-btn" data-tf="45"    onclick="_replayTfClick(45)"   >45m</button>
+    <button class="tf-btn" data-tf="135"   onclick="_replayTfClick(135)"  >135m</button>
     <div class="tf-sep"></div>
-    <button id="rp-tf-160m" class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"  >160m</button>
-    <button id="rp-tf-8h"   class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"  >8H</button>
+    <button class="tf-btn" data-tf="160"   onclick="_replayTfClick(160)"  >160m</button>
+    <button class="tf-btn" data-tf="480"   onclick="_replayTfClick(480)"  >8H</button>
     <div class="tf-sep"></div>
-    <button id="rp-tf-1d"   class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)" >1D</button>
-    <button id="rp-tf-3d"   class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)" >3D</button>
-    <button id="rp-tf-9d"   class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)">9D</button>
-    <button id="rp-tf-27d"  class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)">27D</button>
+    <button class="tf-btn" data-tf="1440"  onclick="_replayTfClick(1440)" >1D</button>
+    <button class="tf-btn" data-tf="4320"  onclick="_replayTfClick(4320)" >3D</button>
+    <button class="tf-btn" data-tf="12960" onclick="_replayTfClick(12960)">9D</button>
+    <button class="tf-btn" data-tf="38880" onclick="_replayTfClick(38880)">27D</button>
   </div>
 
   <!-- ── STACK CONTAINER ── -->
   <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
 
-  <!-- ── BOTTOM BAR — exact replica of #bottom-bar ── -->
-  <div id="rp-bottom-bar" style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+  <!-- ── REPLAY CONTROL BAR ── -->
+  <div id="rp-ctrl-bar" style="height:auto;min-height:44px;background:#1e222d;border-top:1px solid #363c4e;display:flex;flex-direction:column;align-items:stretch;padding:3px 6px 4px;gap:3px;flex-shrink:0;z-index:9050;">
 
-    <!-- Indicators -->
+    <!-- Row 1: Transport controls + speed -->
+    <div style="display:flex;align-items:center;gap:4px;">
+      <!-- Transport -->
+      <button onclick="_rpGoStart(_REPLAY.asset)"
+        style="height:28px;width:28px;background:#2a2e39;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:12px;cursor:pointer;flex-shrink:0;">⏮</button>
+      <button onclick="_rpSkip(_REPLAY.asset,-10)"
+        style="height:28px;width:28px;background:#2a2e39;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:12px;cursor:pointer;flex-shrink:0;">◀◀</button>
+      <button id="rp-play-btn" onclick="_rpTogglePlay(_REPLAY.asset)"
+        style="height:28px;width:36px;background:#2962ff;border:none;border-radius:4px;color:#fff;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0;">▶</button>
+      <button onclick="_rpSkip(_REPLAY.asset,10)"
+        style="height:28px;width:28px;background:#2a2e39;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:12px;cursor:pointer;flex-shrink:0;">▶▶</button>
+      <button onclick="_rpGoEnd(_REPLAY.asset)"
+        style="height:28px;width:28px;background:#2a2e39;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:12px;cursor:pointer;flex-shrink:0;">⏭</button>
+
+      <div style="flex:1;min-width:0;"></div>
+
+      <!-- Speed buttons -->
+      <button class="rp-spd-btn" data-spd="1"  onclick="_rpSetSpeed(_REPLAY.asset,1)"
+        style="height:24px;padding:0 7px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">1x</button>
+      <button class="rp-spd-btn" data-spd="2"  onclick="_rpSetSpeed(_REPLAY.asset,2)"
+        style="height:24px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:9px;font-weight:700;cursor:pointer;">2x</button>
+      <button class="rp-spd-btn" data-spd="5"  onclick="_rpSetSpeed(_REPLAY.asset,5)"
+        style="height:24px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:9px;font-weight:700;cursor:pointer;">5x</button>
+      <button class="rp-spd-btn" data-spd="10" onclick="_rpSetSpeed(_REPLAY.asset,10)"
+        style="height:24px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:9px;font-weight:700;cursor:pointer;">10x</button>
+    </div>
+
+    <!-- Row 2: Scrubber + step info -->
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span id="rp-current-date" style="font-size:9px;color:#787b86;white-space:nowrap;flex-shrink:0;">--</span>
+      <input id="rp-scrubber" type="range" min="0" max="100" value="0"
+        oninput="_rpScrub(_REPLAY.asset, this.value)"
+        style="flex:1;height:4px;accent-color:#2962ff;cursor:pointer;min-width:0;">
+      <span id="rp-step-display" style="font-size:9px;color:#787b86;white-space:nowrap;flex-shrink:0;">--</span>
+    </div>
+
+  </div>
+
+  <!-- ── BOTTOM BAR ── -->
+  <div id="rp-bottom-bar" style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
     <button onclick="toggleIndPanel()"
-      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
+      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
       📊 Indicators
     </button>
-
     <div class="bot-sep"></div>
-
-    <!-- Auto fit -->
     <button onclick="autoFitChart()"
-      style="height:18px;padding:0 8px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-      ⊡ Auto
-    </button>
-
-    <!-- Go to Date -->
-    <button onclick="toggleGotoDate()"
-      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
-      📅
-    </button>
-
-    <!-- Overlay -->
-    <button onclick="toggleOverlayMenu()"
-      style="height:18px;padding:0 6px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">
-      ⧉
-    </button>
-
-    <!-- Layout / Grid picker -->
-    <button onclick="toggleGridPicker()"
-      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-left:auto;">
-      ⊞ Layout
-    </button>
-
-    <div class="bot-sep"></div>
-
-    <!-- Stack scroll ▲ ▼ -->
+      style="height:18px;padding:0 8px;background:transparent;border:none;color:#9598a1;font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0;">⊡ Auto</button>
+    <div style="flex:1;"></div>
     <button onclick="_replayStackJump(-1)"
       style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
     <button onclick="_replayStackJump(1)"
       style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
-
   </div>
 </div>
 
 <!-- ═══ REPLAY FLOATING BOX ══════════════════════════════════════════════════ -->
-<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:9100;min-width:190px;touch-action:none;user-select:none;">
-  <!-- Drag handle + Close button -->
+<div id="replay-float-box" style="display:none;position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#1e222d;border:1px solid #363c4e;border-radius:8px;box-shadow:0 8px 24px #0009;z-index:9100;min-width:220px;max-width:300px;touch-action:none;user-select:none;">
+  <!-- Drag handle -->
   <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
-    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">⏵ REPLAY</span>
+    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🎬 REPLAY</span>
     <span style="font-size:12px;color:#555;">⠿</span>
     <button onclick="closeReplayView()" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
   </div>
-  <!-- Asset selector -->
+
+  <!-- Content -->
   <div style="padding:10px 12px;display:flex;flex-direction:column;gap:8px;">
+
+    <!-- Asset selector -->
     <div style="font-size:9px;color:#787b86;text-transform:uppercase;letter-spacing:.8px;font-weight:700;">Select Asset</div>
     <div style="display:flex;gap:6px;">
-      <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"  style="flex:1;height:36px;background:#2962ff;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">📊 BankNifty</button>
-      <button id="replay-btn-btc" onclick="selectReplayAsset('btc')" style="flex:1;height:36px;background:#2a2e39;border:1px solid #363c4e;border-radius:5px;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;">₿ BTC</button>
+      <button id="replay-btn-bn"  onclick="selectReplayAsset('bn')"
+        style="flex:1;height:34px;background:#2962ff;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">📊 BankNifty</button>
+      <button id="replay-btn-btc" onclick="selectReplayAsset('btc')"
+        style="flex:1;height:34px;background:#2a2e39;border:1px solid #363c4e;border-radius:5px;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;">₿ BTC</button>
     </div>
-    <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;"></div>
 
-    <!-- status only, no debug log here -->
-  </div>
-</div>
-
-<!-- ═══ REPLAY DEBUG FLOATING WINDOW ═══════════════════════════════════════════ -->
-<div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;flex-direction:column;">
-  <!-- Drag handle — touch-action:none sirf yahan, buttons pe nahi -->
-  <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;touch-action:none;user-select:none;">
-    <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-    <button id="replay-copy-btn"
-      style="height:28px;padding:0 12px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;touch-action:manipulation;"
-      ontouchend="event.stopPropagation();event.preventDefault();_replayCopyLog();"
-      onclick="_replayCopyLog()">Copy</button>
-    <button
-      style="height:28px;padding:0 10px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;touch-action:manipulation;"
-      ontouchend="event.stopPropagation();event.preventDefault();_replayClearLog();"
-      onclick="_replayClearLog()">Clear</button>
-    <button
-      style="height:28px;padding:0 10px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;touch-action:manipulation;"
-      ontouchend="event.stopPropagation();event.preventDefault();document.getElementById('replay-debug-box').style.display='none';"
-      onclick="document.getElementById('replay-debug-box').style.display='none';">✕</button>
-  </div>
-  <div id="replay-debug-wrap" style="padding:6px 8px;">
-    <div id="replay-debug-log"
-      style="font-family:monospace;font-size:8px;color:#9598a1;background:#131722;border:1px solid #2a2e39;border-radius:4px;padding:6px 8px;max-height:260px;min-height:80px;overflow-y:auto;line-height:1.6;white-space:pre-wrap;word-break:break-all;">
-      Waiting…
+    <!-- Date range -->
+    <div style="font-size:9px;color:#787b86;text-transform:uppercase;letter-spacing:.8px;font-weight:700;margin-top:2px;">Date Range</div>
+    <div style="display:flex;flex-direction:column;gap:5px;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:9px;color:#9598a1;width:26px;flex-shrink:0;">From</span>
+        <input id="rp-date-from" type="date"
+          style="flex:1;height:26px;background:#131722;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:10px;padding:0 6px;cursor:pointer;min-width:0;">
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:9px;color:#9598a1;width:26px;flex-shrink:0;">To</span>
+        <input id="rp-date-to" type="date"
+          style="flex:1;height:26px;background:#131722;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:10px;padding:0 6px;cursor:pointer;min-width:0;">
+      </div>
     </div>
+
+    <!-- Load button -->
+    <button onclick="_rpLoadBtn()"
+      style="height:34px;background:#26a69a;border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.3px;">
+      ▶ Load Replay
+    </button>
+
+    <!-- Status -->
+    <div id="replay-load-status" style="font-size:9px;color:#787b86;min-height:12px;text-align:center;word-break:break-word;"></div>
   </div>
 </div>
 
