@@ -12204,6 +12204,10 @@ async function selectReplayAsset(asset) {
     ? Math.floor(new Date(_fromInput.value + 'T00:00:00Z').getTime() / 1000) : 0;
   const _toSec   = _toInput && _toInput.value
     ? Math.floor(new Date(_toInput.value + 'T23:59:59Z').getTime() / 1000) : Infinity;
+  // DEBUG: date range
+  const _fmtTs = t => (t===0||t===Infinity) ? String(t) : new Date(t*1000).toISOString().slice(0,16)+' UTC';
+  _replayLog('DATE RANGE: from='+_fmtTs(_fromSec)+'  to='+_fmtTs(_toSec), '#f0b429');
+  _replayLog('  fromVal="'+(_fromInput&&_fromInput.value||'')+'"  toVal="'+(_toInput&&_toInput.value||'')+'"', '#787b86');
 
   // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
   for (let i = 0; i < total; i++) {
@@ -12219,8 +12223,18 @@ async function selectReplayAsset(asset) {
 
       // ── Apply date range filter ──────────────────────────────────────────
       if (_fromSec > 0 || _toSec < Infinity) {
+        const _preFilt = candles.length;
         candles = candles.filter(c => c.time >= _fromSec && c.time <= _toSec);
-        _replayLogInfo(`${tfStr}: date filter → ${candles.length} candles`);
+        _replayLogInfo(`${tfStr}: date filter ${_preFilt} → ${candles.length} candles`);
+        if (candles.length > 0) {
+          const _fts = t => new Date((t+19800)*1000).toISOString().slice(0,16).replace('T',' ')+' IST';
+          _replayLog('  first: '+_fts(candles[0].time)+'  last: '+_fts(candles[candles.length-1].time), '#787b86');
+          // IST dates present
+          const _dset = [...new Set(candles.map(c => new Date((c.time+19800)*1000).toISOString().slice(0,10)))];
+          _replayLog('  dates('+_dset.length+'): '+_dset.slice(0,10).join(', ')+((_dset.length>10)?'...':''), '#787b86');
+        }
+      } else {
+        _replayLogInfo(`${tfStr}: no date filter, all ${candles.length} candles`);
       }
 
       // ── Dynamic hist window: har TF ke liye 30 candles ka enough base data ──
@@ -12295,6 +12309,11 @@ async function selectReplayAsset(asset) {
       }
 
       // Chart par hist candles pehle se dikhao (visible, already-revealed)
+      _replayLogInfo(`${tfStr}: setData hist=${histCandlesForTF.length}  full(replay)=${candles.length}`);
+      if (candles.length > 0) {
+        const _fts2 = t => new Date((t+19800)*1000).toISOString().slice(0,16).replace('T',' ')+' IST';
+        _replayLog('  full first: '+_fts2(candles[0].time)+'  last: '+_fts2(candles[candles.length-1].time), '#787b86');
+      }
       ser.setData(histCandlesForTF);
 
       // full = sirf replay-range candles (step engine inhe reveal karega)
