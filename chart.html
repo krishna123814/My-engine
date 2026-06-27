@@ -11788,15 +11788,35 @@ async function _replayGhLoad(asset) {
     const rows = Array.isArray(obj) ? obj
                : (obj.data && Array.isArray(obj.data)) ? obj.data : [];
     _replayLogInfo(`BN raw rows: ${rows.length}`);
+    // DEBUG: first & last raw row
+    if (rows.length > 0) {
+      _replayLog(`  First row: ${JSON.stringify(rows[0])}`, '#787b86');
+      _replayLog(`  Last row:  ${JSON.stringify(rows[rows.length-1])}`, '#787b86');
+    }
+    let _skipped = 0;
     for (const row of rows) {
       try {
         const tsStr = (row.ts || '').trim();
         // "2015-01-09 09:15" — IST → UTC
         const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
         const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
-        if (isNaN(ts)||isNaN(o)) continue;
+        if (isNaN(ts)||isNaN(o)) { _skipped++; continue; }
         raw5m.push({time:ts, open:o, high:h, low:l, close:c});
-      } catch(_){}
+      } catch(_){ _skipped++; }
+    }
+    if (_skipped > 0) _replayLogWarn(`BN parser: ${_skipped} rows skipped (NaN/error)`);
+    // DEBUG: first & last parsed timestamp
+    if (raw5m.length > 0) {
+      const _fmt = t => new Date(t*1000).toISOString().slice(0,16).replace('T',' ') + ' UTC';
+      _replayLog(`  Parsed first: ${_fmt(raw5m[0].time)}`, '#26a69a');
+      _replayLog(`  Parsed last:  ${_fmt(raw5m[raw5m.length-1].time)}`, '#26a69a');
+      // DEBUG: Apr 2026 candles count
+      const _apr = raw5m.filter(c => c.time >= 1743638400 && c.time <= 1746316799); // Apr 2026 UTC
+      _replayLog(`  Apr 2026 candles: ${_apr.length}`, '#f0b429');
+      if (_apr.length > 0) {
+        const _aprDates = [...new Set(_apr.map(c => new Date((c.time+IST_OFF)*1000).toISOString().slice(0,10)))];
+        _replayLog(`  Apr 2026 dates (IST): ${_aprDates.join(', ')}`, '#f0b429');
+      }
     }
   } else {
     // BTC: day-grouped
@@ -11823,14 +11843,12 @@ async function _replayGhLoad(asset) {
 }
 
 // ── Resample 5m candles → higher TF ─────────────────────────────────────────
-// Now routes through the SAME engine as the main chart (resample() /
-// resampleWorkingDays() / resampleForTF()) so replay candles are built with
-// identical boundaries:
-//   • intraday TFs (<1D)  → 9:15 IST session-anchored bucketing
-//   • 1D                  → same UTC-midnight bucket as main chart (effectively
-//                            equals the market day, since 5m data only exists
-//                            inside the 9:15–15:30 session)
-//   • multi-day TFs (3D+) → NSE-holiday + weekend filtered trading-day grouping
+// GUARANTEED IDENTICAL TO HISTORICAL: this no longer has its own bucketing
+// math. It only does the 5m market-hours filter (BN), then hands the data
+// straight to the exact same functions the historical/main chart uses —
+// resample() and resampleForTF() (which internally calls resampleWorkingDays()
+// for 3D/9D/27D). Historical code itself (resample/resampleForTF/
+// resampleWorkingDays) is NOT touched — replay just calls it now.
 function _replayResample(candles5m, asset, tfStr) {
   const IST_OFF = 5*3600 + 30*60;
   const tfMin = _replayTfToMin(tfStr);
@@ -11850,9 +11868,8 @@ function _replayResample(candles5m, asset, tfStr) {
     return candles5m.slice(); // BTC 5m: all candles
   }
 
-  // For BN, pre-filter to market-hours candles first — main chart's
-  // resample() doesn't need this because its source data is already
-  // session-only; replicate that here so the rest of the pipeline matches.
+  // BN: pre-filter to market-hours candles, exactly as historical's source
+  // data already is, before handing off to the historical resample engine.
   let src = candles5m;
   if (asset === 'bn') {
     src = candles5m.filter(c => {
@@ -11862,13 +11879,15 @@ function _replayResample(candles5m, asset, tfStr) {
     });
   }
 
-  // Pseudo-asset string so resample()/resampleForTF() correctly pick the
-  // NSE-vs-crypto code path (they only check isCryptoSymbol(asset)).
+  // Pseudo-asset string so resample()/resampleForTF() pick the correct
+  // NSE-vs-crypto branch (they only check isCryptoSymbol(asset) internally).
   const assetTag = asset === 'bn' ? 'BANKNIFTY' : 'BTCUSDT';
 
+  // Same call historical/main chart makes — guarantees identical output
+  // for every timeframe (15m/45m/135m session-anchor, 1D UTC-anchor,
+  // 3D/9D/27D NSE-holiday-filtered working-day grouping).
   return resampleForTF(src, tfMin, assetTag);
 }
-
 
 // Legacy port functions
 function _replayApiPort() { return 0; }
@@ -12129,6 +12148,10 @@ async function selectReplayAsset(asset) {
     ? Math.floor(new Date(_fromInput.value + 'T00:00:00Z').getTime() / 1000) : 0;
   const _toSec   = _toInput && _toInput.value
     ? Math.floor(new Date(_toInput.value + 'T23:59:59Z').getTime() / 1000) : Infinity;
+  // DEBUG: date range
+  const _fmtTs = t => (t===0||t===Infinity) ? String(t) : new Date(t*1000).toISOString().slice(0,16)+' UTC';
+  _replayLog('DATE RANGE: from='+_fmtTs(_fromSec)+'  to='+_fmtTs(_toSec), '#f0b429');
+  _replayLog('  fromVal="'+(_fromInput&&_fromInput.value||'')+'"  toVal="'+(_toInput&&_toInput.value||'')+'"', '#787b86');
 
   // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
   for (let i = 0; i < total; i++) {
@@ -12144,8 +12167,18 @@ async function selectReplayAsset(asset) {
 
       // ── Apply date range filter ──────────────────────────────────────────
       if (_fromSec > 0 || _toSec < Infinity) {
+        const _preFilt = candles.length;
         candles = candles.filter(c => c.time >= _fromSec && c.time <= _toSec);
-        _replayLogInfo(`${tfStr}: date filter → ${candles.length} candles`);
+        _replayLogInfo(`${tfStr}: date filter ${_preFilt} → ${candles.length} candles`);
+        if (candles.length > 0) {
+          const _fts = t => new Date((t+19800)*1000).toISOString().slice(0,16).replace('T',' ')+' IST';
+          _replayLog('  first: '+_fts(candles[0].time)+'  last: '+_fts(candles[candles.length-1].time), '#787b86');
+          // IST dates present
+          const _dset = [...new Set(candles.map(c => new Date((c.time+19800)*1000).toISOString().slice(0,10)))];
+          _replayLog('  dates('+_dset.length+'): '+_dset.slice(0,10).join(', ')+((_dset.length>10)?'...':''), '#787b86');
+        }
+      } else {
+        _replayLogInfo(`${tfStr}: no date filter, all ${candles.length} candles`);
       }
 
       // ── Dynamic hist window: har TF ke liye 30 candles ka enough base data ──
@@ -12220,6 +12253,11 @@ async function selectReplayAsset(asset) {
       }
 
       // Chart par hist candles pehle se dikhao (visible, already-revealed)
+      _replayLogInfo(`${tfStr}: setData hist=${histCandlesForTF.length}  full(replay)=${candles.length}`);
+      if (candles.length > 0) {
+        const _fts2 = t => new Date((t+19800)*1000).toISOString().slice(0,16).replace('T',' ')+' IST';
+        _replayLog('  full first: '+_fts2(candles[0].time)+'  last: '+_fts2(candles[candles.length-1].time), '#787b86');
+      }
       ser.setData(histCandlesForTF);
 
       // full = sirf replay-range candles (step engine inhe reveal karega)
