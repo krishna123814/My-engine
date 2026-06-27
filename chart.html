@@ -11746,18 +11746,13 @@ function _replayLogErr(line)  { _replayLog('❌ ' + line, '#ef5350'); }
 function _replayLogInfo(line) { _replayLog('ℹ️  ' + line, '#d1d4dc'); }
 function _replayLogWarn(line) { _replayLog('⚠️  ' + line, '#f0b429'); }
 
-// GitHub Raw base URL — JSON.gz files yahan hain
-const _REPLAY_GH_BASE = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
-
-// Fetch one TF directly from GitHub JSON.gz — no Python server needed
+// Fetch one chunk — with timing + debug
 async function _replayFetchChunk(asset, tfStr, chunk) {
-  // chunk parameter ignored — poora file ek hi request mein aata hai
-  const filename = `replay_${asset}_${tfStr}.json.gz`;
-  const url = `${_REPLAY_GH_BASE}/${filename}`;
+  const port = _replayApiPort();
+  const host = window.location.hostname || 'localhost';
+  const url = `http://${host}:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
   const t0 = Date.now();
-
-  _replayLogInfo(`Fetching: ${filename}`);
-
+  // Fresh AbortController per request — prevents cross-TF timeout contamination
   const _ac = new AbortController();
   const _acTimer = setTimeout(() => _ac.abort(), 90000);
   let r;
@@ -11768,62 +11763,46 @@ async function _replayFetchChunk(asset, tfStr, chunk) {
     throw fetchErr;
   }
   clearTimeout(_acTimer);
-
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   if (!r.ok) {
-    _replayLogErr(`HTTP ${r.status} for ${tfStr} (${elapsed}s) — file GitHub pe hai?`);
+    let errBody = '';
+    try { const j = await r.json(); errBody = JSON.stringify(j.debug || j.error || j); } catch(_) {}
+    _replayLogErr(`HTTP ${r.status} for ${tfStr} chunk${chunk} (${elapsed}s)`);
+    if (errBody) _replayLog('   ' + errBody, '#ef5350');
     throw new Error('HTTP ' + r.status);
   }
-
-  // Response arraybuffer mein lo — DecompressionStream se gunzip karo
-  const buf = await r.arrayBuffer();
-  let jsonText;
-  try {
-    const ds = new DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    const reader = ds.readable.getReader();
-    writer.write(new Uint8Array(buf));
-    writer.close();
-    const chunks = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-    const total = chunks.reduce((s, c) => s + c.length, 0);
-    const merged = new Uint8Array(total);
-    let offset = 0;
-    for (const c of chunks) { merged.set(c, offset); offset += c.length; }
-    jsonText = new TextDecoder().decode(merged);
-  } catch(decompErr) {
-    _replayLogErr(`Decompress failed for ${tfStr}: ${decompErr}`);
-    throw decompErr;
+  const data = await r.json();
+  // Print server-side debug log lines
+  if (data.debug && chunk === 0) {
+    data.debug.forEach(line => {
+      const col = line.includes('❌') ? '#ef5350' : line.includes('Downloaded') ? '#26a69a' : '#9598a1';
+      _replayLog('  ' + line, col);
+    });
   }
-
-  const candles = JSON.parse(jsonText);
-  _replayLogOk(`${tfStr} — ${candles.length} candles in ${elapsed}s`);
-
-  // chunk=0 format mein return karo (existing code ke saath compatible)
-  return {
-    candles:      candles,
-    chunk:        0,
-    total_rows:   candles.length,
-    total_chunks: 1,
-    has_more:     false,
-  };
+  return data;
 }
 
-// Fetch ALL — ab sirf ek request hoti hai per TF
+// Fetch ALL chunks for a TF — with progress logging
 async function _replayFetchAll(asset, tfStr) {
+  let allCandles = [];
+  let chunk = 0;
   const t0 = Date.now();
-  const res = await _replayFetchChunk(asset, tfStr, 0);
-  if (res.error) {
-    _replayLogErr(`Error in ${tfStr}: ${res.error}`);
-    throw new Error(res.error);
+  while (true) {
+    const res = await _replayFetchChunk(asset, tfStr, chunk);
+    if (res.error) {
+      _replayLogErr(`Error in ${tfStr} chunk${chunk}: ${res.error}`);
+      throw new Error(res.error);
+    }
+    allCandles = allCandles.concat(res.candles || []);
+    const pct = res.total_rows ? Math.round(allCandles.length / res.total_rows * 100) : '?';
+    _replayLog(`  chunk${chunk}: +${(res.candles||[]).length} candles  total=${allCandles.length}/${res.total_rows}  (${pct}%)`, '#787b86');
+    if (!res.has_more) break;
+    chunk++;
+    await new Promise(res2 => setTimeout(res2, 30));
   }
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-  _replayLogOk(`${tfStr} done — ${res.candles.length} candles in ${elapsed}s`);
-  return res.candles;
+  _replayLogOk(`${tfStr} done — ${allCandles.length} candles in ${elapsed}s`);
+  return allCandles;
 }
 
 // Destroy all replay cell charts
@@ -11944,10 +11923,15 @@ async function selectReplayAsset(asset) {
 
   const tfs = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
 
-  _replaySetStatus('Loading…');
+  _replaySetStatus('Connecting…');
   _replayLogClear();
+
+  // Ensure API port is resolved before loading
+  await _replayEnsurePort();
+
+  _replaySetStatus('Loading…');
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo(`Source: GitHub Raw JSON.gz`);
+  _replayLogInfo(`API port: ${_replayApiPort()}`);
   _replayLog('─'.repeat(38), '#2a2e39');
   const sc  = document.getElementById('replay-stack-container');
   if (!sc) return;
