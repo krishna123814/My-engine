@@ -11669,6 +11669,7 @@ const _REPLAY = {
   resizeObs: null,
   engine: { bn: null, btc: null },   // step-engine state per asset (persists across tab switches)
   stepping: false,                   // guard against double-tap while animating
+  srSeries: [],                      // native SR line-series per replay cell (cleared on each step)
 };
 
 // Approx "how many base-ticks make 1 candle of this TF" — used only to shape the
@@ -12176,16 +12177,46 @@ async function selectReplayAsset(asset) {
     _REPLAY.cells.push({ chart: null, series: null, tf: tfStr, el: chartDiv, idx: i });
   }
 
+  // ── Date filter: user-selected range se candles slice karo ─────────────────
+  const _fromInput = document.getElementById('rp-date-from');
+  const _toInput   = document.getElementById('rp-date-to');
+  const _fromSec = _fromInput && _fromInput.value
+    ? Math.floor(new Date(_fromInput.value + 'T00:00:00Z').getTime() / 1000) : 0;
+  const _toSec   = _toInput && _toInput.value
+    ? Math.floor(new Date(_toInput.value + 'T23:59:59Z').getTime() / 1000) : Infinity;
+
   // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
   for (let i = 0; i < total; i++) {
     const tfStr = tfs[i];
     _replaySetStatus(`Loading ${tfStr} (${i+1}/${total})…`);
     _replayLog(`\n▶ [${i+1}/${total}] ${tfStr}`, '#d1d4dc');
     try {
-      const candles = await _replayFetchAll(asset, tfStr);
+      let candles = await _replayFetchAll(asset, tfStr);
       if (!candles || !candles.length) {
         _replayLogWarn(`${tfStr} — 0 candles received, skipping chart`);
         continue;
+      }
+
+      // ── Apply date range filter ──────────────────────────────────────────
+      if (_fromSec > 0 || _toSec < Infinity) {
+        candles = candles.filter(c => c.time >= _fromSec && c.time <= _toSec);
+        _replayLogInfo(`${tfStr}: date filter → ${candles.length} candles`);
+      }
+
+      // ── Historical pre-load: replay start se pehle ke 500 base candles ──
+      // Sirf base TF (5m for BN, 160m for BTC) ke liye hist store karo.
+      // swingCompute in hist bars pe chalega taaki S/R lines replay start se
+      // pehle bhi ready rahein.
+      const baseTfStr = asset === 'bn' ? '5m' : '160m';
+      if (tfStr === baseTfStr && _fromSec > 0) {
+        const allBase = await _replayFetchAll(asset, tfStr);
+        const histRaw = allBase.filter(c => c.time < _fromSec);
+        // Last 500 candles ka slice (phone hang na ho)
+        const HIST_WIN = 500;
+        const histSlice = histRaw.length > HIST_WIN ? histRaw.slice(-HIST_WIN) : histRaw;
+        if (!_REPLAY.engine[asset]) _REPLAY.engine[asset] = {};
+        _REPLAY.engine[asset]._hist5m = histSlice;
+        _replayLogInfo(`${tfStr}: hist pre-load ${histSlice.length} candles (before replay range)`);
       }
 
       const el = document.getElementById('rcell-chart-' + i);
@@ -12272,7 +12303,9 @@ function _rpInitEngine(asset) {
   const baseCellIdx = _REPLAY.cells.findIndex(c => (c.tf||'').toLowerCase() === baseTf);
   const tfState = {};
   _REPLAY.cells.forEach((c, i) => { tfState[i] = {}; });
-  _REPLAY.engine[asset] = { baseTf, baseCellIdx, idx: -1, tfState };
+  // Preserve _hist5m loaded during selectReplayAsset
+  const prevHist = (_REPLAY.engine[asset] && _REPLAY.engine[asset]._hist5m) || [];
+  _REPLAY.engine[asset] = { baseTf, baseCellIdx, idx: -1, tfState, _hist5m: prevHist };
   _rpUpdateStepDisplay(asset);
   _replaySetStatus('Ready — tap STEP to begin');
 }
@@ -12411,6 +12444,74 @@ async function _rpStep() {
   await Promise.all(_REPLAY.cells.map((cell, i) => _rpAdvanceCell(eng, asset, cell, i, baseCandle)));
 
   _rpUpdateStepDisplay(asset);
+
+  // ── S/R Indicator: har step ke baad draw karo ──────────────────────────────
+  // Strategy: hist (pre-range 500 candles) + replay ke ab tak revealed base
+  // candles milake swingCompute karo. Phir har cell ke chart par natively draw.
+  try {
+    const hist5m = eng._hist5m || [];
+    // Base cell ke revealed candles (index 0 → eng.idx)
+    const revealedBase = baseCell.full.slice(0, eng.idx + 1);
+    // Combined: hist first, phir replay candles
+    const combined5m = hist5m.concat(revealedBase);
+
+    // Clear old SR lines (sabhi replay cells ke liye)
+    for (const old of (_REPLAY.srSeries || [])) {
+      try { old.chartObj.removeSeries(old.s); } catch(_) {}
+    }
+    _REPLAY.srSeries = [];
+
+    // Har TF cell ke liye S/R compute + draw karo
+    for (let ci = 0; ci < _REPLAY.cells.length; ci++) {
+      const rc = _REPLAY.cells[ci];
+      if (!rc.chart || !rc.series) continue;
+      const tfMin = _replayTfToMin(rc.tf || '');
+
+      // combined5m ko is cell ke TF mein resample karo
+      let barsForTF;
+      if (rc.tf === eng.baseTf) {
+        // Base TF cell: combined5m directly use karo
+        barsForTF = combined5m;
+      } else {
+        // Higher TF: resample combined5m → tfMin
+        barsForTF = _replayResample(combined5m, asset, rc.tf);
+      }
+
+      if (!barsForTF || barsForTF.length < 3) continue;
+
+      // swingCompute ek hi TF ke liye call karo (replay mein multi-TF nahi)
+      const lines = swingCompute(barsForTF, tfMin);
+      if (!lines || !lines.length) continue;
+
+      // Draw each line as a native series on this cell's chart
+      for (const ln of lines) {
+        try {
+          const color = ln.color || _tfSrColor(tfMin);
+          const s = rc.chart.addLineSeries({
+            color,
+            lineWidth: SWING_LINE_WIDTH,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            autoscaleInfoProvider: () => null,
+          });
+          const _periodSec = ln.isInfinite ? tfMin * 60 : (ln.periodSec || 60);
+          const endT = ln.isInfinite
+            ? (ln.startTime + _periodSec * 100)
+            : ln.endTime;
+          s.setData([
+            { time: ln.startTime, value: ln.price },
+            { time: endT,         value: ln.price },
+          ]);
+          _REPLAY.srSeries.push({ chartObj: rc.chart, s });
+        } catch(_) {}
+      }
+    }
+  } catch(srErr) {
+    console.warn('Replay S/R draw error:', srErr);
+  }
+  // ── S/R draw end ───────────────────────────────────────────────────────────
+
   if (stepBtn) stepBtn.disabled = false;
   _REPLAY.stepping = false;
 }
