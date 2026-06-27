@@ -11676,14 +11676,14 @@ const _REPLAY = {
 // values always snap to the real pre-resampled data, so this is cosmetic only.
 const _RP_MULT = {
   bn:  { '5m':1, '15m':3, '45m':9, '135m':27, '1d':75, '3d':225, '9d':675, '27d':2025 },
-  btc: { '160m':1, '8h':3, '1d':9, '3d':27, '9d':81, '27d':243 },
+  btc: { '5m':1, '15m':3, '1h':12, '4h':48, '1d':288, '3d':864, '9d':2592, '27d':7776 },
 };
-const _RP_BASE_TF = { bn: '5m', btc: '160m' };
+const _RP_BASE_TF = { bn: '5m', btc: '5m' };
 
-// BankNifty replay TFs (matches .gz keys)
+// BankNifty replay TFs (matches .gz keys — only 5m base, higher TFs resampled)
 const _REPLAY_BN_TFS  = ['5m','15m','45m','135m','1d','3d','9d','27d'];
-// BTC replay TFs (matches .gz keys exactly)
-const _REPLAY_BTC_TFS = ['160m','8h','1d','3d','9d','27d'];
+// BTC replay TFs (5m base, higher TFs resampled from 5m data)
+const _REPLAY_BTC_TFS = ['5m','15m','1h','4h','1d','3d','9d','27d'];
 
 // TF string → minutes (for resample + chart options)
 function _replayTfToMin(tfStr) {
@@ -11692,8 +11692,10 @@ function _replayTfToMin(tfStr) {
   if (s === '15m')  return 15;
   if (s === '45m')  return 45;
   if (s === '135m') return 135;
-  if (s === '160m') return 160;
+  if (s === '1h')   return 60;
+  if (s === '4h')   return 240;
   if (s === '8h')   return 480;
+  if (s === '160m') return 160;
   if (s === '1d')   return 1440;
   if (s === '3d')   return 4320;
   if (s === '9d')   return 12960;
@@ -11704,8 +11706,8 @@ function _replayTfToMin(tfStr) {
 // ── GitHub Direct Fetch (Option B) ──────────────────────────────────────────
 // localhost:8502 phone se reachable nahi — directly GitHub raw se fetch karo
 const _GH_RAW_BASE = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
-const _GH_BN_URL   = _GH_RAW_BASE + '/banknifty_all_timeframes.json.gz';
-const _GH_BTC_URL  = _GH_RAW_BASE + '/Bitcoin_BTCUSDT_master_all_timeframes.json.gz';
+const _GH_BN_URL   = _GH_RAW_BASE + '/banknifty_5m_csv_json.gz';
+const _GH_BTC_URL  = _GH_RAW_BASE + '/Bitcoin_BTCUSDT_IST_5m_json.gz';
 
 // In-memory cache — ek baar download ho toh dobara nahi
 const _REPLAY_GH_CACHE = {};  // { 'bn': parsedObj, 'btc': parsedObj }
@@ -11761,36 +11763,44 @@ async function _replayGhLoad(asset) {
 
 // Parse raw JSON obj → OHLC candles for a given TF key
 function _replayParseCandles(obj, asset, tfStr) {
-  // BN: {"data": {"5m": [...], ...}}   BTC: {"160m": [...], ...}
-  let data = (asset === 'bn' && obj.data && typeof obj.data === 'object') ? obj.data : obj;
-  // Exact match pehle, fir case-insensitive
-  let rows = data[tfStr];
-  if (!rows) {
-    const key = Object.keys(data).find(k => k.toLowerCase() === tfStr.toLowerCase());
-    if (key) rows = data[key];
-  }
-  if (!rows || !rows.length) return [];
+  // New BN format:  {"meta": {...}, "data": [...]}  — flat list, only 5m
+  // New BTC format: [{date:"2017-01-01", candles:[{t,o,h,l,c,v},...]},...] — day-grouped
 
   const IST_OFFSET_SEC = 5 * 3600 + 30 * 60;  // 19800
   const candles = [];
+
+  let rows = [];
+  if (asset === 'bn') {
+    // BN: flat list in data key
+    rows = Array.isArray(obj) ? obj : (obj.data && Array.isArray(obj.data) ? obj.data : []);
+  } else {
+    // BTC: day-grouped → flatten all candles
+    const dayList = Array.isArray(obj) ? obj : [];
+    for (const day of dayList) {
+      if (day.candles) rows = rows.concat(day.candles);
+    }
+  }
+
+  if (!rows.length) return [];
+
   for (const row of rows) {
     try {
-      const tsStr = (row.ts || row.Datetime || '').trim();
+      // BN key: "ts"  |  BTC key: "t"  — both IST, space-separated
+      const tsStr = (row.ts || row.t || '').trim();
       let ts;
       if (tsStr.includes('T')) {
-        // "2017-01-01T05:30:00.000" — UTC
+        // ISO format UTC
         ts = Math.floor(new Date(tsStr).getTime() / 1000);
       } else if (tsStr.includes(' ')) {
-        // "2015-01-09 09:15" — IST → UTC
+        // "2015-01-09 09:15" or "2017-01-01 05:30:00" — IST → UTC
         ts = Math.floor(new Date(tsStr.replace(' ', 'T') + 'Z').getTime() / 1000) - IST_OFFSET_SEC;
       } else {
-        // "2015-01-09" — date only UTC
         ts = Math.floor(new Date(tsStr + 'T00:00:00Z').getTime() / 1000);
       }
-      const o = parseFloat(row.o ?? row.Open);
-      const h = parseFloat(row.h ?? row.High);
-      const l = parseFloat(row.l ?? row.Low);
-      const c = parseFloat(row.c ?? row.Close);
+      const o = parseFloat(row.o);
+      const h = parseFloat(row.h);
+      const l = parseFloat(row.l);
+      const c = parseFloat(row.c);
       if (isNaN(ts) || isNaN(o)) continue;
       candles.push({ time: ts, open: o, high: h, low: l, close: c });
     } catch(_) {}
@@ -11807,7 +11817,8 @@ async function _replayEnsurePort() { return true; }
 async function _replayFetchAll(asset, tfStr) {
   const obj      = await _replayGhLoad(asset);
   const candles  = _replayParseCandles(obj, asset, tfStr);
-  const avail    = Object.keys((asset === 'bn' && obj.data) ? obj.data : obj).filter(k => k !== 'meta');
+  // Nayi files mein sirf 5m data hai dono assets mein
+  const avail = ['5m'];
   _replayLogInfo(`Available keys: ${avail.join(', ')}`);
   if (!candles.length) {
     _replayLogWarn(`${tfStr} — 0 candles (key nahi mila?)`);
@@ -11918,7 +11929,7 @@ function _replayTfClick(tfMin) {
   const tfs   = asset === 'bn' ? _REPLAY_BN_TFS : _REPLAY_BTC_TFS;
 
   // Find matching TF string
-  const tfMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8h',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
+  const tfMap = {5:'5m',15:'15m',45:'45m',135:'135m',60:'1h',240:'4h',480:'8h',160:'160m',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
   const tfStr = (tfMap[tfMin] || '').toLowerCase();
 
   // Find cell index by matching tf string (case-insensitive)
@@ -11945,7 +11956,7 @@ function _replayHighlightTf(activeTfMin) {
   // Update TF menu label in header
   const lbl = document.getElementById('rp-tf-menu-label');
   if (lbl) {
-    const nameMap = {5:'5m',15:'15m',45:'45m',135:'135m',160:'160m',480:'8H',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
+    const nameMap = {5:'5m',15:'15m',45:'45m',135:'135m',60:'1H',240:'4H',480:'8H',160:'160m',1440:'1D',4320:'3D',12960:'9D',38880:'27D'};
     lbl.textContent = nameMap[activeTfMin] || '--';
   }
 }
@@ -11966,9 +11977,9 @@ async function selectReplayAsset(asset) {
 
   // Update TF bar — dim/enable buttons based on asset
   // BN uses: 5,15,45,135,1440,4320,12960,38880
-  // BTC uses: 160,480,1440,4320,12960,38880
+  // BTC uses: 5,15,60,240,1440,4320,12960,38880
   const bnTfs     = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
-  const btcTfs    = [160, 480, 1440, 4320, 12960, 38880];
+  const btcTfs    = [5, 15, 60, 240, 1440, 4320, 12960, 38880];
   const activeTfs = asset === 'bn' ? bnTfs : btcTfs;
   const bar = document.getElementById('rp-tf-bar');
   if (bar) {
@@ -11982,7 +11993,7 @@ async function selectReplayAsset(asset) {
   }
   // Reset TF header label
   const rpLbl = document.getElementById('rp-tf-menu-label');
-  if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '160m';
+  if (rpLbl) rpLbl.textContent = asset === 'bn' ? '5m' : '5m';
 
   _replayDestroyCells();
 

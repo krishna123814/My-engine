@@ -906,8 +906,8 @@ def _register_api_route():
 
                     # ── GitHub raw URL for .json.gz files ────────────────────
                     _GH_RAW_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
-                    _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_all_timeframes_json.gz"
-                    _GH_BTC_URL  = f"{_GH_RAW_BASE}/Bitcoin_BTCUSDT_master_all_timeframes_json.gz"
+                    _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_5m_csv_json.gz"
+                    _GH_BTC_URL  = f"{_GH_RAW_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
 
                     # ── In-memory cache to avoid re-loading every request ─────
                     if not hasattr(self.__class__, '_replay_cache'):
@@ -919,7 +919,7 @@ def _register_api_route():
                     try:
                         import gzip as _gz, os as _os, urllib.request as _ur, time as _time
 
-                        fname  = "banknifty_all_timeframes_json.gz" if asset == "bn" else "Bitcoin_BTCUSDT_master_all_timeframes_json.gz"
+                        fname  = "banknifty_5m_csv_json.gz" if asset == "bn" else "Bitcoin_BTCUSDT_IST_5m_json.gz"
                         gh_url = _GH_BN_URL if asset == "bn" else _GH_BTC_URL
 
                         # Search paths: script dir first, then /mount/src/* (Streamlit Cloud)
@@ -987,28 +987,41 @@ def _register_api_route():
                         else:
                             debug_log.append(f"[8] Using cached data (already in memory)")
 
-                        # ── BN has nested structure: {"data": {"5m": [...], ...}}
-                        # ── BTC has flat structure:  {"160m": [...], "8h": [...], ...}
+                        # ── New BN format:  {"meta": {...}, "data": [...]}  — flat list, only 5m
+                        # ── New BTC format: [{"date": "2017-01-01", "candles": [{...}, ...]}, ...]
+                        #    BTC candle keys: {"t": "2017-01-01 05:30:00", "o", "h", "l", "c", "v"}
                         _raw = cache[asset]
-                        if asset == "bn" and "data" in _raw and isinstance(_raw["data"], dict):
-                            _data = _raw["data"]
-                        else:
-                            _data = _raw
-                        available_keys = [k for k in _data.keys() if k != "meta"]
-                        debug_log.append(f"[10] Available TF keys: {available_keys}")
 
-                        # ── Step C: TF lookup (exact → lowercase fallback) ─────
-                        tf_list = _data.get(tf)
-                        matched_key = tf
-                        if tf_list is None:
-                            for k in _data.keys():
-                                if k.lower() == tf.lower():
-                                    tf_list = _data[k]
-                                    matched_key = k
-                                    debug_log.append(f"[11] '{tf}' matched via lowercase → '{k}'")
-                                    break
-                        if tf_list is None:
-                            debug_log.append(f"[11] ❌ TF '{tf}' NOT found. Keys: {available_keys}")
+                        import datetime as _dt
+
+                        if asset == "bn":
+                            # BN: {"meta": {...}, "data": [...]}  only "5m" available
+                            _flat = _raw.get("data", _raw) if isinstance(_raw, dict) else _raw
+                            available_keys = ["5m"]
+                            debug_log.append(f"[10] BN: flat list, {len(_flat)} rows, only TF=5m available")
+                            # Any tf request for bn → serve the flat 5m list
+                            tf_list    = _flat if isinstance(_flat, list) else []
+                            matched_key = "5m"
+                        else:
+                            # BTC: list of day-objects → flatten all candles into one list
+                            if asset not in getattr(self.__class__, '_replay_flat_cache', {}):
+                                if not hasattr(self.__class__, '_replay_flat_cache'):
+                                    self.__class__._replay_flat_cache = {}
+                                day_list = _raw if isinstance(_raw, list) else []
+                                flat = []
+                                for day_obj in day_list:
+                                    for c in day_obj.get("candles", []):
+                                        flat.append(c)
+                                self.__class__._replay_flat_cache[asset] = flat
+                                debug_log.append(f"[10] BTC: flattened {len(day_list)} days → {len(flat)} candles")
+                            tf_list    = self.__class__._replay_flat_cache[asset]
+                            available_keys = ["5m"]
+                            matched_key    = "5m"
+
+                        debug_log.append(f"[10] matched_key={matched_key}  total_rows={len(tf_list)}")
+
+                        if not tf_list:
+                            debug_log.append(f"[11] ❌ No data found")
                             body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
                             self.send_response(404)
                         else:
@@ -1019,34 +1032,32 @@ def _register_api_route():
                             debug_log.append(f"[11] TF='{matched_key}'  rows={total_rows}  chunk={chunk}  slice={start}→{end}")
 
                             # ── Step D: Convert JSON rows → OHLC candles ──────
-                            # BN format:  {"ts": "2015-01-09 09:15", "o": ..., "h": ..., "l": ..., "c": ...}
-                            # BTC format: {"Datetime": "2017-01-01T05:30:00.000", "Open": ..., "High": ..., "Low": ..., "Close": ...}
-                            import datetime as _dt
+                            # BN row:  {"ts": "2015-01-09 09:15", "o", "h", "l", "c"}  — IST
+                            # BTC row: {"t": "2017-01-01 05:30:00", "o", "h", "l", "c", "v"} — IST
                             candles  = []
                             bad_rows = 0
+                            IST_OFFSET = _dt.timedelta(hours=5, minutes=30)
                             for row in slice_list:
                                 try:
-                                    # ── Timestamp ──────────────────────────────
-                                    ts_str = (row.get("ts") or row.get("Datetime") or "").strip()
-                                    if "T" in ts_str:
-                                        # ISO: "2017-01-01T05:30:00.000" — already UTC
+                                    # ── Timestamp: both BN and BTC use IST space-separated ──
+                                    ts_str = (row.get("ts") or row.get("t") or "").strip()
+                                    if " " in ts_str:
+                                        # "2015-01-09 09:15" or "2017-01-01 05:30:00" — IST → UTC
+                                        fmt = "%Y-%m-%d %H:%M:%S" if ts_str.count(":") == 2 else "%Y-%m-%d %H:%M"
+                                        dt_obj = _dt.datetime.strptime(ts_str, fmt)
+                                        ts = int((dt_obj - IST_OFFSET).replace(tzinfo=_dt.timezone.utc).timestamp())
+                                    elif "T" in ts_str:
                                         dt_obj = _dt.datetime.strptime(ts_str[:16], "%Y-%m-%dT%H:%M")
                                         ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
-                                    elif " " in ts_str:
-                                        # "2015-01-09 09:15" — IST, convert to UTC
-                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d %H:%M")
-                                        IST_OFFSET = _dt.timedelta(hours=5, minutes=30)
-                                        ts = int((dt_obj - IST_OFFSET).replace(tzinfo=_dt.timezone.utc).timestamp())
                                     else:
-                                        # "2015-01-09" — date only
                                         dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d")
                                         ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
 
-                                    # ── OHLC: BN lowercase keys, BTC Title case keys ──
-                                    o = float(row.get("o") or row.get("Open"))
-                                    h = float(row.get("h") or row.get("High"))
-                                    l = float(row.get("l") or row.get("Low"))
-                                    c = float(row.get("c") or row.get("Close"))
+                                    # ── OHLC: lowercase keys in both new formats ──
+                                    o = float(row["o"])
+                                    h = float(row["h"])
+                                    l = float(row["l"])
+                                    c = float(row["c"])
 
                                     candles.append({
                                         "time":  ts,
