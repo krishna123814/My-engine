@@ -11690,17 +11690,120 @@ function _replayTfToMin(tfStr) {
   return 1440;
 }
 
-// Get API port (same as main chart uses _API_PORT injected by Python)
-function _replayApiPort() {
-  if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) return _resolvedApiPort;
-  if (typeof _API_PORT !== 'undefined' && _API_PORT > 0) return _API_PORT;
-  return 8502;
+// ── GitHub Direct Fetch (Option B) ──────────────────────────────────────────
+// localhost:8502 phone se reachable nahi — directly GitHub raw se fetch karo
+const _GH_RAW_BASE = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
+const _GH_BN_URL   = _GH_RAW_BASE + '/banknifty_all_timeframes.json.gz';
+const _GH_BTC_URL  = _GH_RAW_BASE + '/Bitcoin_BTCUSDT_master_all_timeframes_json.gz';
+
+// In-memory cache — ek baar download ho toh dobara nahi
+const _REPLAY_GH_CACHE = {};  // { 'bn': parsedObj, 'btc': parsedObj }
+
+// DecompressionStream se gzip decompress karo (modern browsers support karte hain)
+async function _replayDecompressGz(arrayBuffer) {
+  if (typeof DecompressionStream !== 'undefined') {
+    const ds = new DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    const reader = ds.readable.getReader();
+    writer.write(arrayBuffer);
+    writer.close();
+    const chunks = [];
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+    const total = chunks.reduce((s, c) => s + c.length, 0);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) { out.set(c, offset); offset += c.length; }
+    return new TextDecoder().decode(out);
+  }
+  // Fallback: pako library nahi hai — raw text try karo (non-gz)
+  return new TextDecoder().decode(arrayBuffer);
 }
 
-async function _replayEnsurePort() {
-  if (_replayApiPort() > 0) return true;
-  if (typeof _probeApiPort === 'function') await _probeApiPort();
-  return _replayApiPort() > 0;
+// Download + parse karo GitHub se (with cache)
+async function _replayGhLoad(asset) {
+  if (_REPLAY_GH_CACHE[asset]) {
+    _replayLogInfo(`${asset.toUpperCase()}: cache se mil gaya`);
+    return _REPLAY_GH_CACHE[asset];
+  }
+  const url = asset === 'bn' ? _GH_BN_URL : _GH_BTC_URL;
+  _replayLogInfo(`Downloading ${asset.toUpperCase()} from GitHub…`);
+  _replayLog('  ' + url, '#787b86');
+  const t0 = Date.now();
+  const resp = await fetch(url, { cache: 'force-cache' });
+  if (!resp.ok) throw new Error(`GitHub fetch failed: HTTP ${resp.status}`);
+  const buf  = await resp.arrayBuffer();
+  const kb   = Math.round(buf.byteLength / 1024);
+  const secs = ((Date.now() - t0) / 1000).toFixed(1);
+  _replayLogOk(`Downloaded ${kb} KB in ${secs}s`);
+  _replayLog('  Decompressing…', '#787b86');
+  const text = await _replayDecompressGz(buf);
+  _replayLog('  Parsing JSON…', '#787b86');
+  const obj  = JSON.parse(text);
+  _REPLAY_GH_CACHE[asset] = obj;
+  _replayLogOk(`Parsed OK`);
+  return obj;
+}
+
+// Parse raw JSON obj → OHLC candles for a given TF key
+function _replayParseCandles(obj, asset, tfStr) {
+  // BN: {"data": {"5m": [...], ...}}   BTC: {"160m": [...], ...}
+  let data = (asset === 'bn' && obj.data && typeof obj.data === 'object') ? obj.data : obj;
+  // Exact match pehle, fir case-insensitive
+  let rows = data[tfStr];
+  if (!rows) {
+    const key = Object.keys(data).find(k => k.toLowerCase() === tfStr.toLowerCase());
+    if (key) rows = data[key];
+  }
+  if (!rows || !rows.length) return [];
+
+  const IST_OFFSET_SEC = 5 * 3600 + 30 * 60;  // 19800
+  const candles = [];
+  for (const row of rows) {
+    try {
+      const tsStr = (row.ts || row.Datetime || '').trim();
+      let ts;
+      if (tsStr.includes('T')) {
+        // "2017-01-01T05:30:00.000" — UTC
+        ts = Math.floor(new Date(tsStr).getTime() / 1000);
+      } else if (tsStr.includes(' ')) {
+        // "2015-01-09 09:15" — IST → UTC
+        ts = Math.floor(new Date(tsStr.replace(' ', 'T') + 'Z').getTime() / 1000) - IST_OFFSET_SEC;
+      } else {
+        // "2015-01-09" — date only UTC
+        ts = Math.floor(new Date(tsStr + 'T00:00:00Z').getTime() / 1000);
+      }
+      const o = parseFloat(row.o ?? row.Open);
+      const h = parseFloat(row.h ?? row.High);
+      const l = parseFloat(row.l ?? row.Low);
+      const c = parseFloat(row.c ?? row.Close);
+      if (isNaN(ts) || isNaN(o)) continue;
+      candles.push({ time: ts, open: o, high: h, low: l, close: c });
+    } catch(_) {}
+  }
+  return candles;
+}
+
+// Legacy port functions — no longer used but kept to avoid reference errors
+function _replayApiPort() { return 0; }
+async function _replayEnsurePort() { return true; }
+
+// ── Replacement fetch functions ──────────────────────────────────────────────
+// _replayFetchAll ab GitHub se directly fetch karta hai (chunk loop nahi)
+async function _replayFetchAll(asset, tfStr) {
+  const obj      = await _replayGhLoad(asset);
+  const candles  = _replayParseCandles(obj, asset, tfStr);
+  const avail    = Object.keys((asset === 'bn' && obj.data) ? obj.data : obj).filter(k => k !== 'meta');
+  _replayLogInfo(`Available keys: ${avail.join(', ')}`);
+  if (!candles.length) {
+    _replayLogWarn(`${tfStr} — 0 candles (key nahi mila?)`);
+  } else {
+    _replayLogOk(`${tfStr} — ${candles.length} candles`);
+  }
+  return candles;
 }
 
 // ── Debug log helpers ────────────────────────────────────────────────────────
@@ -11746,63 +11849,9 @@ function _replayLogErr(line)  { _replayLog('❌ ' + line, '#ef5350'); }
 function _replayLogInfo(line) { _replayLog('ℹ️  ' + line, '#d1d4dc'); }
 function _replayLogWarn(line) { _replayLog('⚠️  ' + line, '#f0b429'); }
 
-// Fetch one chunk — with timing + debug
+// _replayFetchChunk — legacy stub (no longer used, _replayFetchAll ab GitHub se directly fetch karta hai)
 async function _replayFetchChunk(asset, tfStr, chunk) {
-  const port = _replayApiPort();
-  const host = window.location.hostname || 'localhost';
-  const url = `http://${host}:${port}/api/replay_gz?asset=${asset}&tf=${encodeURIComponent(tfStr)}&chunk=${chunk}`;
-  const t0 = Date.now();
-  // Fresh AbortController per request — prevents cross-TF timeout contamination
-  const _ac = new AbortController();
-  const _acTimer = setTimeout(() => _ac.abort(), 90000);
-  let r;
-  try {
-    r = await fetch(url, { cache: 'no-store', signal: _ac.signal });
-  } catch(fetchErr) {
-    clearTimeout(_acTimer);
-    throw fetchErr;
-  }
-  clearTimeout(_acTimer);
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-  if (!r.ok) {
-    let errBody = '';
-    try { const j = await r.json(); errBody = JSON.stringify(j.debug || j.error || j); } catch(_) {}
-    _replayLogErr(`HTTP ${r.status} for ${tfStr} chunk${chunk} (${elapsed}s)`);
-    if (errBody) _replayLog('   ' + errBody, '#ef5350');
-    throw new Error('HTTP ' + r.status);
-  }
-  const data = await r.json();
-  // Print server-side debug log lines
-  if (data.debug && chunk === 0) {
-    data.debug.forEach(line => {
-      const col = line.includes('❌') ? '#ef5350' : line.includes('Downloaded') ? '#26a69a' : '#9598a1';
-      _replayLog('  ' + line, col);
-    });
-  }
-  return data;
-}
-
-// Fetch ALL chunks for a TF — with progress logging
-async function _replayFetchAll(asset, tfStr) {
-  let allCandles = [];
-  let chunk = 0;
-  const t0 = Date.now();
-  while (true) {
-    const res = await _replayFetchChunk(asset, tfStr, chunk);
-    if (res.error) {
-      _replayLogErr(`Error in ${tfStr} chunk${chunk}: ${res.error}`);
-      throw new Error(res.error);
-    }
-    allCandles = allCandles.concat(res.candles || []);
-    const pct = res.total_rows ? Math.round(allCandles.length / res.total_rows * 100) : '?';
-    _replayLog(`  chunk${chunk}: +${(res.candles||[]).length} candles  total=${allCandles.length}/${res.total_rows}  (${pct}%)`, '#787b86');
-    if (!res.has_more) break;
-    chunk++;
-    await new Promise(res2 => setTimeout(res2, 30));
-  }
-  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-  _replayLogOk(`${tfStr} done — ${allCandles.length} candles in ${elapsed}s`);
-  return allCandles;
+  throw new Error('_replayFetchChunk: ab use nahi hota — _replayFetchAll directly GitHub se fetch karta hai');
 }
 
 // Destroy all replay cell charts
