@@ -11854,48 +11854,27 @@ function _replayResample(candles5m, asset, tfStr) {
     : ['160m','8h'];
 
   if (fixedTfs.includes(tfStr)) {
-    // BN intraday (15m/45m/135m): 9:15 IST anchor bucketing — same logic as main resample()
-    // BTC (160m/8h): epoch-aligned bucketing (24/7 market, no session boundary)
-    if (asset === 'bn') {
-      const SESSION_START = 9*60 + 15;  // 555 min
-      const SESSION_END   = 15*60 + 30; // 930 min
-      const buckets = {};
-      for (const c of candles5m) {
-        const istSec   = c.time + IST_OFF;
-        const dayStart = istSec - (istSec % 86400);
-        const minOfDay = Math.floor((istSec % 86400) / 60);
-        if (minOfDay < SESSION_START || minOfDay >= SESSION_END) continue;
-        const minSinceOpen   = minOfDay - SESSION_START;
-        const bucketIdx      = Math.floor(minSinceOpen / tfMin);
-        const bucketStartMin = SESSION_START + bucketIdx * tfMin;
-        const key = (dayStart - IST_OFF) + bucketStartMin * 60;
-        if (!buckets[key]) {
-          buckets[key] = {time:key, open:c.open, high:c.high, low:c.low, close:c.close};
-        } else {
-          const b = buckets[key];
-          if (c.high > b.high) b.high = c.high;
-          if (c.low  < b.low)  b.low  = c.low;
-          b.close = c.close;
-        }
+    // Group into tfMin-wide buckets aligned to epoch
+    let bucket = null;
+    for (const c of candles5m) {
+      // For BN: skip non-market candles
+      if (asset === 'bn') {
+        const ist = c.time + IST_OFF;
+        const hhmm = Math.floor((ist % 86400) / 60);
+        if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
       }
-      return Object.values(buckets).sort((a,b) => a.time - b.time);
-    } else {
-      // BTC: epoch-aligned (no session boundary)
-      let bucket = null;
-      for (const c of candles5m) {
-        const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
-        if (!bucket || bucket.time !== bucketTs) {
-          if (bucket) out.push(bucket);
-          bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
-        } else {
-          if (c.high > bucket.high) bucket.high = c.high;
-          if (c.low  < bucket.low)  bucket.low  = c.low;
-          bucket.close = c.close;
-        }
+      const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
+      if (!bucket || bucket.time !== bucketTs) {
+        if (bucket) out.push(bucket);
+        bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+      } else {
+        if (c.high > bucket.high) bucket.high = c.high;
+        if (c.low  < bucket.low)  bucket.low  = c.low;
+        bucket.close = c.close;
       }
-      if (bucket) out.push(bucket);
-      return out;
     }
+    if (bucket) out.push(bucket);
+    return out;
   }
 
   // Day / multi-day TFs — group by IST date (BN) or UTC date (BTC)
@@ -11904,18 +11883,13 @@ function _replayResample(candles5m, asset, tfStr) {
                       : tfStr === '9d' ? 9
                       : tfStr === '27d'? 27 : 1;
 
-  // Build daily candles first — BN: skip weekends + NSE holidays (same as resampleWorkingDays)
-  const dailyMap = new Map();  // key = dayTs → candle
+  // Build daily candles first
+  const dailyMap = new Map();  // key = "YYYY-MM-DD" → candle
   for (const c of candles5m) {
     if (asset === 'bn') {
       const ist = c.time + IST_OFF;
       const hhmm = Math.floor((ist % 86400) / 60);
       if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
-      // Skip weekends
-      const dow = new Date(c.time * 1000).getUTCDay();
-      if (dow === 0 || dow === 6) continue;
-      // Skip NSE holidays
-      if (typeof NSE_HOLIDAYS !== 'undefined' && NSE_HOLIDAYS.has(_utcDateStr(c.time))) continue;
     }
     const offsetSec = asset === 'bn' ? IST_OFF : 0;
     const dayTs = Math.floor((c.time + offsetSec) / 86400) * 86400 - offsetSec;
