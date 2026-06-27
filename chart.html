@@ -11816,23 +11816,28 @@ function _replayLogClear() {
 }
 function _replayClearLog() {
   const el = document.getElementById('replay-debug-log');
-  if (el) el.textContent = 'Waiting…';
+  if (el) el.innerHTML = '';
 }
 function _replayCopyLog() {
   const el = document.getElementById('replay-debug-log');
   if (!el) return;
   const text = el.innerText || el.textContent || '';
+  const _flashBtn = (ok) => {
+    const btn = document.getElementById('replay-copy-btn');
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = ok ? '✓ Copied!' : '✓ Select karo';
+    btn.style.background = '#26a69a';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = '#2962ff'; }, 2000);
+  };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => {
-      // Flash copy button green
-      const btn = document.querySelector('#replay-debug-drag button');
-      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; btn.style.background='#26a69a'; setTimeout(()=>{ btn.textContent=orig; btn.style.background='#2962ff'; }, 1500); }
-    }).catch(() => _replayLogWarn('Copy failed — browser ne block kiya'));
+    navigator.clipboard.writeText(text).then(() => _flashBtn(true)).catch(() => {
+      prompt('Log copy karo (Select All → Copy):', text);
+      _flashBtn(false);
+    });
   } else {
-    // Fallback: select text
-    const r = document.createRange(); r.selectNodeContents(el);
-    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
-    try { document.execCommand('copy'); sel.removeAllRanges(); } catch(_) {}
+    prompt('Log copy karo (Select All → Copy):', text);
+    _flashBtn(false);
   }
 }
 function _replayLog(line, color) {
@@ -12330,7 +12335,7 @@ function _initReplayDrag() {
   <!-- Drag handle -->
   <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
     <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-    <button onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
+    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
     <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
     <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
   </div>
