@@ -12302,6 +12302,9 @@ async function selectReplayAsset(asset) {
 
   _rpInitEngine(asset);
 
+  // ── Initial S/R draw — Load ke turant baad (step se pehle bhi lines dikhein) ──
+  _rpDrawSR(asset);
+
   // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
   _REPLAY.resizeObs = new ResizeObserver(() => {
@@ -12470,47 +12473,53 @@ async function _rpStep() {
 
   _rpUpdateStepDisplay(asset);
 
-  // ── S/R Indicator: har step ke baad draw karo ──────────────────────────────
-  // Strategy: hist (pre-range 500 candles) + replay ke ab tak revealed base
-  // candles milake swingCompute karo. Phir har cell ke chart par natively draw.
-  try {
-    // Base cell ke revealed candles (index 0 → eng.idx)
-    const revealedBase = baseCell.full.slice(0, eng.idx + 1);
+  // S/R draw — har step ke baad update karo
+  _rpDrawSR(asset);
 
-    // Clear old SR lines (sabhi replay cells ke liye)
+  if (stepBtn) stepBtn.disabled = false;
+  _REPLAY.stepping = false;
+}
+
+// ── Replay S/R draw helper — Load aur Step dono se call hota hai ─────────────
+function _rpDrawSR(asset) {
+  try {
+    const eng = _REPLAY.engine[asset];
+    if (!eng) return;
+    const baseCell = _REPLAY.cells[eng.baseCellIdx];
+    if (!baseCell || !baseCell.full) return;
+
+    // Revealed base candles (0 → current idx); idx=-1 matlab koi step nahi hua
+    const revealedBase = eng.idx >= 0
+      ? baseCell.full.slice(0, eng.idx + 1)
+      : [];
+
+    // Clear old SR lines
     for (const oldSr of (_REPLAY.srSeries || [])) {
       try { oldSr.chartObj.removeSeries(oldSr.s); } catch(_) {}
     }
     _REPLAY.srSeries = [];
 
-    // Har TF cell ke liye S/R compute + draw karo
     for (let ci = 0; ci < _REPLAY.cells.length; ci++) {
       const rc = _REPLAY.cells[ci];
       if (!rc.chart || !rc.series) continue;
       const tfMin = _replayTfToMin(rc.tf || '');
-
-      // hist (pre-range) + revealed replay candles = S/R ke liye combined data
-      // rc.hist already is TF ke liye resampled hai (load time par set hua tha)
       const rcHist = rc.hist || [];
 
-      // barsForTF: hist + replay revealed, is cell ke TF mein
+      // hist + revealed replay bars — is cell ke TF mein
       let barsForTF;
       if (rc.tf === eng.baseTf) {
-        // Base TF: hist + revealedBase directly
         barsForTF = rcHist.concat(revealedBase);
       } else {
-        // Higher TF: hist already resampled hai; revealed base ko bhi resample karo
-        const revResampled = _replayResample(revealedBase, asset, rc.tf);
+        const revResampled = revealedBase.length
+          ? _replayResample(revealedBase, asset, rc.tf) : [];
         barsForTF = rcHist.concat(revResampled);
       }
 
       if (!barsForTF || barsForTF.length < 3) continue;
 
-      // swingCompute ek hi TF ke liye call karo (replay mein multi-TF nahi)
       const lines = swingCompute(barsForTF, tfMin);
       if (!lines || !lines.length) continue;
 
-      // Draw each line as a native series on this cell's chart
       for (const ln of lines) {
         try {
           const color = ln.color || _tfSrColor(tfMin);
@@ -12535,12 +12544,8 @@ async function _rpStep() {
       }
     }
   } catch(srErr) {
-    console.warn('Replay S/R draw error:', srErr);
+    console.warn('Replay _rpDrawSR error:', srErr);
   }
-  // ── S/R draw end ───────────────────────────────────────────────────────────
-
-  if (stepBtn) stepBtn.disabled = false;
-  _REPLAY.stepping = false;
 }
 
 // Status text in float box + header badge
