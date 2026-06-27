@@ -12481,6 +12481,11 @@ async function _rpStep() {
 }
 
 // ── Replay S/R draw helper — Load aur Step dono se call hota hai ─────────────
+// Normal chart jaisi poori logic:
+//   1. Current cell TF + SWING_TF_LIST ke enabled higher TFs
+//   2. Same-price dedup (highest TF rakho; candle > swing)
+//   3. Hierarchy filter (currentTf <= line.levelTf)
+//   4. _bnBuildSRNative se draw (range restore bhi hoti hai)
 function _rpDrawSR(asset) {
   try {
     const eng = _REPLAY.engine[asset];
@@ -12488,12 +12493,12 @@ function _rpDrawSR(asset) {
     const baseCell = _REPLAY.cells[eng.baseCellIdx];
     if (!baseCell || !baseCell.full) return;
 
-    // Revealed base candles (0 → current idx); idx=-1 matlab koi step nahi hua
+    // Revealed base candles (0 → current idx); idx=-1 = koi step nahi
     const revealedBase = eng.idx >= 0
       ? baseCell.full.slice(0, eng.idx + 1)
       : [];
 
-    // Clear old SR lines
+    // Clear old SR lines (sabhi replay cells)
     for (const oldSr of (_REPLAY.srSeries || [])) {
       try { oldSr.chartObj.removeSeries(oldSr.s); } catch(_) {}
     }
@@ -12502,45 +12507,101 @@ function _rpDrawSR(asset) {
     for (let ci = 0; ci < _REPLAY.cells.length; ci++) {
       const rc = _REPLAY.cells[ci];
       if (!rc.chart || !rc.series) continue;
-      const tfMin = _replayTfToMin(rc.tf || '');
+      const currentTfMin = _replayTfToMin(rc.tf || '');
       const rcHist = rc.hist || [];
 
-      // hist + revealed replay bars — is cell ke TF mein
-      let barsForTF;
-      if (rc.tf === eng.baseTf) {
-        barsForTF = rcHist.concat(revealedBase);
-      } else {
-        const revResampled = revealedBase.length
-          ? _replayResample(revealedBase, asset, rc.tf) : [];
-        barsForTF = rcHist.concat(revResampled);
+      // ── Helper: is cell ke liye bars banana (hist + revealed, given tfStr) ──
+      function _barsFor(tfStr) {
+        const h = rcHist; // already resampled to rc.tf at load time
+        if (tfStr === rc.tf) {
+          // Base TF same as cell TF: hist already correct, concat revealed
+          const rev = (rc.tf === eng.baseTf)
+            ? revealedBase
+            : (revealedBase.length ? _replayResample(revealedBase, asset, tfStr) : []);
+          return h.concat(rev).sort((a,b) => a.time - b.time);
+        }
+        // Different (higher) TF: resample base hist + revealed from base
+        const baseHistAll = (baseCell.hist || []);
+        const allBase = baseHistAll.concat(revealedBase).sort((a,b) => a.time - b.time);
+        return _replayResample(allBase, asset, tfStr);
       }
 
-      if (!barsForTF || barsForTF.length < 3) continue;
+      const allLines = [];
 
-      const lines = swingCompute(barsForTF, tfMin);
-      if (!lines || !lines.length) continue;
+      // Step 1: Current cell TF ke lines
+      const barsCur = _barsFor(rc.tf);
+      if (barsCur.length >= 3) {
+        const linesCur = swingCompute(barsCur, currentTfMin);
+        const valid = linesCur.filter(l => currentTfMin <= l.levelTf);
+        allLines.push(...valid);
+      }
 
-      for (const ln of lines) {
-        try {
-          const color = ln.color || _tfSrColor(tfMin);
-          const s = rc.chart.addLineSeries({
-            color,
-            lineWidth: SWING_LINE_WIDTH,
-            lastValueVisible: false,
-            priceLineVisible: false,
-            crosshairMarkerVisible: false,
-            autoscaleInfoProvider: () => null,
-          });
-          const _periodSec = ln.isInfinite ? tfMin * 60 : (ln.periodSec || 60);
-          const endT = ln.isInfinite
-            ? (ln.startTime + _periodSec * 100)
-            : ln.endTime;
-          s.setData([
-            { time: ln.startTime, value: ln.price },
-            { time: endT,         value: ln.price },
-          ]);
-          _REPLAY.srSeries.push({ chartObj: rc.chart, s });
-        } catch(_) {}
+      // Step 2: SWING_TF_LIST ke enabled higher TFs (normal chart jaisi multi-TF)
+      const enabledHigher = (typeof SWING_TF_LIST !== 'undefined' ? SWING_TF_LIST : [])
+        .filter(t => t.enabled && t.min > currentTfMin)
+        .sort((a, b) => a.min - b.min);
+
+      for (const tf of enabledHigher) {
+        const tfStr = _minToTFLabel ? _minToTFLabel(tf.min) : String(tf.min) + 'm';
+        // Map tf.min to replay TF string (e.g. 1440→'1d', 4320→'3d' etc.)
+        const rpTfStr = (() => {
+          const m = tf.min;
+          if (asset === 'bn') {
+            if (m===5)     return '5m';
+            if (m===15)    return '15m';
+            if (m===45)    return '45m';
+            if (m===135)   return '135m';
+            if (m===1440)  return '1d';
+            if (m===4320)  return '3d';
+            if (m===12960) return '9d';
+            if (m===38880) return '27d';
+          } else {
+            if (m===160)   return '160m';
+            if (m===480)   return '8h';
+            if (m===1440)  return '1d';
+            if (m===4320)  return '3d';
+            if (m===12960) return '9d';
+            if (m===38880) return '27d';
+          }
+          return null;
+        })();
+        if (!rpTfStr) continue;
+        // Higher TF bars: base hist + revealed, resampled to this TF
+        const baseHistAll2 = (baseCell.hist || []);
+        const allBase2 = baseHistAll2.concat(revealedBase).sort((a,b) => a.time - b.time);
+        const barsHTF = _replayResample(allBase2, asset, rpTfStr);
+        if (barsHTF.length >= 3) {
+          const htfLines = swingCompute(barsHTF, tf.min);
+          const valid = htfLines.filter(l => currentTfMin <= l.levelTf);
+          allLines.push(...valid);
+        }
+      }
+
+      // Step 3: Same-price dedup — normal chart jaisi
+      const _swingByPrice  = new Map();
+      const _candleByPrice = new Map();
+      for (const line of allLines) {
+        if (line.isInfinite) {
+          const ex = _swingByPrice.get(line.price);
+          if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
+        } else {
+          const ex = _candleByPrice.get(line.price);
+          if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
+        }
+      }
+      // Candle H/L > Swing at same price
+      for (const price of _candleByPrice.keys()) _swingByPrice.delete(price);
+      const finalLines = [
+        ...Array.from(_swingByPrice.values()),
+        ...Array.from(_candleByPrice.values()),
+      ];
+
+      if (!finalLines.length) continue;
+
+      // Step 4: _bnBuildSRNative se draw (range restore bhi hoti hai)
+      const created = _bnBuildSRNative(rc.chart, finalLines, null);
+      for (const s of created) {
+        _REPLAY.srSeries.push({ chartObj: rc.chart, s });
       }
     }
   } catch(srErr) {
