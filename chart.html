@@ -11820,6 +11820,26 @@ async function _replayGhLoad(asset) {
   raw5m.sort((a,b) => a.time - b.time);
   _replayLogOk(`Parsed: ${raw5m.length} x 5m candles`);
   _REPLAY_RAW_CACHE[asset] = raw5m;
+
+  // ── Pre-built TF keys in file — seedha TF cache mein daal do (resample skip) ──
+  // BN file mein '135m' key hai — IST-session-aligned, pre-computed
+  if (asset === 'bn' && obj && Array.isArray(obj['135m'])) {
+    const rows135 = obj['135m'];
+    const candles135 = [];
+    for (const row of rows135) {
+      try {
+        const tsStr = (row.ts || '').trim();
+        const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
+        const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
+        if (isNaN(ts)||isNaN(o)) continue;
+        candles135.push({time:ts, open:o, high:h, low:l, close:c});
+      } catch(_) {}
+    }
+    candles135.sort((a,b) => a.time - b.time);
+    _REPLAY_TF_CACHE['bn|135m'] = candles135;
+    _replayLogOk(`135m pre-built: ${candles135.length} candles (IST-aligned, from file)`);
+  }
+
   return raw5m;
 }
 
