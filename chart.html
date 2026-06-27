@@ -11874,23 +11874,46 @@ function _replayResample(candles5m, asset, tfStr) {
     : ['160m','8h'];
 
   if (fixedTfs.includes(tfStr)) {
-    // Group into tfMin-wide buckets aligned to epoch
+    // Group into tfMin-wide buckets
+    // BN: align to 09:15 IST market open (buckets: 09:15, 11:30, 13:45 for 135m etc.)
+    // BTC: align to epoch (24/7, no market open)
+    const BN_OPEN_MIN = 9*60+15; // 555 minutes since IST midnight
     let bucket = null;
     for (const c of candles5m) {
-      // For BN: skip non-market candles
       if (asset === 'bn') {
         const ist = c.time + IST_OFF;
         const hhmm = Math.floor((ist % 86400) / 60);
         if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
-      }
-      const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
-      if (!bucket || bucket.time !== bucketTs) {
-        if (bucket) out.push(bucket);
-        bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+        // BN: bucket aligned to 09:15 IST
+        // minutes since IST midnight for this candle
+        const minSinceMidnight = Math.floor((ist % 86400) / 60);
+        // minutes since market open (09:15)
+        const minSinceOpen = minSinceMidnight - BN_OPEN_MIN;
+        // which bucket since open
+        const bucketIdx = Math.floor(minSinceOpen / tfMin);
+        // IST midnight of this day
+        const istDayStart = Math.floor(ist / 86400) * 86400;
+        // bucket start in UTC
+        const bucketTs = (istDayStart + (BN_OPEN_MIN + bucketIdx * tfMin) * 60) - IST_OFF;
+        if (!bucket || bucket.time !== bucketTs) {
+          if (bucket) out.push(bucket);
+          bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+        } else {
+          if (c.high > bucket.high) bucket.high = c.high;
+          if (c.low  < bucket.low)  bucket.low  = c.low;
+          bucket.close = c.close;
+        }
       } else {
-        if (c.high > bucket.high) bucket.high = c.high;
-        if (c.low  < bucket.low)  bucket.low  = c.low;
-        bucket.close = c.close;
+        // BTC: epoch-aligned buckets
+        const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
+        if (!bucket || bucket.time !== bucketTs) {
+          if (bucket) out.push(bucket);
+          bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+        } else {
+          if (c.high > bucket.high) bucket.high = c.high;
+          if (c.low  < bucket.low)  bucket.low  = c.low;
+          bucket.close = c.close;
+        }
       }
     }
     if (bucket) out.push(bucket);
@@ -11912,7 +11935,17 @@ function _replayResample(candles5m, asset, tfStr) {
       if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
     }
     const offsetSec = asset === 'bn' ? IST_OFF : 0;
-    const dayTs = Math.floor((c.time + offsetSec) / 86400) * 86400 - offsetSec;
+    // BN: day key = 09:15 IST timestamp (market open), not midnight
+    // BTC: day key = UTC midnight
+    let dayTs;
+    if (asset === 'bn') {
+      const ist = c.time + IST_OFF;
+      const istDayStart = Math.floor(ist / 86400) * 86400;
+      // 09:15 IST = market open = istDayStart + 555*60 seconds, converted to UTC
+      dayTs = (istDayStart + 9*3600 + 15*60) - IST_OFF;
+    } else {
+      dayTs = Math.floor((c.time + offsetSec) / 86400) * 86400 - offsetSec;
+    }
     const key   = String(dayTs);
     if (!dailyMap.has(key)) {
       dailyMap.set(key, {time:dayTs, open:c.open, high:c.high, low:c.low, close:c.close});
