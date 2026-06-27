@@ -2361,14 +2361,26 @@ const TZ_MAP = {
 
 // Format: DD/MM/YYYY  HH:MM  or  DD/MM/YYYY  hh:MM AM/PM
 // For daily+ TFs — only show date, no time
-function fmtChartTime(t) {
+function fmtChartTime(t, _overrideTfMin) {
   const d = new Date(t * 1000);
   const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
   const use12h = S.hour12 === true;
 
   // Current active TF (minutes)
-  const activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
-    ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
+  // Replay active hai → replay base TF use karo (5m), normal chart ka TF nahi
+  let activeTf;
+  if (_overrideTfMin != null) {
+    activeTf = _overrideTfMin;
+  } else if (typeof _REPLAY !== 'undefined' && _REPLAY.active && _REPLAY.cells && _REPLAY.cells.length > 0) {
+    // Replay mein smallest TF (base TF = 5m) use karo taaki time hamesha dikhे
+    const rpTfMins = _REPLAY.cells
+      .filter(c => c.tf)
+      .map(c => typeof _replayTfToMin === 'function' ? _replayTfToMin(c.tf) : 5);
+    activeTf = rpTfMins.length > 0 ? Math.min(...rpTfMins) : 5;
+  } else {
+    activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
+      ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
+  }
 
   // Daily or higher → only date, no time
   if (activeTf >= 1440) {
@@ -12284,7 +12296,7 @@ async function selectReplayAsset(asset) {
         rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
         timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
         localization: {
-          timeFormatter: (t) => fmtChartTime(t),
+          timeFormatter: (t) => fmtChartTime(t, typeof _replayTfToMin === 'function' ? _replayTfToMin(tfStr) : 5),
           priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         },
         handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
