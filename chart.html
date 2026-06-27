@@ -12084,6 +12084,9 @@ async function selectReplayAsset(asset) {
 
       _REPLAY.cells[i].chart  = ch;
       _REPLAY.cells[i].series = ser;
+      _REPLAY.cells[i].tfMin    = _replayTfToMin(tfStr);
+      _REPLAY.cells[i].assetKey = asset === 'bn' ? BN_ASSET : BTC_ASSET;
+      _REPLAY.cells[i].candles  = candles;   // saare candles save — SR inject ke liye
 
       attachMobileTouchUX(el, ch, () => ser);
 
@@ -12099,6 +12102,72 @@ async function selectReplayAsset(asset) {
   _replaySetStatus('');
   _replayLog('\n' + '─'.repeat(38), '#2a2e39');
   _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
+
+  // ── Step 1: Sabhi TF data ek saath global arrays mein inject karo ────────
+  // (Loop ke andar override hota tha — pehle sab collect, phir inject)
+  try {
+    if (asset === 'bn') {
+      // BN: 5m→BN_5M, 15m→BN_15M, 45m→BN_45M, 135m bhi BN_45M se resample hoga,
+      //     1d/3d/9d/27d → BN_DAILY (sabse bada jo available ho woh inject karo)
+      for (const rc of _REPLAY.cells) {
+        if (!rc.candles || !rc.candles.length || !rc.tfMin) continue;
+        if      (rc.tfMin >= 1440 && Array.isArray(BN_DAILY)) { BN_DAILY.length=0; rc.candles.forEach(c2=>BN_DAILY.push(c2)); }
+        else if (rc.tfMin >= 45   && Array.isArray(BN_45M))   { BN_45M.length=0;   rc.candles.forEach(c2=>BN_45M.push(c2));   }
+        else if (rc.tfMin >= 15   && Array.isArray(BN_15M))   { BN_15M.length=0;   rc.candles.forEach(c2=>BN_15M.push(c2));   }
+        else if (rc.tfMin >= 5    && Array.isArray(BN_5M))    { BN_5M.length=0;    rc.candles.forEach(c2=>BN_5M.push(c2));    }
+      }
+      // 135m → BN_45M se resample hoga automatically (swingComputeMultiTF handle karta hai)
+      _replayLogInfo('BN data injected: 5m/15m/45m/1d arrays updated');
+    } else {
+      // BTC: 160m/8h→BTC_15M (smallest), 1d+ → BTC_DAILY
+      for (const rc of _REPLAY.cells) {
+        if (!rc.candles || !rc.candles.length || !rc.tfMin) continue;
+        if (rc.tfMin >= 1440 && Array.isArray(BTC_DAILY)) { BTC_DAILY.length=0; rc.candles.forEach(c2=>BTC_DAILY.push(c2)); }
+        else if (Array.isArray(BTC_15M))                   { BTC_15M.length=0;  rc.candles.forEach(c2=>BTC_15M.push(c2));   }
+      }
+      _replayLogInfo('BTC data injected: 15m/daily arrays updated');
+    }
+  } catch(injErr) {
+    _replayLogWarn('Data inject error: ' + injErr.message);
+  }
+
+  // ── Step 2: SWING_TF_LIST setup — replay ke saare TFs enable karo ────────
+  // swingComputeMultiTF SWING_TF_LIST se higher TFs dhundhta hai
+  try {
+    if (typeof SWING_TF_LIST !== 'undefined') {
+      const replayTfMins = _REPLAY.cells.map(rc => rc.tfMin).filter(Boolean);
+      // Replay ke TFs jo SWING_TF_LIST mein nahi hain unhe temporarily add karo
+      for (const tfMin of replayTfMins) {
+        const exists = SWING_TF_LIST.some(t => t.min === tfMin);
+        if (!exists) SWING_TF_LIST.push({ min: tfMin, enabled: true, _replayTemp: true });
+        else {
+          const t = SWING_TF_LIST.find(t => t.min === tfMin);
+          if (t) t.enabled = true;
+        }
+      }
+    }
+  } catch(_) {}
+
+  // ── Step 3: Har replay cell pe SR draw karo ───────────────────────────────
+  if (typeof swingComputeMultiTF === 'function' && typeof _bnBuildSRNative === 'function') {
+    _replayLogInfo('SR lines draw ho rahi hain…');
+    for (let i = 0; i < _REPLAY.cells.length; i++) {
+      const rc = _REPLAY.cells[i];
+      if (!rc.chart || !rc.series || !rc.assetKey || !rc.tfMin) continue;
+      try {
+        const lines = swingComputeMultiTF(rc.assetKey, rc.tfMin);
+        if (lines && lines.length) {
+          rc.srSeries = _bnBuildSRNative(rc.chart, lines, null);
+          _replayLogOk(`SR [${rc.tf}]: ${lines.length} lines`);
+        } else {
+          _replayLogWarn(`SR [${rc.tf}]: 0 lines`);
+        }
+      } catch(srErr) {
+        _replayLogWarn(`SR [${rc.tf}] error: ${srErr.message || srErr}`);
+      }
+      await new Promise(r2 => setTimeout(r2, 5)); // yield — mobile hang avoid
+    }
+  }
 
   // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
