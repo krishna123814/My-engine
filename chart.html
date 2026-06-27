@@ -11701,16 +11701,18 @@ function _replayTfToMin(tfStr) {
   return 1440;
 }
 
-// ── GitHub Direct Fetch (Option B) ──────────────────────────────────────────
-// localhost:8502 phone se reachable nahi — directly GitHub raw se fetch karo
+// ── GitHub Direct Fetch ──────────────────────────────────────────────────────
 const _GH_RAW_BASE = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
 const _GH_BN_URL   = _GH_RAW_BASE + '/banknifty_5m_csv.json.gz';
 const _GH_BTC_URL  = _GH_RAW_BASE + '/Bitcoin_BTCUSDT_IST_5m.json.gz';
 
 // In-memory cache — ek baar download ho toh dobara nahi
-const _REPLAY_GH_CACHE = {};  // { 'bn': parsedObj, 'btc': parsedObj }
+// _REPLAY_RAW_CACHE: { 'bn': [{ts,o,h,l,c},...], 'btc': [{t,o,h,l,c},...] }  (5m flat candles)
+// _REPLAY_TF_CACHE:  { 'bn|5m': [...], 'bn|15m': [...], 'btc|160m': [...], ... }
+const _REPLAY_RAW_CACHE = {};
+const _REPLAY_TF_CACHE  = {};
 
-// DecompressionStream se gzip decompress karo (modern browsers support karte hain)
+// ── Decompress gzip ──────────────────────────────────────────────────────────
 async function _replayDecompressGz(arrayBuffer) {
   if (typeof DecompressionStream !== 'undefined') {
     const ds = new DecompressionStream('gzip');
@@ -11730,87 +11732,217 @@ async function _replayDecompressGz(arrayBuffer) {
     for (const c of chunks) { out.set(c, offset); offset += c.length; }
     return new TextDecoder().decode(out);
   }
-  // Fallback: pako library nahi hai — raw text try karo (non-gz)
   return new TextDecoder().decode(arrayBuffer);
 }
 
-// Download + parse karo GitHub se (with cache)
+// ── Download + parse raw 5m candles from GitHub ──────────────────────────────
+// Returns flat array of {time(UTC epoch sec), open, high, low, close}
 async function _replayGhLoad(asset) {
-  if (_REPLAY_GH_CACHE[asset]) {
-    _replayLogInfo(`${asset.toUpperCase()}: cache se mil gaya`);
-    return _REPLAY_GH_CACHE[asset];
+  if (_REPLAY_RAW_CACHE[asset]) {
+    _replayLogInfo(`${asset.toUpperCase()}: raw cache se mila (${_REPLAY_RAW_CACHE[asset].length} candles)`);
+    return _REPLAY_RAW_CACHE[asset];
   }
+
   const url = asset === 'bn' ? _GH_BN_URL : _GH_BTC_URL;
   _replayLogInfo(`Downloading ${asset.toUpperCase()} from GitHub…`);
-  _replayLog('  ' + url, '#787b86');
+  _replayLog('  URL: ' + url, '#787b86');
+
   const t0 = Date.now();
-  const resp = await fetch(url, { cache: 'force-cache' });
-  if (!resp.ok) throw new Error(`GitHub fetch failed: HTTP ${resp.status}`);
+  let resp;
+  try {
+    resp = await fetch(url, { cache: 'force-cache' });
+  } catch(netErr) {
+    const msg = `Network error: ${netErr.message || netErr}`;
+    _replayLogErr(msg); _replaySetStatus('❌ ' + msg);
+    throw new Error(msg);
+  }
+  if (!resp.ok) {
+    const msg = `HTTP ${resp.status} — file GitHub pe nahi mili`;
+    _replayLogErr(msg); _replaySetStatus('❌ ' + msg);
+    throw new Error(msg);
+  }
+
   const buf  = await resp.arrayBuffer();
   const kb   = Math.round(buf.byteLength / 1024);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  _replayLogOk(`Downloaded ${kb} KB in ${secs}s`);
+  _replayLogOk(`Downloaded: ${kb} KB in ${secs}s`);
+
   _replayLog('  Decompressing…', '#787b86');
-  const text = await _replayDecompressGz(buf);
+  let text;
+  try { text = await _replayDecompressGz(buf); }
+  catch(e) { const m=`Decompress failed: ${e.message}`; _replayLogErr(m); _replaySetStatus('❌ '+m); throw new Error(m); }
+
   _replayLog('  Parsing JSON…', '#787b86');
-  const obj  = JSON.parse(text);
-  _REPLAY_GH_CACHE[asset] = obj;
-  _replayLogOk(`Parsed OK`);
-  return obj;
-}
+  let obj;
+  try { obj = JSON.parse(text); }
+  catch(e) { const m=`JSON parse failed: ${e.message}`; _replayLogErr(m); _replaySetStatus('❌ '+m); throw new Error(m); }
 
-// Parse raw JSON obj → OHLC candles for a given TF key
-function _replayParseCandles(obj, asset, tfStr) {
-  // BN: {"data": {"5m": [...], ...}}   BTC: {"160m": [...], ...}
-  let data = (asset === 'bn' && obj.data && typeof obj.data === 'object') ? obj.data : obj;
-  // Exact match pehle, fir case-insensitive
-  let rows = data[tfStr];
-  if (!rows) {
-    const key = Object.keys(data).find(k => k.toLowerCase() === tfStr.toLowerCase());
-    if (key) rows = data[key];
-  }
-  if (!rows || !rows.length) return [];
+  // ── Extract flat 5m rows ──────────────────────────────────────────────────
+  // BN format:  { "meta":{...}, "data": [ {ts, o, h, l, c}, ... ] }
+  // BTC format: [ { "date":"2017-01-01", "candles": [ {t, o, h, l, c, v}, ... ] }, ... ]
+  const IST_OFF = 5*3600 + 30*60;  // 19800 sec
+  const raw5m = [];
 
-  const IST_OFFSET_SEC = 5 * 3600 + 30 * 60;  // 19800
-  const candles = [];
-  for (const row of rows) {
-    try {
-      const tsStr = (row.ts || row.Datetime || '').trim();
-      let ts;
-      if (tsStr.includes('T')) {
-        // "2017-01-01T05:30:00.000" — UTC
-        ts = Math.floor(new Date(tsStr).getTime() / 1000);
-      } else if (tsStr.includes(' ')) {
+  if (asset === 'bn') {
+    const rows = Array.isArray(obj) ? obj
+               : (obj.data && Array.isArray(obj.data)) ? obj.data : [];
+    _replayLogInfo(`BN raw rows: ${rows.length}`);
+    for (const row of rows) {
+      try {
+        const tsStr = (row.ts || '').trim();
         // "2015-01-09 09:15" — IST → UTC
-        ts = Math.floor(new Date(tsStr.replace(' ', 'T') + 'Z').getTime() / 1000) - IST_OFFSET_SEC;
-      } else {
-        // "2015-01-09" — date only UTC
-        ts = Math.floor(new Date(tsStr + 'T00:00:00Z').getTime() / 1000);
+        const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
+        const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
+        if (isNaN(ts)||isNaN(o)) continue;
+        raw5m.push({time:ts, open:o, high:h, low:l, close:c});
+      } catch(_){}
+    }
+  } else {
+    // BTC: day-grouped
+    const dayList = Array.isArray(obj) ? obj : [];
+    _replayLogInfo(`BTC day-groups: ${dayList.length}`);
+    for (const day of dayList) {
+      for (const row of (day.candles || [])) {
+        try {
+          const tsStr = (row.t || '').trim();
+          // "2017-01-01 05:30:00" — IST → UTC
+          const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
+          const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
+          if (isNaN(ts)||isNaN(o)) continue;
+          raw5m.push({time:ts, open:o, high:h, low:l, close:c});
+        } catch(_){}
       }
-      const o = parseFloat(row.o ?? row.Open);
-      const h = parseFloat(row.h ?? row.High);
-      const l = parseFloat(row.l ?? row.Low);
-      const c = parseFloat(row.c ?? row.Close);
-      if (isNaN(ts) || isNaN(o)) continue;
-      candles.push({ time: ts, open: o, high: h, low: l, close: c });
-    } catch(_) {}
+    }
   }
-  return candles;
+
+  raw5m.sort((a,b) => a.time - b.time);
+  _replayLogOk(`Parsed: ${raw5m.length} x 5m candles`);
+  _REPLAY_RAW_CACHE[asset] = raw5m;
+  return raw5m;
 }
 
-// Legacy port functions — no longer used but kept to avoid reference errors
+// ── Resample 5m candles → higher TF ─────────────────────────────────────────
+// BN  1d = market day (group by date in IST, only 9:15–15:30 candles)
+// BTC 1d = calendar day (group by UTC date, 24h)
+// Other TFs = fixed-minutes bucket
+function _replayResample(candles5m, asset, tfStr) {
+  const IST_OFF = 5*3600 + 30*60;
+  const tfMin = _replayTfToMin(tfStr);
+
+  const out = [];
+
+  if (tfStr === '5m' && asset === 'bn') {
+    // BN 5m: only keep market hours 9:15–15:30 IST
+    for (const c of candles5m) {
+      const ist = c.time + IST_OFF;
+      const hhmm = Math.floor((ist % 86400) / 60);  // minutes since midnight IST
+      const open_min  = 9*60+15;   // 555
+      const close_min = 15*60+30;  // 930
+      if (hhmm >= open_min && hhmm <= close_min) out.push(c);
+    }
+    return out;
+  }
+
+  if (tfStr === '5m' && asset === 'btc') {
+    return candles5m.slice(); // BTC 5m: all candles
+  }
+
+  // Fixed-minutes bucket for non-day TFs
+  const fixedTfs = asset === 'bn'
+    ? ['15m','45m','135m']
+    : ['160m','8h'];
+
+  if (fixedTfs.includes(tfStr)) {
+    // Group into tfMin-wide buckets aligned to epoch
+    let bucket = null;
+    for (const c of candles5m) {
+      // For BN: skip non-market candles
+      if (asset === 'bn') {
+        const ist = c.time + IST_OFF;
+        const hhmm = Math.floor((ist % 86400) / 60);
+        if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
+      }
+      const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
+      if (!bucket || bucket.time !== bucketTs) {
+        if (bucket) out.push(bucket);
+        bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+      } else {
+        if (c.high > bucket.high) bucket.high = c.high;
+        if (c.low  < bucket.low)  bucket.low  = c.low;
+        bucket.close = c.close;
+      }
+    }
+    if (bucket) out.push(bucket);
+    return out;
+  }
+
+  // Day / multi-day TFs — group by IST date (BN) or UTC date (BTC)
+  const daysPerCandle = tfStr === '1d' ? 1
+                      : tfStr === '3d' ? 3
+                      : tfStr === '9d' ? 9
+                      : tfStr === '27d'? 27 : 1;
+
+  // Build daily candles first
+  const dailyMap = new Map();  // key = "YYYY-MM-DD" → candle
+  for (const c of candles5m) {
+    if (asset === 'bn') {
+      const ist = c.time + IST_OFF;
+      const hhmm = Math.floor((ist % 86400) / 60);
+      if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
+    }
+    const offsetSec = asset === 'bn' ? IST_OFF : 0;
+    const dayTs = Math.floor((c.time + offsetSec) / 86400) * 86400 - offsetSec;
+    const key   = String(dayTs);
+    if (!dailyMap.has(key)) {
+      dailyMap.set(key, {time:dayTs, open:c.open, high:c.high, low:c.low, close:c.close});
+    } else {
+      const d = dailyMap.get(key);
+      if (c.high > d.high) d.high = c.high;
+      if (c.low  < d.low)  d.low  = c.low;
+      d.close = c.close;
+    }
+  }
+  const days = [...dailyMap.values()].sort((a,b) => a.time - b.time);
+
+  if (daysPerCandle === 1) return days;
+
+  // Multi-day grouping
+  let grp = null, cnt = 0;
+  for (const d of days) {
+    if (!grp || cnt >= daysPerCandle) {
+      if (grp) out.push(grp);
+      grp = {time:d.time, open:d.open, high:d.high, low:d.low, close:d.close};
+      cnt = 1;
+    } else {
+      if (d.high > grp.high) grp.high = d.high;
+      if (d.low  < grp.low)  grp.low  = d.low;
+      grp.close = d.close;
+      cnt++;
+    }
+  }
+  if (grp) out.push(grp);
+  return out;
+}
+
+// Legacy port functions
 function _replayApiPort() { return 0; }
 async function _replayEnsurePort() { return true; }
 
-// ── Replacement fetch functions ──────────────────────────────────────────────
-// _replayFetchAll ab GitHub se directly fetch karta hai (chunk loop nahi)
+// ── Main fetch: download raw 5m → resample → return candles for tfStr ────────
 async function _replayFetchAll(asset, tfStr) {
-  const obj      = await _replayGhLoad(asset);
-  const candles  = _replayParseCandles(obj, asset, tfStr);
-  const avail    = Object.keys((asset === 'bn' && obj.data) ? obj.data : obj).filter(k => k !== 'meta');
-  _replayLogInfo(`Available keys: ${avail.join(', ')}`);
+  const cacheKey = `${asset}|${tfStr}`;
+  if (_REPLAY_TF_CACHE[cacheKey]) {
+    _replayLogInfo(`${tfStr}: TF cache se mila (${_REPLAY_TF_CACHE[cacheKey].length} candles)`);
+    return _REPLAY_TF_CACHE[cacheKey];
+  }
+
+  const raw5m   = await _replayGhLoad(asset);  // may throw — error already logged
+  _replayLogInfo(`Resampling ${raw5m.length} x 5m → ${tfStr}…`);
+  const candles = _replayResample(raw5m, asset, tfStr);
+  _REPLAY_TF_CACHE[cacheKey] = candles;
+
   if (!candles.length) {
-    _replayLogWarn(`${tfStr} — 0 candles (key nahi mila?)`);
+    _replayLogWarn(`${tfStr} — 0 candles after resample`);
   } else {
     _replayLogOk(`${tfStr} — ${candles.length} candles`);
   }
@@ -11888,8 +12020,13 @@ function openReplayView() {
   fb.style.display = 'block';
   _REPLAY.active = true;
   _initReplayDrag();
-  // Default: load BankNifty
-  selectReplayAsset('bn');
+  // Sirf UI set karo — data Load button pe fetch hoga
+  _REPLAY.asset = 'bn';
+  const btnBn  = document.getElementById('replay-btn-bn');
+  const btnBtc = document.getElementById('replay-btn-btc');
+  if (btnBn)  { btnBn.style.background='#2962ff'; btnBn.style.color='#fff'; btnBn.style.border='none'; }
+  if (btnBtc) { btnBtc.style.background='#2a2e39'; btnBtc.style.color='#9598a1'; btnBtc.style.border='1px solid #363c4e'; }
+  _replaySetStatus('▶ Load dabao to data load karo');
 }
 
 // Close replay view
@@ -11996,8 +12133,8 @@ async function selectReplayAsset(asset) {
 
   _replaySetStatus('Loading…');
   _replayLogInfo(`Asset: ${asset.toUpperCase()}  |  TFs: ${tfs.join(', ')}`);
-  _replayLogInfo(`API port: ${_replayApiPort()}`);
-  _replayLog('─'.repeat(38), '#2a2e39');
+  _replayLogInfo(`File: ${asset === 'bn' ? _GH_BN_URL.split('/').pop() : _GH_BTC_URL.split('/').pop()}`);
+  _replayLog('─'.repeat(40), '#2a2e39');
   const sc  = document.getElementById('replay-stack-container');
   if (!sc) return;
 
@@ -12281,7 +12418,10 @@ async function _rpStep() {
 // Status text in float box + header badge
 function _replaySetStatus(msg) {
   const el = document.getElementById('replay-load-status');
-  if (el) el.textContent = msg;
+  if (el) {
+    el.textContent = msg;
+    el.style.color = (msg && (msg.startsWith('❌') || msg.startsWith('⚠'))) ? '#ef5350' : '#787b86';
+  }
   const badge = document.getElementById('rp-hdr-status');
   if (badge) badge.textContent = msg ? '⏵ ' + msg : '⏵ Replay';
 }
@@ -12495,6 +12635,18 @@ function _initReplayDrag() {
 
     <!-- Status line -->
     <div id="replay-load-status" style="font-size:8px;color:#787b86;min-height:10px;text-align:center;word-break:break-word;line-height:1.3;"></div>
+
+    <!-- Debug log — Load ke baad auto-show hota hai -->
+    <div id="replay-debug-box" style="display:none;flex-direction:column;gap:3px;border-top:1px solid #2a2e39;padding-top:5px;margin-top:2px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:8px;color:#555;font-weight:700;letter-spacing:.5px;">DEBUG LOG</span>
+        <div style="display:flex;gap:4px;">
+          <button id="replay-copy-btn" onclick="_replayCopyLog()" style="height:14px;padding:0 5px;background:#2962ff;border:none;border-radius:2px;color:#fff;font-size:7px;cursor:pointer;">📋 Copy</button>
+          <button onclick="document.getElementById('replay-debug-box').style.display='none'" style="height:14px;padding:0 5px;background:#363c4e;border:none;border-radius:2px;color:#9598a1;font-size:7px;cursor:pointer;">✕</button>
+        </div>
+      </div>
+      <pre id="replay-debug-log" style="font-size:7px;color:#9598a1;background:#131722;border-radius:3px;padding:5px;max-height:130px;overflow-y:auto;margin:0;white-space:pre-wrap;word-break:break-all;line-height:1.4;"></pre>
+    </div>
 
   </div>
 </div>
