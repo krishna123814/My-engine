@@ -900,14 +900,14 @@ def _register_api_route():
                 if parsed.path == "/api/replay_gz":
                     qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
                     asset = (qs2.get("asset", ["bn"])[0]).lower()   # "bn" or "btc"
-                    tf    = qs2.get("tf", ["1D"])[0]                 # e.g. "5m", "1d"
+                    tf    = qs2.get("tf", ["1d"])[0]                 # e.g. "5m", "1d"
                     chunk = int(qs2.get("chunk", ["0"])[0])          # 0-based chunk index
                     CHUNK_SIZE = 500                                  # candles per chunk
 
-                    # ── GitHub raw URL for .pkl.gz files ─────────────────────
+                    # ── GitHub raw URL for .json.gz files ────────────────────
                     _GH_RAW_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
-                    _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_all_tf.pkl.gz"
-                    _GH_BTC_URL  = f"{_GH_RAW_BASE}/btc_all_tf.pkl.gz"
+                    _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_all_timeframes_json.gz"
+                    _GH_BTC_URL  = f"{_GH_RAW_BASE}/Bitcoin_BTCUSDT_master_all_timeframes_json.gz"
 
                     # ── In-memory cache to avoid re-loading every request ─────
                     if not hasattr(self.__class__, '_replay_cache'):
@@ -917,10 +917,10 @@ def _register_api_route():
                     t0 = time.time()
 
                     try:
-                        import pickle, gzip as _gz, os as _os, urllib.request as _ur, time as _time
+                        import gzip as _gz, os as _os, urllib.request as _ur, time as _time
 
-                        fname   = "banknifty_all_tf.pkl.gz" if asset == "bn" else "btc_all_tf.pkl.gz"
-                        gh_url  = _GH_BN_URL if asset == "bn" else _GH_BTC_URL
+                        fname  = "banknifty_all_timeframes_json.gz" if asset == "bn" else "Bitcoin_BTCUSDT_master_all_timeframes_json.gz"
+                        gh_url = _GH_BN_URL if asset == "bn" else _GH_BTC_URL
 
                         # Search paths: script dir first, then /mount/src/* (Streamlit Cloud)
                         script_dir = _os.path.dirname(_os.path.abspath(__file__))
@@ -975,55 +975,85 @@ def _register_api_route():
                             fsize_kb = round(_os.path.getsize(gz_path) / 1024, 1)
                             debug_log.append(f"[5] File found ({fsize_kb} KB) — no download needed")
 
-                        # ── Step B: Load pickle (use in-memory cache) ─────────
+                        # ── Step B: Load JSON.gz (use in-memory cache) ────────
                         cache = self.__class__._replay_cache
                         if asset not in cache:
-                            debug_log.append(f"[8] Loading pickle into memory…")
+                            debug_log.append(f"[8] Loading JSON.gz into memory…")
                             load_start = _time.time()
                             with _gz.open(gz_path, "rb") as _f:
-                                cache[asset] = pickle.load(_f)
+                                cache[asset] = json.load(_f)
                             load_secs = round(_time.time() - load_start, 2)
                             debug_log.append(f"[9] Loaded in {load_secs}s")
                         else:
                             debug_log.append(f"[8] Using cached data (already in memory)")
 
-                        _data = cache[asset]
+                        # ── BN has nested structure: {"data": {"5m": [...], ...}}
+                        # ── BTC has flat structure:  {"160m": [...], "8h": [...], ...}
+                        _raw = cache[asset]
+                        if asset == "bn" and "data" in _raw and isinstance(_raw["data"], dict):
+                            _data = _raw["data"]
+                        else:
+                            _data = _raw
                         available_keys = [k for k in _data.keys() if k != "meta"]
                         debug_log.append(f"[10] Available TF keys: {available_keys}")
 
                         # ── Step C: TF lookup (exact → lowercase fallback) ─────
-                        df = _data.get(tf)
+                        tf_list = _data.get(tf)
                         matched_key = tf
-                        if df is None:
+                        if tf_list is None:
                             for k in _data.keys():
                                 if k.lower() == tf.lower():
-                                    df = _data[k]
+                                    tf_list = _data[k]
                                     matched_key = k
                                     debug_log.append(f"[11] '{tf}' matched via lowercase → '{k}'")
                                     break
-                        if df is None:
+                        if tf_list is None:
                             debug_log.append(f"[11] ❌ TF '{tf}' NOT found. Keys: {available_keys}")
                             body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
                             self.send_response(404)
                         else:
-                            total_rows = len(df)
+                            total_rows = len(tf_list)
                             start  = chunk * CHUNK_SIZE
                             end    = min(start + CHUNK_SIZE, total_rows)
-                            slice_df = df.iloc[start:end]
+                            slice_list = tf_list[start:end]
                             debug_log.append(f"[11] TF='{matched_key}'  rows={total_rows}  chunk={chunk}  slice={start}→{end}")
 
-                            # ── Step D: Convert to OHLC candles ───────────────
+                            # ── Step D: Convert JSON rows → OHLC candles ──────
+                            # BN format:  {"ts": "2015-01-09 09:15", "o": ..., "h": ..., "l": ..., "c": ...}
+                            # BTC format: {"Datetime": "2017-01-01T05:30:00.000", "Open": ..., "High": ..., "Low": ..., "Close": ...}
+                            import datetime as _dt
                             candles  = []
                             bad_rows = 0
-                            for idx2, row in slice_df.iterrows():
+                            for row in slice_list:
                                 try:
-                                    ts = int(idx2.timestamp()) if hasattr(idx2, "timestamp") else int(idx2)
+                                    # ── Timestamp ──────────────────────────────
+                                    ts_str = (row.get("ts") or row.get("Datetime") or "").strip()
+                                    if "T" in ts_str:
+                                        # ISO: "2017-01-01T05:30:00.000" — already UTC
+                                        dt_obj = _dt.datetime.strptime(ts_str[:16], "%Y-%m-%dT%H:%M")
+                                        ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
+                                    elif " " in ts_str:
+                                        # "2015-01-09 09:15" — IST, convert to UTC
+                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d %H:%M")
+                                        IST_OFFSET = _dt.timedelta(hours=5, minutes=30)
+                                        ts = int((dt_obj - IST_OFFSET).replace(tzinfo=_dt.timezone.utc).timestamp())
+                                    else:
+                                        # "2015-01-09" — date only
+                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d")
+                                        ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
+
+                                    # ── OHLC: BN lowercase keys, BTC Title case keys ──
+                                    o = float(row.get("o") or row.get("Open"))
+                                    h = float(row.get("h") or row.get("High"))
+                                    l = float(row.get("l") or row.get("Low"))
+                                    c = float(row.get("c") or row.get("Close"))
+
                                     candles.append({
                                         "time":  ts,
-                                        "open":  round(float(row.get("Open",  row.iloc[0])), 2),
-                                        "high":  round(float(row.get("High",  row.iloc[1])), 2),
-                                        "low":   round(float(row.get("Low",   row.iloc[2])), 2),
-                                        "close": round(float(row.get("Close", row.iloc[3])), 2),
+                                        "open":  round(o, 2),
+                                        "high":  round(h, 2),
+                                        "low":   round(l, 2),
+                                        "close": round(c, 2),
                                     })
                                 except Exception:
                                     bad_rows += 1
