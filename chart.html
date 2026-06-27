@@ -11855,16 +11855,28 @@ function _replayResample(candles5m, asset, tfStr) {
     : ['160m','8h'];
 
   if (fixedTfs.includes(tfStr)) {
-    // Group into tfMin-wide buckets aligned to epoch
+    // BN: IST-session-aligned buckets (9:15 anchor) — fixes 135m misalignment
+    // BTC: UTC-epoch aligned (24h market)
+    const SESSION_START_MIN = 9*60 + 15; // 555
     let bucket = null;
     for (const c of candles5m) {
-      // For BN: skip non-market candles
       if (asset === 'bn') {
         const ist = c.time + IST_OFF;
         const hhmm = Math.floor((ist % 86400) / 60);
-        if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
+        if (hhmm < SESSION_START_MIN || hhmm > 15*60+30) continue;
       }
-      const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
+      let bucketTs;
+      if (asset === 'bn') {
+        // Align to 9:15 IST of each day — prevents off-market bucket starts
+        const ist          = c.time + IST_OFF;
+        const dayStartIST  = Math.floor(ist / 86400) * 86400;
+        const dayStartUTC  = dayStartIST - IST_OFF;
+        const relMin       = Math.floor((ist % 86400) / 60) - SESSION_START_MIN;
+        const bucketRel    = Math.floor(relMin / tfMin) * tfMin;
+        bucketTs           = dayStartUTC + (SESSION_START_MIN + bucketRel) * 60;
+      } else {
+        bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
+      }
       if (!bucket || bucket.time !== bucketTs) {
         if (bucket) out.push(bucket);
         bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
