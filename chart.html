@@ -12203,21 +12203,25 @@ async function selectReplayAsset(asset) {
         _replayLogInfo(`${tfStr}: date filter → ${candles.length} candles`);
       }
 
-      // ── Historical pre-load: replay start se pehle ke 500 base candles ──
-      // Sirf base TF (5m for BN, 160m for BTC) ke liye hist store karo.
-      // swingCompute in hist bars pe chalega taaki S/R lines replay start se
-      // pehle bhi ready rahein.
+      // ── Dynamic hist window: har TF ke liye 30 candles ka enough base data ──
+      // 27d = 30 × 2025 = 60750 base candles (BN:5m / BTC:160m)
+      // 9d  = 30 × 675  = 20250
+      // 3d  = 30 × 225  = 6750
+      // 1d  = 30 × 75   = 2250  (BN) | 30 × 9 = 270 (BTC 160m base)
+      // 135m= 30 × 27   = 810
+      // 45m = 30 × 9    = 270
+      // 5m  = 500 (enough for S/R)
+      // BTC: 27d=30×243=7290, 9d=30×81=2430, 3d=30×27=810, 1d=30×9=270, 8h=30×3=90, 160m=500
+      const _BN_HIST_WIN = {
+        '5m':500, '15m':500, '45m':810, '135m':810,
+        '1d':2250, '3d':6750, '9d':20250, '27d':60750
+      };
+      const _BTC_HIST_WIN = {
+        '160m':500, '8h':500,
+        '1d':270, '3d':810, '9d':2430, '27d':7290
+      };
+      const _histWinMap = asset === 'bn' ? _BN_HIST_WIN : _BTC_HIST_WIN;
       const baseTfStr = asset === 'bn' ? '5m' : '160m';
-      if (tfStr === baseTfStr && _fromSec > 0) {
-        const allBase = await _replayFetchAll(asset, tfStr);
-        const histRaw = allBase.filter(c => c.time < _fromSec);
-        // Last 500 candles ka slice (phone hang na ho)
-        const HIST_WIN = 500;
-        const histSlice = histRaw.length > HIST_WIN ? histRaw.slice(-HIST_WIN) : histRaw;
-        if (!_REPLAY.engine[asset]) _REPLAY.engine[asset] = {};
-        _REPLAY.engine[asset]._hist5m = histSlice;
-        _replayLogInfo(`${tfStr}: hist pre-load ${histSlice.length} candles (before replay range)`);
-      }
 
       const el = document.getElementById('rcell-chart-' + i);
       if (!el) continue;
@@ -12252,20 +12256,22 @@ async function selectReplayAsset(asset) {
       // Sort candles by time (safety)
       candles.sort((a, b) => a.time - b.time);
 
-      // ── Historical candles (pre-range) is TF ke liye bhi resample karo ──
-      // Ye chart par pehle se visible rahenge; replay sirf 'candles' (filtered
-      // range) ke upar step karega.
-      const baseTfStr2 = asset === 'bn' ? '5m' : '160m';
+      // ── Historical candles: is TF ke 30 candles ke liye enough base fetch ──
+      // Base raw data ek baar fetch (cached) → is TF ke liye slice + resample
       let histCandlesForTF = [];
       if (_fromSec > 0) {
-        const allRaw2 = await _replayFetchAll(asset, baseTfStr2);
-        const histRaw2 = allRaw2.filter(c => c.time < _fromSec);
-        const hist500  = histRaw2.length > 500 ? histRaw2.slice(-500) : histRaw2;
-        if (tfStr === baseTfStr2) {
-          histCandlesForTF = hist500;
+        const HIST_WIN = _histWinMap[tfStr] || 500;
+        const allRawBase = await _replayFetchAll(asset, baseTfStr);
+        const histRawBase = allRawBase.filter(c => c.time < _fromSec);
+        const histSlice   = histRawBase.length > HIST_WIN
+          ? histRawBase.slice(-HIST_WIN) : histRawBase;
+
+        if (tfStr === baseTfStr) {
+          histCandlesForTF = histSlice;
         } else {
-          histCandlesForTF = _replayResample(hist500, asset, tfStr);
+          histCandlesForTF = _replayResample(histSlice, asset, tfStr);
         }
+        _replayLogInfo(`${tfStr}: hist ${histCandlesForTF.length} candles (base window: ${HIST_WIN})`);
       }
 
       // Chart par hist candles pehle se dikhao (visible, already-revealed)
@@ -12273,7 +12279,7 @@ async function selectReplayAsset(asset) {
 
       // full = sirf replay-range candles (step engine inhe reveal karega)
       _REPLAY.cells[i].full = candles;
-      // hist = pehle se chart par set ki gayi candles (S/R ke liye bhi use hongi)
+      // hist = is TF ke resampled hist candles (S/R ke liye bhi use honge)
       _REPLAY.cells[i].hist = histCandlesForTF;
 
       _REPLAY.cells[i].chart  = ch;
