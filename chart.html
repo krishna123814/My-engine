@@ -12528,53 +12528,33 @@ function _rpDrawSR(asset) {
 
       const allLines = [];
 
-      // Step 1: Current cell TF ke lines
-      const barsCur = _barsFor(rc.tf);
-      if (barsCur.length >= 3) {
-        const linesCur = swingCompute(barsCur, currentTfMin);
-        const valid = linesCur.filter(l => currentTfMin <= l.levelTf);
+      // Base data: hist + revealed (sorted) — sabhi higher TF resample ke liye
+      const _baseAll = (baseCell.hist || [])
+        .concat(revealedBase)
+        .sort((a, b) => a.time - b.time);
+
+      // Replay ke loaded cells ke TFs jo current cell se >= hain
+      // 5m  → 5m,15m,45m,135m,1d,3d,9d,27d
+      // 15m → 15m,45m,135m,1d,3d,9d,27d
+      // 27d → sirf 27d
+      const _allReplayCells = _REPLAY.cells
+        .filter(c => c.tf && c.chart)
+        .map(c => ({ tfStr: c.tf, tfMin: _replayTfToMin(c.tf) }))
+        .filter(t => t.tfMin >= currentTfMin)
+        .sort((a, b) => a.tfMin - b.tfMin);
+
+      for (const { tfStr, tfMin } of _allReplayCells) {
+        // Is TF ke bars: base hist + revealed, resampled
+        const barsThisTF = (tfStr === eng.baseTf)
+          ? _baseAll
+          : _replayResample(_baseAll, asset, tfStr);
+
+        if (!barsThisTF || barsThisTF.length < 3) continue;
+
+        const tfLines = swingCompute(barsThisTF, tfMin);
+        // Hierarchy rule: currentTfMin <= line.levelTf
+        const valid = tfLines.filter(l => currentTfMin <= l.levelTf);
         allLines.push(...valid);
-      }
-
-      // Step 2: SWING_TF_LIST ke enabled higher TFs (normal chart jaisi multi-TF)
-      const enabledHigher = (typeof SWING_TF_LIST !== 'undefined' ? SWING_TF_LIST : [])
-        .filter(t => t.enabled && t.min > currentTfMin)
-        .sort((a, b) => a.min - b.min);
-
-      for (const tf of enabledHigher) {
-        const tfStr = _minToTFLabel ? _minToTFLabel(tf.min) : String(tf.min) + 'm';
-        // Map tf.min to replay TF string (e.g. 1440→'1d', 4320→'3d' etc.)
-        const rpTfStr = (() => {
-          const m = tf.min;
-          if (asset === 'bn') {
-            if (m===5)     return '5m';
-            if (m===15)    return '15m';
-            if (m===45)    return '45m';
-            if (m===135)   return '135m';
-            if (m===1440)  return '1d';
-            if (m===4320)  return '3d';
-            if (m===12960) return '9d';
-            if (m===38880) return '27d';
-          } else {
-            if (m===160)   return '160m';
-            if (m===480)   return '8h';
-            if (m===1440)  return '1d';
-            if (m===4320)  return '3d';
-            if (m===12960) return '9d';
-            if (m===38880) return '27d';
-          }
-          return null;
-        })();
-        if (!rpTfStr) continue;
-        // Higher TF bars: base hist + revealed, resampled to this TF
-        const baseHistAll2 = (baseCell.hist || []);
-        const allBase2 = baseHistAll2.concat(revealedBase).sort((a,b) => a.time - b.time);
-        const barsHTF = _replayResample(allBase2, asset, rpTfStr);
-        if (barsHTF.length >= 3) {
-          const htfLines = swingCompute(barsHTF, tf.min);
-          const valid = htfLines.filter(l => currentTfMin <= l.levelTf);
-          allLines.push(...valid);
-        }
       }
 
       // Step 3: Same-price dedup — normal chart jaisi
