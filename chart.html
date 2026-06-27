@@ -12331,13 +12331,22 @@ function _initReplayDrag() {
 </div>
 
 <!-- ═══ REPLAY DEBUG FLOATING WINDOW ═══════════════════════════════════════════ -->
-<div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;touch-action:none;user-select:none;flex-direction:column;">
-  <!-- Drag handle -->
-  <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;">
+<div id="replay-debug-box" style="display:none;position:fixed;bottom:40px;left:6px;width:calc(100vw - 12px);max-width:420px;background:#1e222d;border:1px solid #f0b429;border-radius:8px;box-shadow:0 8px 28px #0009;z-index:9200;flex-direction:column;">
+  <!-- Drag handle — touch-action:none sirf yahan, buttons pe nahi -->
+  <div id="replay-debug-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:5px 8px;display:flex;align-items:center;gap:6px;cursor:grab;touch-action:none;user-select:none;">
     <span style="font-size:10px;color:#f0b429;flex:1;font-weight:700;letter-spacing:.5px;">🔍 DEBUG LOG</span>
-    <button id="replay-copy-btn" onclick="_replayCopyLog()" style="height:18px;padding:0 8px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;">Copy</button>
-    <button onclick="_replayClearLog()" style="height:18px;padding:0 6px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;">Clear</button>
-    <button onclick="document.getElementById('replay-debug-box').style.display='none';" style="height:18px;padding:0 7px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:10px;font-weight:700;cursor:pointer;">✕</button>
+    <button id="replay-copy-btn"
+      style="height:28px;padding:0 12px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;touch-action:manipulation;"
+      ontouchend="event.stopPropagation();event.preventDefault();_replayCopyLog();"
+      onclick="_replayCopyLog()">Copy</button>
+    <button
+      style="height:28px;padding:0 10px;background:#363c4e;border:none;border-radius:3px;color:#d1d4dc;font-size:9px;cursor:pointer;touch-action:manipulation;"
+      ontouchend="event.stopPropagation();event.preventDefault();_replayClearLog();"
+      onclick="_replayClearLog()">Clear</button>
+    <button
+      style="height:28px;padding:0 10px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;touch-action:manipulation;"
+      ontouchend="event.stopPropagation();event.preventDefault();document.getElementById('replay-debug-box').style.display='none';"
+      onclick="document.getElementById('replay-debug-box').style.display='none';">✕</button>
   </div>
   <div id="replay-debug-wrap" style="padding:6px 8px;">
     <div id="replay-debug-log"
