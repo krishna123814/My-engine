@@ -11665,9 +11665,20 @@ if (document.readyState === 'loading') {
 const _REPLAY = {
   active: false,
   asset: 'bn',      // 'bn' or 'btc'
-  cells: [],        // {chart, series, tf} per slot
+  cells: [],        // {chart, series, tf, full} per slot
   resizeObs: null,
+  engine: { bn: null, btc: null },   // step-engine state per asset (persists across tab switches)
+  stepping: false,                   // guard against double-tap while animating
 };
+
+// Approx "how many base-ticks make 1 candle of this TF" — used only to shape the
+// build-up animation of partially-formed higher-TF candles. The candle's final
+// values always snap to the real pre-resampled data, so this is cosmetic only.
+const _RP_MULT = {
+  bn:  { '5m':1, '15m':3, '45m':9, '135m':27, '1d':75, '3d':225, '9d':675, '27d':2025 },
+  btc: { '160m':1, '8h':3, '1d':9, '3d':27, '9d':81, '27d':243 },
+};
+const _RP_BASE_TF = { bn: '5m', btc: '160m' };
 
 // BankNifty replay TFs (matches .gz keys)
 const _REPLAY_BN_TFS  = ['5m','15m','45m','135m','1d','3d','9d','27d'];
@@ -12072,15 +12083,11 @@ async function selectReplayAsset(asset) {
 
       // Sort candles by time (safety)
       candles.sort((a, b) => a.time - b.time);
-      ser.setData(candles);
+      // Replay mode = step-by-step reveal, so chart starts EMPTY.
+      // Full data is kept on the cell for the step-engine to draw from.
+      ser.setData([]);
 
-      // Update overlay price
-      const cell = sc.querySelector('[data-ridx="'+i+'"]');
-      if (cell && candles.length) {
-        const last = candles[candles.length - 1];
-        const pr = cell.querySelector('.co-price');
-        if (pr) pr.textContent = last.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      }
+      _REPLAY.cells[i].full = candles;
 
       _REPLAY.cells[i].chart  = ch;
       _REPLAY.cells[i].series = ser;
@@ -12100,6 +12107,8 @@ async function selectReplayAsset(asset) {
   _replayLog('\n' + '─'.repeat(38), '#2a2e39');
   _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
 
+  _rpInitEngine(asset);
+
   // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
   _REPLAY.resizeObs = new ResizeObserver(() => {
@@ -12109,6 +12118,164 @@ async function selectReplayAsset(asset) {
     });
   });
   _REPLAY.resizeObs.observe(sc);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STEP ENGINE — manual candle-by-candle replay
+//   BN base unit  = 5m   (1 step = 1 new 5m candle)
+//   BTC base unit = 160m (1 step = 1 new 160m candle)
+//   Every stacked TF for the active asset updates in the SAME step, building
+//   its currently-forming candle toward its true (already-known, pre-resampled)
+//   final OHLC, completing the visual animation in ~1 second.
+// ════════════════════════════════════════════════════════════════════════════
+
+// (Re)initialise step state for an asset after its data has (re)loaded.
+function _rpInitEngine(asset) {
+  const baseTf = _RP_BASE_TF[asset];
+  const baseCellIdx = _REPLAY.cells.findIndex(c => (c.tf||'').toLowerCase() === baseTf);
+  const tfState = {};
+  _REPLAY.cells.forEach((c, i) => { tfState[i] = {}; });
+  _REPLAY.engine[asset] = { baseTf, baseCellIdx, idx: -1, tfState };
+  _rpUpdateStepDisplay(asset);
+  _replaySetStatus('Ready — tap STEP to begin');
+}
+
+// Load button — (re)fetches + resets replay to the very first candle.
+async function _rpLoadBtn() {
+  await selectReplayAsset(_REPLAY.asset || 'bn');
+}
+
+// Single source-of-truth bar animator: glides series from `fromClose`
+// (a flat starting point) to the bar's real open/high/low/close over
+// `durationMs`, guaranteeing a valid candle shape on every frame.
+function _rpAnimateBar(series, targetBar, fromClose, durationMs) {
+  return new Promise(resolve => {
+    if (!series) return resolve();
+    const t0 = performance.now();
+    const startPt = (fromClose != null) ? fromClose : targetBar.open;
+    function frame(now) {
+      const t = Math.min(1, (now - t0) / durationMs);
+      const o = targetBar.open;
+      const hRaw = startPt + (targetBar.high  - startPt) * t;
+      const lRaw = startPt + (targetBar.low   - startPt) * t;
+      const c    = startPt + (targetBar.close - startPt) * t;
+      const h = Math.max(o, hRaw, c);
+      const l = Math.min(o, lRaw, c);
+      try { series.update({ time: targetBar.time, open: o, high: h, low: l, close: c }); } catch(_) {}
+      if (t < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        try {
+          series.update({ time: targetBar.time, open: targetBar.open, high: targetBar.high, low: targetBar.low, close: targetBar.close });
+        } catch(_) {}
+        resolve();
+      }
+    }
+    requestAnimationFrame(frame);
+  });
+}
+
+// Advance ONE stacked cell by exactly one base tick.
+async function _rpAdvanceCell(eng, asset, cell, i, baseCandle) {
+  if (!cell.series || !cell.full || !cell.full.length) return;
+  const st = eng.tfState[i];
+  const cutoff = baseCandle.time;
+
+  // ── Base-TF cell itself (5m for BN, 160m for BTC): reveal the candle as-is.
+  if (i === eng.baseCellIdx) {
+    const fromClose = (st.lastClose != null) ? st.lastClose : baseCandle.open;
+    await _rpAnimateBar(cell.series, baseCandle, fromClose, 1000);
+    st.lastClose = baseCandle.close;
+    _rpUpdateOverlay(cell, baseCandle.close);
+    return;
+  }
+
+  // ── Higher-TF cell: locate the official pre-resampled candle whose window
+  //    currently contains `cutoff`, then animate toward its real values.
+  const arr = cell.full;
+  let idx = (st.ptr != null) ? st.ptr : 0;
+  while (idx + 1 < arr.length && arr[idx + 1].time <= cutoff) idx++;
+  const isNewPeriod = (st.ptr == null) || (st.ptr !== idx);
+  st.ptr = idx;
+  const target = arr[idx];
+  if (!target) return;
+
+  if (isNewPeriod) st.tickCount = 1;
+  else st.tickCount = (st.tickCount || 1) + 1;
+
+  const M = (_RP_MULT[asset] && _RP_MULT[asset][(cell.tf||'').toLowerCase()]) || 1;
+  const frac = Math.min(1, st.tickCount / M);
+
+  const formingBar = {
+    time:  target.time,
+    open:  target.open,
+    high:  target.open + (target.high  - target.open) * frac,
+    low:   target.open - (target.open  - target.low)  * frac,
+    close: target.open + (target.close - target.open) * frac,
+  };
+  if (frac >= 1) { formingBar.high = target.high; formingBar.low = target.low; formingBar.close = target.close; }
+
+  const fromClose = (st.prevClose != null) ? st.prevClose : formingBar.open;
+  await _rpAnimateBar(cell.series, formingBar, fromClose, 1000);
+  st.prevClose = formingBar.close;
+  _rpUpdateOverlay(cell, formingBar.close);
+}
+
+// Update the little price label drawn over each stacked chart cell.
+function _rpUpdateOverlay(cell, price) {
+  if (!cell.el) return;
+  const wrap = cell.el.parentElement;
+  if (!wrap) return;
+  const pr = wrap.querySelector('.co-price');
+  if (pr) pr.textContent = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Update the date / step-count readout + progress bar.
+function _rpUpdateStepDisplay(asset) {
+  const eng = _REPLAY.engine[asset];
+  const dateEl = document.getElementById('rp-current-date');
+  const stepEl = document.getElementById('rp-step-display');
+  const fillEl = document.getElementById('rp-progress-fill');
+  if (!eng) return;
+  const baseCell = _REPLAY.cells[eng.baseCellIdx];
+  const total = baseCell && baseCell.full ? baseCell.full.length : 0;
+  const cur   = eng.idx + 1;
+  if (stepEl) stepEl.textContent = `Step ${cur}/${total}`;
+  if (fillEl) fillEl.style.width = total ? Math.min(100, (cur / total) * 100) + '%' : '0%';
+  if (dateEl && baseCell && baseCell.full && baseCell.full[eng.idx]) {
+    const d = new Date(baseCell.full[eng.idx].time * 1000);
+    dateEl.textContent = d.toISOString().slice(0, 16).replace('T', ' ');
+  }
+}
+
+// Main entry point — fired by the STEP button. Advances the master clock by
+// exactly ONE base candle and lets every stacked TF for the active asset
+// build toward its next true value, all completing within ~1 second.
+async function _rpStep() {
+  if (_REPLAY.stepping) return;            // ignore double-taps mid-animation
+  const asset = _REPLAY.asset || 'bn';
+  const eng = _REPLAY.engine[asset];
+  if (!eng) { _replaySetStatus('Pehle Load karo'); return; }
+
+  const baseCell = _REPLAY.cells[eng.baseCellIdx];
+  if (!baseCell || !baseCell.full || !baseCell.full.length) { _replaySetStatus('Data nahi mila'); return; }
+
+  if (eng.idx + 1 >= baseCell.full.length) { _replaySetStatus('Replay khatam — end of data'); return; }
+
+  _REPLAY.stepping = true;
+  const stepBtn = document.getElementById('rp-step-btn');
+  if (stepBtn) stepBtn.disabled = true;
+
+  eng.idx++;
+  const baseCandle = baseCell.full[eng.idx];
+
+  // All stacked cells for this asset advance together, in parallel,
+  // each animating toward its real value inside the same 1-second window.
+  await Promise.all(_REPLAY.cells.map((cell, i) => _rpAdvanceCell(eng, asset, cell, i, baseCandle)));
+
+  _rpUpdateStepDisplay(asset);
+  if (stepBtn) stepBtn.disabled = false;
+  _REPLAY.stepping = false;
 }
 
 // Status text in float box + header badge
@@ -12304,41 +12471,25 @@ function _initReplayDrag() {
         style="flex:1;height:24px;background:#131722;border:1px solid #363c4e;border-radius:4px;color:#d1d4dc;font-size:9px;padding:0 4px;min-width:0;cursor:pointer;">
     </div>
 
-    <!-- Row 2: Transport + Speed + Load -->
+    <!-- Row 2: Step + Load -->
     <div style="display:flex;align-items:center;gap:3px;">
-      <!-- Transport -->
-      <button onclick="_rpGoStart(_REPLAY.asset)"
-        style="height:26px;width:24px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:11px;cursor:pointer;flex-shrink:0;">⏮</button>
-      <button onclick="_rpSkip(_REPLAY.asset,-10)"
-        style="height:26px;width:24px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:11px;cursor:pointer;flex-shrink:0;">◀◀</button>
-      <button id="rp-play-btn" onclick="_rpTogglePlay(_REPLAY.asset)"
-        style="height:26px;width:30px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">▶</button>
-      <button onclick="_rpSkip(_REPLAY.asset,10)"
-        style="height:26px;width:24px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:11px;cursor:pointer;flex-shrink:0;">▶▶</button>
-      <button onclick="_rpGoEnd(_REPLAY.asset)"
-        style="height:26px;width:24px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:11px;cursor:pointer;flex-shrink:0;">⏭</button>
+      <!-- Single STEP control — 1 candle (BN:5m / BTC:160m) per tap -->
+      <button id="rp-step-btn" onclick="_rpStep()"
+        style="height:26px;width:30px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">⏭</button>
 
-      <!-- Speed -->
-      <button class="rp-spd-btn" data-spd="1"  onclick="_rpSetSpeed(_REPLAY.asset,1)"
-        style="height:22px;padding:0 5px;background:#2962ff;border:none;border-radius:3px;color:#fff;font-size:8px;font-weight:700;cursor:pointer;flex-shrink:0;">1x</button>
-      <button class="rp-spd-btn" data-spd="2"  onclick="_rpSetSpeed(_REPLAY.asset,2)"
-        style="height:22px;padding:0 5px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:8px;font-weight:700;cursor:pointer;flex-shrink:0;">2x</button>
-      <button class="rp-spd-btn" data-spd="5"  onclick="_rpSetSpeed(_REPLAY.asset,5)"
-        style="height:22px;padding:0 5px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:8px;font-weight:700;cursor:pointer;flex-shrink:0;">5x</button>
-      <button class="rp-spd-btn" data-spd="10" onclick="_rpSetSpeed(_REPLAY.asset,10)"
-        style="height:22px;padding:0 5px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:8px;font-weight:700;cursor:pointer;flex-shrink:0;">10x</button>
+      <div style="flex:1;"></div>
 
       <!-- Load button -->
       <button onclick="_rpLoadBtn()"
         style="height:26px;padding:0 7px;background:#26a69a;border:none;border-radius:4px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;margin-left:2px;">▶ Load</button>
     </div>
 
-    <!-- Row 3: Scrubber + date + step -->
+    <!-- Row 3: date + step counter (read-only progress) -->
     <div style="display:flex;align-items:center;gap:5px;">
       <span id="rp-current-date" style="font-size:8px;color:#787b86;white-space:nowrap;flex-shrink:0;min-width:56px;">--</span>
-      <input id="rp-scrubber" type="range" min="0" max="100" value="0"
-        oninput="_rpScrub(_REPLAY.asset, this.value)"
-        style="flex:1;height:3px;accent-color:#2962ff;cursor:pointer;min-width:0;">
+      <div style="flex:1;height:3px;background:#2a2e39;border-radius:2px;overflow:hidden;">
+        <div id="rp-progress-fill" style="height:100%;width:0%;background:#2962ff;"></div>
+      </div>
       <span id="rp-step-display" style="font-size:8px;color:#787b86;white-space:nowrap;flex-shrink:0;min-width:50px;text-align:right;">--</span>
     </div>
 
