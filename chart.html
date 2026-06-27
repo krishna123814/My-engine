@@ -778,7 +778,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 
 /* ── Indicators Panel ────────────────────────────────────────────── */
 #ind-panel{
-  display:none;position:fixed;inset:0;z-index:9200;
+  display:none;position:fixed;inset:0;z-index:8888;
   background:#0009;backdrop-filter:blur(4px);
   align-items:flex-end;justify-content:center;
 }
@@ -1248,13 +1248,13 @@ select.s-select{
   .tf-btn{height:22px;min-width:38px;font-size:11px;padding:0 8px}
   .hdr-icon-btn{width:30px;height:24px;font-size:11px}
   #tf-menu-btn{height:24px;padding:0 9px;font-size:11px}
-  #ind-btn,#grid-btn{height:30px;font-size:13px;padding:0 12px}
+  #ind-btn,#grid-btn{height:26px;font-size:11px}
   .tf-dd-item{padding:11px 10px}
   .ind-row{padding:14px 0}
   .gp-layout{width:36px;height:30px}
   #hdr{height:26px;min-height:26px}
   #tf-bar{height:18px;min-height:18px}
-  #bottom-bar{height:36px;min-height:36px}
+  #bottom-bar{height:26px;min-height:26px}
   .tf-btn{line-height:22px}
 }
 
@@ -2361,26 +2361,14 @@ const TZ_MAP = {
 
 // Format: DD/MM/YYYY  HH:MM  or  DD/MM/YYYY  hh:MM AM/PM
 // For daily+ TFs — only show date, no time
-function fmtChartTime(t, _overrideTfMin) {
+function fmtChartTime(t) {
   const d = new Date(t * 1000);
   const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
   const use12h = S.hour12 === true;
 
   // Current active TF (minutes)
-  // Replay active hai → replay base TF use karo (5m), normal chart ka TF nahi
-  let activeTf;
-  if (_overrideTfMin != null) {
-    activeTf = _overrideTfMin;
-  } else if (typeof _REPLAY !== 'undefined' && _REPLAY.active && _REPLAY.cells && _REPLAY.cells.length > 0) {
-    // Replay mein smallest TF (base TF = 5m) use karo taaki time hamesha dikhे
-    const rpTfMins = _REPLAY.cells
-      .filter(c => c.tf)
-      .map(c => typeof _replayTfToMin === 'function' ? _replayTfToMin(c.tf) : 5);
-    activeTf = rpTfMins.length > 0 ? Math.min(...rpTfMins) : 5;
-  } else {
-    activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
-      ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
-  }
+  const activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
+    ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
 
   // Daily or higher → only date, no time
   if (activeTf >= 1440) {
@@ -5764,8 +5752,7 @@ function updateCellPrice(idx, data) {
 // ════════════════════════════════════════════════════════════════════════════
 function toggleIndPanel() {
   const p=document.getElementById('ind-panel'), b=document.getElementById('ind-btn');
-  const isOpen = p.classList.toggle('open');
-  if(b) b.classList.toggle('active', isOpen);
+  b.classList.toggle('active', p.classList.toggle('open'));
 }
 function indPanelBg(e) { if(e.target===document.getElementById('ind-panel'))toggleIndPanel(); }
 
@@ -11801,16 +11788,35 @@ async function _replayGhLoad(asset) {
     const rows = Array.isArray(obj) ? obj
                : (obj.data && Array.isArray(obj.data)) ? obj.data : [];
     _replayLogInfo(`BN raw rows: ${rows.length}`);
+    // DEBUG: first & last raw row
+    if (rows.length > 0) {
+      _replayLog(`  First row: ${JSON.stringify(rows[0])}`, '#787b86');
+      _replayLog(`  Last row:  ${JSON.stringify(rows[rows.length-1])}`, '#787b86');
+    }
+    let _skipped = 0;
     for (const row of rows) {
       try {
         const tsStr = (row.ts || '').trim();
         // "2015-01-09 09:15" — IST → UTC
-        const _p=tsStr.split(/[- :]/);
-        const ts=Math.floor(Date.UTC(+_p[0],+_p[1]-1,+_p[2],+((_p[3])||0),+((_p[4])||0))/1000)-IST_OFF;
+        const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
         const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
-        if (isNaN(ts)||isNaN(o)) continue;
+        if (isNaN(ts)||isNaN(o)) { _skipped++; continue; }
         raw5m.push({time:ts, open:o, high:h, low:l, close:c});
-      } catch(_){}
+      } catch(_){ _skipped++; }
+    }
+    if (_skipped > 0) _replayLogWarn(`BN parser: ${_skipped} rows skipped (NaN/error)`);
+    // DEBUG: first & last parsed timestamp
+    if (raw5m.length > 0) {
+      const _fmt = t => new Date(t*1000).toISOString().slice(0,16).replace('T',' ') + ' UTC';
+      _replayLog(`  Parsed first: ${_fmt(raw5m[0].time)}`, '#26a69a');
+      _replayLog(`  Parsed last:  ${_fmt(raw5m[raw5m.length-1].time)}`, '#26a69a');
+      // DEBUG: Apr 2026 candles count
+      const _apr = raw5m.filter(c => c.time >= 1743638400 && c.time <= 1746316799); // Apr 2026 UTC
+      _replayLog(`  Apr 2026 candles: ${_apr.length}`, '#f0b429');
+      if (_apr.length > 0) {
+        const _aprDates = [...new Set(_apr.map(c => new Date((c.time+IST_OFF)*1000).toISOString().slice(0,10)))];
+        _replayLog(`  Apr 2026 dates (IST): ${_aprDates.join(', ')}`, '#f0b429');
+      }
     }
   } else {
     // BTC: day-grouped
@@ -11821,8 +11827,7 @@ async function _replayGhLoad(asset) {
         try {
           const tsStr = (row.t || '').trim();
           // "2017-01-01 05:30:00" — IST → UTC
-          const _p=tsStr.split(/[- :]/);
-          const ts=Math.floor(Date.UTC(+_p[0],+_p[1]-1,+_p[2],+((_p[3])||0),+((_p[4])||0))/1000)-IST_OFF;
+          const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
           const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
           if (isNaN(ts)||isNaN(o)) continue;
           raw5m.push({time:ts, open:o, high:h, low:l, close:c});
@@ -11834,27 +11839,6 @@ async function _replayGhLoad(asset) {
   raw5m.sort((a,b) => a.time - b.time);
   _replayLogOk(`Parsed: ${raw5m.length} x 5m candles`);
   _REPLAY_RAW_CACHE[asset] = raw5m;
-
-  // ── Pre-built TF keys in file — seedha TF cache mein daal do (resample skip) ──
-  // BN file mein '135m' key hai — IST-session-aligned, pre-computed
-  if (asset === 'bn' && obj && Array.isArray(obj['135m'])) {
-    const rows135 = obj['135m'];
-    const candles135 = [];
-    for (const row of rows135) {
-      try {
-        const tsStr = (row.ts || '').trim();
-        const _p=tsStr.split(/[- :]/);
-        const ts=Math.floor(Date.UTC(+_p[0],+_p[1]-1,+_p[2],+((_p[3])||0),+((_p[4])||0))/1000)-IST_OFF;
-        const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
-        if (isNaN(ts)||isNaN(o)) continue;
-        candles135.push({time:ts, open:o, high:h, low:l, close:c});
-      } catch(_) {}
-    }
-    candles135.sort((a,b) => a.time - b.time);
-    _REPLAY_TF_CACHE['bn|135m'] = candles135;
-    _replayLogOk(`135m pre-built: ${candles135.length} candles (IST-aligned, from file)`);
-  }
-
   return raw5m;
 }
 
@@ -11890,28 +11874,16 @@ function _replayResample(candles5m, asset, tfStr) {
     : ['160m','8h'];
 
   if (fixedTfs.includes(tfStr)) {
-    // BN: IST-session-aligned buckets (9:15 anchor) — fixes 135m misalignment
-    // BTC: UTC-epoch aligned (24h market)
-    const SESSION_START_MIN = 9*60 + 15; // 555
+    // Group into tfMin-wide buckets aligned to epoch
     let bucket = null;
     for (const c of candles5m) {
+      // For BN: skip non-market candles
       if (asset === 'bn') {
         const ist = c.time + IST_OFF;
         const hhmm = Math.floor((ist % 86400) / 60);
-        if (hhmm < SESSION_START_MIN || hhmm > 15*60+30) continue;
+        if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
       }
-      let bucketTs;
-      if (asset === 'bn') {
-        // Align to 9:15 IST of each day — prevents off-market bucket starts
-        const ist          = c.time + IST_OFF;
-        const dayStartIST  = Math.floor(ist / 86400) * 86400;
-        const dayStartUTC  = dayStartIST - IST_OFF;
-        const relMin       = Math.floor((ist % 86400) / 60) - SESSION_START_MIN;
-        const bucketRel    = Math.floor(relMin / tfMin) * tfMin;
-        bucketTs           = dayStartUTC + (SESSION_START_MIN + bucketRel) * 60;
-      } else {
-        bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
-      }
+      const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
       if (!bucket || bucket.time !== bucketTs) {
         if (bucket) out.push(bucket);
         bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
@@ -12069,14 +12041,6 @@ function openReplayView() {
   fb.style.display = 'block';
   _REPLAY.active = true;
   _initReplayDrag();
-
-  // ── Normal chart ka purana SR clear karo (replay ki apni fresh SR hogi) ──
-  try {
-    if (typeof _bnClearSRNative === 'function' && typeof chart !== 'undefined') {
-      _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries || []);
-    }
-  } catch(_) {}
-
   // Sirf UI set karo — data Load button pe fetch hoga
   _REPLAY.asset = 'bn';
   const btnBn  = document.getElementById('replay-btn-bn');
@@ -12094,13 +12058,6 @@ function closeReplayView() {
   if (fb) fb.style.display = 'none';
   _REPLAY.active = false;
   _replayDestroyCells();
-
-  // Normal chart ka SR wapas draw karo (replay band hone ke baad)
-  try {
-    if (typeof initSwingIndicator === 'function') {
-      setTimeout(() => { try { initSwingIndicator(); } catch(_) {} }, 100);
-    }
-  } catch(_) {}
 }
 
 // Open asset picker float box from header symbol button tap
@@ -12299,7 +12256,7 @@ async function selectReplayAsset(asset) {
         rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
         timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
         localization: {
-          timeFormatter: (t) => fmtChartTime(t, typeof _replayTfToMin === 'function' ? _replayTfToMin(tfStr) : 5),
+          timeFormatter: (t) => fmtChartTime(t),
           priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         },
         handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
@@ -12364,9 +12321,6 @@ async function selectReplayAsset(asset) {
   _replayLogOk(`All TFs loaded for ${asset.toUpperCase()}`);
 
   _rpInitEngine(asset);
-
-  // ── Initial S/R draw — Load ke turant baad (step se pehle bhi lines dikhein) ──
-  _rpDrawSR(asset);
 
   // ResizeObserver for replay cells
   if (_REPLAY.resizeObs) { try { _REPLAY.resizeObs.disconnect(); } catch(_) {} }
@@ -12536,120 +12490,77 @@ async function _rpStep() {
 
   _rpUpdateStepDisplay(asset);
 
-  // S/R draw — har step ke baad update karo
-  _rpDrawSR(asset);
-
-  if (stepBtn) stepBtn.disabled = false;
-  _REPLAY.stepping = false;
-}
-
-// ── Replay S/R draw helper — Load aur Step dono se call hota hai ─────────────
-// Normal chart jaisi poori logic:
-//   1. Current cell TF + SWING_TF_LIST ke enabled higher TFs
-//   2. Same-price dedup (highest TF rakho; candle > swing)
-//   3. Hierarchy filter (currentTf <= line.levelTf)
-//   4. _bnBuildSRNative se draw (range restore bhi hoti hai)
-function _rpDrawSR(asset) {
+  // ── S/R Indicator: har step ke baad draw karo ──────────────────────────────
+  // Strategy: hist (pre-range 500 candles) + replay ke ab tak revealed base
+  // candles milake swingCompute karo. Phir har cell ke chart par natively draw.
   try {
-    const eng = _REPLAY.engine[asset];
-    if (!eng) return;
-    const baseCell = _REPLAY.cells[eng.baseCellIdx];
-    if (!baseCell || !baseCell.full) return;
+    // Base cell ke revealed candles (index 0 → eng.idx)
+    const revealedBase = baseCell.full.slice(0, eng.idx + 1);
 
-    // Revealed base candles (0 → current idx); idx=-1 = koi step nahi
-    const revealedBase = eng.idx >= 0
-      ? baseCell.full.slice(0, eng.idx + 1)
-      : [];
-
-    // Clear old SR lines (sabhi replay cells)
+    // Clear old SR lines (sabhi replay cells ke liye)
     for (const oldSr of (_REPLAY.srSeries || [])) {
       try { oldSr.chartObj.removeSeries(oldSr.s); } catch(_) {}
     }
     _REPLAY.srSeries = [];
 
+    // Har TF cell ke liye S/R compute + draw karo
     for (let ci = 0; ci < _REPLAY.cells.length; ci++) {
       const rc = _REPLAY.cells[ci];
       if (!rc.chart || !rc.series) continue;
-      const currentTfMin = _replayTfToMin(rc.tf || '');
+      const tfMin = _replayTfToMin(rc.tf || '');
+
+      // hist (pre-range) + revealed replay candles = S/R ke liye combined data
+      // rc.hist already is TF ke liye resampled hai (load time par set hua tha)
       const rcHist = rc.hist || [];
 
-      // ── Helper: is cell ke liye bars banana (hist + revealed, given tfStr) ──
-      function _barsFor(tfStr) {
-        const h = rcHist; // already resampled to rc.tf at load time
-        if (tfStr === rc.tf) {
-          // Base TF same as cell TF: hist already correct, concat revealed
-          const rev = (rc.tf === eng.baseTf)
-            ? revealedBase
-            : (revealedBase.length ? _replayResample(revealedBase, asset, tfStr) : []);
-          return h.concat(rev).sort((a,b) => a.time - b.time);
-        }
-        // Different (higher) TF: resample base hist + revealed from base
-        const baseHistAll = (baseCell.hist || []);
-        const allBase = baseHistAll.concat(revealedBase).sort((a,b) => a.time - b.time);
-        return _replayResample(allBase, asset, tfStr);
+      // barsForTF: hist + replay revealed, is cell ke TF mein
+      let barsForTF;
+      if (rc.tf === eng.baseTf) {
+        // Base TF: hist + revealedBase directly
+        barsForTF = rcHist.concat(revealedBase);
+      } else {
+        // Higher TF: hist already resampled hai; revealed base ko bhi resample karo
+        const revResampled = _replayResample(revealedBase, asset, rc.tf);
+        barsForTF = rcHist.concat(revResampled);
       }
 
-      const allLines = [];
+      if (!barsForTF || barsForTF.length < 3) continue;
 
-      // Base data: hist + revealed (sorted) — sabhi higher TF resample ke liye
-      const _baseAll = (baseCell.hist || [])
-        .concat(revealedBase)
-        .sort((a, b) => a.time - b.time);
+      // swingCompute ek hi TF ke liye call karo (replay mein multi-TF nahi)
+      const lines = swingCompute(barsForTF, tfMin);
+      if (!lines || !lines.length) continue;
 
-      // Replay ke loaded cells ke TFs jo current cell se >= hain
-      // 5m  → 5m,15m,45m,135m,1d,3d,9d,27d
-      // 15m → 15m,45m,135m,1d,3d,9d,27d
-      // 27d → sirf 27d
-      const _allReplayCells = _REPLAY.cells
-        .filter(c => c.tf && c.chart)
-        .map(c => ({ tfStr: c.tf, tfMin: _replayTfToMin(c.tf) }))
-        .filter(t => t.tfMin >= currentTfMin)
-        .sort((a, b) => a.tfMin - b.tfMin);
-
-      for (const { tfStr, tfMin } of _allReplayCells) {
-        // Is TF ke bars: base hist + revealed, resampled
-        const barsThisTF = (tfStr === eng.baseTf)
-          ? _baseAll
-          : _replayResample(_baseAll, asset, tfStr);
-
-        if (!barsThisTF || barsThisTF.length < 3) continue;
-
-        const tfLines = swingCompute(barsThisTF, tfMin);
-        // Hierarchy rule: currentTfMin <= line.levelTf
-        const valid = tfLines.filter(l => currentTfMin <= l.levelTf);
-        allLines.push(...valid);
-      }
-
-      // Step 3: Same-price dedup — normal chart jaisi
-      const _swingByPrice  = new Map();
-      const _candleByPrice = new Map();
-      for (const line of allLines) {
-        if (line.isInfinite) {
-          const ex = _swingByPrice.get(line.price);
-          if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
-        } else {
-          const ex = _candleByPrice.get(line.price);
-          if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
-        }
-      }
-      // Candle H/L > Swing at same price
-      for (const price of _candleByPrice.keys()) _swingByPrice.delete(price);
-      const finalLines = [
-        ...Array.from(_swingByPrice.values()),
-        ...Array.from(_candleByPrice.values()),
-      ];
-
-      if (!finalLines.length) continue;
-
-      // Step 4: _bnBuildSRNative se draw (range restore bhi hoti hai)
-      const created = _bnBuildSRNative(rc.chart, finalLines, null);
-      for (const s of created) {
-        _REPLAY.srSeries.push({ chartObj: rc.chart, s });
+      // Draw each line as a native series on this cell's chart
+      for (const ln of lines) {
+        try {
+          const color = ln.color || _tfSrColor(tfMin);
+          const s = rc.chart.addLineSeries({
+            color,
+            lineWidth: SWING_LINE_WIDTH,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+            autoscaleInfoProvider: () => null,
+          });
+          const _periodSec = ln.isInfinite ? tfMin * 60 : (ln.periodSec || 60);
+          const endT = ln.isInfinite
+            ? (ln.startTime + _periodSec * 100)
+            : ln.endTime;
+          s.setData([
+            { time: ln.startTime, value: ln.price },
+            { time: endT,         value: ln.price },
+          ]);
+          _REPLAY.srSeries.push({ chartObj: rc.chart, s });
+        } catch(_) {}
       }
     }
   } catch(srErr) {
-    console.warn('Replay _rpDrawSR error:', srErr);
+    console.warn('Replay S/R draw error:', srErr);
   }
+  // ── S/R draw end ───────────────────────────────────────────────────────────
+
+  if (stepBtn) stepBtn.disabled = false;
+  _REPLAY.stepping = false;
 }
 
 // Status text in float box + header badge
@@ -12816,16 +12727,16 @@ function _replayToggleMinimize() {
   <div id="replay-stack-container" style="flex:1;overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain;touch-action:none;display:flex;flex-direction:column;min-height:0;"></div>
 
   <!-- ── BOTTOM BAR — slim, sirf scroll controls ── -->
-  <div id="rp-bottom-bar" style="height:36px;min-height:36px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
+  <div id="rp-bottom-bar" style="height:22px;min-height:22px;background:#1e222d;border-top:1px solid #2a2e39;display:flex;align-items:center;padding:0 6px;gap:4px;flex-shrink:0;overflow-x:auto;-ms-overflow-style:none;scrollbar-width:none;position:relative;z-index:9050;">
     <button onclick="toggleIndPanel()"
-      style="height:30px;padding:0 12px;background:transparent;border:1px solid #2a2e39;border-radius:4px;color:#9598a1;font-size:13px;cursor:pointer;white-space:nowrap;flex-shrink:0;touch-action:manipulation;">
+      style="height:18px;padding:0 8px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
       📊 Indicators
     </button>
     <div style="flex:1;"></div>
     <button onclick="_replayStackJump(-1)"
-      style="height:30px;width:32px;background:#2a2e39;border:1px solid #363c4e;border-radius:4px;color:#9598a1;font-size:13px;cursor:pointer;flex-shrink:0;touch-action:manipulation;">▲</button>
+      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▲</button>
     <button onclick="_replayStackJump(1)"
-      style="height:30px;width:32px;background:#2a2e39;border:1px solid #363c4e;border-radius:4px;color:#9598a1;font-size:13px;cursor:pointer;flex-shrink:0;touch-action:manipulation;">▼</button>
+      style="height:18px;width:22px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;flex-shrink:0;">▼</button>
   </div>
 </div>
 
