@@ -229,7 +229,7 @@
   Line 5025   Fullscreen — toggleSelectedCellFS(), toggleTfBar()
   Line 5083   Candle Countdown Timer — _calcRemaining(), _startCountdown()
   Line 5309   Live Candle — BTC/USDT via Binance WebSocket
-                _connectBTCWS(), _applyBTCKline(), _btcStartRest(), _btcStopRest()
+                _applyBTCKline(), _btcStartRest(), _btcStopRest()
   Line 5542   BTC WebSocket — primary + REST fallback (Termux/Android safe)
   Line 5696   History Loader — _loadBTCHistory()
   Line 5825   BankNifty History Loader + Live Polling
@@ -501,67 +501,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   transition:border-color .15s,color .15s;
 }
 .lm-new-btn:hover{color:#d1d4dc;border-color:#555}
-
-/* ── Broker (Fyers) Panel ────────────────────────────────────────── */
-#broker-btn{
-  height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;
-  border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;
-  cursor:pointer;white-space:nowrap;flex-shrink:0;
-}
-#broker-btn:active{background:#2a2e39}
-#broker-btn.bk-live{border-color:#26a69a;color:#26a69a}
-#broker-btn.bk-dead{border-color:#ef5350;color:#ef5350}
-#broker-panel{
-  display:none;position:fixed;top:28px;right:6px;z-index:9500;
-  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
-  width:min(320px,96vw);box-shadow:0 8px 32px #000b;overflow:hidden;
-}
-#broker-panel.open{display:block}
-.bk-hdr{
-  display:flex;align-items:center;padding:10px 12px 8px;
-  border-bottom:1px solid #2a2e39;gap:6px;
-}
-.bk-hdr-title{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
-.bk-status-dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0}
-.bk-status-dot.live{background:#26a69a;box-shadow:0 0 5px #26a69a}
-.bk-status-dot.dead{background:#ef5350}
-.bk-status-txt{font-size:10px;color:#787b86}
-.bk-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
-.bk-close:hover{color:#d1d4dc}
-.bk-body{padding:10px 12px 12px}
-.bk-row{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
-.bk-lbl{font-size:10px;color:#787b86;font-weight:600}
-.bk-inp{
-  height:28px;background:#131722;border:1px solid #363c4e;border-radius:4px;
-  color:#d1d4dc;font-size:11px;padding:0 8px;outline:none;width:100%;
-  -webkit-user-select:auto;user-select:auto;
-}
-.bk-inp:focus{border-color:#2962ff}
-.bk-inp.bk-url{height:34px;font-size:10px}
-.bk-row2{display:flex;gap:6px;margin-bottom:8px}
-.bk-row2 .bk-row{flex:1;margin-bottom:0}
-.bk-link{
-  display:block;margin-bottom:8px;padding:8px;
-  background:#162044;border:1px solid #2962ff44;border-radius:4px;
-  color:#5b9cf6;font-size:11px;text-align:center;cursor:pointer;text-decoration:none;
-}
-.bk-link:hover{background:#1a2a55;border-color:#2962ff}
-.bk-divider{height:1px;background:#2a2e39;margin:8px 0}
-.bk-hint{font-size:10px;color:#555;margin-bottom:6px}
-.bk-connect-btn{
-  width:100%;height:34px;background:#2962ff;border:none;border-radius:5px;
-  color:#fff;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;
-}
-.bk-connect-btn:active{background:#1a53e0}
-.bk-connect-btn:disabled{background:#363c4e;color:#555;cursor:not-allowed}
-.bk-msg{font-size:11px;margin-top:6px;text-align:center;min-height:16px}
-.bk-msg.ok{color:#26a69a} .bk-msg.err{color:#ef5350}
-/* ── Broker panel tabs ── */
-.bk-tabs{display:flex;border-bottom:1px solid #2a2e39;margin-bottom:10px;gap:2px}
-.bk-tab-btn{flex:1;height:26px;background:transparent;border:none;border-bottom:2px solid transparent;color:#787b86;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.3px}
-.bk-tab-btn.active{color:#2962ff;border-bottom-color:#2962ff}
-.bk-tab-pane{display:none}
-.bk-tab-pane.active{display:block}
 
 /* ── Workspace ───────────────────────────────────────────────────── */
 #workspace{flex:1;display:flex;overflow:hidden;min-height:0}
@@ -1233,14 +1172,6 @@ select.s-select{
 }
 .cell-timer-badge.timer-on{display:block}
 
-/* ── WS status ────────────────────────────────────────────────────── */
-#ws-dot{
-  display:inline-block;width:7px;height:7px;border-radius:50%;
-  background:#555;margin-right:4px;vertical-align:middle;
-}
-#ws-dot.live{background:#26a69a}
-#ws-status{font-size:10px;color:#787b86;white-space:nowrap;flex-shrink:0}
-
 /* ══ ADVANCED MOBILE TOUCH UX ═══════════════════════════════════════ */
 
 /* Larger hit-targets on coarse-pointer (touchscreen) devices */
@@ -1614,19 +1545,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
     <button class="hdr-icon-btn" id="layout-btn" onclick="toggleLayoutMenu(event)" title="Layouts">⊟</button>
-    <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
-    <button class="hdr-icon-btn" id="gh-save-btn" 
-      onclick="GH.push(true)" 
-      oncontextmenu="event.preventDefault(); GH.reset();"
-      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
-      ontouchend="clearTimeout(this._ghLong)"
-      title="Save to GitHub (Long-press to reset token)" 
-      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
-      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-    </button>
-    <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
 
@@ -1654,51 +1574,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
   
-  <!-- GitHub Sync Buttons (Moved to Top) -->
-  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
-    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
-    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
-      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
-      PULL (Restore)
-    </button>
-    <button onclick="GH.reset()" 
-      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
-      Reset
-    </button>
-  </div>
-
-  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
-    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
-    <!-- Auto-save toggle -->
-    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
-      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
-             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
-             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
-      title="Auto-save on/off">⚡ Auto</button>
-    <!-- Cloud on/off toggle -->
-    <button id="gd-toggle" onclick="gdToggle()"
-      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
-             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
-      title="Cloud sync on/off">🟢</button>
-    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
-  </div>
-
-  <!-- Manual token paste — popup URL copy karke yahan paste karo -->
-  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
-    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
-    <div style="display:flex;gap:6px;">
-      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
-        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
-               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
-      <button onclick="gdManualToken()"
-        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
-               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
-        ✓ OK
-      </button>
-    </div>
-  </div>
-  <!-- ss-status hidden — sirf internal use -->
-  <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
 </div>
@@ -1848,62 +1723,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
 </div>
 
-<!-- ═══ BROKER (FYERS) PANEL ════════════════════════════════════════════ -->
-<div id="broker-panel">
-  <div class="bk-hdr">
-    <span class="bk-status-dot" id="bk-dot"></span>
-    <span class="bk-hdr-title">🔑 Fyers Broker</span>
-    <span class="bk-status-txt" id="bk-status-txt">Checking…</span>
-    <button class="bk-close" onclick="toggleBrokerPanel()">✕</button>
-  </div>
-  <div class="bk-body">
-    <!-- Shared: App ID + Secret -->
-    <div class="bk-row2">
-      <div class="bk-row">
-        <span class="bk-lbl">APP ID</span>
-        <input class="bk-inp" id="bk-app-id" value="__FYERS_APP_ID__" placeholder="XXXXXXXX-100">
-      </div>
-      <div class="bk-row">
-        <span class="bk-lbl">SECRET KEY</span>
-        <input class="bk-inp" id="bk-secret" value="__FYERS_SECRET__" placeholder="XXXXXXXXXX">
-      </div>
-    </div>
-
-    <!-- Tab buttons -->
-    <div class="bk-tabs">
-      <button class="bk-tab-btn active" onclick="bkSwitchTab('manual',this)">🔗 Google URL</button>
-      <button class="bk-tab-btn" onclick="bkSwitchTab('totp',this)">🤖 TOTP Auto</button>
-    </div>
-
-    <!-- Tab 1: Manual Google URL -->
-    <div class="bk-tab-pane active" id="bk-pane-manual">
-      <div class="bk-lbl" style="margin-bottom:4px">STEP 1 — Fyers login link kholo</div>
-      <a id="bk-login-link" class="bk-link" href="#" target="_blank" onclick="bkOpenLogin(event)">
-        👉 Fyers Login Link Open Karo (new tab)
-      </a>
-      <div class="bk-divider"></div>
-      <div class="bk-lbl" style="margin-bottom:4px">STEP 2 — Google URL ya auth_code paste karo</div>
-      <div class="bk-hint">Login ke baad Google page aayega → poora URL paste karo</div>
-      <div class="bk-row">
-        <input class="bk-inp bk-url" id="bk-url-inp" placeholder="https://www.google.com/?s=ok&auth_code=eyJ…" oninput="bkOnUrlInput(this)">
-      </div>
-      <div id="bk-code-preview" style="font-size:9px;color:#555;margin:-4px 0 6px;word-break:break-all;min-height:12px"></div>
-      <button class="bk-connect-btn" id="bk-conn-btn" onclick="bkConnect()" disabled>⚡ Connect</button>
-      <div class="bk-msg" id="bk-msg"></div>
-    </div>
-
-    <!-- Tab 2: TOTP Auto Login -->
-    <div class="bk-tab-pane" id="bk-pane-totp">
-      <div class="bk-lbl" style="margin-bottom:4px">TOTP Secret (32-char key — ek baar daalo)</div>
-      <div class="bk-hint">Google Authenticator / Authy mein Fyers ka backup key</div>
-      <div class="bk-row">
-        <input class="bk-inp" id="bk-totp-secret" type="password" placeholder="JBSWY3DPEHPK3PXP…" style="letter-spacing:1px">
-      </div>
-      <button class="bk-connect-btn" id="bk-totp-btn" onclick="bkTotpLogin()" style="margin-top:4px">🚀 Auto Login (TOTP)</button>
-      <div class="bk-msg" id="bk-totp-msg"></div>
-    </div>
-  </div>
-</div>
 
 <!-- ═══ SINGLE-CHART WORKSPACE ══════════════════════════════════════════ -->
 <div id="workspace">
@@ -2316,11 +2135,11 @@ const ALLDATA     = { '\u20bf BTC/USDT': __BTC_CANDLES__, '\ud83d\udcca BANKNIFT
 // 15m candles — used as base for 15m–12H resampling
 const BTC_15M     = __BTC_15M__;
 const BTC_DAILY   = __BTC_DAILY__;
-const BN_5M       = __BN_5M__;
-const BN_15M      = __BN_15M__;
-const BN_45M      = __BN_45M__;
+const BN_5M = [];
+const BN_15M = [];
+const BN_45M = [];
 
-const BN_DAILY    = __BN_DAILY__;
+const BN_DAILY = [];
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
@@ -2673,8 +2492,8 @@ function loadFromSlot(idx) {
   _renderLayoutDropdown();
 
   // ── Start/stop live polling based on restored asset ────────────────────
-  if (slot.asset === BN_ASSET) _startBNPolling();
-  else _stopBNPolling();
+  if (slot.asset === BN_ASSET)
+  else
 
   // Close menu
   const menu = document.getElementById('layout-menu');
@@ -2723,182 +2542,6 @@ function toggleLayoutMenu(e) {
   }, 0);
 }
 
-// ══ BROKER (FYERS) PANEL LOGIC ═══════════════════════════════════════════════
-const _BK_STATUS = '__FYERS_STATUS__'; // injected by Python: 'connected' | 'disconnected'
-const _API_PORT  = __API_PORT__;       // injected by Python: side HTTP server port (e.g. 8502), 0 = not ready
-
-function _bkInitStatus() {
-  const dot  = document.getElementById('bk-dot');
-  const txt  = document.getElementById('bk-status-txt');
-  const btn  = document.getElementById('broker-btn');
-  const live = _BK_STATUS === 'connected';
-  if (dot) { dot.className = 'bk-status-dot ' + (live ? 'live' : 'dead'); }
-  if (txt) { txt.textContent = live ? '● Live' : '○ Not connected'; }
-  if (btn) { btn.className = live ? 'bk-live' : 'bk-dead'; }
-}
-
-let _bkOutsideHandler = null;
-function toggleBrokerPanel(e) {
-  if (e) e.stopPropagation();
-  const panel = document.getElementById('broker-panel');
-  if (!panel) return;
-  const isOpen = panel.classList.contains('open');
-  if (isOpen) {
-    panel.classList.remove('open');
-    if (_bkOutsideHandler) { document.removeEventListener('click', _bkOutsideHandler, true); _bkOutsideHandler = null; }
-    return;
-  }
-  panel.classList.add('open');
-  _bkInitStatus();
-  _bkUpdateLoginLink();
-  // Close on outside click
-  setTimeout(() => {
-    _bkOutsideHandler = function _bkOut(ev) {
-      const b = document.getElementById('broker-btn');
-      if (!panel.contains(ev.target) && ev.target !== b && !(b && b.contains(ev.target))) {
-        panel.classList.remove('open');
-        document.removeEventListener('click', _bkOut, true);
-        _bkOutsideHandler = null;
-      }
-    };
-    document.addEventListener('click', _bkOutsideHandler, { capture: true });
-  }, 0);
-}
-
-function _bkUpdateLoginLink() {
-  const appId  = (document.getElementById('bk-app-id')  || {value:''}).value.trim() || '__FYERS_APP_ID__';
-  const link   = document.getElementById('bk-login-link');
-  if (!link) return;
-  const url = 'https://api-t1.fyers.in/api/v3/generate-authcode'
-    + '?client_id=' + encodeURIComponent(appId)
-    + '&redirect_uri=https%3A%2F%2Fwww.google.com'
-    + '&response_type=code&state=None';
-  link.href = url;
-}
-
-function bkOpenLogin(e) {
-  _bkUpdateLoginLink();
-  // allow default <a href> open
-}
-
-function _bkExtractCode(raw) {
-  raw = (raw || '').trim();
-  if (!raw) return '';
-  if (raw.startsWith('http')) {
-    try {
-      const u = new URL(raw);
-      return u.searchParams.get('auth_code') || '';
-    } catch(_) { return ''; }
-  }
-  // raw code pasted directly
-  return raw.length > 10 ? raw : '';
-}
-
-function bkOnUrlInput(inp) {
-  const code = _bkExtractCode(inp.value);
-  const preview = document.getElementById('bk-code-preview');
-  const connBtn = document.getElementById('bk-conn-btn');
-  if (preview) {
-    preview.textContent = code ? ('✓ Code: ' + code.slice(0, 28) + '…') : '';
-    preview.style.color = code ? '#26a69a' : '#555';
-  }
-  if (connBtn) connBtn.disabled = !code;
-}
-
-function bkConnect() {
-  const appId  = (document.getElementById('bk-app-id')  || {value:''}).value.trim();
-  const secret = (document.getElementById('bk-secret')  || {value:''}).value.trim();
-  const urlRaw = (document.getElementById('bk-url-inp') || {value:''}).value.trim();
-  const code   = _bkExtractCode(urlRaw);
-  const msg    = document.getElementById('bk-msg');
-
-  if (!code) {
-    if (msg) { msg.textContent = '❌ Valid URL ya auth_code paste karo'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (!appId || !secret) {
-    if (msg) { msg.textContent = '❌ App ID aur Secret fill karo'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (msg) { msg.textContent = '⏳ Connecting…'; msg.className = 'bk-msg'; }
-
-  // Streamlit iframe sandbox blocks window.parent.location.href assignment.
-  // Workaround: create a GET form in the PARENT document and submit it —
-  // parent-document forms are not subject to the child-frame sandbox.
-  try {
-    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-    const pdoc = window.parent.document;
-
-    const form = pdoc.createElement('form');
-    form.method = 'GET';
-    form.action = parentUrl;
-
-    const addHidden = (name, val) => {
-      const el = pdoc.createElement('input');
-      el.type = 'hidden'; el.name = name; el.value = val;
-      form.appendChild(el);
-    };
-    addHidden('fyers_app_id', appId);
-    addHidden('fyers_secret',  secret);
-    addHidden('fyers_code',    code);
-
-    pdoc.body.appendChild(form);
-    form.submit();
-  } catch(err) {
-    if (msg) { msg.textContent = '❌ Error: ' + err.message; msg.className = 'bk-msg err'; }
-  }
-}
-
-// ── Tab switching ─────────────────────────────────────────────────────────────
-function bkSwitchTab(name, btn) {
-  ['manual','totp'].forEach(t => {
-    const pane = document.getElementById('bk-pane-' + t);
-    if (pane) pane.classList.toggle('active', t === name);
-  });
-  document.querySelectorAll('.bk-tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-}
-
-// ── TOTP Auto Login ───────────────────────────────────────────────────────────
-function bkTotpLogin() {
-  const secret = (document.getElementById('bk-totp-secret') || {value:''}).value.trim();
-  const appId  = (document.getElementById('bk-app-id')     || {value:''}).value.trim();
-  const sec    = (document.getElementById('bk-secret')     || {value:''}).value.trim();
-  const msg    = document.getElementById('bk-totp-msg');
-  const btn    = document.getElementById('bk-totp-btn');
-
-  if (!secret) {
-    if (msg) { msg.textContent = '❌ TOTP secret daalo pehle'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (msg) { msg.textContent = '⏳ Logging in… (Steps 1→5)'; msg.className = 'bk-msg'; }
-  if (btn) btn.disabled = true;
-
-  try {
-    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-    const pdoc = window.parent.document;
-    const form = pdoc.createElement('form');
-    form.method = 'GET';
-    form.action = parentUrl;
-    const h = (name, val) => {
-      const el = pdoc.createElement('input');
-      el.type = 'hidden'; el.name = name; el.value = val;
-      form.appendChild(el);
-    };
-    h('totp_trigger', '1');
-    h('totp_secret',  secret);
-    h('fyers_app_id', appId);
-    h('fyers_secret', sec);
-    pdoc.body.appendChild(form);
-    form.submit();
-  } catch(err) {
-    if (msg) { msg.textContent = '❌ ' + err.message; msg.className = 'bk-msg err'; }
-    if (btn) btn.disabled = false;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', _bkInitStatus);
-// ─────────────────────────────────────────────────────────────────────────────
 
 function _flashBtn(id, msg) {
   const btn = document.getElementById(id);
@@ -3939,7 +3582,6 @@ function applyTF(tfMin) {
       refreshCellHeaders(); wireSync();
       // BTC grid cell ke liye WS ensure karo
       if (CELLS[SELECTED_CELL] && CELLS[SELECTED_CELL].asset === BTC_ASSET) {
-        if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
       }
     }
   } else {
@@ -5562,11 +5204,7 @@ async function buildCellChart(idx) {
       }
     }
   }
-  // ── BTC grid cell: ensure live WebSocket is running ──────────────────────
-  if (c.asset === BTC_ASSET && !_btcWsOk && !_btcPollTimer) {
-    _connectBTCWS();
-  }
-  // -------------------------------------------------------------------------
+  // ── BTC grid cell: ensure live WebSocket is running ──────────────────────  // -------------------------------------------------------------------------
 
   const data=resampleForTF(rawData, c.tf, c.asset);
 
@@ -6615,7 +6253,6 @@ function switchAsset(name) {
     setTimeout(_startCellTimers, 200);
     setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
     if (name === BTC_ASSET) {
-      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     }
   } else {
     CELLS.forEach(c => c.asset = name);
@@ -6623,7 +6260,6 @@ function switchAsset(name) {
     refreshCellHeaders(); wireSync();
     // Grid mode mein bhi BTC WS ensure karo
     if (name === BTC_ASSET) {
-      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     }
   }
   // ── Asset-specific live feed control ──────────────────────────────────────
@@ -6632,11 +6268,8 @@ function switchAsset(name) {
     // BTC ka _applyBTCKline already S.asset check karta hai (1x1 mein guard hai)
     // lekin REST polling CPU waste karti hai — isliye band karo
     _btcStopRest();
-    _startBNPolling();
   } else {
     // BTC mode: BN polling band karo, BTC start karo
-    _stopBNPolling();
-    if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     else _btcStartRest();
   }
 }
@@ -6804,115 +6437,6 @@ function _applyBTCKline(k) {
   });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════════════════════
-// BTC LIVE — WebSocket primary + REST parallel backup
-// Termux/Android/Cloud safe — turant connect, zero gap
-// ════════════════════════════════════════════════════════════════════════════
-let _btcWs           = null;
-let _btcPollTimer    = null;
-let _btcRestBusy     = false;
-let _btcWsOk         = false;
-let _btcLastTickMs   = 0;
-let _btcWsRetryDelay = 1000;
-let _btcWsUrlIdx     = 0;
-
-function _btcSetStatus(live) {
-  const dot = document.getElementById('ws-dot');
-  const st  = document.getElementById('ws-status');
-  if (live) {
-    if (dot) dot.className = 'live';
-    if (st)  st.innerHTML  = '<span id="ws-dot" class="live"></span>Live';
-    setLiveStatus(true);
-  } else {
-    if (dot) dot.className = '';
-    if (st)  st.innerHTML  = '<span id="ws-dot"></span>Connecting…';
-    setLiveStatus(false);
-  }
-}
-
-// ── REST loop ─────────────────────────────────────────────────────────────
-async function _btcRestOnce() {
-  if (_btcRestBusy) return;
-  _btcRestBusy = true;
-  try {
-    const r = await fetch(
-      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=2',
-      { cache: 'no-store', signal: AbortSignal.timeout(1500) }
-    );
-    if (r.ok) {
-      const data = await r.json();
-      if (data && data.length) {
-        const k = data[data.length - 1];
-        _applyBTCKline({ t: parseInt(k[0]), o: k[1], h: k[2], l: k[3], c: k[4] });
-        _btcLastTickMs = Date.now();
-        _btcSetStatus(true);
-      }
-    }
-  } catch(_) {}
-  _btcRestBusy = false;
-  // WebSocket connected hai to REST sirf backup — slow poll (2s)
-  // WebSocket nahi hai to fast poll (200ms) for smooth candles
-  const delay = _btcWsOk ? 2000 : 200;
-  _btcPollTimer = setTimeout(_btcRestOnce, delay);
-}
-
-function _btcStartRest() {
-  if (_btcPollTimer || _btcRestBusy) return;
-  _btcRestOnce(); // immediate first tick
-}
-
-function _btcStopRest() {
-  if (_btcPollTimer) { clearTimeout(_btcPollTimer); _btcPollTimer = null; }
-}
-
-// ── WebSocket ─────────────────────────────────────────────────────────────
-const _BTC_WS_URLS = [
-  'wss://stream.binance.com/ws/btcusdt@kline_1m',
-  'wss://data-stream.binance.com/ws/btcusdt@kline_1m',
-  'wss://stream.binance.com:9443/ws/btcusdt@kline_1m',
-];
-
-function _connectBTCWS() {
-  try { if (_btcWs) { _btcWs.onclose = null; _btcWs.close(); } } catch(_) {}
-  _btcWsOk = false;
-
-  // REST turant shuru — WS connect hone tak data aata rahe
-  _btcStartRest();
-
-  const url = _BTC_WS_URLS[_btcWsUrlIdx % _BTC_WS_URLS.length];
-  _btcWs = new WebSocket(url);
-
-  _btcWs.onopen = () => {
-    _btcWsOk = true;
-    _btcWsUrlIdx = 0;
-    _btcWsRetryDelay = 1000;
-    _btcSetStatus(true);
-    // REST band mat karo — parallel chalao (double coverage)
-  };
-
-  _btcWs.onmessage = evt => {
-    try {
-      const d = JSON.parse(evt.data);
-      if (d.k) {
-        _applyBTCKline(d.k);
-        _btcLastTickMs = Date.now();
-        _btcSetStatus(true);
-      }
-    } catch(_) {}
-  };
-
-  _btcWs.onerror = () => { _btcWsOk = false; };
-
-  _btcWs.onclose = () => {
-    _btcWsOk = false;
-    _btcWsUrlIdx++;
-    _btcWsRetryDelay = Math.min(_btcWsRetryDelay * 2, 10000);
-    // REST already chal rahi hogi — WS retry
-    setTimeout(_connectBTCWS, _btcWsRetryDelay);
-  };
-}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 // Native Binance interval to use for a given TF (minutes).
@@ -7050,7 +6574,6 @@ async function _loadBTCHistory(tfMin) {
     // Guard: user may have changed asset/TF while we were fetching
     if (!mainSeries || S.asset !== BTC_ASSET || S.tf !== tfMin) {
       _setLoadingLabel('');
-      _connectBTCWS();
       return;
     }
 
@@ -7080,11 +6603,10 @@ async function _loadBTCHistory(tfMin) {
     }
 
   } catch(err) {
-    // Fetch failed — WS will still keep the live candle moving
+    // Fetch failed
   }
 
   _setLoadingLabel('');
-  _connectBTCWS();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -7572,190 +7094,6 @@ function _bnGetCellBar(c, latest) {
            low: c._bnBkt.low, close: c._bnBkt.close, value: c._bnBkt.close };
 }
 
-function _applyBNLiveTick(d) {
-  // d = { ts, ltp, candle: {time, open, high, low, close} }
-  if (!d || !d.candle) return;
-  const latest = {
-    time:   d.candle.time,
-    open:   d.candle.open,
-    high:   d.candle.high,
-    low:    d.candle.low,
-    close:  d.candle.close,
-    value:  d.candle.close,
-  };
-
-  // ── Step 1: 1-min raw data update (ALLDATA + BN_15M + BN_DAILY) ───────────
-  const arr = ALLDATA[BN_ASSET];
-  const prevLastTime = (Array.isArray(arr) && arr.length) ? arr[arr.length-1].time : null;
-  const isNewCandle  = prevLastTime !== null && latest.time !== prevLastTime;
-  _bnUpdateRaw(latest);
-
-  // ── Step 2: SR lines redraw agar 1-min candle close hua ──────────────────
-  if (isNewCandle) {
-    clearTimeout(_swingRebuildTimer);
-    _swingRebuildTimer = setTimeout(() => {
-      if (S.layout === '1x1') swingAfterRebuild();
-      else CELLS.forEach((_, i) => buildCellSwing(i));
-    }, 200);
-  }
-
-  // ── Step 3: Single chart update (1x1 mode) ────────────────────────────────
-  if (S.layout === '1x1' && mainSeries && S.asset === BN_ASSET) {
-    const tfMin = S.tf || 1;
-    const bar   = _bnGetBar(latest, tfMin);
-
-    cancelAnimationFrame(_bnRafId);
-    _bnRafId = requestAnimationFrame(() => {
-      if (!mainSeries) return;
-      try { mainSeries.update(bar); } catch(_) {}
-      // Daily+ TF: scrollToRealTime karo taaki forming candle visible rahe
-      if (tfMin >= 1440 && chart && _followLive) {
-        try { chart.timeScale().scrollToRealTime(); } catch(_) {}
-      }
-    });
-
-    const ltpEl = document.getElementById('hdr-ltp');
-    if (ltpEl && !_hdrXActive)
-      ltpEl.textContent = latest.close.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
-
-    // Price change % (day open se)
-    const chgEl = document.getElementById('hdr-chg');
-    if (chgEl && !_hdrXActive) {
-      const dayOpen = _candleOpen[BN_ASSET] || latest.open;
-      const chg = latest.close - dayOpen;
-      const pct = dayOpen ? (chg/dayOpen*100).toFixed(2) : '0.00';
-      const sign = chg >= 0 ? '+' : '';
-      chgEl.textContent = sign + latest.close.toLocaleString('en-IN',{minimumFractionDigits:2}) + 
-                          ' (' + sign + pct + '%)';
-      chgEl.className = chg >= 0 ? 'up' : 'dn';
-    }
-    if (!_candleOpen[BN_ASSET]) _candleOpen[BN_ASSET] = latest.open;
-
-    _lastLTP = latest.close;
-    _mainVLTime = bar.time; _vlDraw();
-  }
-
-  // ── Step 4: Grid cells update ─────────────────────────────────────────────
-  CELLS.forEach((c, ci) => {
-    if (c.asset !== BN_ASSET || !c.series) return;
-    const cellBar = _bnGetCellBar(c, latest);
-
-    if (!c._bnRafPending) {
-      c._bnRafPending = true;
-      requestAnimationFrame(() => {
-        c._bnRafPending = false;
-        if (!c.series || !c._bnBkt) return;
-        try { c.series.update({ ...cellBar }); } catch(_) {}
-        if ((c.tf||1) >= 1440 && c.chart && c._followLive) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-        }
-        const _ci2 = CELLS.indexOf(c); c._vlTime = cellBar.time; _vlDrawCell(_ci2);
-        _pdotDraw(_ci2);
-        c._lastLTP = cellBar.close;
-        const cell2 = document.querySelector('.grid-cell[data-idx="'+ci+'"]');
-        if (cell2) {
-          const pe = cell2.querySelector('.cell-price');
-          if (pe) {
-            pe.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
-            pe.className   = 'cell-price ' + (cellBar.close >= (c._bnBkt.open||cellBar.close) ? 'up' : 'dn');
-          }
-          const op = cell2.querySelector('.co-price');
-          if (op) op.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
-          const oc = cell2.querySelector('.co-chg');
-          if (oc) {
-            const _d = cellBar.close - (c._bnBkt.open||cellBar.close);
-            const _p = c._bnBkt.open ? (_d/c._bnBkt.open*100).toFixed(2) : '0.00';
-            oc.textContent = (_d>=0?'+':'')+_p+'%';
-            oc.style.color = _d >= 0 ? '#26a69a' : '#ef5350';
-          }
-        }
-      });
-    }
-  });
-
-  // ── Step 5: Live indicator ────────────────────────────────────────────────
-  if (S.asset === BN_ASSET || CELLS.some(c=>c.asset===BN_ASSET)) {
-    const st = document.getElementById('ws-status');
-    if (st && S.asset === BN_ASSET)
-      st.innerHTML = '<span id="ws-dot" class="live"></span>Live';
-  }
-  // ── Parent dot live update (throttled — only on new candle) ──────────────
-  if (isNewCandle) _pdotOnLiveTick();
-}
-
-// Listen for postMessage from Streamlit parent (Python pushes tick every ~1s)
-window.addEventListener('message', function(evt) {
-  try {
-    const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'bn_live') _applyBNLiveTick(msg.data);
-    // Also accept BTC tick override from parent (future use)
-  } catch(_) {}
-});
-
-// ── Fast direct tick poll — talks straight to the local side-port HTTP
-// server (the same one /api/bn_history already uses) instead of going
-// through Streamlit's 1s @st.fragment rerun + postMessage relay chain.
-// That chain was the main source of the 2-3s lag: Python only reruns the
-// pusher fragment once/sec, then Streamlit has to tear down and remount a
-// fresh iframe each time before anything can be pushed. This polls the
-// in-memory tick (_get_live_payload — no disk I/O) directly every 300ms,
-// with a sub-second float ts so same-second ticks no longer get deduped
-// away. The bn_live.json poll + postMessage listener above stay as
-// fallbacks for any environment where the side port isn't reachable.
-let _bnFastTickTs = 0;
-let _bnFastPollIv = null;
-
-async function _pollBNTickFast() {
-  if (_resolvedApiPort === 0) { await _probeApiPort(); }
-  if (_resolvedApiPort === 0) return;  // side port not reachable here — fallbacks will cover it
-  try {
-    const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/bn_tick`;
-    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(1200) });
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d && d.candle && d.ts && d.ts !== _bnFastTickTs) {
-      _bnFastTickTs = d.ts;
-      _applyBNLiveTick(d);
-    }
-  } catch(_) {}
-}
-
-function _startBNFastPolling() {
-  if (_bnFastPollIv) return;
-  _pollBNTickFast();
-  _bnFastPollIv = setInterval(_pollBNTickFast, 300);
-}
-_startBNFastPolling();
-
-// BN Live Poll — bn_live.json direct fetch (Streamlit mein /api/bn_live exist nahi)
-let _bnLastTs = 0;
-
-async function _pollBNLive() {
-  try {
-    const paths = ['./bn_live.json', '/bn_live.json', 'bn_live.json'];
-    let d = null;
-    for (const p of paths) {
-      try {
-        const r = await fetch(p + '?_t=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(2000) });
-        if (r.ok) { d = await r.json(); if (d && d.candle) break; }
-      } catch(_) { continue; }
-    }
-    if (d && d.candle && d.ts && d.ts !== _bnLastTs) {
-      _bnLastTs = d.ts;
-      _applyBNLiveTick(d);
-    }
-  } catch(_) {}
-}
-
-function _stopBNPolling() {
-  if (_bnPollIv) { clearInterval(_bnPollIv); _bnPollIv = null; }
-}
-
-function _startBNPolling() {
-  _stopBNPolling();
-  _pollBNLive();
-  _bnPollIv = setInterval(_pollBNLive, 800);
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // INIT
@@ -7904,11 +7242,9 @@ document.addEventListener('DOMContentLoaded', () => {
     _startCellTimers();
     if (S.asset === BN_ASSET) {
       _loadBNHistory(S.tf);
-      _connectBTCWS(); // BTC WS bhi start karo background mein (grid cells ke liye)
     } else {
       _loadBTCHistory(S.tf);
     }
-    _startBNPolling(); // always poll BN — data ready when user switches
   }, 800);
 
   // Fix 4 & 12: apply crosshair/cursor settings from saved state
@@ -10712,706 +10048,12 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
-// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
-// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
-// ════════════════════════════════════════════════════════════════════════════
-const GD = (function () {
-  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
-  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
-  const FILE_NAME = 'banknifty-layout-sync.json';
-  const AUTH_FLAG = 'gdAuthed';
-
-  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
-  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
-
-  // ── UI helpers ────────────────────────────────────────────────────────────
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-  function _showBtn(label, show) {
-    const b = document.getElementById('gd-btn');
-    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
-    // Manual paste row bhi sign in button ke saath dikhao
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = show ? '' : 'none';
-  }
-  function _toast(msg, color) {
-    let t = document.getElementById('gd-toast');
-    if (!t) {
-      t = document.createElement('div');
-      t.id = 'gd-toast';
-      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
-        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
-        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
-        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
-      document.body.appendChild(t);
-    }
-    t.style.background = color || '#26a69a';
-    t.textContent = msg;
-    t.style.opacity = '1';
-    clearTimeout(t._iv);
-    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
-  }
-  function _now() {
-    try {
-      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    } catch (_) { return ''; }
-  }
-
-  // ── localStorage snapshot / apply (captures every key = all features) ──────
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === AUTH_FLAG) continue;
-        if (localStorage.getItem(k) !== data[k]) {
-          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
-          changed = true;
-        }
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  // ── OAuth token handling ───────────────────────────────────────────────────
-  function _onToken(resp) {
-    if (resp && resp.access_token) {
-      accessToken = resp.access_token;
-      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
-      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
-      const cb = _pending; _pending = null; if (cb) cb(true);
-    } else {
-      const cb = _pending; _pending = null; if (cb) cb(false);
-    }
-  }
-  function _onTokenErr() {
-    const cb = _pending; _pending = null;
-    _setStatus('☁ Cloud: tap to sign in', '#f23645');
-    _showBtn('Sign in', true);
-    if (cb) cb(false);
-  }
-
-  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
-  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
-  // Google Cloud Console mein dono register honi chahiye:
-  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
-  //   http://localhost:8501/?gd_cb=1
-
-  function _getRedirectURI() {
-    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
-    try {
-      const origin = window.parent !== window
-        ? document.referrer
-          ? new URL(document.referrer).origin
-          : window.location.origin
-        : window.location.origin;
-      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
-    } catch(_) {}
-    // Fallback: Streamlit URL
-    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
-  }
-
-  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
-
-  // postMessage listener — callback page token bhejta hai yahan
-  window.addEventListener('message', function(e) {
-    try {
-      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-      if (d && d.type === 'gd_oauth_token' && d.access_token) {
-        clearInterval(_popupTimer);
-        clearInterval(_lsPollIv);
-        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
-      }
-    } catch(_) {}
-  });
-
-  // localStorage polling fallback (agar postMessage cross-origin block ho)
-  function _startLSPoll(cb) {
-    clearInterval(_lsPollIv);
-    _lsPollIv = setInterval(() => {
-      try {
-        const raw = localStorage.getItem('_gd_oauth_pending');
-        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
-        if (raw && (Date.now() - ts) < 60000) {
-          clearInterval(_lsPollIv);
-          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
-          const d = JSON.parse(raw);
-          if (d && d.access_token) {
-            clearInterval(_popupTimer);
-            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-            if (cb) cb(true);
-          }
-        }
-      } catch(_) {}
-    }, 800);
-    setTimeout(() => clearInterval(_lsPollIv), 120000);
-  }
-
-  function _openAuthPopup(cb) {
-    _oauthCb = cb;
-    const REDIRECT_URI = _getRedirectURI();
-
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id:              CLIENT_ID,
-      redirect_uri:           REDIRECT_URI,
-      response_type:          'token',
-      scope:                  SCOPE,
-      include_granted_scopes: 'true',
-      prompt:                 'consent',
-    });
-
-    const w = 480, h = 620;
-    const left = Math.max(0, (screen.width  - w) / 2);
-    const top  = Math.max(0, (screen.height - h) / 2);
-
-    _popupWin = window.open(
-      authUrl, 'gdauth',
-      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
-    );
-
-    if (!_popupWin || _popupWin.closed) {
-      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
-      _showBtn('Sign in', true);
-      _oauthCb = null;
-      if (cb) cb(false);
-      return;
-    }
-
-    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
-
-    // localStorage fallback polling
-    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
-
-    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
-    clearInterval(_popupTimer);
-    _popupTimer = setInterval(() => {
-      try {
-        if (_popupWin && _popupWin.closed) {
-          clearInterval(_popupTimer);
-          setTimeout(() => {
-            if (_oauthCb) {
-              clearInterval(_lsPollIv);
-              _setStatus('☁ Sign-in cancel hua', '#f23645');
-              _showBtn('Sign in', true);
-              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
-            }
-          }, 2000);
-          return;
-        }
-        // Same-origin check — jab popup redirect_uri pe aa jaaye
-        try {
-          const href = _popupWin.location.href;
-          const fragment = _popupWin.location.hash;
-          if (href && fragment && fragment.includes('access_token')) {
-            // Fragment mil gaya — Streamlit strip karne se pehle
-            clearInterval(_popupTimer);
-            clearInterval(_lsPollIv);
-            const p = new URLSearchParams(fragment.substring(1));
-            const token = p.get('access_token');
-            const exp   = parseInt(p.get('expires_in') || '3600', 10);
-            try { _popupWin.close(); } catch(_) {}
-            if (token) {
-              // localStorage mein bhi save karo backup ke liye
-              try {
-                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
-                localStorage.setItem('_gd_oauth_pending', msg);
-                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
-              } catch(_) {}
-              _onToken({ access_token: token, expires_in: exp });
-              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
-            }
-          }
-        } catch(crossOriginErr) {
-          // Popup abhi Google ke domain pe hai — normal, wait karo
-        }
-      } catch(_) {}
-    }, 300);
-  }
-
-  function _requestToken(interactive, cb) {
-    _pending = cb;
-    if (interactive) {
-      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
-      return;
-    }
-    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
-    if (cb) cb(false);
-  }
-  function _withToken(cb) {
-    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
-    _requestToken(false, cb);
-  }
-
-  // ── Drive REST helpers ──────────────────────────────────────────────────────
-  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
-  function _findFile(cb) {
-    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
-      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
-      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
-    fetch(url, { headers: _hdr() })
-      .then(r => r.json())
-      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
-      .catch(() => cb(null));
-  }
-  function _download(cb) {
-    if (!fileId) { cb(null); return; }
-    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
-      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
-  }
-  function _uploadMedia(payload, cb) {
-    if (fileId) {
-      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
-        method: 'PATCH',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
-        body: payload,
-      }).then(r => cb(r.ok)).catch(() => cb(false));
-    } else {
-      const boundary = 'gdsync' + Date.now();
-      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
-      const body =
-        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(meta) + '\r\n' +
-        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
-        payload + '\r\n--' + boundary + '--';
-      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-        method: 'POST',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
-        body: body,
-      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
-        .catch(() => cb(false));
-    }
-  }
-
-  // ── Public: push (save) ──────────────────────────────────────────────────────
-  function push(showToast) {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      if (showToast) _toast('Sign in to Google first', '#f23645');
-      return;
-    }
-    _withToken(ok => {
-      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
-      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-      const doUpload = () => _uploadMedia(payload, okk => {
-        if (okk) {
-          _dirty = false;
-          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
-          if (showToast) _toast('☁ Saved to Google Cloud');
-        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
-      });
-      if (fileId) doUpload(); else _findFile(() => doUpload());
-    });
-  }
-
-  // ── Public: pull (restore) ───────────────────────────────────────────────────
-  function pull(after) {
-    _withToken(ok => {
-      if (!ok) { if (after) after(false, false); return; }
-      _findFile(id => {
-        if (!id) { if (after) after(false, false); return; }
-        _download(obj => {
-          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
-          else if (after) after(false, false);
-        });
-      });
-    });
-  }
-
-  // ── Boot: silent auto-login + restore on page open ──────────────────────────
-  function _boot() {
-    if (_booted) return; _booted = true;
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      _setStatus('☁ Cloud: not signed in');
-      _showBtn('Sign in', true);
-      return;
-    }
-    _setStatus('☁ Cloud: connecting…');
-    _showBtn('', false);
-    _requestToken(false, ok => {
-      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      // Show "restore completed" once after a reload triggered by restore
-      if (sessionStorage.getItem('gdJustRestored') === '1') {
-        sessionStorage.removeItem('gdJustRestored');
-        _toast('✓ Restore completed');
-      }
-      if (sessionStorage.getItem('gdRestored') === '1') {
-        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
-        return;
-      }
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found && changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          _toast('✓ Restore completed');
-          setTimeout(() => location.reload(), 950);
-        } else if (found) {
-          _setStatus('☁ Cloud: restored ✓', '#26a69a');
-          _toast('✓ Restore completed');
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(false); // first-time upload of current local state
-        }
-      });
-    });
-  }
-
-  // ── Manual sign-in (first time) ──────────────────────────────────────────────
-  function signIn() {
-    _setStatus('☁ Cloud: opening Google…');
-    _requestToken(true, ok => {
-      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      sessionStorage.removeItem('gdRestored');
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found) {
-          _toast('✓ Restore completed');
-          if (changed) {
-            sessionStorage.setItem('gdJustRestored', '1');
-            setTimeout(() => location.reload(), 950);
-          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(true); // nothing on Drive yet → upload current
-        }
-      });
-    });
-  }
-
-  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
-  let _origSetItem = null;
-  function _initAutoSave() {
-    try {
-      _origSetItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = function (k, v) {
-        _origSetItem(k, v);
-        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
-          _dirty = true;
-          _schedule();
-        }
-      };
-    } catch (_) {}
-  }
-  function _schedule() {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
-    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
-    const autoOn = localStorage.getItem('gdAutoSave') === '1';
-    if (!autoOn) return;
-    clearTimeout(_pushTimer);
-    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
-  }
-
-  // Public: force push (manual Save Layout button ke liye)
-  function pushNow() { push(true); }
-
-  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
-  // (GIS iframe mein origin=null error deta hai)
-  function _waitGIS() { _boot(); } // GIS skip, seedha boot
-  function init() {
-    _initAutoSave();
-    _boot(); // GIS SDK load nahi karo
-  }
-
-  // Manual token inject (URL paste se)
-  function _manualToken(token, exp) {
-    _onToken({ access_token: token, expires_in: exp || 3600 });
-    _showBtn('', false);
-    sessionStorage.removeItem('gdRestored');
-    _setStatus('☁ Cloud: restoring…');
-    pull((found, changed) => {
-      sessionStorage.setItem('gdRestored', '1');
-      if (found) {
-        _toast('✓ Restore completed');
-        if (changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          setTimeout(() => location.reload(), 950);
-        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-      } else {
-        _setStatus('☁ Cloud: connected', '#26a69a');
-        push(true);
-      }
-    });
-  }
-
-  // Save on tab hide / close (best-effort)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && _dirty) push(false);
-  });
-
-  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
-})();
-
-// Global handler for the menu button
-function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
-
-// Manual token paste — popup URL se token extract karo
-function gdManualToken() {
-  const inp = document.getElementById('gd-token-inp');
-  if (!inp) return;
-  const raw = inp.value.trim();
-  if (!raw) return;
-
-  // URL mein se fragment nikalo: #access_token=...
-  let fragment = '';
-  try {
-    const hashIdx = raw.indexOf('#');
-    if (hashIdx !== -1) {
-      fragment = raw.substring(hashIdx + 1);
-    } else if (raw.includes('access_token')) {
-      // Sirf fragment part paste kiya hoga
-      fragment = raw;
-    }
-  } catch(_) {}
-
-  if (!fragment) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  const p     = new URLSearchParams(fragment);
-  const token = p.get('access_token');
-  const exp   = parseInt(p.get('expires_in') || '3600', 10);
-
-  if (!token) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  // Token mil gaya — GD ko dedo
-  inp.value = '';
-  const row = document.getElementById('gd-manual-row');
-  if (row) row.style.display = 'none';
-  try { GD._manualToken(token, exp); } catch(_) {}
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 // SERVER SAVE  (Streamlit server file — Google Drive ke bina)
 // Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
 // snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
 // Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
 // ════════════════════════════════════════════════════════════════════════════
 
-
-// ════════════════════════════════════════════════════════════════════════════
-// GITHUB SYNC (Gist API)
-// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
-// ════════════════════════════════════════════════════════════════════════════
-const GH = (function () {
-  const GIST_NAME = 'banknifty-layout-sync.json';
-  const TOKEN_KEY = 'gh_token';
-  const GIST_ID_KEY = 'gh_gist_id';
-
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status'); // Reuse GD status for now
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-
-  function _toast(msg, color) {
-    if (window.GD && GD._toast) GD._toast(msg, color);
-    else alert(msg);
-  }
-
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        // Force overwrite even if it looks the same, to be sure
-        localStorage.setItem(k, data[k]);
-        changed = true;
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  async function push(showToast) {
-    // Force save current state to localStorage first
-    if (window.saveState) saveState();
-    if (window.saveToActiveLayout) saveToActiveLayout();
-    
-    let token = localStorage.getItem(TOKEN_KEY);
-    if (!token || token.length < 5) {
-      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
-      if (token && token.trim().length > 5) {
-        token = token.trim();
-        localStorage.setItem(TOKEN_KEY, token);
-      } else {
-        _setStatus('🐙 GitHub: Token required', '#f23645');
-        return;
-      }
-    }
-
-    _setStatus('🐙 GitHub: saving...', '#f0b429');
-    let gistId = localStorage.getItem(GIST_ID_KEY);
-    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json'
-    };
-
-    try {
-      let url = 'https://api.github.com/gists';
-      let method = 'POST';
-      let body = {
-        description: 'BankNifty Layout Sync',
-        public: false,
-        files: { [GIST_NAME]: { content: payload } }
-      };
-
-      if (gistId) {
-        url = `https://api.github.com/gists/${gistId}`;
-        method = 'PATCH';
-      }
-
-      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
-      const json = await resp.json();
-
-      if (resp.ok) {
-        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
-        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
-        if (showToast) _toast('☁ Saved to GitHub Gist');
-      } else {
-        console.error('GH Save Error:', json);
-        const errMsg = json.message || 'Save Failed';
-        
-        if (resp.status === 409) {
-          // Conflict error - force update by creating a new one or trying to pull first
-          console.warn('409 Conflict, retrying as new gist...');
-          localStorage.removeItem(GIST_ID_KEY);
-          return push(showToast);
-        }
-
-        if (resp.status === 404) {
-          localStorage.removeItem(GIST_ID_KEY);
-          const msg = "GitHub Error 404: Not Found.\n\n" +
-                      "This usually means your Token is missing 'gist' permission.\n" +
-                      "Please check 'gist' scope in GitHub Token settings.";
-          alert(msg);
-          _setStatus('🐙 GitHub: 404 Error', '#f23645');
-          return;
-        }
-
-        if (resp.status === 401) {
-          localStorage.removeItem(TOKEN_KEY);
-          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
-          _toast('Invalid Token: ' + errMsg, '#f23645');
-        } else {
-          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
-          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
-        }
-      }
-    } catch (err) {
-      _setStatus('🐙 GitHub: error', '#f23645');
-      _toast('GitHub Error: ' + err.message, '#f23645');
-    }
-  }
-
-  function reset() {
-    if (confirm("Reset GitHub Token and Gist ID?")) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(GIST_ID_KEY);
-      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
-      _toast('GitHub settings reset. Tap again to enter new token.');
-    }
-  }
-
-  async function pull(after) {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (!token || !gistId) { if (after) after(false, false); return; }
-
-    _setStatus('🐙 GitHub: restoring...', '#f0b429');
-    const headers = {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json'
-    };
-
-    try {
-      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
-      const json = await resp.json();
-
-      if (resp.ok && json.files[GIST_NAME]) {
-        const content = JSON.parse(json.files[GIST_NAME].content);
-        const changed = _apply(content.data);
-        if (after) after(true, changed);
-      } else {
-        if (after) after(false, false);
-      }
-    } catch (err) {
-      if (after) after(false, false);
-    }
-  }
-
-  function init() {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (token && gistId) {
-      // Check if we just restored to avoid infinite loop
-      if (sessionStorage.getItem('gh_just_restored') === '1') {
-        sessionStorage.removeItem('gh_just_restored');
-        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
-        _toast('✓ GitHub Restore completed');
-        return;
-      }
-
-      _setStatus('🐙 GitHub: checking...', '#f0b429');
-      pull((found, changed) => {
-        if (found && changed) {
-          sessionStorage.setItem('gh_just_restored', '1');
-          _toast('✓ GitHub Restore completed');
-          setTimeout(() => location.reload(), 800);
-        } else if (found) {
-          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
-        } else {
-          _setStatus('🐙 GitHub: connected', '#787b86');
-        }
-      });
-    }
-  }
-
-  return { push, pull, init, reset };
-})();
-
-// Auto-init GitHub
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => GH.init());
-} else {
-  GH.init();
-}
 
 const SS = (function () {
   function _setStatus(txt, color) {
@@ -11540,14 +10182,11 @@ const SS = (function () {
   window.saveToActiveLayout = function () {
     if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
-    // Cloud sync bhi karo (agar enabled ho)
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
   const _origNew2 = window.newLayout;
   window.newLayout = function () {
     if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
 })();
 
@@ -11558,88 +10197,7 @@ if (document.readyState === 'loading') {
 }
 
 // Auto-save toggle
-function gdAutoSaveToggle() {
-  const cur = localStorage.getItem('gdAutoSave') === '1';
-  const next = !cur;
-  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
-  _updateAutoSaveUI();
-  if (next && _gdEnabled) {
-    // Turant ek push karo
-    try { GD.pushNow(); } catch(_) {}
-  }
 }
-function _updateAutoSaveUI() {
-  const btn = document.getElementById('gd-autosave-btn');
-  if (!btn) return;
-  const on = localStorage.getItem('gdAutoSave') === '1';
-  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
-  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
-  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
-  btn.style.color         = on ? '#26a69a' : '#787b86';
-}
-let _gdEnabled = (() => {
-  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
-})();
-
-function gdToggle() {
-  _gdEnabled = !_gdEnabled;
-  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
-  _updateGdToggleUI();
-  if (_gdEnabled) {
-    // _booted flag reset karo taaki GD dobara connect kar sake
-    try { GD._resetBoot(); } catch(_) {}
-    GD.init();
-  } else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    const b = document.getElementById('gd-btn');
-    if (b) b.style.display = 'none';
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = 'none';
-  }
-}
-function _updateGdToggleUI() {
-  const tog = document.getElementById('gd-toggle');
-  if (!tog) return;
-  tog.textContent = _gdEnabled ? '🟢' : '⚫';
-  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
-}
-
-// Hook GD save with toggle check
-(function () {
-  const _origSave = window.saveToActiveLayout;
-  window.saveToActiveLayout = function () {
-    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-  const _origNew = window.newLayout;
-  window.newLayout = function () {
-    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-})();
-
-// Start cloud sync once DOM is ready (only if enabled)
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    _updateGdToggleUI();
-    _updateAutoSaveUI();
-    if (_gdEnabled) GD.init();
-    else {
-      const s = document.getElementById('gd-status');
-      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    }
-  });
-} else {
-  _updateGdToggleUI();
-  _updateAutoSaveUI();
-  if (_gdEnabled) GD.init();
-  else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-  }
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // KEEP-ALIVE — ping Streamlit server every 4 min to prevent Replit sleep
 // ════════════════════════════════════════════════════════════════════════════
@@ -12803,12 +11361,6 @@ function _replayToggleMinimize() {
       <button onclick="toggleTfBar()"
         style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
         ≡
-      </button>
-
-      <!-- Broker button -->
-      <button onclick="toggleBrokerPanel(event)"
-        style="height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-        🔑
       </button>
 
       <!-- Settings -->
