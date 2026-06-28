@@ -67,8 +67,7 @@
   CHART LIBRARY : lightweight-charts v4.2.0 (standalone, loaded from unpkg CDN)
   FRAMEWORK     : Zero — pure vanilla JS + HTML + CSS, single file
   DEPLOYMENT    : Streamlit iframe (Python backend) OR direct HTML open
-  DATA SOURCES  : Binance REST API (BTC), Fyers broker API (BankNifty)
-  LIVE DATA     : BTC via WebSocket, BankNifty via postMessage from Streamlit
+  DATA SOURCES  : Binance REST API (BTC), GitHub JSON.gz (BankNifty)
 
   KEY GLOBAL VARIABLES:
     chart         — main LightweightCharts chart instance (1x1 layout)
@@ -168,7 +167,6 @@
   Line  248   TF Menu Button + TF Dropdown
   Line  308   Timeframe Bar (#tf-bar, .tf-btn)
   Line  330   Layout Dropdown Menu (#layout-menu)
-  Line  383   Broker / Fyers Panel (#broker-panel)
   Line  444   Workspace + Chart Area + Legend (#legend)
   Line  468   Bottom Bar (#bottom-bar)
   Line  494   Grid Layout Picker (#grid-picker)
@@ -204,7 +202,6 @@
   Line 2066   Save / Restore State — saveState() [key: btcDashState2]
   Line 2102   Layout Presets — 5 named slots [key: tvWorkspaces5]
                 saveToActiveLayout(), newLayout(), loadFromSlot(), _deleteLayout()
-  Line 2356   Broker / Fyers Panel — bkConnect(), bkTotpLogin(), toggleBrokerPanel()
   Line 2541   Grid Cells Array (CELLS[]) + LAYOUTS definitions
   Line 2628   Sync-in-layout flags (SYNC — crosshair, TF sync)
   Line 2655   Timeframes — parse, label, fav/hidden, rebuildTfBar(), applyTF()
@@ -228,17 +225,11 @@
   Line 4546   Settings Modal — saveSettings(), applySettings()
   Line 5025   Fullscreen — toggleSelectedCellFS(), toggleTfBar()
   Line 5083   Candle Countdown Timer — _calcRemaining(), _startCountdown()
-  Line 5309   Live Candle — BTC/USDT via Binance WebSocket
-                _applyBTCKline(), _btcStartRest(), _btcStopRest()
-  Line 5542   BTC WebSocket — primary + REST fallback (Termux/Android safe)
   Line 5696   History Loader — _loadBTCHistory()
   Line 5825   BankNifty History Loader + Live Polling
-                _loadBNHistory(), _applyBNTick(), _startBNPolling(), _stopBNPolling()
   Line 5911   BN Lazy Scroll — _extendBNHistory(), _attachBNLazyScroll()
                 Infinite scroll: fetches older chunks from /api/bn_history when
                 user scrolls left past the oldest loaded bar (30-bar trigger).
-  Line 6179   postMessage listener (Streamlit parent → chart iframe)
-  Line 6188   BN Live Poll — bn_live.json direct fetch
   Line 6218   ★ INIT — DOMContentLoaded (state restore, TF bar, chart build)
   Line 6356   Swing High/Low S&R Indicator (BankNifty)
                 _swingRedraw(), _swingInit(), _swingPresetOnAssetChange()
@@ -250,7 +241,6 @@
                 Tools: trendline, hline, vline, ray, extended, arrow, rect, text
                 _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
   Line 8540   TF Chips in Drawing Settings Modal
-  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
                 GD.init(), GD.push(), GD.pull(), GD.signIn()
   Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
 
@@ -268,7 +258,6 @@
 
   3. BTC WebSocket vs REST  [line 5542]
      WS primary hai, REST backup hai. Dono ek saath kabhi mat chalao.
-     _btcWsOk flag se guard hai — naya BTC fetch likhne se pehle check karo.
 
   4. GRID vs 1x1  [S.layout]
      Bahut se functions mein guard hai: if (S.layout==='1x1') ... else ...
@@ -3591,8 +3580,6 @@ function applyTF(tfMin) {
     // TF change par bucket reset — naya TF fresh accumulation se shuru karega
     _bnBucket.tf = null; _bnBucket.time = null; _bnBucket.open = null;
     _bnBucket.high = -Infinity; _bnBucket.low = Infinity; _bnBucket.close = null;
-    _btcBucket.tf = null; _btcBucket.time = null; _btcBucket.open = null;
-    _btcBucket.high = -Infinity; _btcBucket.low = Infinity; _btcBucket.close = null;
   }
   document.querySelectorAll('.tf-btn').forEach(b =>
     b.classList.toggle('active', +b.dataset.tf === tfMin));
@@ -6267,228 +6254,10 @@ function switchAsset(name) {
     // BN mode: BTC REST polling band karo (WS band mat karo — reconnect costly)
     // BTC ka _applyBTCKline already S.asset check karta hai (1x1 mein guard hai)
     // lekin REST polling CPU waste karti hai — isliye band karo
-    _btcStopRest();
   } else {
     // BTC mode: BN polling band karo, BTC start karo
-    else _btcStartRest();
   }
 }
-
-function _applyBTCKline(k) {
-  const close=parseFloat(k.c), high=parseFloat(k.h),
-        low  =parseFloat(k.l), open=parseFloat(k.o);
-  const kOpenSec=Math.floor(parseInt(k.t)/1000);
-  const tfSec   =(S.tf||1)*60;
-  const bucket  =Math.floor(kOpenSec/tfSec)*tfSec;
-
-  // Track per-minute open for timer color
-  const minBucket=Math.floor(kOpenSec/60)*60;
-  if (_candleOpen[BTC_ASSET]===undefined||_btcBucket.time!==bucket)
-    _candleOpen[BTC_ASSET]=open;
-
-  if (_btcBucket.time!==bucket||_btcBucket.tf!==S.tf) {
-    // Previous candle just CLOSED — save it to the correct data array so
-    // swingCompute validates candle H/L lines with fresh closed-candle data.
-    if (_btcBucket.time && _btcBucket.tf===S.tf) {
-      const closed={time:_btcBucket.time, open:_btcBucket.open,
-                    high:_btcBucket.high, low:_btcBucket.low, close:_btcBucket.close};
-      // Pick the same array _baseDataFor() will use for the current TF
-      const tf=S.tf||1;
-      const arr = tf>=1440 && Array.isArray(BTC_DAILY) ? BTC_DAILY
-                : tf>=15   && Array.isArray(BTC_15M)   ? BTC_15M
-                : ALLDATA[BTC_ASSET];
-      if (arr) {
-        if (arr.length && arr[arr.length-1].time===closed.time) {
-          arr[arr.length-1]=closed;       // update existing last bar
-        } else if (!arr.length || arr[arr.length-1].time < closed.time) {
-          arr.push(closed);               // append newly closed candle
-        }
-      }
-      // Recompute candle H/L lines with the updated data (debounced 300ms)
-      clearTimeout(_swingRebuildTimer);
-      _swingRebuildTimer=setTimeout(()=>{
-        if (S.layout==='1x1') swingAfterRebuild();
-        else CELLS.forEach((_,i)=>buildCellSwing(i));
-      }, 300);
-    }
-    _btcBucket.tf=S.tf; _btcBucket.time=bucket;
-    // Parent dot update — new bucket = new candle closed, dot may shift
-    _pdotOnLiveTick();
-    // For large synthetic TFs (e.g. 27D) the current bucket already contains
-    // many past days of historical data.  Seeding only from the incoming 1m
-    // kline would collapse that data into a tiny bar — causing a sudden gap.
-    // Instead, look up the historical bar for this exact bucket and start from
-    // its accumulated OHLC, then extend with the live close/high/low.
-    (function() {
-      const _raw = _baseDataFor(BTC_ASSET, S.tf);
-      const _hist = (S.tf > 1) ? resampleForTF(_raw, S.tf, BTC_ASSET) : _raw;
-      const _last = _hist.length ? _hist[_hist.length - 1] : null;
-      if (_last && _last.time === bucket) {
-        _btcBucket.open  = _last.open;
-        _btcBucket.high  = Math.max(_last.high, high);
-        _btcBucket.low   = Math.min(_last.low,  low);
-        _btcBucket.close = close;
-      } else {
-        _btcBucket.open  = open;
-        _btcBucket.high  = high;
-        _btcBucket.low   = low;
-        _btcBucket.close = close;
-      }
-    })();
-  } else {
-    _btcBucket.high=Math.max(_btcBucket.high,high);
-    _btcBucket.low =Math.min(_btcBucket.low, low);
-    _btcBucket.close=close;
-  }
-
-  const bar={time:bucket, open:_btcBucket.open, high:_btcBucket.high,
-             low:_btcBucket.low, close:_btcBucket.close, value:_btcBucket.close};
-
-  // Header LTP/% — update on every tick regardless of layout (1x1 or grid),
-  // so it doesn't stay stuck on '--' while viewing the grid.
-  if (S.asset===BTC_ASSET && !_hdrXActive) {
-    const fmtH=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const ltpElH=document.getElementById('hdr-ltp');
-    if (ltpElH) ltpElH.textContent=fmtH(close);
-    const openRef=_candleOpen[BTC_ASSET];
-    if (openRef!=null) {
-      const chgH=close-openRef;
-      const pctH=openRef?(chgH/openRef*100).toFixed(2):'0.00';
-      const signH=chgH>=0?'+':'';
-      const chgElH=document.getElementById('hdr-chg');
-      if (chgElH) {
-        chgElH.textContent=signH+fmtH(chgH)+' ('+signH+pctH+'%)';
-        chgElH.className=chgH>=0?'up':'dn';
-      }
-    }
-  }
-
-  // Single chart mode (Fix 5: rAF-batched update to prevent last-candle flicker)
-  if (S.layout==='1x1'&&mainSeries&&S.asset===BTC_ASSET) {
-    _lastLTP=close;
-    _mainVLTime = bucket; _vlDraw();
-    cancelAnimationFrame(_btcRafId);
-    _btcRafId=requestAnimationFrame(()=>{
-      if(!mainSeries) return;
-      try{mainSeries.update(bar);}catch(_){}
-      // For 1D and higher TFs, the saved zoom range can end before "today's"
-      // live-forming candle — keep it visible by scrolling to real time.
-      if ((S.tf||1)>=1440 && chart && _followLive) {
-        try{chart.timeScale().scrollToRealTime();}catch(_){}
-      }
-      const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-      const ltpEl=document.getElementById('hdr-ltp');
-      if (ltpEl && !_hdrXActive) ltpEl.textContent=fmt(close);
-    });
-  }
-
-  // Grid mode — RAF throttled per cell to avoid main thread blocking
-  CELLS.forEach(c => {
-    if (c.asset!==BTC_ASSET||!c.series) return;
-    const cTfSec=(c.tf||1)*60, cBucket=Math.floor(kOpenSec/cTfSec)*cTfSec;
-    if (!c._btcBkt||c._btcBkt.time!==cBucket||c._btcBkt.tf!==c.tf) {
-      // Bucket change: resample sirf tab karo — yeh expensive hai
-      const _cRaw  = _baseDataFor(c.asset, c.tf);
-      const _cHist = (c.tf > 1) ? resampleForTF(_cRaw, c.tf, c.asset) : _cRaw;
-      const _cLast = _cHist.length ? _cHist[_cHist.length - 1] : null;
-      if (_cLast && _cLast.time === cBucket) {
-        c._btcBkt = {tf:c.tf, time:cBucket, open:_cLast.open,
-                     high:Math.max(_cLast.high,high),
-                     low :Math.min(_cLast.low, low),
-                     close};
-      } else {
-        c._btcBkt = {tf:c.tf, time:cBucket, open, high, low, close};
-      }
-    } else {
-      // Same bucket: sirf OHLC update karo — resample nahi
-      c._btcBkt.high=Math.max(c._btcBkt.high,high);
-      c._btcBkt.low =Math.min(c._btcBkt.low, low);
-      c._btcBkt.close=close;
-    }
-    // RAF throttle: chart update sirf ek baar per frame
-    if (!c._btcRafPending) {
-      c._btcRafPending = true;
-      requestAnimationFrame(() => {
-        c._btcRafPending = false;
-        if (!c.series || !c._btcBkt) return;
-        try{c.series.update({...c._btcBkt,value:c._btcBkt.close});}catch(_){}
-        if ((c.tf||1)>=1440 && c.chart && c._followLive) {
-          try{c.chart.timeScale().scrollToRealTime();}catch(_){}
-        }
-        const _ci = CELLS.indexOf(c); c._vlTime = c._btcBkt.time; _vlDrawCell(_ci);
-        _pdotDraw(_ci);
-        c._lastLTP=c._btcBkt.close;
-        c._candleOpen=c._btcBkt.open;
-        const cell=document.querySelector('.grid-cell[data-idx="'+_ci+'"]');
-        if (cell) {
-          const _ltp=c._btcBkt.close;
-          const _dayOpen=_candleOpen[BTC_ASSET]??c._btcBkt.open;
-          const _chg=_ltp-_dayOpen;
-          const _pct=_dayOpen?(_chg/_dayOpen*100).toFixed(2):'0.00';
-          const _fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-          const _cls=_chg>=0?'up':'dn', _color=_chg>=0?'#26a69a':'#ef5350';
-          const _pctStr=(_chg>=0?'+':'')+_pct+'%';
-          const pe=cell.querySelector('.cell-price'); if(pe){pe.textContent=_fmt(_ltp);pe.className='cell-price '+_cls;}
-          const op=cell.querySelector('.co-price');   if(op){op.textContent=_fmt(_ltp);op.className='co-price '+_cls;}
-          const oc=cell.querySelector('.co-chg');     if(oc){oc.textContent=_pctStr;oc.style.color=_color;}
-        }
-      });
-    }
-  });
-}
-
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-// Native Binance interval to use for a given TF (minutes).
-// Pick the LARGEST native interval that evenly divides tfMin so synthetic
-// TFs (e.g. 45m←15m, 2H←1h, 2.5H←15m) resample into clean, aligned candles.
-function _binanceIvFor(tfMin) {
-  const natives = [
-    {iv:'1w', m:10080},{iv:'1d', m:1440},{iv:'4h', m:240},{iv:'1h', m:60},
-    {iv:'15m', m:15},{iv:'5m', m:5},{iv:'3m', m:3},{iv:'1m', m:1},
-  ];
-  for (const n of natives) {
-    if (n.m <= tfMin && tfMin % n.m === 0) return n.iv;
-  }
-  return '1m';   // 1m divides everything (fallback)
-}
-function _binanceIvMin(iv) {
-  return {'1m':1,'3m':3,'5m':5,'15m':15,'30m':30,'1h':60,'4h':240,'1d':1440,'1w':10080}[iv]||1;
-}
-
-// Parse a raw Binance kline array row into a bar object
-function _parseKline(k) {
-  return {
-    time:   Math.floor(parseInt(k[0]) / 1000),
-    open:   parseFloat(k[1]),
-    high:   parseFloat(k[2]),
-    low:    parseFloat(k[3]),
-    close:  parseFloat(k[4]),
-    volume: parseFloat(k[5]),
-  };
-}
-
-// ── Show / hide an inline loading label on the header ─────────────────────
-function _setLoadingLabel(msg) {
-  let el = document.getElementById('_hist-loading');
-  if (!el) {
-    el = document.createElement('span');
-    el.id = '_hist-loading';
-    el.style.cssText = 'font-size:10px;color:#f0b429;margin-left:6px;flex-shrink:0;';
-    const hdrPrice = document.getElementById('hdr-price');
-    if (hdrPrice) hdrPrice.appendChild(el);
-  }
-  el.textContent = msg || '';
-  if (!msg) el.remove();
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// HISTORY LOADER
-//   • Intraday (< 1440 min)  →  single REST call, limit=1000
-//   • Daily+ (≥ 1440 min)    →  paginated back to BTC launch (Aug 2017)
-// After loading, seeds the live-bucket state and reconnects the WebSocket.
-// ════════════════════════════════════════════════════════════════════════════
-const BTC_LAUNCH_MS = 1502928000000;  // 2017-08-17 00:00:00 UTC
 
 async function _loadBTCHistory(tfMin) {
   const iv     = _binanceIvFor(tfMin);
@@ -10047,157 +9816,7 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 });
 
 
-// ════════════════════════════════════════════════════════════════════════════
-// SERVER SAVE  (Streamlit server file — Google Drive ke bina)
-// Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
-// snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
-// Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
-// ════════════════════════════════════════════════════════════════════════════
 
-
-const SS = (function () {
-  function _setStatus(txt, color) {
-    const s = document.getElementById('ss-status');
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__') continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (localStorage.getItem(k) !== data[k]) {
-          localStorage.setItem(k, data[k]);
-          changed = true;
-        }
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  // ── Save: localStorage snapshot ko JSON file mein download karo (no reload) ──
-  // Form submit se page blank ho jaata tha — isliye ab direct download approach.
-  // Data localStorage mein already saved hai, ek .json backup bhi de dete hain.
-  function push() {
-    try {
-      const payload = JSON.stringify(_snapshot(), null, 2);
-      if (payload.length > 5000000) {
-        _setStatus('💽 JSON: data bahut bada hai', '#f23645');
-        return;
-      }
-      _setStatus('💽 JSON: saving…', '#f0b429');
-
-      // localStorage mein bhi save karo backup key ke saath
-      try {
-        localStorage.setItem('__ss_backup__', payload);
-      } catch(_) {}
-
-      _setStatus('💽 JSON: saved ✓', '#26a69a');
-      setTimeout(() => _setStatus('💽 JSON: ready', '#26a69a'), 2000);
-    } catch (err) {
-      _setStatus('💽 JSON: save failed', '#f23645');
-    }
-  }
-
-  // ── Download: JSON file phone mein save karo ──────────────────────────────
-  function download() {
-    try {
-      const payload = JSON.stringify(_snapshot(), null, 2);
-      const blob = new Blob([payload], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'banknifty-layout-' + new Date().toISOString().slice(0,10) + '.json';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-      _setStatus('💽 JSON: downloaded ✓', '#26a69a');
-    } catch(err) {
-      _setStatus('💽 JSON: download failed', '#f23645');
-    }
-  }
-
-  // ── Restore from JSON file ────────────────────────────────────────────────
-  function restoreFromFile(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      try {
-        const data = JSON.parse(e.target.result);
-        const changed = _apply(data);
-        _setStatus('💽 JSON: restored ✓', '#26a69a');
-        if (changed) {
-          setTimeout(() => { location.reload(); }, 600);
-        }
-      } catch(_) {
-        _setStatus('💽 JSON: invalid file', '#f23645');
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  // ── Restore: localStorage backup se auto-restore ────────────────────────────
-  function _boot() {
-    // Python inject (window.__CHART_STATE_RESTORE__) ya localStorage backup dono check
-    const restored = window.__CHART_STATE_RESTORE__;
-    const lsBkp = (() => {
-      try { const r = localStorage.getItem('__ss_backup__'); return r ? JSON.parse(r) : null; } catch(_) { return null; }
-    })();
-
-    if (!restored && !lsBkp) { _setStatus('💽 JSON: ready', '#26a69a'); return; }
-
-    if (sessionStorage.getItem('ssRestored') === '1') {
-      _setStatus('💽 JSON: ready', '#26a69a');
-      return;
-    }
-    sessionStorage.setItem('ssRestored', '1');
-    // Python inject pehle try karo, warna localStorage backup use karo
-    const src = restored || lsBkp;
-    const changed = _apply(src);
-    if (changed) {
-      _setStatus('💽 JSON: restoring…');
-      setTimeout(() => location.reload(), 600);
-    } else {
-      _setStatus('💽 JSON: ready', '#26a69a');
-    }
-  }
-
-  function init() { _boot(); }
-  return { init, push, download, restoreFromFile };
-})();
-
-// Save Layout / New Layout pe server-side save bhi ho jaye (GD wale hook ke saath)
-(function () {
-  const _origSave2 = window.saveToActiveLayout;
-  window.saveToActiveLayout = function () {
-    if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
-    try { SS.push(); } catch (_) {}
-  };
-  const _origNew2 = window.newLayout;
-  window.newLayout = function () {
-    if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
-    try { SS.push(); } catch (_) {}
-  };
-})();
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => SS.init());
-} else {
-  SS.init();
-}
-
-// Auto-save toggle
-}
 // ════════════════════════════════════════════════════════════════════════════
 // KEEP-ALIVE — ping Streamlit server every 4 min to prevent Replit sleep
 // ════════════════════════════════════════════════════════════════════════════
