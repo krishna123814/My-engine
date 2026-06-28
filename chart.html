@@ -11100,5 +11100,230 @@ function _replayToggleMinimize() {
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════
+     🐛 STARTUP DEBUG OVERLAY — copy karo aur paste karo
+     ═══════════════════════════════════════════════════════════ -->
+<div id="__dbg_overlay__" style="
+  position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(10,11,16,0.97);
+  z-index:999999;
+  display:flex;flex-direction:column;
+  font-family:monospace;
+  padding:10px;
+  box-sizing:border-box;
+  overflow:hidden;
+">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+    <span style="color:#f23645;font-size:13px;font-weight:700;">🐛 STARTUP DEBUG LOG</span>
+    <div style="display:flex;gap:6px;">
+      <button id="__dbg_copy__" style="background:#2962ff;border:none;color:#fff;padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;">📋 Copy All</button>
+      <button id="__dbg_close__" style="background:#363c4e;border:none;color:#ccc;padding:5px 10px;border-radius:4px;font-size:11px;cursor:pointer;">✕ Close</button>
+    </div>
+  </div>
+  <div style="color:#555;font-size:9px;margin-bottom:6px;">
+    Ye log copy karke Claude ko do — sabhi errors yahan dikhenge
+  </div>
+  <pre id="__dbg_log__" style="
+    flex:1;overflow-y:auto;
+    background:#0d0f14;border:1px solid #2a2e39;border-radius:4px;
+    padding:8px;margin:0;
+    font-size:10px;line-height:1.5;
+    color:#9598a1;
+    white-space:pre-wrap;word-break:break-all;
+  ">⏳ Initializing debug capture…
+</pre>
+  <div style="margin-top:6px;color:#555;font-size:8px;text-align:center;">
+    Page load hone ke baad sab errors yahan aayenge • Copy karo aur paste karo
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+  const _lines = [];
+  const _start = Date.now();
+
+  function _ts() {
+    return '+' + (Date.now() - _start) + 'ms';
+  }
+
+  function _log(level, msg) {
+    const line = `[${_ts()}] [${level}] ${msg}`;
+    _lines.push(line);
+    const el = document.getElementById('__dbg_log__');
+    if (el) { el.textContent = _lines.join('\n'); el.scrollTop = el.scrollHeight; }
+  }
+
+  // ── Capture ALL JS errors ──────────────────────────────────────
+  window.addEventListener('error', function(e) {
+    _log('❌ JS ERROR', `${e.message}\n  File: ${e.filename}\n  Line: ${e.lineno}:${e.colno}\n  Stack: ${e.error ? (e.error.stack||'N/A') : 'N/A'}`);
+  }, true);
+
+  // ── Capture ALL unhandled promise rejections ───────────────────
+  window.addEventListener('unhandledrejection', function(e) {
+    const reason = e.reason;
+    const msg = reason instanceof Error
+      ? `${reason.message}\n  Stack: ${reason.stack||'N/A'}`
+      : String(reason);
+    _log('❌ PROMISE REJECT', msg);
+  }, true);
+
+  // ── Capture console.error / console.warn ──────────────────────
+  const _origErr  = console.error.bind(console);
+  const _origWarn = console.warn.bind(console);
+  const _origLog  = console.log.bind(console);
+
+  console.error = function(...args) {
+    _log('🔴 console.error', args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+    _origErr(...args);
+  };
+  console.warn = function(...args) {
+    _log('🟡 console.warn', args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+    _origWarn(...args);
+  };
+  console.log = function(...args) {
+    _log('⚪ console.log', args.map(a => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
+    _origLog(...args);
+  };
+
+  // ── Network fetch monkey-patch — har request/response log karo ─
+  const _origFetch = window.fetch;
+  window.fetch = async function(url, opts) {
+    _log('🌐 FETCH START', String(url));
+    try {
+      const resp = await _origFetch(url, opts);
+      _log(resp.ok ? '✅ FETCH OK' : '⚠️ FETCH NON-OK', `${resp.status} ${resp.statusText} ← ${String(url)}`);
+      return resp;
+    } catch(err) {
+      _log('❌ FETCH FAIL', `${err.message} ← ${String(url)}`);
+      throw err;
+    }
+  };
+
+  // ── DOM ready check ───────────────────────────────────────────
+  _log('ℹ️ SCRIPT', 'Debug overlay script loaded');
+  _log('ℹ️ READY STATE', document.readyState);
+
+  document.addEventListener('DOMContentLoaded', function() {
+    _log('ℹ️ DOM', 'DOMContentLoaded fired');
+
+    // Check lightweight-charts loaded?
+    _log('ℹ️ LWC', typeof LightweightCharts !== 'undefined'
+      ? `LightweightCharts OK — version: ${LightweightCharts.version ? LightweightCharts.version() : 'unknown'}`
+      : '❌ LightweightCharts NOT DEFINED — CDN load failed?');
+
+    // Check key DOM elements
+    ['chart-container','header-bar','tf-bar','drawing-canvas'].forEach(id => {
+      const el = document.getElementById(id);
+      _log('ℹ️ DOM EL', el ? `#${id} ✅ found` : `#${id} ❌ MISSING`);
+    });
+
+    // Check localStorage
+    try {
+      localStorage.setItem('__dbg_test__','1');
+      localStorage.removeItem('__dbg_test__');
+      _log('ℹ️ STORAGE', 'localStorage ✅ working');
+    } catch(e) {
+      _log('⚠️ STORAGE', 'localStorage ❌ blocked: ' + e.message);
+    }
+
+    // Check API_PORT variable
+    try {
+      const port = (typeof _API_PORT !== 'undefined') ? _API_PORT : 'UNDEFINED';
+      _log('ℹ️ API_PORT', `_API_PORT = ${port}`);
+    } catch(e) {
+      _log('⚠️ API_PORT', '❌ _API_PORT variable error: ' + e.message);
+    }
+
+    // Check ALLDATA
+    try {
+      if (typeof ALLDATA !== 'undefined') {
+        Object.keys(ALLDATA).forEach(k => {
+          const arr = ALLDATA[k];
+          _log('ℹ️ ALLDATA', `"${k}" → ${Array.isArray(arr) ? arr.length + ' candles' : typeof arr}`);
+        });
+      } else {
+        _log('❌ ALLDATA', 'ALLDATA is UNDEFINED');
+      }
+    } catch(e) {
+      _log('❌ ALLDATA', 'Error: ' + e.message);
+    }
+  });
+
+  window.addEventListener('load', function() {
+    _log('ℹ️ WINDOW', 'window load event fired');
+
+    // Re-check LWC after full load
+    _log('ℹ️ LWC', typeof LightweightCharts !== 'undefined'
+      ? '✅ LightweightCharts available after window load'
+      : '❌ LightweightCharts STILL missing after window load — CDN blocked!');
+
+    // Check chart global
+    try {
+      _log('ℹ️ CHART VAR', typeof chart !== 'undefined'
+        ? '✅ chart variable exists'
+        : '❌ chart variable UNDEFINED — rebuildChart() failed?');
+    } catch(e) {
+      _log('❌ CHART VAR', e.message);
+    }
+
+    // Check S state object
+    try {
+      if (typeof S !== 'undefined') {
+        _log('ℹ️ STATE S', `asset="${S.asset}" tf="${S.tf}" chartType="${S.chartType}"`);
+      } else {
+        _log('❌ STATE S', 'S object is UNDEFINED');
+      }
+    } catch(e) {
+      _log('❌ STATE S', e.message);
+    }
+
+    _log('ℹ️ DONE', '✅ Startup check complete — scroll up for any errors');
+  });
+
+  // ── Copy button ───────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function() {
+    const copyBtn = document.getElementById('__dbg_copy__');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        const text = _lines.join('\n');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function() {
+            copyBtn.textContent = '✅ Copied!';
+            setTimeout(function() { copyBtn.textContent = '📋 Copy All'; }, 2000);
+          }).catch(function() {
+            _fallbackCopy(text);
+          });
+        } else {
+          _fallbackCopy(text);
+        }
+      });
+    }
+
+    const closeBtn = document.getElementById('__dbg_close__');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function() {
+        const overlay = document.getElementById('__dbg_overlay__');
+        if (overlay) overlay.style.display = 'none';
+      });
+    }
+  });
+
+  function _fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    const btn = document.getElementById('__dbg_copy__');
+    if (btn) { btn.textContent = '✅ Copied!'; setTimeout(function() { btn.textContent = '📋 Copy All'; }, 2000); }
+  }
+
+  _log('ℹ️ INIT', 'Debug capture active — waiting for app events…');
+})();
+</script>
+
 </body>
 </html>
