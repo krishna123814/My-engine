@@ -1,7 +1,18 @@
+import io
+import json
+import os
+import time
+import threading
+import hashlib
+import zipfile
+import requests
+import pyotp
 import streamlit as st
 import streamlit.components.v1 as components
-import os
-import json
+import datetime
+
+# ─── Fast2SMS API key (hardcoded) ────────────────────────────────────────────
+FAST2SMS_KEY = "TnrcsN4L3xpA8RVeG5dq1KhtWOiSEo7YyPFmlCIQHfjgavMwbU9iH7wDM2yjE5hkrROt06eBboJVa8u1"
 
 st.set_page_config(
     page_title="BankNifty Live Chart",
@@ -10,6 +21,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 st.markdown("""<style>
+/* ── Streamlit ke saare ads/badges/watermarks permanently hide ── */
 #MainMenu                        {display:none!important}
 footer                           {display:none!important}
 header                           {display:none!important}
@@ -21,33 +33,2109 @@ header                           {display:none!important}
 .viewerBadge_container__1QSob   {display:none!important}
 .styles_viewerBadge__1yB5_      {display:none!important}
 #stDecoration                    {display:none!important}
+/* ── Layout ── */
 .main .block-container{padding:0!important;max-width:100%!important;margin:0!important}
 .stApp{background:#131722;overflow:hidden}
 iframe{border:none!important}
 </style>""", unsafe_allow_html=True)
 
-CHART_STATE_FILE = "chart_state.json"
+# ─── Constants ────────────────────────────────────────────────────────────────
+CREDS_FILE        = ".fyers_creds.json"
+BN_LIVE_FILE      = "bn_live.json"
+DAILY_CACHE_FILE  = "btc_daily_cache.json"
+BN_DAILY_CACHE    = "bn_daily_cache.json"
+CHART_STATE_FILE  = "chart_state.json"   # server-side chart layout/settings save (Google ke bina)
+DAILY_CACHE_TTL   = 300        # 5 min — aaj ki candle bhi update rahe
+HIST_CACHE_TTL    = 300       # seconds for intraday cache (5 min — reduces API load)
 
-def _build_chart_html() -> str:
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+# Default credentials (user can override in sidebar)
+DEFAULT_APP_ID    = "PPGUYSDHX7-100"
+DEFAULT_SECRET    = "RWKTJYZ2YI"
+DEFAULT_CLIENT_ID = "FAJ86844"
+DEFAULT_PASSWORD  = "2552"
+REDIRECT_URI      = "https://www.google.com"
+
+# ─── Global live-tick store (updated by WebSocket thread) ─────────────────────
+_LIVE: dict = {
+    "ltp":       None,
+    "prev_close": None,
+    "ts":        0,
+}
+_LIVE_LOCK = threading.Lock()
+
+# Latest tick JSON string — postMessage injector ise padh ke iframe ko bhejta hai
+_LAST_TICK_JS: dict = {"json": ""}
+_LAST_TICK_LOCK = threading.Lock()
+
+# ─── Per-minute candle tracker — resets at each new minute boundary ────────────
+_CANDLE: dict = {"minute": None, "open": None, "high": None, "low": None}
+_CANDLE_LOCK = threading.Lock()
+
+def _update_candle_ltp(ltp: float) -> None:
+    """Feed one LTP tick into the running 1-minute candle."""
+    now_sec      = int(time.time())
+    minute_epoch = (now_sec // 60) * 60
+    with _CANDLE_LOCK:
+        if _CANDLE["minute"] != minute_epoch:
+            _CANDLE["minute"] = minute_epoch
+            _CANDLE["open"]   = ltp
+            _CANDLE["high"]   = ltp
+            _CANDLE["low"]    = ltp
+        else:
+            if ltp > (_CANDLE["high"] or ltp): _CANDLE["high"] = ltp
+            if ltp < (_CANDLE["low"]  or ltp): _CANDLE["low"]  = ltp
+
+def _set_candle_from_bar(minute_epoch: int, o: float, h: float, l: float, c: float) -> None:
+    """Populate candle directly from a complete 1-min OHLC bar (REST path)."""
+    with _CANDLE_LOCK:
+        _CANDLE["minute"] = minute_epoch
+        _CANDLE["open"]   = o
+        _CANDLE["high"]   = h
+        _CANDLE["low"]    = l
+
+# ─── IST helper ───────────────────────────────────────────────────────────────
+def _ist_now():
+    return datetime.datetime.now(IST)
+
+# ─── Credential helpers ───────────────────────────────────────────────────────
+def load_creds() -> dict:
+    if os.path.exists(CREDS_FILE):
+        try:
+            with open(CREDS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_creds(d: dict):
+    with open(CREDS_FILE, "w") as f:
+        json.dump(d, f)
+
+# ─── OTP-based automated Fyers login ──────────────────────────────────────────
+def fyers_send_otp(client_id: str, app_id: str) -> tuple[bool, str]:
+    """Step 1: send OTP to user's registered mobile. Returns (ok, request_key_or_error)."""
+    try:
+        r = requests.post(
+            "https://api-t2.fyers.in/vagator/v2/send_login_otp_v2",
+            json={"fy_id": client_id, "app_id": app_id.split("-")[0]},
+            timeout=10,
+        ).json()
+        if r.get("s") == "ok" or "request_key" in r:
+            return True, r["request_key"]
+        return False, r.get("message", str(r))
+    except Exception as e:
+        return False, str(e)
+
+def fyers_verify_otp(request_key: str, otp: str) -> tuple[bool, str]:
+    """Step 2: verify OTP. Returns (ok, new_request_key_or_error)."""
+    try:
+        r = requests.post(
+            "https://api-t2.fyers.in/vagator/v2/verify_otp",
+            json={"request_key": request_key, "otp": otp},
+            timeout=10,
+        ).json()
+        if r.get("s") == "ok" or "request_key" in r:
+            return True, r["request_key"]
+        return False, r.get("message", str(r))
+    except Exception as e:
+        return False, str(e)
+
+def fyers_verify_pin(request_key: str, password: str) -> tuple[bool, str]:
+    """Step 3: verify PIN/password. Returns (ok, token_or_error)."""
+    pin_hash = hashlib.sha256(password.encode()).hexdigest()
+    try:
+        r = requests.post(
+            "https://api-t2.fyers.in/vagator/v2/verify_pin_v2",
+            json={"request_key": request_key, "identity_type": "pin", "identifier": pin_hash},
+            timeout=10,
+        ).json()
+        if r.get("s") == "ok" or ("data" in r and "token" in r.get("data", {})):
+            return True, r["data"]["token"]
+        return False, r.get("message", str(r))
+    except Exception as e:
+        return False, str(e)
+
+def fyers_get_auth_code(token: str, client_id: str, app_id: str) -> tuple[bool, str]:
+    """Step 4: exchange session token for auth_code."""
+    try:
+        payload = {
+            "fyers_id":     client_id,
+            "app_id":       app_id.split("-")[0],
+            "redirect_uri": REDIRECT_URI,
+            "appType":      "100",
+            "code_challenge": "",
+            "state":        "None",
+            "scope":        "",
+            "nonce":        "",
+            "response_type": "code",
+            "create_cookie": True,
+        }
+        r = requests.post(
+            "https://api-t1.fyers.in/api/v3/token",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        ).json()
+        url = r.get("Url", "")
+        if "auth_code=" in url:
+            code = url.split("auth_code=")[1].split("&")[0]
+            return True, code
+        return False, r.get("message", str(r))
+    except Exception as e:
+        return False, str(e)
+
+def fyers_get_access_token(app_id: str, secret_key: str, auth_code: str) -> tuple[bool, str, dict]:
+    """Step 5: exchange auth_code for access_token. Returns (ok, token_or_msg, full_response)."""
+    app_hash = hashlib.sha256(f"{app_id}:{secret_key}".encode()).hexdigest()
+    payload = {"grant_type": "authorization_code", "appIdHash": app_hash, "code": auth_code}
+    try:
+        resp = requests.post(
+            "https://api-t1.fyers.in/api/v3/validate-authcode",
+            json=payload,
+            timeout=10,
+        )
+        raw = {}
+        try:
+            raw = resp.json()
+        except Exception:
+            raw = {"raw_text": resp.text, "status_code": resp.status_code}
+        # Log to file for debugging
+        _write_login_log(payload, resp.status_code, raw)
+        if raw.get("s") == "ok" and "access_token" in raw:
+            return True, raw["access_token"], raw
+        return False, raw.get("message", str(raw)), raw
+    except Exception as e:
+        err = {"exception": str(e)}
+        _write_login_log(payload, 0, err)
+        return False, str(e), err
+
+
+def _write_login_log(payload: dict, status_code: int, response: dict):
+    """Write login attempt details to login_debug.json for inspection."""
+    try:
+        safe_payload = {k: ("***" if k == "code" else v) for k, v in payload.items()}
+        entry = {
+            "ts": time.strftime("%Y-%m-%d %H:%M:%S IST", time.localtime()),
+            "request": safe_payload,
+            "http_status": status_code,
+            "response": response,
+        }
+        with open("login_debug.json", "w") as f:
+            json.dump(entry, f, indent=2)
+    except Exception:
+        pass
+
+# ─── Fully automated Fyers login (TOTP-based, zero user input) ────────────────
+def auto_fyers_login() -> tuple[bool, str, dict]:
+    """Auto-login using stored client_id + password + TOTP secret.
+    Returns (ok, msg, step_log) where step_log has each API step result."""
+    creds = load_creds()
+    client_id   = creds.get("client_id",    DEFAULT_CLIENT_ID)
+    password    = creds.get("password",     DEFAULT_PASSWORD)
+    totp_secret = creds.get("totp_secret",  "")
+    app_id      = creds.get("app_id",       DEFAULT_APP_ID)
+    secret_key  = creds.get("secret_key",   DEFAULT_SECRET)
+
+    log = {}
+
+    if not totp_secret:
+        return False, "TOTP secret not configured", log
+
+    # Step 1: Send OTP
+    ok1, rkey = fyers_send_otp(client_id, app_id)
+    log["step1_send_otp"] = {"ok": ok1, "result": rkey}
+    if not ok1:
+        _write_totp_log(log)
+        return False, f"Step1 Send OTP failed: {rkey}", log
+
+    # Step 2: Verify TOTP
+    totp_code = pyotp.TOTP(totp_secret).now()
+    log["step2_totp_code_used"] = totp_code
+    ok2, rkey2 = fyers_verify_otp(rkey, totp_code)
+    log["step2_verify_otp"] = {"ok": ok2, "result": rkey2}
+    if not ok2:
+        _write_totp_log(log)
+        return False, f"Step2 TOTP verify failed: {rkey2}", log
+
+    # Step 3: Verify PIN/password
+    ok3, token = fyers_verify_pin(rkey2, password)
+    log["step3_verify_pin"] = {"ok": ok3, "result": token if not ok3 else "***token***"}
+    if not ok3:
+        _write_totp_log(log)
+        return False, f"Step3 PIN verify failed: {token}", log
+
+    # Step 4: Get auth_code
+    ok4, auth_code = fyers_get_auth_code(token, client_id, app_id)
+    log["step4_get_authcode"] = {"ok": ok4, "result": auth_code[:20] + "..." if ok4 and len(auth_code) > 20 else auth_code}
+    if not ok4:
+        _write_totp_log(log)
+        return False, f"Step4 Auth code failed: {auth_code}", log
+
+    # Step 5: Get access_token
+    ok5, access_token, raw5 = fyers_get_access_token(app_id, secret_key, auth_code)
+    log["step5_validate_authcode"] = {"ok": ok5, "response": raw5}
+    _write_totp_log(log)
+    if not ok5:
+        return False, f"Step5 Access token failed: {access_token}", log
+
+    # Save new token
+    creds["access_token"] = access_token
+    save_creds(creds)
+    _sess_cache.update({"active": True, "ts": time.time()})
+    # session_state yahan set nahi kar sakte (background thread) — caller karega
+    return True, access_token, log
+
+
+def _write_totp_log(log: dict):
+    """Save TOTP auto-login step log to totp_debug.json."""
+    try:
+        log["ts"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        with open("totp_debug.json", "w") as f:
+            json.dump(log, f, indent=2)
+    except Exception:
+        pass
+
+
+# ─── Token expiry monitor (background) ─────────────────────────────────────────
+# NOTE: Fyers vagator login API is IP-restricted (blocks cloud/VPS IPs).
+# So we only MONITOR expiry and set a flag — user does a quick 15-sec re-auth.
+_TOKEN_STATUS: dict = {"expired": False, "checked_at": 0.0, "running": False}
+_TOKEN_STATUS_LOCK = threading.Lock()
+
+_SMS_SENT_FLAG: dict = {"last_sent": 0.0}  # avoid duplicate SMS within 1 hour
+
+def _send_sms_alert(message: str) -> bool:
+    """Send SMS via Fast2SMS (Indian SMS API)."""
+    api_key = FAST2SMS_KEY
+    if not api_key:
+        return False
+    # Rate-limit: only send once per hour
+    now = time.time()
+    if now - _SMS_SENT_FLAG["last_sent"] < 3600:
+        return False
+    creds = load_creds()
+    phone = creds.get("alert_phone", "7018093451")
+    try:
+        r = requests.get(
+            "https://www.fast2sms.com/dev/bulkV2",
+            headers={"authorization": api_key},
+            params={
+                "route":   "q",
+                "numbers": str(phone),
+                "message": message,
+                "flash":   0,
+            },
+            timeout=10,
+        )
+        data = r.json()
+        ok = data.get("return", False)
+        if ok:
+            _SMS_SENT_FLAG["last_sent"] = now
+        return ok
+    except Exception:
+        return False
+
+
+def _token_monitor_loop():
+    """Checks Fyers token validity every 5 min. Sets expired flag and sends SMS alert."""
+    with _TOKEN_STATUS_LOCK:
+        if _TOKEN_STATUS["running"]:
+            return
+        _TOKEN_STATUS["running"] = True
+
+    while True:
+        try:
+            creds = load_creds()
+            if not creds.get("access_token"):
+                time.sleep(60)
+                continue
+
+            headers = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+            today = _ist_now().strftime("%Y-%m-%d")
+            try:
+                res = requests.get(
+                    "https://api-t1.fyers.in/data/history",
+                    headers=headers,
+                    params={"symbol": "NSE:NIFTYBANK-INDEX", "resolution": "D",
+                            "date_format": "1", "range_from": today, "range_to": today, "cont_flag": "1"},
+                    timeout=8,
+                ).json()
+                still_active = res.get("s") == "ok"
+            except Exception:
+                still_active = True  # network glitch, assume ok
+
+            with _TOKEN_STATUS_LOCK:
+                _TOKEN_STATUS["expired"] = not still_active
+                _TOKEN_STATUS["checked_at"] = time.time()
+
+            # Reset session cache so sidebar reflects truth
+            if not still_active:
+                _sess_cache.update({"active": False, "ts": 0.0})
+                # Write sentinel so next rerun clears _force_active
+                try:
+                    with open(".token_expired_flag", "w") as _f:
+                        _f.write("1")
+                except Exception:
+                    pass
+                # Send SMS alert (once per hour max)
+                _send_sms_alert(
+                    "BankNifty Dashboard Alert: Fyers token expired! "
+                    "Please re-login at your dashboard to restore live data."
+                )
+
+            time.sleep(300)  # check every 5 minutes
+        except Exception:
+            time.sleep(60)
+
+
+def _extract_auth_code(url_or_code: str) -> str:
+    """Extract auth_code from a full Google redirect URL or return as-is."""
+    import urllib.parse
+    s = url_or_code.strip()
+    if s.startswith("http"):
+        parsed = urllib.parse.urlparse(s)
+        qs = urllib.parse.parse_qs(parsed.query)
+        return qs.get("auth_code", [s])[0]
+    return s
+
+# ─── Session check ─────────────────────────────────────────────────────────────
+_sess_cache = {"active": False, "ts": 0.0}
+
+def is_session_active() -> bool:
+    """Token exist karna + profile API ok = session active.
+    Market band hone par bhi False nahi karega."""
+    now = time.time()
+
+    # 1. token_monitor ne expire flag set kiya? clear _force_active
+    if os.path.exists(".token_expired_flag"):
+        try:
+            os.remove(".token_expired_flag")
+        except Exception:
+            pass
+        st.session_state["_force_active"] = False
+        _sess_cache.update({"active": False, "ts": 0.0})
+
+    # 2. login ke turant baad force-active flag
+    if st.session_state.get("_force_active"):
+        _sess_cache.update({"active": True, "ts": now})
+        return True
+
+    # 2. fresh cache
+    if now - _sess_cache["ts"] < 120:
+        return _sess_cache["active"]
+
+    creds = load_creds()
+    if not creds.get("access_token"):
+        _sess_cache.update({"active": False, "ts": now})
+        return False
+
+    # 3. Profile endpoint use karo — market hours se independent
+    headers = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+    try:
+        res = requests.get(
+            "https://api-t1.fyers.in/api/v3/profile",
+            headers=headers, timeout=4,
+        ).json()
+        active = res.get("s") == "ok" or res.get("code") == 200
+        if not active:
+            # fallback: history endpoint — "no_data" = market closed but token valid
+            today = _ist_now().strftime("%Y-%m-%d")
+            res2 = requests.get(
+                "https://api-t1.fyers.in/data/history",
+                headers=headers,
+                params={"symbol": "NSE:NIFTYBANK-INDEX", "resolution": "D",
+                        "date_format": "1", "range_from": today,
+                        "range_to": today, "cont_flag": "1"},
+                timeout=4,
+            ).json()
+            active = res2.get("s") in ("ok", "no_data")
+    except Exception:
+        active = True  # network glitch -> assume ok
+
+    _sess_cache.update({"active": active, "ts": now})
+    return active
+
+# ─── Fyers historical data ─────────────────────────────────────────────────────
+def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
+    creds = load_creds()
+    if not creds.get("access_token"):
+        return []
+    headers = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+    params = {
+        "symbol":     "NSE:NIFTYBANK-INDEX",
+        "resolution": resolution,
+        "date_format": "1",
+        "range_from": from_date,
+        "range_to":   to_date,
+        "cont_flag":  "1",
+    }
+    try:
+        res = requests.get(
+            "https://api-t1.fyers.in/data/history",
+            headers=headers, params=params, timeout=15,
+        ).json()
+        if res.get("s") == "ok":
+            return [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]]
+                    for c in res.get("candles", [])]
+    except Exception:
+        pass
+    return []
+
+def fetch_bn_intraday(interval_mins: int) -> list:
+    # Fyers TF ke hisaab se max safe range:
+    # 1m  → 10 days, 5m → 30 days, 15m → 60 days, 45m → 90 days
+    _days = {1: 10, 5: 30, 15: 60, 45: 90}.get(interval_mins, 30)
+    today  = _ist_now().strftime("%Y-%m-%d")
+    from_d = (_ist_now() - datetime.timedelta(days=_days)).strftime("%Y-%m-%d")
+    return _fyers_history(str(interval_mins), from_d, today)
+
+def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
+    """Same as _fyers_history but doesn't read creds again (for chunked calls)."""
+    creds = load_creds()
+    if not creds.get("access_token"):
+        return []
+    headers = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+    params = {
+        "symbol": "NSE:NIFTYBANK-INDEX", "resolution": resolution,
+        "date_format": "1", "range_from": from_date, "range_to": to_date, "cont_flag": "1",
+    }
+    try:
+        res = requests.get("https://api-t1.fyers.in/data/history",
+                           headers=headers, params=params, timeout=15).json()
+        if res.get("s") == "ok":
+            return [[c[0]*1000, c[1], c[2], c[3], c[4], c[5]] for c in res.get("candles", [])]
+    except Exception:
+        pass
+    return []
+
+def load_bn_daily() -> list:
+    """Fetch BankNifty daily candles 2020→now in yearly chunks (~1200 bars)."""
+    if os.path.exists(BN_DAILY_CACHE):
+        try:
+            with open(BN_DAILY_CACHE) as f:
+                cache = json.load(f)
+            if time.time() - cache.get("ts", 0) < DAILY_CACHE_TTL:
+                return cache.get("data", [])
+        except Exception:
+            pass
+
+    today = _ist_now()
+    today_str = today.strftime("%Y-%m-%d")
+    start_year = 2020
+    cur_year   = today.year
+
+    # Build half-year chunks (Fyers allows max ~1yr range)
+    chunks: list[tuple[str, str]] = []
+    for yr in range(start_year, cur_year + 1):
+        chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
+        chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+
+    all_candles: list = []
+    seen_times: set  = set()
+    for i, (from_d, to_d) in enumerate(chunks):
+        if from_d > today_str:
+            break
+        actual_to = min(to_d, today_str)
+        if i > 0:
+            time.sleep(0.25)  # avoid Fyers rate-limit on rapid chunk calls
+        chunk = _fyers_history_chunk("D", from_d, actual_to)
+        for c in chunk:
+            if c[0] not in seen_times:
+                seen_times.add(c[0])
+                all_candles.append(c)
+
+    all_candles.sort(key=lambda x: x[0])
+
+    if all_candles:
+        try:
+            with open(BN_DAILY_CACHE, "w") as f:
+                json.dump({"ts": time.time(), "data": all_candles}, f)
+        except Exception:
+            pass
+    return all_candles
+
+# ─── BTC (Binance) ────────────────────────────────────────────────────────────
+def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
+    try:
+        r = requests.get(
+            f"https://api.binance.com/api/v3/klines"
+            f"?symbol=BTCUSDT&interval={interval}&limit={limit}",
+            timeout=10,
+        ).json()
+        return [[int(x[0]), float(x[1]), float(x[2]), float(x[3]),
+                 float(x[4]), float(x[5])] for x in r]
+    except Exception:
+        return []
+
+def load_btc_daily() -> list:
+    """Fetch BTC daily candles 2017->now in yearly chunks (same as BankNifty pattern)."""
+    today_str = _ist_now().strftime("%Y-%m-%d")
+    if os.path.exists(DAILY_CACHE_FILE):
+        try:
+            with open(DAILY_CACHE_FILE) as f:
+                c = json.load(f)
+            data = c.get("data", [])
+            cache_ok = time.time() - c.get("ts", 0) < DAILY_CACHE_TTL
+            if cache_ok and data:
+                last_ts = data[-1][0] // 1000
+                last_date = datetime.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d")
+                if last_date < today_str:
+                    cache_ok = False
+            if cache_ok:
+                return data
+        except Exception:
+            pass
+
+    start_year = 2017
+    cur_year   = _ist_now().year
+
+    chunks: list[tuple[str, str]] = []
+    for yr in range(start_year, cur_year + 1):
+        chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
+        chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+
+    all_candles: list = []
+    seen_times: set   = set()
+
+    for i, (from_d, to_d) in enumerate(chunks):
+        if from_d > today_str:
+            break
+        actual_to = min(to_d, today_str)
+        from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
+            tzinfo=datetime.timezone.utc).timestamp() * 1000)
+        to_ms   = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
+            tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
+        try:
+            r = requests.get(
+                f"https://api.binance.com/api/v3/klines"
+                f"?symbol=BTCUSDT&interval=1d&startTime={from_ms}&endTime={to_ms}&limit=1000",
+                timeout=15,
+            ).json()
+            if isinstance(r, list):
+                for x in r:
+                    ts = int(x[0])
+                    if ts not in seen_times:
+                        seen_times.add(ts)
+                        all_candles.append([ts, float(x[1]), float(x[2]),
+                                            float(x[3]), float(x[4]), float(x[5])])
+        except Exception:
+            pass
+        if i > 0:
+            time.sleep(0.1)
+
+    all_candles.sort(key=lambda x: x[0])
+
+    if all_candles:
+        try:
+            with open(DAILY_CACHE_FILE, "w") as f:
+                json.dump({"ts": time.time(), "data": all_candles}, f)
+        except Exception:
+            pass
+    return all_candles
+
+# ─── OHLC converter ───────────────────────────────────────────────────────────
+def to_ohlc(bars: list) -> list:
+    out = []
+    for b in bars:
+        try:
+            out.append({
+                "time":   int(b[0]) // 1000,
+                "open":   round(float(b[1]), 2),
+                "high":   round(float(b[2]), 2),
+                "low":    round(float(b[3]), 2),
+                "close":  round(float(b[4]), 2),
+                "volume": round(float(b[5]), 2) if len(b) > 5 else 0,
+            })
+        except Exception:
+            continue
+    return out
+
+# ─── Fyers WebSocket (DataSocket) — live BankNifty ticks ─────────────────────
+_ws_thread_started = False
+
+def _on_ws_message(msg):
+    try:
+        if not isinstance(msg, dict):
+            return
+        # DataSocket sends list of ticks or single tick dict
+        ticks = msg if isinstance(msg, list) else [msg]
+        for tick in ticks:
+            if not isinstance(tick, dict):
+                continue
+            ltp = tick.get("ltp") or tick.get("LTP")
+            if ltp is None:
+                continue
+            ltp = float(ltp)
+            with _LIVE_LOCK:
+                _LIVE["ltp"]        = ltp
+                _LIVE["prev_close"] = float(tick.get("prev_close_price") or tick.get("prev_close") or _LIVE.get("prev_close") or ltp)
+                _LIVE["ts"]         = int(time.time())
+            # Build running 1-minute candle from raw LTP ticks
+            _update_candle_ltp(ltp)
+            # Write bn_live.json so JS chart can poll it
+            _write_live_json()
+    except Exception:
+        pass
+
+def _on_ws_error(msg):
+    pass
+
+def _on_ws_close(msg):
+    pass
+
+def _on_ws_connect():
+    try:
+        fyers_ws.subscribe(
+            symbols=["NSE:NIFTYBANK-INDEX"],
+            data_type="SymbolUpdate",
+        )
+        fyers_ws.keep_running()
+    except Exception:
+        pass
+
+def _get_live_payload():
+    """Build the latest live-tick payload straight from in-memory state — no
+    disk I/O, so this is as fresh as the WS thread's last update. ts is a
+    float (sub-second precision) so multiple ticks arriving within the same
+    wall-clock second don't collapse into one (previously ts was int(time.time())
+    which made the JS-side dedupe drop intra-second ticks)."""
+    with _LIVE_LOCK:
+        snap = dict(_LIVE)
+    if snap["ltp"] is None:
+        return None
+    ltp = snap["ltp"]
+    now        = time.time()
+    minute_epoch = int(now // 60) * 60
+    with _CANDLE_LOCK:
+        if _CANDLE["minute"] == minute_epoch and _CANDLE["open"] is not None:
+            o = _CANDLE["open"]
+            h = _CANDLE["high"]
+            l = _CANDLE["low"]
+        else:
+            o = h = l = ltp
+    return {
+        "ts":  now,
+        "ltp": ltp,
+        "candle": {
+            "time":  minute_epoch,
+            "open":  o,
+            "high":  h,
+            "low":   l,
+            "close": ltp,
+        },
+    }
+
+def _write_live_json():
+    payload = _get_live_payload()
+    if payload is None:
+        return
+    try:
+        # bn_live.json = fallback file (Streamlit file server se nahi milti)
+        with open(BN_LIVE_FILE, "w") as f:
+            json.dump(payload, f)
+        # postMessage store — Streamlit injector yahan se padh ke iframe ko bhejta hai
+        with _LAST_TICK_LOCK:
+            _LAST_TICK_JS["json"] = json.dumps(payload)
+    except Exception:
+        pass
+
+def _start_ws():
+    global _ws_thread_started, fyers_ws
+    if _ws_thread_started:
+        return
+    creds = load_creds()
+    if not creds.get("access_token"):
+        return
+    try:
+        from fyers_apiv3.FyersWebsocket import data_ws as fw
+        access_token = f"{creds['app_id']}:{creds['access_token']}"
+        fyers_ws = fw.FyersDataSocket(
+            access_token=access_token,
+            log_path="",
+            litemode=True,
+            write_to_file=False,
+            reconnect=True,
+            on_connect=_on_ws_connect,
+            on_close=_on_ws_close,
+            on_error=_on_ws_error,
+            on_message=_on_ws_message,
+        )
+        t = threading.Thread(target=fyers_ws.connect, name="FyersWS", daemon=True)
+        t.start()
+        _ws_thread_started = True
+    except Exception:
+        pass
+
+# ─── Background REST poller (fallback: polls Fyers 1m candles every 3s) ──────
+def _rest_live_loop():
+    while True:
+        # WebSocket se fresh data aa raha hai to REST call skip karo
+        with _LIVE_LOCK:
+            ws_fresh = (time.time() - _LIVE["ts"]) < 8
+        if not ws_fresh:
+            creds = load_creds()
+            if creds.get("access_token"):
+                today = _ist_now().strftime("%Y-%m-%d")
+                headers = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+                params = {
+                    "symbol": "NSE:NIFTYBANK-INDEX", "resolution": "1",
+                    "date_format": "1", "range_from": today, "range_to": today, "cont_flag": "1",
+                }
+                try:
+                    res = requests.get(
+                        "https://api-t1.fyers.in/data/history",
+                        headers=headers, params=params, timeout=6,
+                    ).json()
+                    if res.get("s") == "ok":
+                        candles = res.get("candles", [])
+                        if candles:
+                            last = candles[-1]
+                            bar_epoch = int(last[0])
+                            o, h, l, c = float(last[1]), float(last[2]), float(last[3]), float(last[4])
+                            with _LIVE_LOCK:
+                                if time.time() - _LIVE["ts"] > 5:
+                                    _LIVE["ltp"] = c
+                                    _LIVE["ts"]  = int(time.time())
+                            _set_candle_from_bar(bar_epoch, o, h, l, c)
+                            _write_live_json()
+                except Exception:
+                    pass
+        time.sleep(1)
+
+def _ensure_live_threads():
+    names = {t.name for t in threading.enumerate()}
+    if "FyersRESTPoller" not in names:
+        threading.Thread(target=_rest_live_loop, name="FyersRESTPoller", daemon=True).start()
+    if "FyersTokenMonitor" not in names:
+        threading.Thread(target=_token_monitor_loop, name="FyersTokenMonitor", daemon=True).start()
+    _start_ws()
+    _register_api_route()
+
+# ─── Tornado /api/bn_history handler — lazy historical data endpoint ──────────
+# Streamlit internally uses Tornado. We inject our own route so chart.html's
+# infinite-scroll loader can fetch older BN candles on demand without a page reload.
+
+_HIST_ENDPOINT_REGISTERED = False
+_HIST_ENDPOINT_LOCK = threading.Lock()
+
+# In-memory cache per (resolution, from_date, to_date) — avoids repeat Fyers calls
+_HIST_CACHE: dict = {}
+_HIST_CACHE_TTL = 300  # 5 min
+
+
+def _hist_cache_key(resolution: str, from_date: str, to_date: str) -> str:
+    return f"{resolution}|{from_date}|{to_date}"
+
+
+def _bn_history_handler_data(resolution: str, from_date: str, to_date: str) -> dict:
+    """Fetch BN history (with in-memory cache). Returns {candles, cached, error}."""
+    key = _hist_cache_key(resolution, from_date, to_date)
+    now = time.time()
+    if key in _HIST_CACHE:
+        entry = _HIST_CACHE[key]
+        if now - entry["ts"] < _HIST_CACHE_TTL:
+            return {"candles": entry["data"], "cached": True}
+    candles = _fyers_history(resolution, from_date, to_date)
+    if candles is None:
+        candles = []
+    converted = []
+    for c in candles:
+        try:
+            converted.append({
+                "time":   int(c[0]) // 1000,
+                "open":   round(float(c[1]), 2),
+                "high":   round(float(c[2]), 2),
+                "low":    round(float(c[3]), 2),
+                "close":  round(float(c[4]), 2),
+                "volume": round(float(c[5]), 2) if len(c) > 5 else 0,
+            })
+        except Exception:
+            continue
+    _HIST_CACHE[key] = {"ts": now, "data": converted}
+    return {"candles": converted, "cached": False}
+
+
+def _register_api_route():
+    """Start a lightweight HTTP server on _API_PORT for /api/bn_history.
+
+    Streamlit runs on port 8501 by default but its internal Tornado server
+    is hard to hook into reliably across versions.  Instead we spin up our
+    own plain HTTP server on a dedicated side-port (8502) inside the same
+    Python process.  chart.html auto-detects the port at runtime.
+    """
+    global _HIST_ENDPOINT_REGISTERED
+    with _HIST_ENDPOINT_LOCK:
+        if _HIST_ENDPOINT_REGISTERED:
+            return
+        _HIST_ENDPOINT_REGISTERED = True   # set before thread starts — idempotent
+
+    def _server_loop():
+        import http.server, urllib.parse as _up
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass  # suppress stdout noise
+
+            def do_GET(self):
+                parsed = _up.urlparse(self.path)
+
+                # ── Fast tick endpoint — chart.html polls this directly every
+                # ~300ms instead of waiting on Streamlit's 1s fragment rerun +
+                # postMessage relay (which was the main source of 2-3s lag). ──
+                if parsed.path == "/api/bn_tick":
+                    payload = _get_live_payload()
+                    body = json.dumps(payload if payload is not None else {}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                # ── Replay .gz data endpoint ─────────────────────────────────
+                if parsed.path == "/api/replay_gz":
+                    qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
+                    asset = (qs2.get("asset", ["bn"])[0]).lower()   # "bn" or "btc"
+                    tf    = qs2.get("tf", ["1d"])[0]                 # e.g. "5m", "1d"
+                    chunk = int(qs2.get("chunk", ["0"])[0])          # 0-based chunk index
+                    CHUNK_SIZE = 500                                  # candles per chunk
+
+                    # ── GitHub raw URL for .json.gz files ────────────────────
+                    _GH_RAW_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
+                    _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_5m_csv.json.gz"
+                    _GH_BTC_URL  = f"{_GH_RAW_BASE}/Bitcoin_BTCUSDT_IST_5m.json.gz"
+
+                    # ── In-memory cache to avoid re-loading every request ─────
+                    if not hasattr(self.__class__, '_replay_cache'):
+                        self.__class__._replay_cache = {}  # {'bn': data_dict, 'btc': data_dict}
+
+                    debug_log = []
+                    t0 = time.time()
+
+                    try:
+                        import gzip as _gz, os as _os, urllib.request as _ur, time as _time
+
+                        fname  = "banknifty_5m_csv.json.gz" if asset == "bn" else "Bitcoin_BTCUSDT_IST_5m.json.gz"
+                        gh_url = _GH_BN_URL if asset == "bn" else _GH_BTC_URL
+
+                        # Search paths: script dir first, then /mount/src/* (Streamlit Cloud)
+                        script_dir = _os.path.dirname(_os.path.abspath(__file__))
+                        search_dirs = [script_dir]
+                        # Add Streamlit Cloud /mount/src/<repo> paths
+                        mount_src = "/mount/src"
+                        if _os.path.isdir(mount_src):
+                            for sub in _os.listdir(mount_src):
+                                search_dirs.append(_os.path.join(mount_src, sub))
+
+                        gz_path = None
+                        for d in search_dirs:
+                            candidate = _os.path.join(d, fname)
+                            if _os.path.exists(candidate):
+                                gz_path = candidate
+                                break
+
+                        debug_log.append(f"[1] asset={asset}  tf={tf}  chunk={chunk}")
+                        debug_log.append(f"[2] Script dir: {script_dir}")
+                        debug_log.append(f"[3] Searched: {search_dirs}")
+                        debug_log.append(f"[4] Found at: {gz_path or 'NOT FOUND locally'}")
+
+                        # ── Step A: Download from GitHub if not found locally ──
+                        if not gz_path:
+                            save_path = _os.path.join(script_dir, fname)
+                            debug_log.append(f"[5] Downloading from GitHub…")
+                            debug_log.append(f"[5] URL: {gh_url}")
+                            try:
+                                dl_start = _time.time()
+                                req = _ur.Request(gh_url, headers={"User-Agent": "Mozilla/5.0"})
+                                with _ur.urlopen(req, timeout=180) as resp:
+                                    file_bytes = resp.read()
+                                dl_secs  = round(_time.time() - dl_start, 2)
+                                dl_kb    = round(len(file_bytes) / 1024, 1)
+                                dl_speed = round(dl_kb / max(dl_secs, 0.01), 1)
+                                debug_log.append(f"[6] Downloaded: {dl_kb} KB in {dl_secs}s  ({dl_speed} KB/s)")
+                                with open(save_path, "wb") as _wf:
+                                    _wf.write(file_bytes)
+                                gz_path = save_path
+                                debug_log.append(f"[7] Saved to: {gz_path}")
+                            except Exception as _dl_err:
+                                debug_log.append(f"[6] ❌ GitHub download FAILED: {_dl_err}")
+                                body = json.dumps({"error": f"github_download_failed: {_dl_err}", "debug": debug_log}).encode()
+                                self.send_response(503)
+                                self.send_header("Content-Type", "application/json")
+                                self.send_header("Access-Control-Allow-Origin", "*")
+                                self.send_header("Content-Length", str(len(body)))
+                                self.end_headers()
+                                self.wfile.write(body)
+                                return
+                        else:
+                            fsize_kb = round(_os.path.getsize(gz_path) / 1024, 1)
+                            debug_log.append(f"[5] File found ({fsize_kb} KB) — no download needed")
+
+                        # ── Step B: Load JSON.gz (use in-memory cache) ────────
+                        cache = self.__class__._replay_cache
+                        if asset not in cache:
+                            debug_log.append(f"[8] Loading JSON.gz into memory…")
+                            load_start = _time.time()
+                            with _gz.open(gz_path, "rb") as _f:
+                                cache[asset] = json.load(_f)
+                            load_secs = round(_time.time() - load_start, 2)
+                            debug_log.append(f"[9] Loaded in {load_secs}s")
+                        else:
+                            debug_log.append(f"[8] Using cached data (already in memory)")
+
+                        # ── BN has nested structure: {"data": {"5m": [...], ...}}
+                        # ── BTC has flat structure:  {"160m": [...], "8h": [...], ...}
+                        _raw = cache[asset]
+                        if asset == "bn" and "data" in _raw and isinstance(_raw["data"], dict):
+                            _data = _raw["data"]
+                        else:
+                            _data = _raw
+                        available_keys = [k for k in _data.keys() if k != "meta"]
+                        debug_log.append(f"[10] Available TF keys: {available_keys}")
+
+                        # ── Step C: TF lookup (exact → lowercase fallback) ─────
+                        tf_list = _data.get(tf)
+                        matched_key = tf
+                        if tf_list is None:
+                            for k in _data.keys():
+                                if k.lower() == tf.lower():
+                                    tf_list = _data[k]
+                                    matched_key = k
+                                    debug_log.append(f"[11] '{tf}' matched via lowercase → '{k}'")
+                                    break
+                        if tf_list is None:
+                            debug_log.append(f"[11] ❌ TF '{tf}' NOT found. Keys: {available_keys}")
+                            body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
+                            self.send_response(404)
+                        else:
+                            total_rows = len(tf_list)
+                            start  = chunk * CHUNK_SIZE
+                            end    = min(start + CHUNK_SIZE, total_rows)
+                            slice_list = tf_list[start:end]
+                            debug_log.append(f"[11] TF='{matched_key}'  rows={total_rows}  chunk={chunk}  slice={start}→{end}")
+
+                            # ── Step D: Convert JSON rows → OHLC candles ──────
+                            # BN format:  {"ts": "2015-01-09 09:15", "o": ..., "h": ..., "l": ..., "c": ...}
+                            # BTC format: {"Datetime": "2017-01-01T05:30:00.000", "Open": ..., "High": ..., "Low": ..., "Close": ...}
+                            import datetime as _dt
+                            candles  = []
+                            bad_rows = 0
+                            for row in slice_list:
+                                try:
+                                    # ── Timestamp ──────────────────────────────
+                                    ts_str = (row.get("ts") or row.get("Datetime") or "").strip()
+                                    if "T" in ts_str:
+                                        # ISO: "2017-01-01T05:30:00.000" — already UTC
+                                        dt_obj = _dt.datetime.strptime(ts_str[:16], "%Y-%m-%dT%H:%M")
+                                        ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
+                                    elif " " in ts_str:
+                                        # "2015-01-09 09:15" — IST, convert to UTC
+                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d %H:%M")
+                                        IST_OFFSET = _dt.timedelta(hours=5, minutes=30)
+                                        ts = int((dt_obj - IST_OFFSET).replace(tzinfo=_dt.timezone.utc).timestamp())
+                                    else:
+                                        # "2015-01-09" — date only
+                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d")
+                                        ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
+
+                                    # ── OHLC: BN lowercase keys, BTC Title case keys ──
+                                    o = float(row.get("o") or row.get("Open"))
+                                    h = float(row.get("h") or row.get("High"))
+                                    l = float(row.get("l") or row.get("Low"))
+                                    c = float(row.get("c") or row.get("Close"))
+
+                                    candles.append({
+                                        "time":  ts,
+                                        "open":  round(o, 2),
+                                        "high":  round(h, 2),
+                                        "low":   round(l, 2),
+                                        "close": round(c, 2),
+                                    })
+                                except Exception:
+                                    bad_rows += 1
+
+                            total_elapsed = round(time.time() - t0, 2)
+                            debug_log.append(f"[12] Candles={len(candles)}  bad_rows={bad_rows}  total={total_elapsed}s")
+
+                            result = {
+                                "candles":      candles,
+                                "chunk":        chunk,
+                                "total_rows":   total_rows,
+                                "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
+                                "has_more":     end < total_rows,
+                                "debug":        debug_log,
+                            }
+                            body = json.dumps(result).encode()
+                            self.send_response(200)
+
+                    except Exception as _ex:
+                        import traceback
+                        tb = traceback.format_exc()
+                        debug_log.append(f"[!!] EXCEPTION: {_ex}")
+                        debug_log.append(f"[!!] TRACEBACK:\n{tb}")
+                        body = json.dumps({"error": str(_ex), "traceback": tb, "debug": debug_log}).encode()
+                        self.send_response(500)
+
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                # ─────────────────────────────────────────────────────────────
+
+                if parsed.path != "/api/bn_history":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+
+                qs = _up.parse_qs(parsed.query, keep_blank_values=False)
+                def _q(k, d=""): return qs.get(k, [d])[0]
+
+                resolution = _q("resolution", "1")
+                from_date  = _q("from", "")
+                to_date    = _q("to", "")
+                days_str   = _q("days", "10")
+
+                if not from_date:
+                    try:
+                        days = int(days_str)
+                    except ValueError:
+                        days = 10
+                    today_ist = _ist_now()
+                    to_date   = today_ist.strftime("%Y-%m-%d")
+                    from_date = (today_ist - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+
+                creds = load_creds()
+                if not creds.get("access_token"):
+                    body = b'{"error":"not_authenticated"}'
+                    self.send_response(401)
+                else:
+                    result = _bn_history_handler_data(resolution, from_date, to_date)
+                    body   = json.dumps(result).encode()
+                    self.send_response(200)
+
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        # Try ports 8502..8510 — pick whichever is free
+        import socketserver
+        for port in range(8502, 8511):
+            try:
+                srv = socketserver.ThreadingTCPServer(("0.0.0.0", port), _Handler)
+                srv.daemon_threads = True
+                # Write chosen port to a file so chart.html JS can read it via Streamlit component
+                try:
+                    with open(".api_port", "w") as _f:
+                        _f.write(str(port))
+                except Exception:
+                    pass
+                srv.serve_forever()
+                break
+            except OSError:
+                continue   # port in use, try next
+
+    threading.Thread(target=_server_loop, name="BNHistoryAPI", daemon=True).start()
+
+# ─── ZIP export ───────────────────────────────────────────────────────────────
+def _make_zip() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in ("dashboard.py", "chart.html"):
+            if os.path.exists(fname):
+                zf.write(fname)
+    return buf.getvalue()
+
+# ─── Auto-startup TOTP login (runs once per session on any machine) ───────────
+if not st.session_state.get("_startup_login_done"):
+    st.session_state["_startup_login_done"] = True
+    _boot_creds = load_creds()
+    if not is_session_active() and _boot_creds.get("totp_secret"):
+        _ok_boot, _msg_boot, _ = auto_fyers_login()
+        if _ok_boot:
+            _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
+        st.rerun()
+
+# ─── In-chart broker panel: handle query params from iframe form submits ───────
+_qp = st.query_params
+
+# Handler 1: Manual Google URL auth_code
+if "fyers_code" in _qp:
+    _code   = _qp.get("fyers_code",   "").strip()
+    _app_id = _qp.get("fyers_app_id", DEFAULT_APP_ID).strip()
+    _secret = _qp.get("fyers_secret", DEFAULT_SECRET).strip()
+    st.query_params.clear()
+    if _code:
+        _ok, _tok, _resp = fyers_get_access_token(_app_id, _secret, _code)
+        if _ok:
+            save_creds({
+                **load_creds(),
+                "app_id": _app_id, "secret_key": _secret,
+                "client_id": DEFAULT_CLIENT_ID, "password": DEFAULT_PASSWORD,
+                "access_token": _tok,
+            })
+            _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
+    st.rerun()
+
+# Handler 2: TOTP auto-login triggered from chart panel
+if _qp.get("totp_trigger") == "1":
+    _totp_sec = _qp.get("totp_secret",  "").strip()
+    _app_id   = _qp.get("fyers_app_id", DEFAULT_APP_ID).strip()
+    _secret   = _qp.get("fyers_secret", DEFAULT_SECRET).strip()
+    st.query_params.clear()
+    if _totp_sec:
+        # Save TOTP secret + credentials so auto_fyers_login picks them up
+        _cur = load_creds()
+        save_creds({**_cur, "totp_secret": _totp_sec,
+                    "app_id": _app_id, "secret_key": _secret,
+                    "client_id": _cur.get("client_id", DEFAULT_CLIENT_ID),
+                    "password":  _cur.get("password",  DEFAULT_PASSWORD)})
+        _ok2, _msg2, _log2 = auto_fyers_login()
+        if _ok2:
+            _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
+        else:
+            # Store error so it shows briefly above chart on reload
+            st.session_state["totp_err"] = _msg2
+            st.session_state["totp_log"] = _log2
+    st.rerun()
+
+# Handler 2b: Server-side chart state save (Google ke bina — direct file pe)
+if _qp.get("cs_save") == "1":
+    _cs_data_b64 = _qp.get("cs_data", "")
+    st.query_params.clear()
+    if _cs_data_b64:
+        try:
+            import base64 as _b64mod
+            _cs_raw = _b64mod.urlsafe_b64decode(_cs_data_b64.encode()).decode("utf-8")
+            # Sanity check — valid JSON hi likho file mein
+            json.loads(_cs_raw)
+            with open(CHART_STATE_FILE, "w", encoding="utf-8") as _csf:
+                _csf.write(_cs_raw)
+        except Exception:
+            pass
+    st.rerun()
+
+# Handler 3: Google Drive OAuth callback — ?gd_cb=1#access_token=...
+# Popup yahan redirect hota hai — poora Streamlit UI hide karo, sirf callback JS chalao
+if _qp.get("gd_cb") == "1":
+    st.markdown("""
+<style>
+  /* Streamlit poora hide karo */
+  #root > div, .stApp, header, footer,
+  [data-testid="stAppViewContainer"],
+  [data-testid="stHeader"],
+  [data-testid="stToolbar"],
+  [data-testid="stSidebar"],
+  .main, .block-container { display: none !important; }
+  body { background: #131722 !important; margin: 0 !important; }
+</style>
+<div id="gd-cb-box" style="
+  position:fixed;top:0;left:0;width:100vw;height:100vh;
+  background:#131722;display:flex;align-items:center;
+  justify-content:center;font-family:sans-serif;color:#d1d4dc;
+  flex-direction:column;gap:16px;z-index:999999;">
+  <div id="gd-spinner" style="font-size:2.5rem;">☁</div>
+  <div id="gd-msg" style="font-size:1rem;">Google sign-in complete ho raha hai…</div>
+</div>
+<script>
+(function() {
+  // Google OAuth2 implicit flow: token URL fragment mein aata hai
+  // Fragment Streamlit tak nahi pahunchta — isliye hum sessionStorage trick use karte hain
+
+  var STORAGE_KEY = '_gd_oauth_pending';
+  var TS_KEY      = '_gd_oauth_ts';
+
+  function setMsg(txt, ok) {
+    var el = document.getElementById('gd-msg');
+    var sp = document.getElementById('gd-spinner');
+    if (el) el.textContent = txt;
+    if (sp) sp.textContent = ok ? '✅' : '❌';
+  }
+
+  function parseHash(str) {
+    var p = {};
+    (str || '').replace(/^[#?]/, '').split('&').forEach(function(pair) {
+      var kv = pair.split('=');
+      if (kv.length >= 2) p[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join('='));
+    });
+    return p;
+  }
+
+  function sendToken(token, exp) {
+    var msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
+
+    // Method 1: window.opener (popup ka parent)
+    try { if (window.opener && !window.opener.closed) { window.opener.postMessage(msg, '*'); } } catch(_) {}
+
+    // Method 2: localStorage (chart poll karta hai)
+    try {
+      localStorage.setItem(STORAGE_KEY, msg);
+      localStorage.setItem(TS_KEY, Date.now().toString());
+    } catch(_) {}
+
+    setMsg('✅ Sign-in ho gaya! Yeh window band ho rahi hai…', true);
+    setTimeout(function() {
+      try { window.close(); } catch(_) {}
+      // Agar window band nahi hui toh blank page dikhao
+      setTimeout(function() { document.body.innerHTML = '<p style="color:#26a69a;text-align:center;padding:40px;font-family:sans-serif">✅ Sign-in complete. Yeh tab band kar sakte ho.</p>'; }, 1500);
+    }, 1000);
+  }
+
+  // Hash directly milta hai toh seedha use karo
+  var hash = window.location.hash || window.location.search || '';
+  var params = parseHash(hash);
+  var token = params['access_token'];
+  var exp   = parseInt(params['expires_in'] || '3600', 10);
+
+  if (token) {
+    sendToken(token, exp);
+    return;
+  }
+
+  // Hash nahi mila — URL mein fragment tha jo Streamlit ne strip kar diya
+  // Yeh normal hai — chart ka localStorage poller handle karega
+  setMsg('❌ Token nahi mila. Chart pe wapas jao aur dobara Sign in karo.', false);
+})();
+</script>
+""", unsafe_allow_html=True)
+    st.stop()
+
+
+creds      = load_creds()
+sess_active = is_session_active()
+
+if sess_active:
+    _ensure_live_threads()
+
+with st.sidebar:
+    st.title("🔑 Fyers Login")
+
+    if sess_active:
+        st.success("✅ Live data active!")
+        with _LIVE_LOCK:
+            ltp_now = _LIVE["ltp"]
+        if ltp_now:
+            st.metric("BANKNIFTY LTP", f"₹{ltp_now:,.2f}")
+
+        st.caption("Token auto-monitored every 5 min")
+
+        if st.button("🔌 Disconnect", use_container_width=True):
+            if os.path.exists(CREDS_FILE):
+                os.remove(CREDS_FILE)
+            _sess_cache.update({"active": False, "ts": 0.0})
+            st.rerun()
+
+    else:
+        # Check if it's an expiry (creds exist but token dead) or fresh login
+        has_old_creds = bool(creds.get("access_token"))
+        app_id = creds.get("app_id", DEFAULT_APP_ID)
+        secret = creds.get("secret_key", DEFAULT_SECRET)
+
+        # Unique nonce per page-load → forces Fyers to generate a FRESH auth_code each time
+        import random
+        _nonce = str(int(time.time())) + str(random.randint(1000, 9999))
+        auth_url = (
+            f"https://api-t1.fyers.in/api/v3/generate-authcode"
+            f"?client_id={app_id}"
+            f"&redirect_uri=https%3A%2F%2Fwww.google.com"
+            f"&response_type=code"
+            f"&state={_nonce}"
+            f"&nonce={_nonce}"
+        )
+
+        if has_old_creds:
+            st.error("🔴 Token expire ho gaya! Re-login karo")
+        else:
+            st.warning("⚠️ Login karo")
+
+        # ── Method A: TOTP Auto Login ────────────────────────────────────────────
+        creds_now = load_creds()
+        has_totp  = bool(creds_now.get("totp_secret", ""))
+
+        with st.expander("🤖 Method A — TOTP Auto Login (Recommended)", expanded=has_totp):
+            st.caption("Ek baar TOTP secret save karo → phir sirf ek button click")
+
+            totp_inp = st.text_input(
+                "TOTP Secret (32-char base32 key)",
+                value=creds_now.get("totp_secret", ""),
+                type="password",
+                placeholder="JBSWY3DPEHPK3PXP...",
+                key="totp_secret_inp",
+            )
+            if st.button("💾 Save TOTP Secret", use_container_width=True, key="save_totp"):
+                save_creds({**creds_now, "totp_secret": totp_inp.strip()})
+                st.success("✅ Saved!")
+                st.rerun()
+
+            if has_totp:
+                if st.button("🚀 Auto Login (TOTP)", use_container_width=True,
+                             type="primary", key="totp_login_btn"):
+                    with st.spinner("Logging in… (Steps 1→5)"):
+                        ok, msg, step_log = auto_fyers_login()
+                    if ok:
+                        st.session_state["_force_active"] = True
+                        _sess_cache.update({"active": True, "ts": time.time()})
+                        st.success("🎉 TOTP Login ho gaya!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Failed: {msg}")
+                        st.markdown("**Step-by-step debug:**")
+                        st.code(json.dumps(step_log, indent=2), language="json")
+            else:
+                st.info("Pehle TOTP secret save karo phir button aayega")
+
+        st.markdown("---")
+
+        # ── Method B: Manual Google URL ─────────────────────────────────────────
+        with st.expander("🔗 Method B — Manual Google URL", expanded=not has_totp):
+            st.markdown(f"**Step 1 →** [👉 Fyers Fresh Login Link]({auth_url})")
+            st.warning("⚠️ Upar wala FRESH link click karo — purana cached URL mat use karo!")
+            st.caption("Link click → Google page aayega → us page ka poora URL copy karo")
+
+            url_input = st.text_input(
+                "**Step 2 →** Poora URL ya auth_code paste karo",
+                placeholder="https://www.google.com/?s=ok&auth_code=eyJ...",
+            )
+
+            if st.button("⚡ Connect", use_container_width=True, type="primary"):
+                raw = url_input.strip()
+                if raw:
+                    code = _extract_auth_code(raw)
+                    st.caption(f"🔍 Extracted code: `{code[:20]}...`")
+                    ok, access_token, full_resp = fyers_get_access_token(app_id, secret, code)
+                    if ok:
+                        save_creds({
+                            **creds,
+                            "app_id":       app_id,
+                            "secret_key":   secret,
+                            "client_id":    DEFAULT_CLIENT_ID,
+                            "password":     DEFAULT_PASSWORD,
+                            "access_token": access_token,
+                        })
+                        _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
+                        st.success("🎉 Connected!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Login Failed: {access_token}")
+                        st.markdown("**Full Fyers Response:**")
+                        st.code(json.dumps(full_resp, indent=2), language="json")
+                else:
+                    st.error("URL ya code paste karo pehle")
+
+    st.markdown("---")
+
+    # ── SMS Alert Setup ─────────────────────────────────────────────────────
+    with st.expander("📱 SMS Alert Setup", expanded=False):
+        st.caption("Token expire hone par SMS aayega 7018093451 par")
+        st.success("✅ Fast2SMS connected")
+
+        # Allow changing phone number
+        creds_now = load_creds()
+        phone_val = creds_now.get("alert_phone", "7018093451")
+        new_phone = st.text_input("Alert Phone", value=phone_val, max_chars=12)
+        if st.button("💾 Save Phone", use_container_width=True):
+            save_creds({**creds_now, "alert_phone": new_phone.strip()})
+            st.success(f"Saved: {new_phone}")
+
+    st.markdown("---")
+    st.download_button(
+        "⬇️ Download Project ZIP",
+        data=_make_zip(),
+        file_name="banknifty_chart.zip",
+        mime="application/zip",
+        use_container_width=True,
+    )
+
+# ─── Fetch all chart data ─────────────────────────────────────────────────────
+# Cache key includes first 8 chars of token so new token → fresh fetch
+@st.cache_data(ttl=HIST_CACHE_TTL, show_spinner=False)
+def _get_chart_data(sess: bool, _tok: str = ""):
+    btc_1m   = fetch_btc("1m",  1000)
+    btc_15m  = fetch_btc("15m", 1000)
+    btc_day  = load_btc_daily()
+    bn_1m    = fetch_bn_intraday(1)  if sess else []
+    bn_5m    = fetch_bn_intraday(5)  if sess else []
+    bn_15m   = fetch_bn_intraday(15) if sess else []
+    bn_45m   = fetch_bn_intraday(45) if sess else []
+    bn_day   = load_bn_daily()       if sess else []
+    return btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day
+
+_tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
+btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(sess_active, _tok_hint)
+
+# ─── TOTP error notification (from iframe-triggered auto-login failure) ────────
+if "totp_err" in st.session_state:
+    st.error(f"❌ TOTP Login failed: {st.session_state.pop('totp_err')}")
+    _log_data = st.session_state.pop("totp_log", None)
+    if _log_data:
+        with st.expander("Debug log dekhein"):
+            st.code(json.dumps(_log_data, indent=2), language="json")
+
+
+# ─── Chart HTML builder — injects live data directly into chart.html ──────────
+def _build_chart_html(
+    btc_1m, btc_15m, btc_day,
+    bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
+    sess_active: bool
+) -> str:
+    """Read chart.html and replace all __PLACEHOLDERS__ with real data."""
+    import os, json as _json
+
+    # Load chart.html from same directory as app.py
     _html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chart.html")
     if not os.path.exists(_html_path):
         return "<p style='color:red'>chart.html not found</p>"
-    with open(_html_path, "r", encoding="utf-8") as f:
-        html = f.read()
 
-    # Saved chart-state restore
+    with open(_html_path, "r", encoding="utf-8") as _f:
+        html = _f.read()
+
+    def _to_lwc(candles: list) -> str:
+        """Convert [[epoch_ms, o, h, l, c, v], ...] or [{time,open,...}] to LWC format."""
+        out = []
+        for b in candles:
+            try:
+                if isinstance(b, (list, tuple)):
+                    t = int(b[0]) // 1000  # ms→sec
+                    o, h, l, c = float(b[1]), float(b[2]), float(b[3]), float(b[4])
+                    v = float(b[5]) if len(b) > 5 else 0
+                else:
+                    t = int(b.get("time", 0))
+                    o = float(b.get("open",  0))
+                    h = float(b.get("high",  0))
+                    l = float(b.get("low",   0))
+                    c = float(b.get("close", 0))
+                    v = float(b.get("volume", 0))
+                out.append({"time": t, "open": o, "high": h, "low": l, "close": c, "volume": v})
+            except Exception:
+                continue
+        # Deduplicate by time, keep last
+        seen = {}
+        for b in out:
+            seen[b["time"]] = b
+        return _json.dumps(sorted(seen.values(), key=lambda x: x["time"]))
+
+    _creds = load_creds()
+    status = "connected" if sess_active else "disconnected"
+    app_id  = _creds.get("app_id",    DEFAULT_APP_ID)
+    secret  = _creds.get("secret_key", DEFAULT_SECRET)
+
+    html = html.replace("__BTC_CANDLES__", _to_lwc(btc_1m))
+    html = html.replace("__BTC_15M__",     _to_lwc(btc_15m))
+    html = html.replace("__BTC_DAILY__",   _to_lwc(btc_day))
+    html = html.replace("__BN_CANDLES__",  _to_lwc(bn_1m))
+    html = html.replace("__BN_5M__",       _to_lwc(bn_5m))
+    html = html.replace("__BN_15M__",      _to_lwc(bn_15m))
+    html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
+    html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
+    html = html.replace("__FYERS_STATUS__", status)
+    html = html.replace("__FYERS_APP_ID__", app_id)
+    html = html.replace("__FYERS_SECRET__",  secret)
+
+    # ── Inject side-API port so chart.html knows which port to call ──────────
+    _api_port = 0
+    try:
+        if os.path.exists(".api_port"):
+            with open(".api_port") as _pf:
+                _api_port = int(_pf.read().strip())
+    except Exception:
+        _api_port = 0
+    html = html.replace("__API_PORT__", str(_api_port))
+
+    # ── Startup mein last known BN tick inject karo (polling se pehle) ──────
+    tick = None
+    try:
+        if os.path.exists("bn_live.json"):
+            with open("bn_live.json") as _tf:
+                tick = json.load(_tf)
+    except Exception:
+        tick = None
+    if tick:
+        tick_js = json.dumps(tick)
+        inject = (
+            "\n<script>"
+            "(function(){"
+            "  setTimeout(function(){"
+            "    try{if(typeof _applyBNLiveTick==='function'){_applyBNLiveTick(" + tick_js + ");}}"
+            "    catch(_){}"
+            "  }, 1200);"
+            "})();"
+            "</script>"
+        )
+        html = html.replace("</body>", inject + "\n</body>")
+
+    # ── Saved chart-state (server-side, Google ke bina) restore karo ──────────
     _cs_state_raw = None
     try:
         if os.path.exists(CHART_STATE_FILE):
-            with open(CHART_STATE_FILE, "r", encoding="utf-8") as csf:
-                _cs_state_raw = csf.read().strip()
-            json.loads(_cs_state_raw)
+            with open(CHART_STATE_FILE, "r", encoding="utf-8") as _csf:
+                _cs_state_raw = _csf.read().strip()
+            json.loads(_cs_state_raw)  # validate before inlining into <script>
     except Exception:
         _cs_state_raw = None
     if _cs_state_raw:
-        _cs_safe = _cs_state_raw.replace("</", "<\\/")
-        html = html.replace("</body>", f"\n<script>window.__CHART_STATE_RESTORE__ = {_cs_safe};</script>\n</body>")
+        _cs_safe = _cs_state_raw.replace("</", "<\\/")  # </script> injection se bachao
+        cs_inject = (
+            "\n<script>window.__CHART_STATE_RESTORE__ = " + _cs_safe + ";</script>"
+        )
+        html = html.replace("</body>", cs_inject + "\n</body>")
 
     return html
 
-components.html(_build_chart_html(), height=950, scrolling=False)
+
+# ─── Main area: embed chart directly (no separate API server needed) ─────────
+st.markdown("## 📊 BankNifty Live Chart")
+
+# ── BTC-only mode (no Fyers needed) ──────────────────────────────────────────
+_btc_only = st.session_state.get("_btc_only_mode", False)
+
+if sess_active or _btc_only:
+    if sess_active:
+        st.success("✅ Fyers connected — live data active")
+    else:
+        st.info("📊 BTC Chart mode — BankNifty data available nahi (Fyers login nahi hai)")
+    _chart_html = _build_chart_html(
+        btc_1m, btc_15m, btc_day,
+        bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
+        sess_active,
+    )
+    components.html(_chart_html, height=950, scrolling=False)
+
+    # ── BN Live Tick → postMessage pusher ────────────────────────────────────
+    # @st.fragment se sirf yeh component rerun hoga — chart flicker nahi karega.
+    # Har 1s pe latest tick iframe ko postMessage se milega.
+    # chart.html ka _applyBNLiveTick() + resampleForTF() automatically
+    # 1m/15m/45m/135m/1d/3d/9d — sab TFs pe live candle update karta hai.
+    if sess_active:
+        @st.fragment(run_every=1)
+        def _bn_tick_pusher():
+            with _LAST_TICK_LOCK:
+                _tick_json = _LAST_TICK_JS["json"]
+
+            # Agar WS/REST se abhi tak tick nahi aaya to bn_live.json fallback
+            if not _tick_json and os.path.exists(BN_LIVE_FILE):
+                try:
+                    with open(BN_LIVE_FILE) as _tf:
+                        _tick_json = json.dumps(json.load(_tf))
+                except Exception:
+                    _tick_json = ""
+
+            if not _tick_json:
+                return  # koi tick nahi — kuch mat karo
+
+            # Yeh JS snippet:
+            # 1. Pehli baar: setInterval setup karta hai jo har 800ms iframe ko push karta hai
+            # 2. Baad mein: window._bnLastTick update karta hai — interval khud push kar deta hai
+            _script = f"""
+<script>
+(function() {{
+  var tick = {_tick_json};
+
+  // Global tick store update karo
+  window._bnLastTick = tick;
+
+  // Pehli baar interval setup karo (duplicate safe)
+  if (!window._bnPusherReady) {{
+    window._bnPusherReady = true;
+    window._bnLastSentTs  = 0;
+
+    setInterval(function() {{
+      var t = window._bnLastTick;
+      if (!t || t.ts === window._bnLastSentTs) return;
+      var frames = window.parent.document.querySelectorAll('iframe');
+      for (var i = 0; i < frames.length; i++) {{
+        try {{
+          frames[i].contentWindow.postMessage(
+            JSON.stringify({{ type: 'bn_live', data: t }}), '*'
+          );
+        }} catch(e) {{}}
+      }}
+      window._bnLastSentTs = t.ts;
+    }}, 800);
+  }}
+
+  // Turant push karo (naya tick aaya hai)
+  if (tick.ts !== window._bnLastSentTs) {{
+    var frames = window.parent.document.querySelectorAll('iframe');
+    for (var i = 0; i < frames.length; i++) {{
+      try {{
+        frames[i].contentWindow.postMessage(
+          JSON.stringify({{ type: 'bn_live', data: tick }}), '*'
+        );
+      }} catch(e) {{}}
+    }}
+    window._bnLastSentTs = tick.ts;
+  }}
+}})();
+</script>
+"""
+            components.html(_script, height=0, scrolling=False)
+
+        _bn_tick_pusher()
+
+else:
+    # ─── Main area inline Login Panel ─────────────────────────────────────────
+    _creds_main = load_creds()
+    _has_old    = bool(_creds_main.get("access_token"))
+    _app_id_m   = _creds_main.get("app_id",    DEFAULT_APP_ID)
+    _secret_m   = _creds_main.get("secret_key", DEFAULT_SECRET)
+    _has_totp_m = bool(_creds_main.get("totp_secret", ""))
+
+    import random as _rand
+    _nonce_m = str(int(time.time())) + str(_rand.randint(1000, 9999))
+    _auth_url_m = (
+        f"https://api-t1.fyers.in/api/v3/generate-authcode"
+        f"?client_id={_app_id_m}"
+        f"&redirect_uri=https%3A%2F%2Fwww.google.com"
+        f"&response_type=code"
+        f"&state={_nonce_m}"
+        f"&nonce={_nonce_m}"
+    )
+
+    st.markdown("""
+    <style>
+    .login-card{
+        background:#1e222d;border:1px solid #2a2e3e;border-radius:14px;
+        padding:32px 28px;max-width:620px;margin:30px auto;
+    }
+    .login-title{color:#e0e3eb;font-size:1.5rem;font-weight:700;margin-bottom:4px;}
+    .login-sub{color:#848da0;font-size:0.9rem;margin-bottom:24px;}
+    .method-label{
+        color:#a3aabf;font-size:0.78rem;font-weight:600;letter-spacing:.08em;
+        text-transform:uppercase;margin-bottom:8px;
+    }
+    .step-badge{
+        background:#1a73e8;color:#fff;border-radius:50%;
+        width:22px;height:22px;display:inline-flex;align-items:center;
+        justify-content:center;font-size:.75rem;font-weight:700;margin-right:8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if _has_old:
+        st.error("🔴 Fyers token expire ho gaya — dobara login karo")
+
+    st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-title">🔑 Fyers Login</div>''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-sub">Login karo — phir live BankNifty chart khulega</div>''', unsafe_allow_html=True)
+
+    # ── METHOD A: TOTP Auto Login ──────────────────────────────────────────────
+    st.markdown('''<div class="method-label">⚡ Method A — TOTP Auto Login (Recommended)</div>''', unsafe_allow_html=True)
+
+    _totp_val_m = st.text_input(
+        "TOTP Secret (32-char base32 key)",
+        value=_creds_main.get("totp_secret", ""),
+        type="password",
+        placeholder="JBSWY3DPEHPK3PXP...",
+        key="main_totp_secret",
+    )
+
+    col_save, col_login = st.columns([1, 1])
+    with col_save:
+        if st.button("💾 Save TOTP Secret", use_container_width=True, key="main_save_totp"):
+            save_creds({**_creds_main, "totp_secret": _totp_val_m.strip()})
+            st.success("✅ Saved!")
+            st.rerun()
+
+    with col_login:
+        _btn_disabled_m = not bool(_totp_val_m.strip() or _has_totp_m)
+        if st.button(
+            "🚀 Auto Login",
+            use_container_width=True,
+            type="primary",
+            key="main_totp_login",
+            disabled=_btn_disabled_m,
+        ):
+            with st.spinner("Logging in… (Steps 1→5)"):
+                if _totp_val_m.strip():
+                    save_creds({**_creds_main, "totp_secret": _totp_val_m.strip()})
+                _ok_m2, _msg_m2, _log_m2 = auto_fyers_login()
+            if _ok_m2:
+                st.session_state["_force_active"] = True
+                _sess_cache.update({"active": True, "ts": time.time()})
+                st.success("🎉 Login ho gaya!")
+                st.rerun()
+            else:
+                st.error(f"❌ Failed: {_msg_m2}")
+                with st.expander("Debug log"):
+                    st.code(json.dumps(_log_m2, indent=2), language="json")
+
+    if _btn_disabled_m:
+        st.caption("👆 Pehle TOTP secret daalo phir Auto Login button active hoga")
+
+    st.markdown("<hr style='border:none;border-top:1px solid #2a2e3e;margin:22px 0;'>", unsafe_allow_html=True)
+
+    # ── METHOD B: Google URL ───────────────────────────────────────────────────
+    st.markdown('''<div class="method-label">🔗 Method B — Manual Google URL</div>''', unsafe_allow_html=True)
+
+    st.markdown(
+        f'''<p style="margin:6px 0 10px;">'''
+        f'''<span class="step-badge">1</span>'''
+        f'''<a href="{_auth_url_m}" target="_blank" style="color:#1a73e8;font-weight:600;">'''
+        f'''👉 Yahan click karo — Fyers Fresh Login Link</a></p>''',
+        unsafe_allow_html=True,
+    )
+    st.caption("⚠️ Link click karo → Google page khulega → us page ka poora URL copy karo")
+
+    _url_inp_m = st.text_input(
+        "Step 2 → Poora Google URL ya sirf auth_code paste karo",
+        placeholder="https://www.google.com/?s=ok&auth_code=eyJ...",
+        key="main_url_inp",
+    )
+
+    if st.button("⚡ Connect", use_container_width=True, type="primary", key="main_url_connect"):
+        _raw_m = _url_inp_m.strip()
+        if _raw_m:
+            _code_m = _extract_auth_code(_raw_m)
+            _ok_u, _tok_u, _resp_u = fyers_get_access_token(_app_id_m, _secret_m, _code_m)
+            if _ok_u:
+                save_creds({
+                    **_creds_main,
+                    "app_id":       _app_id_m,
+                    "secret_key":   _secret_m,
+                    "client_id":    DEFAULT_CLIENT_ID,
+                    "password":     DEFAULT_PASSWORD,
+                    "access_token": _tok_u,
+                })
+                st.session_state["_force_active"] = True
+                _sess_cache.update({"active": True, "ts": time.time()})
+                st.success("🎉 Connected!")
+                st.rerun()
+            else:
+                st.error(f"❌ Login Failed: {_tok_u}")
+                with st.expander("Full Fyers Response"):
+                    st.code(json.dumps(_resp_u, indent=2), language="json")
+        else:
+            st.warning("URL ya auth_code paste karo pehle")
+
+    st.markdown('''</div>''', unsafe_allow_html=True)
+
+    # ── BTC Chart without Fyers ────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    .btc-divider{
+        display:flex;align-items:center;gap:12px;margin:28px 0 18px;max-width:620px;margin-left:auto;margin-right:auto;
+    }
+    .btc-divider-line{flex:1;height:1px;background:#2a2e3e}
+    .btc-divider-txt{color:#555;font-size:0.8rem;white-space:nowrap}
+    .btc-access-card{
+        background:#131722;border:1px solid #2a2e3e;border-radius:10px;
+        padding:18px 22px;max-width:620px;margin:0 auto;
+        display:flex;align-items:center;gap:16px;
+    }
+    .btc-access-icon{font-size:2rem;flex-shrink:0}
+    .btc-access-info{flex:1;min-width:0}
+    .btc-access-title{color:#d1d4dc;font-size:1rem;font-weight:700;margin-bottom:3px}
+    .btc-access-sub{color:#555;font-size:0.8rem}
+    </style>
+    <div class="btc-divider">
+        <div class="btc-divider-line"></div>
+        <div class="btc-divider-txt">YA PHIR</div>
+        <div class="btc-divider-line"></div>
+    </div>
+    <div class="btc-access-card">
+        <div class="btc-access-icon">₿</div>
+        <div class="btc-access-info">
+            <div class="btc-access-title">Sirf BTCUSDT Chart dekhna hai?</div>
+            <div class="btc-access-sub">Fyers login ki zaroorat nahi — Binance se seedha data aata hai</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<div style='max-width:620px;margin:10px auto 0;'>", unsafe_allow_html=True)
+    if st.button("₿ BTC Chart Kholo (Fyers ke bina)", use_container_width=True, key="btc_only_btn"):
+        st.session_state["_btc_only_mode"] = True
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Google Cloud Restore card (login screen pe bhi) ────────────────────────
+    _gd_card_html = """
+<style>
+.gd-card{
+  background:#1a1f2e;border:1px solid #2962ff44;border-radius:12px;
+  padding:16px 18px;max-width:620px;margin:24px auto 0;
+}
+.gd-card-title{color:#90caf9;font:700 13px sans-serif;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.gd-card-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.gd-card-status{color:#787b86;font:600 11px sans-serif;flex:1;}
+.gd-card-btn{
+  background:#2962ff;color:#fff;border:none;border-radius:7px;
+  padding:9px 14px;font:700 12px sans-serif;cursor:pointer;
+  min-height:36px;white-space:nowrap;
+}
+.gd-card-btn:active{opacity:.8}
+.gd-card-inp{
+  flex:1;background:#131722;border:1px solid #363c4e;border-radius:6px;
+  color:#d1d4dc;font-size:11px;padding:7px 9px;outline:none;min-width:0;
+}
+.gd-card-ok{
+  background:#26a69a;color:#fff;border:none;border-radius:6px;
+  padding:7px 11px;font:700 11px sans-serif;cursor:pointer;white-space:nowrap;
+}
+</style>
+
+<div class="gd-card">
+  <div class="gd-card-title">☁ Google Cloud — Layout Restore</div>
+  <div class="gd-card-row">
+    <span class="gd-card-status" id="ls-gd-status">Checking…</span>
+    <button class="gd-card-btn" id="ls-gd-btn" onclick="lsGdSignIn()" style="display:none;">Sign in</button>
+  </div>
+  <div id="ls-gd-manual" style="display:none;margin-top:8px;">
+    <div style="color:#787b86;font:500 10px sans-serif;margin-bottom:5px;">Popup ka poora URL paste karo:</div>
+    <div style="display:flex;gap:6px;">
+      <input class="gd-card-inp" id="ls-gd-inp" placeholder="localhost:8501/?gd_cb=1#access_token=ya29…">
+      <button class="gd-card-ok" onclick="lsGdManualToken()">✓ OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
+  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE_NAME = 'banknifty-layout-sync.json';
+  const AUTH_FLAG  = 'gdAuthed';
+  const TOK_KEY    = '_gd_access_token';
+  const TOK_EXP_KEY= '_gd_token_exp';
+
+  let _accessToken = null, _tokenExp = 0, _fileId = null;
+
+  // Reload hone par bhi token yaad rahe — localStorage se purana token uthao
+  try{
+    const savedTok = localStorage.getItem(TOK_KEY);
+    const savedExp = parseInt(localStorage.getItem(TOK_EXP_KEY)||'0',10);
+    if(savedTok && savedExp > Date.now()){
+      _accessToken = savedTok;
+      _tokenExp    = savedExp;
+    }
+  }catch(_){}
+
+  function _hdr(){ return { Authorization: 'Bearer ' + _accessToken }; }
+  function _setStatus(t,c){ const s=document.getElementById('ls-gd-status'); if(s){s.textContent=t;s.style.color=c||'#787b86';} }
+  function _showBtn(show){ const b=document.getElementById('ls-gd-btn'); if(b) b.style.display=show?'':'none'; }
+  function _showManual(show){ const m=document.getElementById('ls-gd-manual'); if(m) m.style.display=show?'':'none'; }
+
+  function _getRedirectURI(){
+    try{
+      const origin = window.parent !== window
+        ? (document.referrer ? new URL(document.referrer).origin : window.location.origin)
+        : window.location.origin;
+      if(origin && origin!=='null') return origin+'/?gd_cb=1';
+    }catch(_){}
+    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
+  }
+
+  function _onToken(resp){
+    if(resp && resp.access_token){
+      _accessToken = resp.access_token;
+      _tokenExp = Date.now() + ((resp.expires_in||3600)*1000 - 60000);
+      try{
+        localStorage.setItem(AUTH_FLAG,'1');
+        localStorage.setItem(TOK_KEY,_accessToken);
+        localStorage.setItem(TOK_EXP_KEY,String(_tokenExp));
+      }catch(_){}
+      return true;
+    }
+    return false;
+  }
+
+  // Popup OAuth
+  let _popWin=null, _popTimer=null, _lsPoll=null;
+  window.addEventListener('message', function(e){
+    try{
+      const d = typeof e.data==='string' ? JSON.parse(e.data) : e.data;
+      if(d && d.type==='gd_oauth_token' && d.access_token){
+        clearInterval(_popTimer); clearInterval(_lsPoll);
+        try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
+        if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+          _showBtn(false); _showManual(false);
+          _doRestore();
+        }
+      }
+    }catch(_){}
+  });
+
+  function _startLSPoll(){
+    clearInterval(_lsPoll);
+    _lsPoll = setInterval(function(){
+      try{
+        const raw = localStorage.getItem('_gd_oauth_pending');
+        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts')||'0',10);
+        if(raw && (Date.now()-ts)<60000){
+          clearInterval(_lsPoll);
+          try{ localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); }catch(_){}
+          const d = JSON.parse(raw);
+          if(d && d.access_token){
+            clearInterval(_popTimer);
+            try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
+            if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+              _showBtn(false); _showManual(false);
+              _doRestore();
+            }
+          }
+        }
+      }catch(_){}
+    },1000);
+  }
+
+  window.lsGdSignIn = function(){
+    const REDIRECT_URI = _getRedirectURI();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'select_account',
+    });
+    _setStatus('☁ Opening Google…','#f0b429');
+    _showBtn(false); _showManual(true);
+    try{ _popWin = window.open(authUrl,'gdLoginPopup','width=480,height=620,top=80,left=80'); }catch(_){}
+    if(!_popWin || _popWin.closed){ _setStatus('☁ Popup blocked — URL paste karo','#f23645'); _showManual(true); return; }
+    clearInterval(_popTimer);
+    _popTimer = setInterval(function(){
+      try{
+        if(_popWin && _popWin.closed){ clearInterval(_popTimer); clearInterval(_lsPoll); _setStatus('☁ Sign in cancelled','#f23645'); _showBtn(true); return; }
+        try{
+          const href = _popWin.location.href;
+          const frag = _popWin.location.hash;
+          if(href && href.includes('gd_cb=1') && frag){
+            clearInterval(_popTimer); clearInterval(_lsPoll);
+            const p = new URLSearchParams(frag.substring(1));
+            const tok = p.get('access_token');
+            try{ _popWin.close(); }catch(_){}
+            if(tok && _onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
+              _showBtn(false); _showManual(false);
+              _doRestore();
+            }
+          }
+        }catch(_){}
+      }catch(_){}
+    },800);
+    _startLSPoll();
+  };
+
+  window.lsGdManualToken = function(){
+    const raw = (document.getElementById('ls-gd-inp')||{}).value||'';
+    const hashIdx = raw.indexOf('#');
+    const frag = hashIdx!==-1 ? raw.substring(hashIdx+1) : (raw.includes('access_token')?raw:'');
+    if(!frag){ _setStatus('☁ Token nahi mila','#f23645'); return; }
+    const p   = new URLSearchParams(frag);
+    const tok = p.get('access_token');
+    if(!tok){ _setStatus('☁ Token extract nahi hua','#f23645'); return; }
+    document.getElementById('ls-gd-inp').value='';
+    if(_onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
+      _showBtn(false); _showManual(false);
+      _doRestore();
+    }
+  };
+
+  function _findFile(cb){
+    fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%22'+FILE_NAME+'%22&fields=files(id)',{headers:_hdr()})
+      .then(r=>r.json()).then(d=>{ const f=(d.files||[])[0]; cb(f?f.id:null); }).catch(()=>cb(null));
+  }
+
+  function _download(cb){
+    _findFile(function(id){
+      if(!id){ cb(null); return; }
+      _fileId=id;
+      fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:_hdr()})
+        .then(r=>r.json()).then(d=>cb(d)).catch(()=>cb(null));
+    });
+  }
+
+  function _applyLS(data){
+    let changed=false;
+    try{
+      for(const k in data){
+        if(k==='gdAuthed') continue;
+        if(localStorage.getItem(k)!==data[k]){ localStorage.setItem(k,data[k]); changed=true; }
+      }
+    }catch(_){}
+    return changed;
+  }
+
+  function _doRestore(){
+    _setStatus('☁ Cloud: restoring…','#f0b429');
+    _download(function(obj){
+      if(obj && obj.data){
+        const changed = _applyLS(obj.data);
+        _setStatus('☁ Restored ✓ — app khul rahi hai…','#26a69a');
+        let alreadyReloaded = false;
+        try{ alreadyReloaded = sessionStorage.getItem('_gd_reloaded_once')==='1'; }catch(_){}
+        if(changed && !alreadyReloaded){
+          try{ sessionStorage.setItem('_gd_reloaded_once','1'); }catch(_){}
+          setTimeout(function(){ location.reload(); },800);
+        } else {
+          _setStatus('☁ Cloud: connected ✓','#26a69a');
+        }
+      } else {
+        _setStatus('☁ Cloud: koi data nahi','#f23645');
+        _showBtn(true);
+      }
+    });
+  }
+
+  // Auto-boot: agar pehle sign in hua tha toh silent token try karo
+  function _boot(){
+    if(localStorage.getItem(AUTH_FLAG)!=='1'){
+      _setStatus('☁ Cloud se restore karo — Sign in karo','#787b86');
+      _showBtn(true);
+      return;
+    }
+    // Cached token check
+    if(_accessToken && Date.now() < _tokenExp){
+      _doRestore(); return;
+    }
+    _setStatus('☁ Cloud: reconnecting…','#787b86');
+    _showBtn(false);
+    // Silent token refresh — popup ke bina (prompt:none)
+    const REDIRECT_URI = _getRedirectURI();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'none',
+    });
+    const silentFrame = document.createElement('iframe');
+    silentFrame.style.cssText='display:none;width:0;height:0;';
+    silentFrame.src = authUrl;
+    document.body.appendChild(silentFrame);
+    let _silentDone = false;
+    window.addEventListener('message',function(e){
+      if(_silentDone) return;
+      try{
+        const d = typeof e.data==='string'?JSON.parse(e.data):e.data;
+        if(d && d.type==='gd_oauth_token' && d.access_token){
+          _silentDone=true;
+          if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+            _showBtn(false); _doRestore();
+          }
+        }
+      }catch(_){}
+    },{once:false});
+    // Timeout — silent fail
+    setTimeout(function(){
+      if(!_silentDone){
+        try{ document.body.removeChild(silentFrame); }catch(_){}
+        _setStatus('☁ Cloud: Sign in karo','#787b86');
+        _showBtn(true);
+      }
+    },5000);
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',_boot);
+  } else { _boot(); }
+})();
+</script>
+"""
+    components.html(_gd_card_html, height=160, scrolling=False)
