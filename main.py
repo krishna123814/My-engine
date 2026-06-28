@@ -898,39 +898,40 @@ def _register_api_route():
 
                 # ── Replay .gz data endpoint ─────────────────────────────────
                 if parsed.path == "/api/replay_gz":
-                    qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
-                    asset    = (qs2.get("asset", ["bn"])[0]).lower()  # "bn" or "btc"
-                    tf       = qs2.get("tf", ["1d"])[0]               # e.g. "5m", "1d"
-                    chunk    = int(qs2.get("chunk", ["0"])[0])        # 0-based chunk index
-                    start_ts = int(qs2.get("start_ts", ["0"])[0])    # replay start epoch
-                    end_ts   = int(qs2.get("end_ts",   ["0"])[0])    # replay end epoch
-                    sr_only  = qs2.get("sr_only", ["0"])[0] == "1"   # S/R recalc only
-                    sr_bars  = int(qs2.get("sr_bars",  ["0"])[0])    # replay bars seen so far
-                    CHUNK_SIZE = 500                                   # candles per chunk
+                    # ── Query params ──────────────────────────────────────────
+                    qs2      = _up.parse_qs(parsed.query, keep_blank_values=False)
+                    asset    = (qs2.get("asset",    ["bn"])[0]).lower()
+                    start_ts = int(qs2.get("start_ts", ["0"])[0])   # replay range start (epoch)
+                    end_ts   = int(qs2.get("end_ts",   ["0"])[0])   # replay range end   (epoch)
+                    HIST_WIN = 500                                    # max historical candles per TF
 
-                    # ── GitHub raw URL for .json.gz files ────────────────────
+                    # ── GitHub raw URLs ───────────────────────────────────────
                     _GH_RAW_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
                     _GH_BN_URL   = f"{_GH_RAW_BASE}/banknifty_5m_csv.json.gz"
                     _GH_BTC_URL  = f"{_GH_RAW_BASE}/Bitcoin_BTCUSDT_IST_5m.json.gz"
 
-                    # ── In-memory cache to avoid re-loading every request ─────
+                    # ── In-memory raw-data cache (asset → raw dict) ───────────
                     if not hasattr(self.__class__, '_replay_cache'):
-                        self.__class__._replay_cache = {}  # {'bn': data_dict, 'btc': data_dict}
+                        self.__class__._replay_cache = {}
+                    # ── In-memory resampled TF cache (asset|tf → rows) ────────
+                    if not hasattr(self.__class__, '_replay_tf_cache'):
+                        self.__class__._replay_tf_cache = {}
 
                     debug_log = []
                     t0 = time.time()
 
                     try:
                         import gzip as _gz, os as _os, urllib.request as _ur, time as _time
+                        from resampler import (resample_bars, split_historical_replay,
+                                               calc_sr_levels, to_ohlc_output, SUPPORTED_TF)
 
                         fname  = "banknifty_5m_csv.json.gz" if asset == "bn" else "Bitcoin_BTCUSDT_IST_5m.json.gz"
                         gh_url = _GH_BN_URL if asset == "bn" else _GH_BTC_URL
 
-                        # Search paths: script dir first, then /mount/src/* (Streamlit Cloud)
-                        script_dir = _os.path.dirname(_os.path.abspath(__file__))
+                        # ── Step A: Locate .json.gz file ─────────────────────
+                        script_dir  = _os.path.dirname(_os.path.abspath(__file__))
                         search_dirs = [script_dir]
-                        # Add Streamlit Cloud /mount/src/<repo> paths
-                        mount_src = "/mount/src"
+                        mount_src   = "/mount/src"
                         if _os.path.isdir(mount_src):
                             for sub in _os.listdir(mount_src):
                                 search_dirs.append(_os.path.join(mount_src, sub))
@@ -942,31 +943,26 @@ def _register_api_route():
                                 gz_path = candidate
                                 break
 
-                        debug_log.append(f"[1] asset={asset}  tf={tf}  chunk={chunk}")
-                        debug_log.append(f"[2] Script dir: {script_dir}")
-                        debug_log.append(f"[3] Searched: {search_dirs}")
-                        debug_log.append(f"[4] Found at: {gz_path or 'NOT FOUND locally'}")
+                        debug_log.append(f"[1] asset={asset}  start_ts={start_ts}  end_ts={end_ts}")
+                        debug_log.append(f"[2] Found at: {gz_path or 'NOT FOUND locally'}")
 
-                        # ── Step A: Download from GitHub if not found locally ──
+                        # ── Step B: Download from GitHub if missing ───────────
                         if not gz_path:
                             save_path = _os.path.join(script_dir, fname)
-                            debug_log.append(f"[5] Downloading from GitHub…")
-                            debug_log.append(f"[5] URL: {gh_url}")
+                            debug_log.append(f"[3] Downloading from GitHub: {gh_url}")
                             try:
                                 dl_start = _time.time()
                                 req = _ur.Request(gh_url, headers={"User-Agent": "Mozilla/5.0"})
                                 with _ur.urlopen(req, timeout=180) as resp:
                                     file_bytes = resp.read()
-                                dl_secs  = round(_time.time() - dl_start, 2)
-                                dl_kb    = round(len(file_bytes) / 1024, 1)
-                                dl_speed = round(dl_kb / max(dl_secs, 0.01), 1)
-                                debug_log.append(f"[6] Downloaded: {dl_kb} KB in {dl_secs}s  ({dl_speed} KB/s)")
+                                dl_secs = round(_time.time() - dl_start, 2)
+                                dl_kb   = round(len(file_bytes) / 1024, 1)
+                                debug_log.append(f"[4] Downloaded: {dl_kb} KB in {dl_secs}s")
                                 with open(save_path, "wb") as _wf:
                                     _wf.write(file_bytes)
                                 gz_path = save_path
-                                debug_log.append(f"[7] Saved to: {gz_path}")
                             except Exception as _dl_err:
-                                debug_log.append(f"[6] ❌ GitHub download FAILED: {_dl_err}")
+                                debug_log.append(f"[4] ❌ Download FAILED: {_dl_err}")
                                 body = json.dumps({"error": f"github_download_failed: {_dl_err}", "debug": debug_log}).encode()
                                 self.send_response(503)
                                 self.send_header("Content-Type", "application/json")
@@ -977,97 +973,113 @@ def _register_api_route():
                                 return
                         else:
                             fsize_kb = round(_os.path.getsize(gz_path) / 1024, 1)
-                            debug_log.append(f"[5] File found ({fsize_kb} KB) — no download needed")
+                            debug_log.append(f"[3] File found locally ({fsize_kb} KB)")
 
-                        # ── Step B: Load JSON.gz (use in-memory cache) ────────
-                        cache = self.__class__._replay_cache
-                        if asset not in cache:
-                            debug_log.append(f"[8] Loading JSON.gz into memory…")
+                        # ── Step C: Load + parse raw 5m rows (in-memory cache) ─
+                        raw_cache = self.__class__._replay_cache
+                        if asset not in raw_cache:
+                            debug_log.append(f"[5] Loading JSON.gz…")
                             load_start = _time.time()
                             with _gz.open(gz_path, "rb") as _f:
-                                cache[asset] = json.load(_f)
+                                _raw = json.load(_f)
                             load_secs = round(_time.time() - load_start, 2)
-                            debug_log.append(f"[9] Loaded in {load_secs}s")
+                            debug_log.append(f"[6] Loaded in {load_secs}s")
+
+                            # Normalise to flat list of {t, o, h, l, c} dicts
+                            IST_OFF = 5 * 3600 + 30 * 60
+                            raw5m = []
+                            if asset == "bn":
+                                rows = (_raw["data"] if isinstance(_raw.get("data"), list)
+                                        else (_raw if isinstance(_raw, list) else []))
+                                for row in rows:
+                                    try:
+                                        ts_str = (row.get("ts") or "").strip()
+                                        ts = int(_time.mktime(
+                                            _time.strptime(ts_str, "%Y-%m-%d %H:%M")
+                                        )) - IST_OFF
+                                        o, h, l, c = (float(row["o"]), float(row["h"]),
+                                                      float(row["l"]), float(row["c"]))
+                                        if not (o > 0): continue
+                                        raw5m.append({"t": ts, "o": o, "h": h, "l": l, "c": c})
+                                    except Exception:
+                                        continue
+                            else:  # btc
+                                day_list = _raw if isinstance(_raw, list) else []
+                                for day in day_list:
+                                    for row in (day.get("candles") or []):
+                                        try:
+                                            ts_str = (row.get("t") or "").strip()
+                                            ts = int(_time.mktime(
+                                                _time.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                                            )) - IST_OFF
+                                            o, h, l, c = (float(row["o"]), float(row["h"]),
+                                                          float(row["l"]), float(row["c"]))
+                                            if not (o > 0): continue
+                                            raw5m.append({"t": ts, "o": o, "h": h, "l": l, "c": c})
+                                        except Exception:
+                                            continue
+
+                            raw5m.sort(key=lambda x: x["t"])
+                            raw_cache[asset] = raw5m
+                            debug_log.append(f"[7] Parsed: {len(raw5m)} raw 5m rows")
                         else:
-                            debug_log.append(f"[8] Using cached data (already in memory)")
+                            raw5m = raw_cache[asset]
+                            debug_log.append(f"[5] raw cache hit: {len(raw5m)} rows")
 
-                        # ── BN has nested structure: {"data": {"5m": [...], ...}}
-                        # ── BTC has flat structure:  {"160m": [...], "8h": [...], ...}
-                        _raw = cache[asset]
-                        if asset == "bn" and "data" in _raw and isinstance(_raw["data"], dict):
-                            _data = _raw["data"]
-                        else:
-                            _data = _raw
-                        available_keys = [k for k in _data.keys() if k != "meta"]
-                        debug_log.append(f"[10] Available TF keys: {available_keys}")
+                        # ── Step D: Resample ALL TFs via resampler.py ─────────
+                        tf_cache = self.__class__._replay_tf_cache
+                        tfs = SUPPORTED_TF.get(asset, [])
+                        debug_log.append(f"[8] TFs to process: {tfs}")
 
-                        # ── Step C: Load base 5m raw data ─────────────────────
-                        from resampler import resample_bars, split_historical_replay, calc_sr_levels, to_ohlc_output
+                        tfs_result = {}
+                        for tf in tfs:
+                            cache_key = f"{asset}|{tf}"
+                            if cache_key in tf_cache:
+                                all_candles = tf_cache[cache_key]
+                                debug_log.append(f"  {tf}: tf cache hit ({len(all_candles)} bars)")
+                            else:
+                                all_candles, msg = resample_bars(raw5m, asset, tf)
+                                tf_cache[cache_key] = all_candles
+                                debug_log.append(f"  {msg}")
 
-                        base_key = "5m" if isinstance(_data, dict) and "5m" in _data else None
-                        raw_rows = (_data[base_key] if base_key and isinstance(_data, dict) else _data)
-                        if not raw_rows:
-                            debug_log.append(f"[11] ❌ No usable data. Keys: {available_keys}")
-                            body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
-                            self.send_response(404)
-                        else:
-                            debug_log.append(f"[11] raw_rows={len(raw_rows)}")
-
-                            # ── Step C.5: Resample full data to requested TF ───
-                            all_candles, resample_msg = resample_bars(raw_rows, asset, tf)
-                            debug_log.append(resample_msg)
-
-                            # ── Step D: Split historical / replay ─────────────
-                            # start_ts=0 means no range selected → return all as replay
+                            # ── Split: historical + replay ─────────────────────
                             if start_ts > 0 and end_ts > start_ts:
-                                hist_candles, rply_candles = split_historical_replay(
+                                hist_raw, rply_candles = split_historical_replay(
                                     all_candles, start_ts, end_ts
                                 )
+                                # Limit hist window per TF (mobile memory)
+                                hist_candles = (hist_raw[-HIST_WIN:]
+                                               if len(hist_raw) > HIST_WIN else hist_raw)
                             else:
                                 hist_candles = []
                                 rply_candles = all_candles
-                            debug_log.append(f"[D] historical={len(hist_candles)}  replay={len(rply_candles)}")
 
-                            # ── Step E: S/R calculation ────────────────────────
-                            # sr_only=True → JS replay mein ek bar aaya, S/R recalc karo
-                            #   sr_bars = kitne replay bars abhi tak dekhe hain
-                            # sr_only=False → initial load, sirf historical se S/R
-                            if sr_only and start_ts > 0:
-                                # Historical + replay bars seen so far
-                                sr_input = hist_candles + rply_candles[:sr_bars]
-                            else:
-                                # Initial load: sirf historical candles se S/R
-                                sr_input = hist_candles if hist_candles else all_candles
+                            # ── S/R: sirf historical se (no future leak) ────────
+                            sr_input = hist_candles if hist_candles else all_candles
                             sr_levels = calc_sr_levels(sr_input, tf)
-                            debug_log.append(f"[E] S/R window={sr_levels['window_used']}  R={len(sr_levels['resistance'])}  S={len(sr_levels['support'])}")
 
-                            # ── Step F: Chunk replay data for sending ──────────
-                            total_rows = len(rply_candles)
-                            start_idx  = chunk * CHUNK_SIZE
-                            end_idx    = min(start_idx + CHUNK_SIZE, total_rows)
-                            slice_list = rply_candles[start_idx:end_idx]
-                            debug_log.append(f"[F] chunk={chunk}  slice={start_idx}→{end_idx}  total={total_rows}")
+                            debug_log.append(
+                                f"  {tf}: hist={len(hist_candles)}  "
+                                f"replay={len(rply_candles)}  "
+                                f"SR R={len(sr_levels['resistance'])} S={len(sr_levels['support'])}"
+                            )
 
-                            total_elapsed = round(time.time() - t0, 2)
-                            debug_log.append(f"[G] elapsed={total_elapsed}s")
-
-                            result = {
-                                # Historical candles — S/R ke liye, chart background
+                            tfs_result[tf] = {
                                 "historical": to_ohlc_output(hist_candles),
-                                # Replay candles — current chunk (bar by bar playback)
-                                "replay": {
-                                    "candles":      to_ohlc_output(slice_list),
-                                    "chunk":        chunk,
-                                    "total_rows":   total_rows,
-                                    "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
-                                    "has_more":     end_idx < total_rows,
-                                },
-                                # S/R levels — initial ya updated after each bar
-                                "sr": sr_levels,
-                                "debug": debug_log,
+                                "replay":     to_ohlc_output(rply_candles),
+                                "sr":         sr_levels,
                             }
-                            body = json.dumps(result).encode()
-                            self.send_response(200)
+
+                        total_elapsed = round(time.time() - t0, 2)
+                        debug_log.append(f"[9] Total elapsed: {total_elapsed}s")
+
+                        result = {
+                            "asset":  asset,
+                            "tfs":    tfs_result,   # { "5m": {historical, replay, sr}, "15m": ... }
+                            "debug":  debug_log,
+                        }
+                        body = json.dumps(result).encode()
+                        self.send_response(200)
 
                     except Exception as _ex:
                         import traceback
