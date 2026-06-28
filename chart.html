@@ -11999,6 +11999,55 @@ async function _replayFetchAll(asset, tfStr) {
     _replayLogWarn(`${tfStr} — 0 candles after resample`);
   } else {
     _replayLogOk(`${tfStr} — ${candles.length} candles`);
+
+    // ── Multi-day TF boundary debug (3d/9d/27d gap detection) ────────────
+    if (['3d','9d','27d'].includes(tfStr.toLowerCase()) && asset === 'btc') {
+      const _d = t => new Date(t * 1000).toISOString().slice(0, 10) + ' UTC';
+
+      // Pehli 5 candles dikhao
+      _replayLog(`\n📅 [${tfStr.toUpperCase()}] Pehli 5 candles:`, '#f0b429');
+      candles.slice(0, 5).forEach((c, i) => {
+        _replayLog(`  [${i}] start=${_d(c.time)}`, '#787b86');
+      });
+
+      // Aakhiri 5 candles dikhao
+      _replayLog(`📅 [${tfStr.toUpperCase()}] Aakhiri 5 candles:`, '#f0b429');
+      candles.slice(-5).forEach((c, i) => {
+        _replayLog(`  [${candles.length - 5 + i}] start=${_d(c.time)}`, '#787b86');
+      });
+
+      // Gap detection — consecutive candles ke beech diff check karo
+      const tfSec = _replayTfToMin(tfStr) * 60;
+      let gapCount = 0;
+      _replayLog(`📅 [${tfStr.toUpperCase()}] Gap check (expected diff = ${tfSec/86400} days):`, '#f0b429');
+      for (let i = 1; i < candles.length; i++) {
+        const diff = candles[i].time - candles[i-1].time;
+        const diffDays = diff / 86400;
+        if (Math.abs(diff - tfSec) > 86400) {  // 1 din se zyada gap/overlap
+          _replayLog(`  ⚠️ GAP at [${i}]: ${_d(candles[i-1].time)} → ${_d(candles[i].time)} = ${diffDays.toFixed(1)} days (expected ${tfSec/86400})`, '#ef5350');
+          gapCount++;
+          if (gapCount >= 10) { _replayLog('  ... aur bhi gaps hain (truncated)', '#ef5350'); break; }
+        }
+      }
+      if (gapCount === 0) _replayLog(`  ✅ Koi gap nahi — sab candles evenly spaced`, '#26a69a');
+
+      // Date filter ke aas paas candles dikhao (user-selected from date ke +/- 3 candles)
+      const _fromInput = document.getElementById('rp-date-from');
+      if (_fromInput && _fromInput.value) {
+        const _fromSec = Math.floor(new Date(_fromInput.value + 'T00:00:00Z').getTime() / 1000);
+        const nearIdx  = candles.findIndex(c => c.time >= _fromSec);
+        if (nearIdx >= 0) {
+          const start = Math.max(0, nearIdx - 2);
+          const end   = Math.min(candles.length, nearIdx + 3);
+          _replayLog(`📅 [${tfStr.toUpperCase()}] Date filter (${_fromInput.value}) ke aas paas:`, '#f0b429');
+          candles.slice(start, end).forEach((c, i) => {
+            const marker = c.time >= _fromSec ? ' ← FILTER START' : '';
+            _replayLog(`  [${start+i}] start=${_d(c.time)}${marker}`, c.time >= _fromSec ? '#26a69a' : '#787b86');
+          });
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
   }
   return candles;
 }
