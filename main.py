@@ -899,10 +899,14 @@ def _register_api_route():
                 # ── Replay .gz data endpoint ─────────────────────────────────
                 if parsed.path == "/api/replay_gz":
                     qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
-                    asset = (qs2.get("asset", ["bn"])[0]).lower()   # "bn" or "btc"
-                    tf    = qs2.get("tf", ["1d"])[0]                 # e.g. "5m", "1d"
-                    chunk = int(qs2.get("chunk", ["0"])[0])          # 0-based chunk index
-                    CHUNK_SIZE = 500                                  # candles per chunk
+                    asset    = (qs2.get("asset", ["bn"])[0]).lower()  # "bn" or "btc"
+                    tf       = qs2.get("tf", ["1d"])[0]               # e.g. "5m", "1d"
+                    chunk    = int(qs2.get("chunk", ["0"])[0])        # 0-based chunk index
+                    start_ts = int(qs2.get("start_ts", ["0"])[0])    # replay start epoch
+                    end_ts   = int(qs2.get("end_ts",   ["0"])[0])    # replay end epoch
+                    sr_only  = qs2.get("sr_only", ["0"])[0] == "1"   # S/R recalc only
+                    sr_bars  = int(qs2.get("sr_bars",  ["0"])[0])    # replay bars seen so far
+                    CHUNK_SIZE = 500                                   # candles per chunk
 
                     # ── GitHub raw URL for .json.gz files ────────────────────
                     _GH_RAW_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
@@ -997,146 +1001,70 @@ def _register_api_route():
                         available_keys = [k for k in _data.keys() if k != "meta"]
                         debug_log.append(f"[10] Available TF keys: {available_keys}")
 
-                        # ── Resampling maps ───────────────────────────────────
-                        # BankNifty: bar-count based (session gaps ko handle karta hai)
-                        # 1 trading day = 75 bars (9:15–15:30, 5m each)
-                        _BN_TF_BARS = {
-                            "5m":   1,
-                            "15m":  3,
-                            "45m":  9,
-                            "135m": 27,
-                            "1d":   75,
-                            "3d":   225,
-                            "9d":   675,
-                            "27d":  2025,
-                        }
-                        # BTC: timestamp bucket based (24x7, no gaps)
-                        _BTC_TF_SECS = {
-                            "5m":   300,
-                            "160m": 9600,
-                            "8h":   28800,
-                            "1d":   86400,
-                            "3d":   259200,
-                            "9d":   777600,
-                            "27d":  2332800,
-                        }
+                        # ── Step C: Load base 5m raw data ─────────────────────
+                        from resampler import resample_bars, split_historical_replay, calc_sr_levels, to_ohlc_output
 
-                        def _resample_bn(rows, tf_key):
-                            """Bar-count grouping for BankNifty (handles session gaps)."""
-                            factor = _BN_TF_BARS.get(tf_key.lower(), 0)
-                            if factor <= 1:
-                                return rows
-                            out = []
-                            for i in range(0, len(rows), factor):
-                                grp = rows[i : i + factor]
-                                if not grp:
-                                    continue
-                                out.append({
-                                    "t": grp[0]["t"],
-                                    "o": grp[0]["o"],
-                                    "h": max(r["h"] for r in grp),
-                                    "l": min(r["l"] for r in grp),
-                                    "c": grp[-1]["c"],
-                                })
-                            return out
-
-                        def _resample_btc(rows, tf_key):
-                            """Timestamp-bucket grouping for BTC (24x7 continuous)."""
-                            interval = _BTC_TF_SECS.get(tf_key.lower(), 0)
-                            if interval <= 300:
-                                return rows
-                            out = []
-                            bucket_start = None
-                            grp = []
-                            for row in rows:
-                                t      = row["t"]
-                                bucket = (t // interval) * interval
-                                if bucket != bucket_start:
-                                    if grp:
-                                        out.append({
-                                            "t": bucket_start,
-                                            "o": grp[0]["o"],
-                                            "h": max(r["h"] for r in grp),
-                                            "l": min(r["l"] for r in grp),
-                                            "c": grp[-1]["c"],
-                                        })
-                                    grp          = [row]
-                                    bucket_start = bucket
-                                else:
-                                    grp.append(row)
-                            if grp:  # flush last bucket
-                                out.append({
-                                    "t": bucket_start,
-                                    "o": grp[0]["o"],
-                                    "h": max(r["h"] for r in grp),
-                                    "l": min(r["l"] for r in grp),
-                                    "c": grp[-1]["c"],
-                                })
-                            return out
-
-                        # ── Step C: Get base 5m data (always "5m" key in both files) ──
-                        # Both files store only 5m raw data — we resample on-the-fly.
-                        # Try requested tf key first (future-proof), else fall back to "5m".
-                        base_key = tf if _data.get(tf) is not None else None
-                        if base_key is None:
-                            for k in _data.keys():
-                                if k.lower() == tf.lower():
-                                    base_key = k
-                                    break
-                        # If tf not found as a key, load raw 5m and resample
-                        if base_key is None:
-                            base_key = "5m" if "5m" in _data else (available_keys[0] if available_keys else None)
-                            debug_log.append(f"[11] TF '{tf}' not a stored key → loading '{base_key}' for resampling")
-                        else:
-                            debug_log.append(f"[11] TF '{tf}' found as stored key '{base_key}'")
-
-                        tf_list = _data.get(base_key) if base_key else None
-
-                        if tf_list is None:
-                            debug_log.append(f"[11] ❌ No usable data found. Keys: {available_keys}")
+                        base_key = "5m" if isinstance(_data, dict) and "5m" in _data else None
+                        raw_rows = (_data[base_key] if base_key and isinstance(_data, dict) else _data)
+                        if not raw_rows:
+                            debug_log.append(f"[11] ❌ No usable data. Keys: {available_keys}")
                             body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
                             self.send_response(404)
                         else:
-                            # ── Step C.5: Resample 5m → requested TF ─────────
-                            raw_count = len(tf_list)
-                            if asset == "bn":
-                                tf_list = _resample_bn(tf_list, tf)
-                                debug_log.append(f"[C.5] BN bar-count resample: {raw_count} 5m bars → {len(tf_list)} {tf} candles")
+                            debug_log.append(f"[11] raw_rows={len(raw_rows)}")
+
+                            # ── Step C.5: Resample full data to requested TF ───
+                            all_candles, resample_msg = resample_bars(raw_rows, asset, tf)
+                            debug_log.append(resample_msg)
+
+                            # ── Step D: Split historical / replay ─────────────
+                            # start_ts=0 means no range selected → return all as replay
+                            if start_ts > 0 and end_ts > start_ts:
+                                hist_candles, rply_candles = split_historical_replay(
+                                    all_candles, start_ts, end_ts
+                                )
                             else:
-                                tf_list = _resample_btc(tf_list, tf)
-                                debug_log.append(f"[C.5] BTC timestamp resample: {raw_count} 5m bars → {len(tf_list)} {tf} candles")
+                                hist_candles = []
+                                rply_candles = all_candles
+                            debug_log.append(f"[D] historical={len(hist_candles)}  replay={len(rply_candles)}")
 
-                            # ── Step D: Chunk + convert to final OHLC format ──
-                            total_rows = len(tf_list)
-                            start      = chunk * CHUNK_SIZE
-                            end        = min(start + CHUNK_SIZE, total_rows)
-                            slice_list = tf_list[start:end]
-                            debug_log.append(f"[D] chunk={chunk}  slice={start}→{end}  total={total_rows}")
+                            # ── Step E: S/R calculation ────────────────────────
+                            # sr_only=True → JS replay mein ek bar aaya, S/R recalc karo
+                            #   sr_bars = kitne replay bars abhi tak dekhe hain
+                            # sr_only=False → initial load, sirf historical se S/R
+                            if sr_only and start_ts > 0:
+                                # Historical + replay bars seen so far
+                                sr_input = hist_candles + rply_candles[:sr_bars]
+                            else:
+                                # Initial load: sirf historical candles se S/R
+                                sr_input = hist_candles if hist_candles else all_candles
+                            sr_levels = calc_sr_levels(sr_input, tf)
+                            debug_log.append(f"[E] S/R window={sr_levels['window_used']}  R={len(sr_levels['resistance'])}  S={len(sr_levels['support'])}")
 
-                            candles  = []
-                            bad_rows = 0
-                            for row in slice_list:
-                                try:
-                                    candles.append({
-                                        "time":  int(row["t"]),
-                                        "open":  round(float(row["o"]), 2),
-                                        "high":  round(float(row["h"]), 2),
-                                        "low":   round(float(row["l"]), 2),
-                                        "close": round(float(row["c"]), 2),
-                                    })
-                                except Exception:
-                                    bad_rows += 1
+                            # ── Step F: Chunk replay data for sending ──────────
+                            total_rows = len(rply_candles)
+                            start_idx  = chunk * CHUNK_SIZE
+                            end_idx    = min(start_idx + CHUNK_SIZE, total_rows)
+                            slice_list = rply_candles[start_idx:end_idx]
+                            debug_log.append(f"[F] chunk={chunk}  slice={start_idx}→{end_idx}  total={total_rows}")
 
                             total_elapsed = round(time.time() - t0, 2)
-                            debug_log.append(f"[E] Candles={len(candles)}  bad_rows={bad_rows}  elapsed={total_elapsed}s")
+                            debug_log.append(f"[G] elapsed={total_elapsed}s")
 
                             result = {
-                                "candles":      candles,
-                                "chunk":        chunk,
-                                "total_rows":   total_rows,
-                                "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
-                                "has_more":     end < total_rows,
-                                "debug":        debug_log,
+                                # Historical candles — S/R ke liye, chart background
+                                "historical": to_ohlc_output(hist_candles),
+                                # Replay candles — current chunk (bar by bar playback)
+                                "replay": {
+                                    "candles":      to_ohlc_output(slice_list),
+                                    "chunk":        chunk,
+                                    "total_rows":   total_rows,
+                                    "total_chunks": (total_rows + CHUNK_SIZE - 1) // CHUNK_SIZE,
+                                    "has_more":     end_idx < total_rows,
+                                },
+                                # S/R levels — initial ya updated after each bar
+                                "sr": sr_levels,
+                                "debug": debug_log,
                             }
                             body = json.dumps(result).encode()
                             self.send_response(200)
