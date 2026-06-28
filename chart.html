@@ -1944,7 +1944,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
-  <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
+  <button id="grid-btn" onclick="toggleGridPicker()">📜 Stack View</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
@@ -1996,26 +1996,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
     </div>
-    <button id="gp-replay-row" onclick="document.getElementById('grid-picker').classList.remove('open'); openReplayView();" style="
-      display:flex;align-items:center;gap:8px;padding:10px 2px;
-      width:100%;background:transparent;border:none;
-      cursor:pointer;text-align:left;min-height:44px;
-      -webkit-tap-highlight-color:rgba(240,180,41,0.2);">
-      <span style="font-size:18px;flex-shrink:0;">⏵</span>
-      <span style="font-size:13px;color:#f0b429;font-weight:600;flex:1;">Replay</span>
-    </button>
-    <div class="gp-divider"></div>
-    <div class="gp-section-title">Chart layout</div>
-    <div id="gp-layouts"></div>
-    <div class="gp-divider"></div>
-    <div class="gp-section-title">Sync in layout</div>
-    <div id="gp-sync">
-      <div class="gp-sync-row"><span>Symbol</span><button class="gp-switch" data-sync="symbol" onclick="toggleSync('symbol',this)"></button></div>
-      <div class="gp-sync-row"><span>Interval</span><button class="gp-switch" data-sync="interval" onclick="toggleSync('interval',this)"></button></div>
-      <div class="gp-sync-row"><span>Crosshair</span><button class="gp-switch" data-sync="crosshair" onclick="toggleSync('crosshair',this)"></button></div>
-      <div class="gp-sync-row"><span>Time</span><button class="gp-switch" data-sync="time" onclick="toggleSync('time',this)"></button></div>
-      <div class="gp-sync-row"><span>Date range</span><button class="gp-switch" data-sync="dateRange" onclick="toggleSync('dateRange',this)"></button></div>
-    </div>
+
   </div>
 </div>
 
