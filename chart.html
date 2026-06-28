@@ -11788,15 +11788,35 @@ async function _replayGhLoad(asset) {
     const rows = Array.isArray(obj) ? obj
                : (obj.data && Array.isArray(obj.data)) ? obj.data : [];
     _replayLogInfo(`BN raw rows: ${rows.length}`);
+    // DEBUG: first & last raw row
+    if (rows.length > 0) {
+      _replayLog(`  First row: ${JSON.stringify(rows[0])}`, '#787b86');
+      _replayLog(`  Last row:  ${JSON.stringify(rows[rows.length-1])}`, '#787b86');
+    }
+    let _skipped = 0;
     for (const row of rows) {
       try {
         const tsStr = (row.ts || '').trim();
         // "2015-01-09 09:15" — IST → UTC
         const ts = Math.floor(new Date(tsStr.replace(' ','T')+'Z').getTime()/1000) - IST_OFF;
         const o=parseFloat(row.o), h=parseFloat(row.h), l=parseFloat(row.l), c=parseFloat(row.c);
-        if (isNaN(ts)||isNaN(o)) continue;
+        if (isNaN(ts)||isNaN(o)) { _skipped++; continue; }
         raw5m.push({time:ts, open:o, high:h, low:l, close:c});
-      } catch(_){}
+      } catch(_){ _skipped++; }
+    }
+    if (_skipped > 0) _replayLogWarn(`BN parser: ${_skipped} rows skipped (NaN/error)`);
+    // DEBUG: first & last parsed timestamp
+    if (raw5m.length > 0) {
+      const _fmt = t => new Date(t*1000).toISOString().slice(0,16).replace('T',' ') + ' UTC';
+      _replayLog(`  Parsed first: ${_fmt(raw5m[0].time)}`, '#26a69a');
+      _replayLog(`  Parsed last:  ${_fmt(raw5m[raw5m.length-1].time)}`, '#26a69a');
+      // DEBUG: Apr 2026 candles count
+      const _apr = raw5m.filter(c => c.time >= 1743638400 && c.time <= 1746316799); // Apr 2026 UTC
+      _replayLog(`  Apr 2026 candles: ${_apr.length}`, '#f0b429');
+      if (_apr.length > 0) {
+        const _aprDates = [...new Set(_apr.map(c => new Date((c.time+IST_OFF)*1000).toISOString().slice(0,10)))];
+        _replayLog(`  Apr 2026 dates (IST): ${_aprDates.join(', ')}`, '#f0b429');
+      }
     }
   } else {
     // BTC: day-grouped
@@ -11854,23 +11874,46 @@ function _replayResample(candles5m, asset, tfStr) {
     : ['160m','8h'];
 
   if (fixedTfs.includes(tfStr)) {
-    // Group into tfMin-wide buckets aligned to epoch
+    // Group into tfMin-wide buckets
+    // BN: align to 09:15 IST market open (buckets: 09:15, 11:30, 13:45 for 135m etc.)
+    // BTC: align to epoch (24/7, no market open)
+    const BN_OPEN_MIN = 9*60+15; // 555 minutes since IST midnight
     let bucket = null;
     for (const c of candles5m) {
-      // For BN: skip non-market candles
       if (asset === 'bn') {
         const ist = c.time + IST_OFF;
         const hhmm = Math.floor((ist % 86400) / 60);
         if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
-      }
-      const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
-      if (!bucket || bucket.time !== bucketTs) {
-        if (bucket) out.push(bucket);
-        bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+        // BN: bucket aligned to 09:15 IST
+        // minutes since IST midnight for this candle
+        const minSinceMidnight = Math.floor((ist % 86400) / 60);
+        // minutes since market open (09:15)
+        const minSinceOpen = minSinceMidnight - BN_OPEN_MIN;
+        // which bucket since open
+        const bucketIdx = Math.floor(minSinceOpen / tfMin);
+        // IST midnight of this day
+        const istDayStart = Math.floor(ist / 86400) * 86400;
+        // bucket start in UTC
+        const bucketTs = (istDayStart + (BN_OPEN_MIN + bucketIdx * tfMin) * 60) - IST_OFF;
+        if (!bucket || bucket.time !== bucketTs) {
+          if (bucket) out.push(bucket);
+          bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+        } else {
+          if (c.high > bucket.high) bucket.high = c.high;
+          if (c.low  < bucket.low)  bucket.low  = c.low;
+          bucket.close = c.close;
+        }
       } else {
-        if (c.high > bucket.high) bucket.high = c.high;
-        if (c.low  < bucket.low)  bucket.low  = c.low;
-        bucket.close = c.close;
+        // BTC: epoch-aligned buckets
+        const bucketTs = Math.floor(c.time / (tfMin*60)) * (tfMin*60);
+        if (!bucket || bucket.time !== bucketTs) {
+          if (bucket) out.push(bucket);
+          bucket = {time:bucketTs, open:c.open, high:c.high, low:c.low, close:c.close};
+        } else {
+          if (c.high > bucket.high) bucket.high = c.high;
+          if (c.low  < bucket.low)  bucket.low  = c.low;
+          bucket.close = c.close;
+        }
       }
     }
     if (bucket) out.push(bucket);
@@ -11892,7 +11935,17 @@ function _replayResample(candles5m, asset, tfStr) {
       if (hhmm < 9*60+15 || hhmm > 15*60+30) continue;
     }
     const offsetSec = asset === 'bn' ? IST_OFF : 0;
-    const dayTs = Math.floor((c.time + offsetSec) / 86400) * 86400 - offsetSec;
+    // BN: day key = 09:15 IST timestamp (market open), not midnight
+    // BTC: day key = UTC midnight
+    let dayTs;
+    if (asset === 'bn') {
+      const ist = c.time + IST_OFF;
+      const istDayStart = Math.floor(ist / 86400) * 86400;
+      // 09:15 IST = market open = istDayStart + 555*60 seconds, converted to UTC
+      dayTs = (istDayStart + 9*3600 + 15*60) - IST_OFF;
+    } else {
+      dayTs = Math.floor((c.time + offsetSec) / 86400) * 86400 - offsetSec;
+    }
     const key   = String(dayTs);
     if (!dailyMap.has(key)) {
       dailyMap.set(key, {time:dayTs, open:c.open, high:c.high, low:c.low, close:c.close});
@@ -11929,7 +11982,77 @@ function _replayResample(candles5m, asset, tfStr) {
 function _replayApiPort() { return 0; }
 async function _replayEnsurePort() { return true; }
 
-// ── Main fetch: download raw 5m → resample → return candles for tfStr ────────
+// ════════════════════════════════════════════════════════════════════════════
+// GAP REMOVAL — Sequential Timestamp Remapping
+// ─────────────────────────────────────────────────────────────────────────
+// Problem: LWC v4 continuous UTC timeline → overnight/weekend gaps visible.
+// Solution: remap real timestamps → sequential fake timestamps (no gaps).
+//   fake[i] = BASE + i * tfSec
+// Real timestamps stored in _REPLAY_REAL_TIME_MAP for:
+//   1. timeFormatter → shows real IST time on crosshair/axis
+//   2. _rpAdvanceCell → comparison between base TF and higher TF uses real ts
+//
+// Per-asset-per-tf: _REPLAY_REAL_TIME_MAP['bn|5m'] = Map<fakeTs → realTs>
+// ════════════════════════════════════════════════════════════════════════════
+const _REPLAY_REAL_TIME_MAP = {};  // { 'bn|5m': Map<fake→real>, ... }
+
+/**
+ * Remap candle timestamps to sequential (gap-free).
+ * @param {Array}  candles  [{time(real UTC sec), open, high, low, close}]
+ * @param {string} key      cache key e.g. 'bn|5m'
+ * @param {number} tfSec    timeframe in seconds (5m=300, 15m=900…)
+ * @param {number} [base]   optional shared base fake ts (for TF alignment)
+ * @returns {Array} gap-free candles + populates _REPLAY_REAL_TIME_MAP[key]
+ */
+function _replayRemapSeq(candles, key, tfSec, base) {
+  if (!candles.length) { _REPLAY_REAL_TIME_MAP[key] = new Map(); return []; }
+  const startBase = (base != null) ? base : candles[0].time;
+  const realMap   = new Map();
+  const out       = candles.map((c, i) => {
+    const fakeTs = startBase + i * tfSec;
+    realMap.set(fakeTs, c.time);
+    return { time: fakeTs, open: c.open, high: c.high, low: c.low, close: c.close };
+  });
+  _REPLAY_REAL_TIME_MAP[key] = realMap;
+  return out;
+}
+
+/**
+ * Get real UTC timestamp from a fake sequential ts.
+ */
+function _replayRealTs(fakeTs, key) {
+  const m = _REPLAY_REAL_TIME_MAP[key];
+  return m ? (m.get(fakeTs) ?? fakeTs) : fakeTs;
+}
+
+/**
+ * timeFormatter for replay charts — shows real IST time from fake ts.
+ */
+function _replayTimeFmt(fakeTs, key, tfMin, tz) {
+  const realTs = _replayRealTs(fakeTs, key);
+  const d      = new Date(realTs * 1000);
+  const cfg    = TZ_MAP[tz] || TZ_MAP.IST;
+  if (tfMin >= 1440) {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: cfg.zone, day:'2-digit', month:'2-digit', year:'numeric',
+    }).formatToParts(d);
+    const g = ty => (parts.find(p => p.type===ty)||{}).value||'';
+    return g('day')+'/'+g('month')+'/'+g('year');
+  }
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: cfg.zone, day:'2-digit', month:'2-digit', year:'numeric',
+    hour:'2-digit', minute:'2-digit', hour12: S.hour12 === true,
+  }).formatToParts(d);
+  const g = ty => (parts.find(p => p.type===ty)||{}).value||'';
+  let ts = g('hour')+':'+g('minute');
+  if (S.hour12 === true) {
+    const dp = (parts.find(p=>p.type==='dayPeriod')||{}).value||'';
+    ts += ' '+dp.toUpperCase();
+  }
+  return g('day')+'/'+g('month')+'/'+g('year')+' '+ts;
+}
+
+// ── Main fetch: download raw 5m → resample → sequential remap → cache ────────
 async function _replayFetchAll(asset, tfStr) {
   const cacheKey = `${asset}|${tfStr}`;
   if (_REPLAY_TF_CACHE[cacheKey]) {
@@ -11940,14 +12063,19 @@ async function _replayFetchAll(asset, tfStr) {
   const raw5m   = await _replayGhLoad(asset);  // may throw — error already logged
   _replayLogInfo(`Resampling ${raw5m.length} x 5m → ${tfStr}…`);
   const candles = _replayResample(raw5m, asset, tfStr);
-  _REPLAY_TF_CACHE[cacheKey] = candles;
 
   if (!candles.length) {
     _replayLogWarn(`${tfStr} — 0 candles after resample`);
-  } else {
-    _replayLogOk(`${tfStr} — ${candles.length} candles`);
+    _REPLAY_TF_CACHE[cacheKey] = candles;
+    return candles;
   }
-  return candles;
+
+  // Sequential remap — base = first candle's real ts (shared stable base)
+  const tfSec    = _replayTfToMin(tfStr) * 60;
+  const remapped = _replayRemapSeq(candles, cacheKey, tfSec);
+  _REPLAY_TF_CACHE[cacheKey] = remapped;
+  _replayLogOk(`${tfStr} — ${remapped.length} candles (gap-free)`);
+  return remapped;
 }
 
 // ── Debug log helpers ────────────────────────────────────────────────────────
@@ -12184,6 +12312,10 @@ async function selectReplayAsset(asset) {
     ? Math.floor(new Date(_fromInput.value + 'T00:00:00Z').getTime() / 1000) : 0;
   const _toSec   = _toInput && _toInput.value
     ? Math.floor(new Date(_toInput.value + 'T23:59:59Z').getTime() / 1000) : Infinity;
+  // DEBUG: date range
+  const _fmtTs = t => (t===0||t===Infinity) ? String(t) : new Date(t*1000).toISOString().slice(0,16)+' UTC';
+  _replayLog('DATE RANGE: from='+_fmtTs(_fromSec)+'  to='+_fmtTs(_toSec), '#f0b429');
+  _replayLog('  fromVal="'+(_fromInput&&_fromInput.value||'')+'"  toVal="'+(_toInput&&_toInput.value||'')+'"', '#787b86');
 
   // Load each TF's data sequentially (chunks) — one by one to avoid mobile hang
   for (let i = 0; i < total; i++) {
@@ -12191,38 +12323,60 @@ async function selectReplayAsset(asset) {
     _replaySetStatus(`Loading ${tfStr} (${i+1}/${total})…`);
     _replayLog(`\n▶ [${i+1}/${total}] ${tfStr}`, '#d1d4dc');
     try {
-      let candles = await _replayFetchAll(asset, tfStr);
+      let candles = await _replayFetchAll(asset, tfStr);  // already sequential/gap-free
       if (!candles || !candles.length) {
         _replayLogWarn(`${tfStr} — 0 candles received, skipping chart`);
         continue;
       }
 
-      // ── Apply date range filter ──────────────────────────────────────────
+      // ── Apply date range filter (real timestamp se compare karo) ────────────
+      const _cacheKey = `${asset}|${tfStr}`;
       if (_fromSec > 0 || _toSec < Infinity) {
-        candles = candles.filter(c => c.time >= _fromSec && c.time <= _toSec);
-        _replayLogInfo(`${tfStr}: date filter → ${candles.length} candles`);
+        const _preFilt = candles.length;
+        candles = candles.filter(c => {
+          const rt = _replayRealTs(c.time, _cacheKey);
+          return rt >= _fromSec && rt <= _toSec;
+        });
+        _replayLogInfo(`${tfStr}: date filter ${_preFilt} → ${candles.length} candles (real-ts)`);
+        if (candles.length > 0) {
+          const _fts = t => {
+            const rt = _replayRealTs(t, _cacheKey);
+            return new Date((rt+19800)*1000).toISOString().slice(0,16).replace('T',' ')+' IST';
+          };
+          _replayLog('  first: '+_fts(candles[0].time)+'  last: '+_fts(candles[candles.length-1].time), '#787b86');
+        }
+      } else {
+        _replayLogInfo(`${tfStr}: no date filter, all ${candles.length} candles`);
       }
 
-      // ── Historical pre-load: replay start se pehle ke 500 base candles ──
-      // Sirf base TF (5m for BN, 160m for BTC) ke liye hist store karo.
-      // swingCompute in hist bars pe chalega taaki S/R lines replay start se
-      // pehle bhi ready rahein.
+      // ── Dynamic hist window: har TF ke liye 30 candles ka enough base data ──
+      // 27d = 30 × 2025 = 60750 base candles (BN:5m / BTC:160m)
+      // 9d  = 30 × 675  = 20250
+      // 3d  = 30 × 225  = 6750
+      // 1d  = 30 × 75   = 2250  (BN) | 30 × 9 = 270 (BTC 160m base)
+      // 135m= 30 × 27   = 810
+      // 45m = 30 × 9    = 270
+      // 5m  = 500 (enough for S/R)
+      // BTC: 27d=30×243=7290, 9d=30×81=2430, 3d=30×27=810, 1d=30×9=270, 8h=30×3=90, 160m=500
+      const _BN_HIST_WIN = {
+        '5m':500, '15m':500, '45m':810, '135m':810,
+        '1d':2250, '3d':6750, '9d':20250, '27d':60750
+      };
+      const _BTC_HIST_WIN = {
+        '160m':500, '8h':500,
+        '1d':270, '3d':810, '9d':2430, '27d':7290
+      };
+      const _histWinMap = asset === 'bn' ? _BN_HIST_WIN : _BTC_HIST_WIN;
       const baseTfStr = asset === 'bn' ? '5m' : '160m';
-      if (tfStr === baseTfStr && _fromSec > 0) {
-        const allBase = await _replayFetchAll(asset, tfStr);
-        const histRaw = allBase.filter(c => c.time < _fromSec);
-        // Last 500 candles ka slice (phone hang na ho)
-        const HIST_WIN = 500;
-        const histSlice = histRaw.length > HIST_WIN ? histRaw.slice(-HIST_WIN) : histRaw;
-        if (!_REPLAY.engine[asset]) _REPLAY.engine[asset] = {};
-        _REPLAY.engine[asset]._hist5m = histSlice;
-        _replayLogInfo(`${tfStr}: hist pre-load ${histSlice.length} candles (before replay range)`);
-      }
 
       const el = document.getElementById('rcell-chart-' + i);
       if (!el) continue;
 
       // Create LightweightCharts instance
+      // Gap-free: timeFormatter reads REAL time from _REPLAY_REAL_TIME_MAP
+      const _cellTfMin    = _replayTfToMin(tfStr);
+      const _cellCacheKey = `${asset}|${tfStr}`;
+      const _cellTz       = S.tz || 'IST';
       const ch = LightweightCharts.createChart(el, {
         width:  el.clientWidth  || 200,
         height: el.clientHeight || 200,
@@ -12232,7 +12386,7 @@ async function selectReplayAsset(asset) {
         rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
         timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 4, minBarSpacing: 1 },
         localization: {
-          timeFormatter: (t) => fmtChartTime(t),
+          timeFormatter: (t) => _replayTimeFmt(t, _cellCacheKey, _cellTfMin, _cellTz),
           priceFormatter: (p) => p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         },
         handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
@@ -12249,13 +12403,64 @@ async function selectReplayAsset(asset) {
         priceLineVisible: true, lastValueVisible: true,
       });
 
-      // Sort candles by time (safety)
+      // Sort candles by time (safety — sequential ts already sorted but just in case)
       candles.sort((a, b) => a.time - b.time);
-      // Replay mode = step-by-step reveal, so chart starts EMPTY.
-      // Full data is kept on the cell for the step-engine to draw from.
-      ser.setData([]);
 
+      // ── Historical candles: pre-range context for S/R and chart background ──
+      // Fetch raw 5m (real timestamps), filter before _fromSec, resample to tfStr,
+      // then sequential-remap so they prepend seamlessly to replay candles.
+      let histCandlesForTF = [];
+      if (_fromSec > 0) {
+        const HIST_WIN  = _histWinMap[tfStr] || 500;
+        // raw5m = real timestamps (from _replayGhLoad, not from _replayFetchAll)
+        const raw5m     = await _replayGhLoad(asset);
+        const histRaw5m = raw5m.filter(c => c.time < _fromSec);
+        const histSlice = histRaw5m.length > HIST_WIN
+          ? histRaw5m.slice(-HIST_WIN) : histRaw5m;
+
+        // Resample hist raw (real ts) → tfStr candles (real ts)
+        let histRealTf;
+        if (tfStr === baseTfStr) {
+          histRealTf = histSlice;
+        } else {
+          histRealTf = _replayResample(histSlice, asset, tfStr);
+        }
+
+        // Sequential remap for hist: prepend before replay candles.
+        // replay candles[0].time = replayBase (fake).
+        // hist candles go: replayBase - histLen*tfSec, ..., replayBase - tfSec
+        if (histRealTf.length > 0 && candles.length > 0) {
+          const tfSec      = _cellTfMin * 60;
+          const replayBase = candles[0].time;   // first replay fake ts
+          const rmap       = _REPLAY_REAL_TIME_MAP[_cellCacheKey] || new Map();
+          histCandlesForTF = histRealTf.map((c, idx) => {
+            const fakeTs = replayBase - (histRealTf.length - idx) * tfSec;
+            rmap.set(fakeTs, c.time);
+            return { time: fakeTs, open: c.open, high: c.high, low: c.low, close: c.close };
+          });
+          _REPLAY_REAL_TIME_MAP[_cellCacheKey] = rmap;
+          _replayLogInfo(`${tfStr}: hist ${histCandlesForTF.length} candles remapped (pre-replay)`);
+        } else {
+          histCandlesForTF = histRealTf;
+        }
+        _replayLogInfo(`${tfStr}: hist ${histCandlesForTF.length} candles (window: ${HIST_WIN})`);
+      }
+
+      // Chart par hist candles pehle se dikhao (visible, already-revealed)
+      _replayLogInfo(`${tfStr}: setData hist=${histCandlesForTF.length}  full(replay)=${candles.length}`);
+      if (candles.length > 0) {
+        const _fts2 = t => {
+          const rt = _replayRealTs(t, _cellCacheKey);
+          return new Date((rt+19800)*1000).toISOString().slice(0,16).replace('T',' ')+' IST';
+        };
+        _replayLog('  full first: '+_fts2(candles[0].time)+'  last: '+_fts2(candles[candles.length-1].time), '#787b86');
+      }
+      ser.setData(histCandlesForTF);
+
+      // full = sirf replay-range candles (step engine inhe reveal karega)
       _REPLAY.cells[i].full = candles;
+      // hist = is TF ke resampled hist candles (S/R ke liye bhi use honge)
+      _REPLAY.cells[i].hist = histCandlesForTF;
 
       _REPLAY.cells[i].chart  = ch;
       _REPLAY.cells[i].series = ser;
@@ -12349,7 +12554,6 @@ function _rpAnimateBar(series, targetBar, fromClose, durationMs) {
 async function _rpAdvanceCell(eng, asset, cell, i, baseCandle) {
   if (!cell.series || !cell.full || !cell.full.length) return;
   const st = eng.tfState[i];
-  const cutoff = baseCandle.time;
 
   // ── Base-TF cell itself (5m for BN, 160m for BTC): reveal the candle as-is.
   if (i === eng.baseCellIdx) {
@@ -12361,10 +12565,20 @@ async function _rpAdvanceCell(eng, asset, cell, i, baseCandle) {
   }
 
   // ── Higher-TF cell: locate the official pre-resampled candle whose window
-  //    currently contains `cutoff`, then animate toward its real values.
+  //    currently contains the base candle's REAL timestamp.
+  //    We compare real timestamps (not sequential fake ones) so 5m→15m→45m
+  //    pointer advancement is always correct regardless of fake ts alignment.
+  const baseCacheKey = `${asset}|${eng.baseTf}`;
+  const cellCacheKey = `${asset}|${cell.tf}`;
+  const cutoffReal   = _replayRealTs(baseCandle.time, baseCacheKey);
+
   const arr = cell.full;
   let idx = (st.ptr != null) ? st.ptr : 0;
-  while (idx + 1 < arr.length && arr[idx + 1].time <= cutoff) idx++;
+  while (idx + 1 < arr.length) {
+    const nextRealTs = _replayRealTs(arr[idx + 1].time, cellCacheKey);
+    if (nextRealTs <= cutoffReal) idx++;
+    else break;
+  }
   const isNewPeriod = (st.ptr == null) || (st.ptr !== idx);
   st.ptr = idx;
   const target = arr[idx];
@@ -12413,8 +12627,16 @@ function _rpUpdateStepDisplay(asset) {
   if (stepEl) stepEl.textContent = `Step ${cur}/${total}`;
   if (fillEl) fillEl.style.width = total ? Math.min(100, (cur / total) * 100) + '%' : '0%';
   if (dateEl && baseCell && baseCell.full && baseCell.full[eng.idx]) {
-    const d = new Date(baseCell.full[eng.idx].time * 1000);
-    dateEl.textContent = d.toISOString().slice(0, 16).replace('T', ' ');
+    const fakeTsNow    = baseCell.full[eng.idx].time;
+    const baseCacheKey = `${asset}|${eng.baseTf}`;
+    const realTs       = _replayRealTs(fakeTsNow, baseCacheKey);
+    const d = new Date(realTs * 1000);
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Kolkata', day:'2-digit', month:'2-digit', year:'2-digit',
+      hour:'2-digit', minute:'2-digit', hour12: false,
+    }).formatToParts(d);
+    const g = ty => (parts.find(p => p.type===ty)||{}).value||'';
+    dateEl.textContent = g('day')+'/'+g('month')+'/'+g('year')+' '+g('hour')+':'+g('minute');
   }
 }
 
@@ -12446,62 +12668,75 @@ async function _rpStep() {
   _rpUpdateStepDisplay(asset);
 
   // ── S/R Indicator: har step ke baad draw karo ──────────────────────────────
-  // Strategy: hist (pre-range 500 candles) + replay ke ab tak revealed base
-  // candles milake swingCompute karo. Phir har cell ke chart par natively draw.
   try {
-    const hist5m = eng._hist5m || [];
-    // Base cell ke revealed candles (index 0 → eng.idx)
-    const revealedBase = baseCell.full.slice(0, eng.idx + 1);
-    // Combined: hist first, phir replay candles
-    const combined5m = hist5m.concat(revealedBase);
+    const baseCacheKey = `${asset}|${eng.baseTf}`;
+    const baseRmap     = _REPLAY_REAL_TIME_MAP[baseCacheKey] || new Map();
 
-    // Clear old SR lines (sabhi replay cells ke liye)
-    for (const old of (_REPLAY.srSeries || [])) {
-      try { old.chartObj.removeSeries(old.s); } catch(_) {}
+    // revealedBase has fake ts → convert to real ts for resample + swingCompute
+    const revealedBase     = baseCell.full.slice(0, eng.idx + 1);
+    const revealedBaseReal = revealedBase.map(c => ({ ...c, time: baseRmap.get(c.time) ?? c.time }));
+
+    // Clear old SR lines
+    for (const oldSr of (_REPLAY.srSeries || [])) {
+      try { oldSr.chartObj.removeSeries(oldSr.s); } catch(_) {}
     }
     _REPLAY.srSeries = [];
 
-    // Har TF cell ke liye S/R compute + draw karo
     for (let ci = 0; ci < _REPLAY.cells.length; ci++) {
       const rc = _REPLAY.cells[ci];
       if (!rc.chart || !rc.series) continue;
-      const tfMin = _replayTfToMin(rc.tf || '');
+      const tfMin        = _replayTfToMin(rc.tf || '');
+      const cellCacheKey = `${asset}|${rc.tf}`;
+      const cellRmap     = _REPLAY_REAL_TIME_MAP[cellCacheKey] || new Map();
 
-      // combined5m ko is cell ke TF mein resample karo
+      // rcHist has fake ts → convert to real ts for swingCompute
+      const rcHistReal = (rc.hist || []).map(c => ({ ...c, time: cellRmap.get(c.time) ?? c.time }));
+
+      // barsForTF in REAL timestamps (swingCompute uses IST math internally)
       let barsForTF;
       if (rc.tf === eng.baseTf) {
-        // Base TF cell: combined5m directly use karo
-        barsForTF = combined5m;
+        barsForTF = rcHistReal.concat(revealedBaseReal);
       } else {
-        // Higher TF: resample combined5m → tfMin
-        barsForTF = _replayResample(combined5m, asset, rc.tf);
+        const revResampled = _replayResample(revealedBaseReal, asset, rc.tf);
+        barsForTF = rcHistReal.concat(revResampled);
       }
 
       if (!barsForTF || barsForTF.length < 3) continue;
 
-      // swingCompute ek hi TF ke liye call karo (replay mein multi-TF nahi)
       const lines = swingCompute(barsForTF, tfMin);
       if (!lines || !lines.length) continue;
 
-      // Draw each line as a native series on this cell's chart
+      // Reverse map: real ts → fake ts (for drawing on this cell's chart)
+      const realToFake = new Map();
+      for (const [fk, rk] of cellRmap) realToFake.set(rk, fk);
+
+      // Find nearest fake ts for a given real ts
+      const toFake = (realTs) => {
+        if (realToFake.has(realTs)) return realToFake.get(realTs);
+        let bestFake = realTs, bestDiff = Infinity;
+        for (const [fk, rk] of cellRmap) {
+          const d = Math.abs(rk - realTs);
+          if (d < bestDiff) { bestDiff = d; bestFake = fk; }
+        }
+        return bestFake;
+      };
+
       for (const ln of lines) {
         try {
           const color = ln.color || _tfSrColor(tfMin);
           const s = rc.chart.addLineSeries({
-            color,
-            lineWidth: SWING_LINE_WIDTH,
-            lastValueVisible: false,
-            priceLineVisible: false,
-            crosshairMarkerVisible: false,
-            autoscaleInfoProvider: () => null,
+            color, lineWidth: SWING_LINE_WIDTH,
+            lastValueVisible: false, priceLineVisible: false,
+            crosshairMarkerVisible: false, autoscaleInfoProvider: () => null,
           });
           const _periodSec = ln.isInfinite ? tfMin * 60 : (ln.periodSec || 60);
-          const endT = ln.isInfinite
-            ? (ln.startTime + _periodSec * 100)
-            : ln.endTime;
+          const fakeStart  = toFake(ln.startTime);
+          const fakeEnd    = ln.isInfinite
+            ? fakeStart + _periodSec * 100
+            : toFake(ln.endTime);
           s.setData([
-            { time: ln.startTime, value: ln.price },
-            { time: endT,         value: ln.price },
+            { time: fakeStart, value: ln.price },
+            { time: fakeEnd,   value: ln.price },
           ]);
           _REPLAY.srSeries.push({ chartObj: rc.chart, s });
         } catch(_) {}
@@ -12581,6 +12816,16 @@ function _initReplayDrag() {
   const box  = document.getElementById('replay-float-box');
   const drag = document.getElementById('replay-float-drag');
   _makeDraggable(box, drag);
+}
+
+// Minimize / restore replay float box
+let _replayMinimized = false;
+function _replayToggleMinimize() {
+  _replayMinimized = !_replayMinimized;
+  const body = document.getElementById('replay-float-body');
+  const btn  = document.getElementById('rp-minimize-btn');
+  if (body) body.style.display = _replayMinimized ? 'none' : 'flex';
+  if (btn)  btn.textContent    = _replayMinimized ? '□' : '─';
 }
 
 </script>
@@ -12690,11 +12935,12 @@ function _initReplayDrag() {
   <div id="replay-float-drag" style="background:#2a2e39;border-radius:8px 8px 0 0;padding:4px 8px;display:flex;align-items:center;gap:5px;cursor:grab;">
     <span style="font-size:10px;color:#f0b429;font-weight:700;letter-spacing:.5px;flex:1;">🎬 REPLAY</span>
     <span style="font-size:11px;color:#444;margin-right:2px;">⠿</span>
+    <button onclick="_replayToggleMinimize()" id="rp-minimize-btn" title="Minimize" style="height:16px;padding:0 6px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;margin-right:3px;">─</button>
     <button onclick="closeReplayView()" style="height:16px;padding:0 6px;background:#ef5350;border:none;border-radius:3px;color:#fff;font-size:9px;font-weight:700;cursor:pointer;flex-shrink:0;">✕</button>
   </div>
 
   <!-- ── Body ── -->
-  <div style="padding:7px 8px;display:flex;flex-direction:column;gap:6px;">
+  <div id="replay-float-body" style="padding:7px 8px;display:flex;flex-direction:column;gap:6px;">
 
     <!-- Row 1: Asset + Date Range label -->
     <div style="display:flex;align-items:center;gap:5px;">
