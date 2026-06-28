@@ -12366,7 +12366,7 @@ async function selectReplayAsset(asset) {
         upColor: upClr, downColor: dnClr,
         borderUpColor: upClr, borderDownColor: dnClr,
         wickUpColor: upClr, wickDownColor: dnClr,
-        priceLineVisible: true, lastValueVisible: true,
+        priceLineVisible: false, lastValueVisible: false,
       });
 
       // Sort candles by time (safety)
@@ -12502,7 +12502,7 @@ async function _rpAdvanceCell(eng, asset, cell, i, baseCandle) {
     const fromClose = (st.lastClose != null) ? st.lastClose : baseCandle.open;
     await _rpAnimateBar(cell.series, baseCandle, fromClose, 1000);
     st.lastClose = baseCandle.close;
-    _rpUpdateOverlay(cell, baseCandle.close);
+    _rpUpdateOverlay(cell, baseCandle.close, baseCandle.open);
     return;
   }
 
@@ -12534,16 +12534,34 @@ async function _rpAdvanceCell(eng, asset, cell, i, baseCandle) {
   const fromClose = (st.prevClose != null) ? st.prevClose : formingBar.open;
   await _rpAnimateBar(cell.series, formingBar, fromClose, 1000);
   st.prevClose = formingBar.close;
-  _rpUpdateOverlay(cell, formingBar.close);
+  _rpUpdateOverlay(cell, formingBar.close, formingBar.open);
 }
 
 // Update the little price label drawn over each stacked chart cell.
-function _rpUpdateOverlay(cell, price) {
+function _rpUpdateOverlay(cell, price, open) {
   if (!cell.el) return;
   const wrap = cell.el.parentElement;
   if (!wrap) return;
   const pr = wrap.querySelector('.co-price');
-  if (pr) pr.textContent = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (pr) {
+    pr.textContent = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (open != null) pr.className = 'co-price ' + (price >= open ? 'up' : 'dn');
+  }
+  // Right-side custom price label
+  let rpLabel = wrap.querySelector('.rp-price-label');
+  if (!rpLabel) {
+    rpLabel = document.createElement('div');
+    rpLabel.className = 'rp-price-label';
+    rpLabel.style.cssText = 'position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:9px;font-weight:700;padding:2px 4px;border-radius:2px 0 0 2px;pointer-events:none;z-index:60;min-width:52px;text-align:center;letter-spacing:0.3px;';
+    wrap.style.position = 'relative';
+    wrap.appendChild(rpLabel);
+  }
+  const isUp = (open != null) ? price >= open : true;
+  const upClr = (typeof S !== 'undefined' && S.upColor) || '#26a69a';
+  const dnClr = (typeof S !== 'undefined' && S.dnColor) || '#ef5350';
+  rpLabel.style.background = isUp ? upClr : dnClr;
+  rpLabel.style.color = '#fff';
+  rpLabel.textContent = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Update the date / step-count readout + progress bar.
