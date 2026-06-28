@@ -1,164 +1,6 @@
 <!DOCTYPE html>
 <!--
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🤖 AI DEVELOPER CONTEXT — READ THIS FIRST BEFORE MAKING ANY CHANGES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  PROJECT: Mobile-First Trading Chart (Single HTML file, no build tools)
-  OWNER NOTE: This app runs ONLY on mobile phones (Android/iOS).
-              There is NO desktop/PC usage. Every single change must be
-              designed, tested, and optimized FOR TOUCH / MOBILE ONLY.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  📱 MANDATORY MOBILE-FIRST RULES (Never violate these)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  1. TOUCH EVENTS ONLY
-     - Always use touchstart / touchmove / touchend
-     - Mouse events are secondary fallback only
-     - All touch listeners that call preventDefault() must use {passive:false}
-     - Use e.touches[0] or e.changedTouches[0], never assume mouse
-
-  2. PERFORMANCE — NO LAG / NO HANG
-     - NEVER call canvas redraw directly inside touchmove
-     - ALWAYS wrap canvas redraw in requestAnimationFrame (RAF)
-     - Use a RAF guard flag (e.g. let _raf = null; if(_raf) return;)
-     - Avoid heavy computation inside scroll/move handlers
-     - Debounce or throttle any function fired by touch/scroll events
-
-  3. TAP & TOUCH TARGET SIZES
-     - Minimum tap target: 44×44px (Apple HIG standard)
-     - All buttons, icons, tool selectors must be finger-friendly
-     - Hit radius for drawing selection: minimum 22px (_DT_HIT_R = 22)
-     - No hover-only interactions (mobile has no hover)
-
-  4. DRAWING TOOLS — MOBILE BEHAVIOR
-     - Drawing canvas uses requestAnimationFrame throttle on touchmove
-     - Default line width for ALL drawing tools = 1 (thin, clean on mobile)
-     - During active drawing, touchmove must call e.stopPropagation()
-       so chart does not scroll while user is drawing
-     - hline / vline = single tap to place (no drag needed)
-     - 2-point tools (trendline, ray, etc.) = tap p1, then tap p2
-     - No drag-to-draw — mobile users tap, not drag
-
-  5. SCROLLING & PANNING
-     - Chart pan/zoom is handled by lightweight-charts library internally
-     - Drawing canvas sits on top (z-index:50) with pointer-events:none
-       when no tool is active, pointer-events:all when tool is active
-     - Never block chart scroll when drawing tool is NOT selected
-
-  6. UI / LAYOUT
-     - Screen size assumption: 360px–430px wide, 640px–932px tall
-     - Header height: 22px, TF bar: 14px, bottom bar: 22px
-     - No hover states, no tooltips on hover, no right-click menus
-     - All dropdowns/panels must be closeable by tapping outside
-     - Font sizes: minimum 10px for labels, 11-12px for interactive text
-
-  7. VIEWPORT & FULLSCREEN
-     - App uses 100dvh (dynamic viewport height) for iOS Safari compatibility
-     - Self-fullscreen via CSS iframe expansion (no JS requestFullscreen needed
-       for normal use — it fires only on first touch)
-     - overflow:hidden on html,body always — no page scroll
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🏗️ ARCHITECTURE & KEY VARIABLES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  CHART LIBRARY : lightweight-charts v4.2.0 (standalone, loaded from unpkg CDN)
-  FRAMEWORK     : Zero — pure vanilla JS + HTML + CSS, single file
-  DEPLOYMENT    : Streamlit iframe (Python backend) OR direct HTML open
-  DATA SOURCES  : Binance REST API (BTC), Fyers broker API (BankNifty)
-  LIVE DATA     : BTC via WebSocket, BankNifty via postMessage from Streamlit
-
-  KEY GLOBAL VARIABLES:
-    chart         — main LightweightCharts chart instance (1x1 layout)
-    mainSeries    — main candlestick/line series
-    S             — app state object {asset, tf, layout, chartType, ...}
-    CELLS[]       — array of grid cell objects {chart, series, asset, tf, ...}
-    SELECTED_CELL — index of currently active grid cell
-    _DT           — drawing tool state object (see Drawing Tools section)
-    ALLDATA{}     — candle data cache keyed by asset name
-    BN_ASSET      — 'BANKNIFTY' (default asset on load)
-    BTC_ASSET     — 'BTCUSDT'
-    LAYOUTS{}     — grid layout definitions
-
-  KEY FUNCTIONS:
-    rebuildChart()        — recreates main chart from scratch
-    setLayout(id, data)   — switches grid layout
-    loadTF(tfMin)         — changes timeframe (in minutes)
-    resampleForTF()       — resamples 1m candles to higher TF
-    _dtRedraw(key)        — redraws drawing canvas for a chart key
-    _dtPointerDown/Move() — drawing touch handlers
-    _dtRegisterChart()    — registers a chart with drawing system
-    saveState()           — saves S to localStorage
-    updateHeaderPrice()   — updates top price display
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  🖊️ DRAWING TOOLS SYSTEM (_DT object)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  Available tools: trendline, hline, vline, ray, extended, arrow, rect, text
-  Each drawing stored as: {id, tool, chartKey, p1, p2, color, width, style, tfs}
-  p1/p2 = {x, y, time, price} — stored in chart coordinates (time+price),
-          converted to pixel on each redraw via priceToCoordinate/timeToCoordinate
-
-  DRAWING CANVAS STACK (per chart):
-    z-index 6   — swing/S&R indicator canvases
-    z-index 50  — drawing canvas (_DT canvas, always on top)
-
-  RAF THROTTLE PATTERN (mandatory for all move handlers):
-    let _dtMoveRAF = null;
-    function _dtPointerMove(key, e) {
-      if (!_DT._active) return;
-      if (e.touches) e.preventDefault();
-      // ... update _DT._tempP2 ...
-      if (_dtMoveRAF) return;           // ← skip if frame pending
-      _dtMoveRAF = requestAnimationFrame(() => {
-        _dtMoveRAF = null;
-        _dtRedraw(key);
-      });
-    }
-
-  DEFAULT LINE WIDTH = 1 (thin) for all tools. Never default to >1.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚠️ COMMON MISTAKES TO AVOID
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  ✗ DO NOT add hover CSS without also adding touch/active fallback
-  ✗ DO NOT use mousemove as the primary handler (use touchmove)
-  ✗ DO NOT redraw canvas directly in touchmove (always use RAF)
-  ✗ DO NOT use fixed pixel sizes that assume large screen (e.g. width:800px)
-  ✗ DO NOT add keyboard shortcuts as the only way to do something
-  ✗ DO NOT use right-click / context menu features
-  ✗ DO NOT add drag-and-drop that relies on mousedown+mousemove without touch
-  ✗ DO NOT use localStorage keys already in use (see list below)
-  ✗ DO NOT break the single-file structure — all CSS/JS stays in chart.html
-  ✗ DO NOT import new CDN libraries without checking mobile bundle size
-
-  EXISTING localStorage KEYS (do not reuse):
-    'tvState', 'tvTfHidden', 'tvFS', 'tvTfPrefs', 'tvTfFavs',
-    'dtFavourites2', 'dtFavBarPos2', 'tvPickerRecent',
-    'tvLayouts', 'tvActiveLayout', 'tvWorkspace'
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ✅ WHEN ADDING ANY NEW FEATURE, CHECKLIST:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  [ ] Touch events handled (touchstart/touchmove/touchend)?
-  [ ] RAF used if any canvas or animation is involved?
-  [ ] Tap target >= 44px in both dimensions?
-  [ ] Works on 360px wide screen?
-  [ ] No hover-only behavior?
-  [ ] Dropdown/panel closes on outside tap?
-  [ ] Does not break chart pan/pinch-zoom?
-  [ ] Single HTML file — no external files added?
-  [ ] Tested logic for both 1x1 (single chart) and grid layouts?
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--->
-<!--
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   📋 TABLE OF CONTENTS  (Ctrl+G ya :N se kisi bhi line pe seedha jump karo)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -169,12 +11,9 @@
   Line  308   Timeframe Bar (#tf-bar, .tf-btn)
   Line  330   Layout Dropdown Menu (#layout-menu)
   Line  383   Broker / Fyers Panel (#broker-panel)
-  Line  444   Workspace + Chart Area + Legend (#legend)
   Line  468   Bottom Bar (#bottom-bar)
-  Line  494   Grid Layout Picker (#grid-picker)
   Line  700   Indicators Panel (#ind-panel)
   Line  770   Settings Modal (#settings-modal)
-  Line  910   Drawing Tools Panel + Float Toolbar
   Line 1026   Advanced Mobile Touch UX (long-press, ripple)
   Line 1048   TradingView Color Picker
   Line 1129   Swing S/R + Candle Countdown + Misc overlays
@@ -183,9 +22,6 @@
   Line 1373   Header (symbol button, price, TF menu, icons)
   Line 1406   Timeframe Bar
   Line 1422   Layout Dropdown Menu
-  Line 1439   Drawing Tools Panel
-  Line 1513   Floating Favourite Bar
-  Line 1522   Drawing Settings Modal + Float Toolbar
   Line 1584   Broker (Fyers) Panel
   Line 1641   Single-Chart Workspace + Legend
   Line 1663   Grid View container
@@ -205,7 +41,7 @@
   Line 2102   Layout Presets — 5 named slots [key: tvWorkspaces5]
                 saveToActiveLayout(), newLayout(), loadFromSlot(), _deleteLayout()
   Line 2356   Broker / Fyers Panel — bkConnect(), bkTotpLogin(), toggleBrokerPanel()
-  Line 2541   Grid Cells Array (CELLS[]) + LAYOUTS definitions
+  Line 2541   Grid Cells Array (CELLS[]) — shared by Stack View
   Line 2628   Sync-in-layout flags (SYNC — crosshair, TF sync)
   Line 2655   Timeframes — parse, label, fav/hidden, rebuildTfBar(), applyTF()
   Line 2972   Click Dismiss (outside-tap handler)
@@ -216,14 +52,10 @@
   Line 3155   Indicator Math — emaArr(), smaArr(), toSeries()
   Line 3172   Chart Options Factory — chartOpts()
   Line 3207   Future Vertical Line — canvas overlay (vLine)
-  Line 3374   Destroy Main Chart — destroyMainChart()
-  Line 3385   ★ Rebuild Main Chart — rebuildChart()  [SABSE IMPORTANT FUNCTION]
-                Kab call hota hai: asset switch, TF change, layout change, settings
   Line 3575   Advanced Mobile Touch UX — pinch zoom, pan, long-press
   Line 3872   Resize Observer
   Line 3886   Time Scale Sync (cross-chart sync)
   Line 3901   Header Price Update — updateHeaderPrice() [LTP, change%, OHLC]
-  Line 3938   Grid Layout — setLayout(), buildCellChart(), buildGrid()
   Line 4519   Indicators Panel (toggle, open/close)
   Line 4546   Settings Modal — saveSettings(), applySettings()
   Line 5025   Fullscreen — toggleSelectedCellFS(), toggleTfBar()
@@ -246,12 +78,6 @@
   Line 7350   TradingView-Style Color Picker
   Line 7537   Color Picker Wiring (swing chips, indicator panel, settings)
   Line 7649   Custom Chart Keyboard (numeric input overlay)
-  Line 7734   ★ Drawing Tools Engine v2
-                Tools: trendline, hline, vline, ray, extended, arrow, rect, text
-                _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
-  Line 8540   TF Chips in Drawing Settings Modal
-  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
-                GD.init(), GD.push(), GD.pull(), GD.signIn()
   Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -264,15 +90,16 @@
 
   2. ASSET SWITCH  [switchAsset() — line 5344]
      Updates: S.asset, sym-label, leg-sym, hdr-ltp, hdr-chg, live polling.
-     1x1 mein rebuildChart() call karta hai; grid mein saare CELLS[] rebuild karta hai.
+     CELLS[] (Stack View slots) rebuild hote hain via buildCellChart().
 
   3. BTC WebSocket vs REST  [line 5542]
      WS primary hai, REST backup hai. Dono ek saath kabhi mat chalao.
      _btcWsOk flag se guard hai — naya BTC fetch likhne se pehle check karo.
 
-  4. GRID vs 1x1  [S.layout]
-     Bahut se functions mein guard hai: if (S.layout==='1x1') ... else ...
-     Chart-render logic edit karo toh DONO branches handle karo.
+  4. LAYOUT  [S.layout]
+     S.layout ab hamesha 'stack' rehta hai (Grid aur 1x1 hata diye gaye hain).
+     Kuch purane functions mein abhi bhi S.layout==='1x1' jaise dead-branch
+     checks hain — woh hamesha false honge, harmless hain.
 
   5. NSE HOLIDAY LIST  [line 3034]
      Har January mein official NSE circular se update karo.
@@ -502,29 +329,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .lm-new-btn:hover{color:#d1d4dc;border-color:#555}
 
-/* ── Workspace ───────────────────────────────────────────────────── */
-#workspace{flex:1;display:flex;overflow:hidden;min-height:0}
-
 /* ── Chart Area ──────────────────────────────────────────────────── */
-#chart-area{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;position:relative}
-#legend{
-  position:absolute;top:4px;left:4px;z-index:10;
-  font-size:10px;color:#787b86;pointer-events:none;line-height:1.6;
-}
-#legend .leg-sym{font-size:11px;font-weight:700;color:#d1d4dc;margin-bottom:2px}
-#legend .leg-o{color:#d1d4dc}
-#legend .leg-h{color:#26a69a}
-#legend .leg-l{color:#ef5350}
-#legend .leg-c{color:#d1d4dc;font-weight:600}
-#legend #leg-ohlc-grp{display:none;}
-#legend .leg-chg{font-weight:600}
-#legend .leg-status{display:flex;align-items:center;gap:4px;margin-top:2px;font-weight:600;color:#787b86}
-#legend .leg-status .leg-dot{width:6px;height:6px;border-radius:50%;background:#787b86;display:inline-block}
-#legend .leg-status.live{color:#26a69a}
-#legend .leg-status.live .leg-dot{background:#26a69a;box-shadow:0 0 4px #26a69a}
-#legend .leg-status.closed{color:#ef5350}
-#legend .leg-status.closed .leg-dot{background:#ef5350}
-#main-chart{flex:1;min-height:0;touch-action:none;position:relative;will-change:transform;transform:translateZ(0)}
 
 /* ── Bottom Bar ──────────────────────────────────────────────────── */
 #bottom-bar{
@@ -552,29 +357,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #grid-btn:active{background:#2a2e39}
 #grid-btn.active{border-color:#f0b429;color:#f0b429}
 
-/* ── Grid Layout Picker ──────────────────────────────────────────── */
-#grid-picker{
-  display:none;position:fixed;bottom:30px;right:8px;
-  width:296px;max-height:74vh;
-  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
-  z-index:9999;box-shadow:0 8px 32px #0009;overflow:hidden;
-}
-#grid-picker.open{display:flex;flex-direction:column}
-#gp-scroll{flex:1;overflow-y:auto;padding:10px 12px 14px;scrollbar-width:thin}
-.gp-section-title{font-size:11px;color:#787b86;text-transform:uppercase;
-  letter-spacing:.8px;margin:2px 0 8px;font-weight:700}
-.gp-group{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #2a2e3955}
-.gp-count{width:18px;flex-shrink:0;color:#787b86;font-size:12px;font-weight:600;text-align:right}
-.gp-variants{display:flex;flex-wrap:wrap;gap:6px}
-.gp-layout{
-  width:32px;height:26px;padding:3px;background:transparent;
-  border:1px solid #363c4e;border-radius:4px;cursor:pointer;display:block;flex-shrink:0;
-}
-.gp-layout:active{background:#363c4e}
-.gp-layout.active{border-color:#2962ff;background:#2962ff22}
-.gp-mini{width:100%;height:100%;display:grid;gap:1.5px}
-.gp-mini-cell{background:#787b86;border-radius:1px}
-.gp-layout.active .gp-mini-cell{background:#2962ff}
 .gp-divider{height:1px;background:#2a2e39;margin:12px 0 6px}
 .gp-sync-row{display:flex;align-items:center;justify-content:space-between;padding:7px 2px}
 .gp-sync-row span{font-size:13px;color:#d1d4dc}
@@ -586,17 +368,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-radius:50%;background:#9598a1;transition:transform .15s,background .15s}
 .gp-switch.on{background:#2962ff}
 .gp-switch.on::after{transform:translateX(18px);background:#fff}
-
-/* ── Stack View: layout-picker row + settings panel (Step 1) ───────────── */
-.gp-stack-row{display:flex;align-items:center;gap:8px;padding:10px 2px;
-  border-bottom:1px solid #2a2e3955;cursor:pointer}
-.gp-stack-row .gp-stack-icon{font-size:18px;flex-shrink:0}
-.gp-stack-row .gp-stack-label{font-size:13px;color:#d1d4dc;font-weight:600;flex:1}
-.gp-stack-row.active{background:#2962ff22}
-.gp-stack-row.active .gp-stack-label{color:#2962ff}
-.gp-stack-gear{background:transparent;border:1px solid #363c4e;border-radius:6px;
-  width:30px;height:30px;flex-shrink:0;color:#9598a1;font-size:15px;cursor:pointer}
-.gp-stack-gear:active{background:#363c4e}
 
 #stack-settings-panel{
   display:none;position:fixed;z-index:10002;
@@ -635,10 +406,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#fff;border:none;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer}
 .ss-done-btn:active{background:#1e4fd6}
 
-/* ── Grid View ───────────────────────────────────────────────────── */
-#grid-view{display:none;flex:1;overflow:hidden;min-height:0;}
-#grid-view.active{display:flex;flex-direction:column}
-#grid-container{flex:1;display:grid;gap:0;background:#2a2e39;overflow:hidden;min-height:0;}
 
 /* ── Stack View (Step 2: static vertical stack, scroll added in Step 3) ── */
 #stack-view{display:none;flex:1;overflow:hidden;min-height:0;}
@@ -940,14 +707,6 @@ select.s-select{
 
 /* ── Fix 4: Blue ring only on touch (suppress on mouse/fine pointer) */
 
-
-/* ── Fix 9: Legend top-left horizontal layout ──────────────────── */
-#legend{
-  display:flex!important;flex-direction:row!important;
-  flex-wrap:wrap;align-items:center;gap:5px;
-}
-#legend .leg-sym{margin-bottom:0;font-size:10px}
-#legend .leg-status{margin-top:0}
 
 /* ── Fix 1: Auto-fit button ────────────────────────────────────── */
 #auto-btn{
@@ -1276,245 +1035,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 }
 .tv-clr-btn-lg:hover{border-color:#9598a1}
 
-/* ══════════════════════════════════════════════════════════════
-   DRAWING TOOLS — Panel, Favourite Bar, Tool Button styles
-══════════════════════════════════════════════════════════════ */
-/* Header drawing button */
-#draw-btn{
-  height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;
-  border-radius:3px;color:#d1d4dc;font-size:11px;font-weight:700;cursor:pointer;
-  display:flex;align-items:center;gap:3px;flex-shrink:0;white-space:nowrap;
-}
-#draw-btn:active{background:#363c4e}
-#draw-btn.open{border-color:#2962ff;color:#2962ff}
-#draw-btn.tool-active{border-color:#f0b429;color:#f0b429;background:#2a2e39}
-
-/* Drawing Panel */
-#draw-panel{
-  display:none;position:fixed;top:24px;left:4px;
-  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
-  z-index:9999;box-shadow:0 8px 32px #0009;
-  width:220px;max-height:82vh;overflow-y:auto;
-}
-#draw-panel.open{display:block}
-.dp-section{padding:6px 10px 2px;font-size:9px;color:#787b86;
-  text-transform:uppercase;letter-spacing:.8px;font-weight:700;
-  border-bottom:1px solid #2a2e39;margin-bottom:2px}
-.dp-section:not(:first-child){margin-top:6px}
-.dp-tool-row{
-  display:flex;align-items:center;gap:0;padding:0 6px;
-}
-.dp-tool-btn{
-  flex:1;display:flex;align-items:center;gap:8px;
-  padding:7px 6px;cursor:pointer;border-radius:5px;
-  border:none;background:transparent;color:#d1d4dc;font-size:12px;
-  text-align:left;transition:background .1s;
-}
-.dp-tool-btn:hover{background:#2a2e39}
-.dp-tool-btn.active{background:#2962ff22;color:#2962ff}
-.dp-tool-icon{font-size:14px;width:18px;text-align:center;flex-shrink:0}
-.dp-tool-label{flex:1;font-size:11px;font-weight:600}
-.dp-fav-star{
-  width:22px;height:22px;background:transparent;border:none;
-  color:#555;font-size:14px;cursor:pointer;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;border-radius:3px;
-  transition:color .15s;
-}
-.dp-fav-star:hover{color:#f0b429}
-.dp-fav-star.on{color:#f0b429}
-
-/* dp-actions — esc + show-fav-bar inside panel */
-.dp-actions{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:8px 10px 6px;border-top:1px solid #2a2e39;margin-top:4px;gap:6px;
-}
-.dp-esc-btn{
-  flex:1;height:26px;background:#2a2e39;border:1px solid #363c4e;
-  border-radius:4px;color:#d1d4dc;font-size:10px;font-weight:700;cursor:pointer;
-}
-.dp-esc-btn:active{background:#363c4e}
-.dp-show-fav-btn{
-  flex:1;height:26px;background:#f0b42922;border:1px solid #f0b42955;
-  border-radius:4px;color:#f0b429;font-size:10px;font-weight:700;cursor:pointer;
-}
-.dp-show-fav-btn:active{background:#f0b42944}
-
-/* Floating Favourite Bar */
-#fav-bar{
-  display:none;position:fixed;z-index:9998;
-  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
-  box-shadow:0 4px 20px #0009;
-  padding:4px 6px;
-  top:50px;left:50%;transform:translateX(-50%);
-  min-width:80px;
-  touch-action:none;user-select:none;
-}
-#fav-bar.visible{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-#fav-bar-drag{
-  width:14px;height:100%;min-height:28px;
-  display:flex;align-items:center;justify-content:center;
-  cursor:grab;color:#555;font-size:10px;flex-shrink:0;
-}
-#fav-bar-drag:active{cursor:grabbing}
-#fav-bar-tools{display:flex;align-items:center;gap:3px;flex-wrap:wrap;flex:1}
-.fav-tool-btn{
-  width:28px;height:28px;background:transparent;border:1px solid transparent;
-  border-radius:5px;color:#d1d4dc;font-size:14px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  transition:background .1s,border-color .1s;flex-shrink:0;
-  position:relative;
-}
-.fav-tool-btn:hover{background:#2a2e39;border-color:#363c4e}
-.fav-tool-btn.active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
-.fav-tool-btn[title]:hover::after{
-  content:attr(title);position:absolute;bottom:calc(100% + 4px);left:50%;
-  transform:translateX(-50%);background:#131722;color:#d1d4dc;
-  font-size:9px;padding:2px 5px;border-radius:3px;white-space:nowrap;
-  pointer-events:none;border:1px solid #363c4e;
-}
-#fav-bar-hide{
-  width:20px;height:20px;background:transparent;border:none;
-  color:#555;font-size:12px;cursor:pointer;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;border-radius:3px;
-}
-#fav-bar-hide:hover{color:#ef5350}
-#fav-bar-empty{font-size:9px;color:#555;padding:4px 6px;white-space:nowrap}
-
-/* Drawing canvas overlay */
-.dt-canvas{
-  position:absolute;top:0;left:0;
-  pointer-events:none;z-index:50;
-}
-.dt-canvas.draw-mode{pointer-events:all;cursor:crosshair}
-
-/* Active tool cursor on chart container */
-.chart-draw-mode{cursor:crosshair!important}
-
-/* ── Drawing Settings Modal ──────────────────────────────────────────── */
-#dt-settings-overlay{
-  display:none;position:fixed;inset:0;z-index:10500;
-  background:#0008;backdrop-filter:blur(3px);
-  align-items:flex-end;justify-content:center;
-}
-#dt-settings-overlay.open{display:flex}
-#dt-settings-box{
-  background:#1e222d;border:1px solid #363c4e;border-radius:14px 14px 0 0;
-  width:100%;max-width:480px;max-height:85vh;
-  display:flex;flex-direction:column;overflow:hidden;
-  box-shadow:0 -8px 32px #0009;
-}
-#dt-set-hdr{
-  display:flex;align-items:center;padding:14px 16px 10px;
-  border-bottom:1px solid #2a2e39;flex-shrink:0;
-}
-#dt-set-title{font-size:13px;font-weight:700;color:#d1d4dc;flex:1}
-#dt-set-del{
-  width:32px;height:32px;background:#ef535022;border:1px solid #ef535055;
-  border-radius:6px;color:#ef5350;font-size:14px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;margin-right:8px;flex-shrink:0;
-}
-#dt-set-close{
-  width:32px;height:32px;background:#2a2e39;border:none;border-radius:50%;
-  color:#d1d4dc;font-size:16px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-#dt-set-body{flex:1;overflow-y:auto;padding:12px 16px 20px}
-.dts-row{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:10px 0;border-bottom:1px solid #2a2e3933;
-}
-.dts-row:last-child{border-bottom:none}
-.dts-label{font-size:12px;color:#9598a1;font-weight:600;flex:1}
-.dts-ctrl{display:flex;align-items:center;gap:8px;flex-shrink:0}
-/* Color swatch */
-.dts-color-swatch{
-  width:34px;height:28px;border-radius:5px;border:2px solid #363c4e;
-  cursor:pointer;flex-shrink:0;
-}
-.dts-color-swatch:active{border-color:#9598a1}
-/* Width buttons */
-.dts-w-group{display:flex;gap:4px}
-.dts-w-btn{
-  width:34px;height:28px;background:#2a2e39;border:1px solid #363c4e;
-  border-radius:5px;color:#9598a1;font-size:10px;font-weight:700;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-}
-.dts-w-btn.on{background:#2962ff22;border-color:#2962ff;color:#2962ff}
-/* Style buttons */
-.dts-style-group{display:flex;gap:4px}
-.dts-style-btn{
-  height:28px;padding:0 8px;background:#2a2e39;border:1px solid #363c4e;
-  border-radius:5px;color:#9598a1;font-size:12px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;white-space:nowrap;
-}
-.dts-style-btn.on{background:#2962ff22;border-color:#2962ff;color:#2962ff}
-/* TF chips */
-.dts-tf-wrap{
-  display:flex;flex-wrap:wrap;gap:5px;padding-top:6px;
-}
-.dts-tf-chip{
-  height:26px;padding:0 9px;background:#2a2e39;border:1px solid #363c4e;
-  border-radius:13px;color:#9598a1;font-size:10px;font-weight:700;cursor:pointer;
-  display:flex;align-items:center;
-}
-.dts-tf-chip.on{background:#2962ff22;border-color:#2962ff;color:#2962ff}
-/* Section heading inside modal */
-.dts-section{
-  font-size:9px;color:#555;text-transform:uppercase;letter-spacing:.8px;
-  font-weight:700;padding:12px 0 4px;
-}
-/* Preview bar */
-#dt-set-preview{
-  height:36px;background:#131722;border-radius:6px;
-  display:flex;align-items:center;justify-content:center;
-  margin-bottom:6px;overflow:hidden;flex-shrink:0;
-}
-#dt-set-preview canvas{display:block}
-/* Save btn */
-#dt-set-save{
-  display:block;width:100%;height:42px;background:#2962ff;border:none;
-  border-radius:8px;color:#fff;font-size:13px;font-weight:700;cursor:pointer;
-  margin-top:10px;
-}
-#dt-set-save:active{background:#1a53e0}
-
-/* Touch-friendly selected drawing highlight */
-.dt-selected-handle{
-  position:absolute;background:#2962ff;border-radius:50%;
-  width:10px;height:10px;pointer-events:none;z-index:20;
-  transform:translate(-50%,-50%);
-}
-
-/* ── Drawing floating toolbar ──────────────────────────────────── */
-#dt-float-toolbar{
-  display:none;position:fixed;z-index:10400;
-  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
-  box-shadow:0 4px 20px #000a;
-  flex-direction:row;align-items:center;gap:2px;padding:4px;
-  touch-action:none;
-}
-#dt-float-toolbar.open{display:flex}
-.dtft-btn{
-  width:40px;height:40px;background:transparent;border:none;border-radius:7px;
-  color:#d1d4dc;font-size:18px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  transition:background .1s;flex-shrink:0;
-}
-.dtft-btn:active{background:#2a2e39}
-.dtft-btn.dtft-del{color:#ef5350}
-.dtft-btn.dtft-del:active{background:#ef535022}
-.dtft-sep{width:1px;height:24px;background:#2a2e39;margin:0 2px;flex-shrink:0}
-
-/* Drag handle dots on selected drawing */
-.dt-handle{
-  position:fixed;z-index:10300;
-  width:22px;height:22px;border-radius:50%;
-  background:#2962ff;border:3px solid #fff;
-  box-shadow:0 2px 8px #0008;
-  transform:translate(-50%,-50%);
-  touch-action:none;cursor:grab;
-}
-.dt-handle:active{cursor:grabbing;background:#1a53e0}
 </style>
 </head>
 <body>
@@ -1542,7 +1062,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
   <div id="hdr-right">
     <button id="tf-menu-btn" onclick="toggleTfDropdown()" title="Timeframes">&#9201; <span id="tf-menu-label">1m</span></button>
-    <button id="draw-btn" onclick="toggleDrawPanel()" title="Drawing Tools">✏️ Draw</button>
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
     <button class="hdr-icon-btn" id="layout-btn" onclick="toggleLayoutMenu(event)" title="Layouts">⊟</button>
@@ -1583,179 +1102,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
 </div>
 
-<!-- ═══ DRAWING TOOLS PANEL ═══════════════════════════════════════════ -->
-<div id="draw-panel">
-  <div class="dp-section">Lines</div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="trendline" onclick="_dtSelect('trendline',this)">
-      <span class="dp-tool-icon">📈</span><span class="dp-tool-label">Trend Line</span>
-    </button>
-    <button class="dp-fav-star" data-tool="trendline" onclick="_dtToggleFav('trendline',this)" title="Favourite">☆</button>
-  </div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="hline" onclick="_dtSelect('hline',this)">
-      <span class="dp-tool-icon">➖</span><span class="dp-tool-label">Horizontal Line</span>
-    </button>
-    <button class="dp-fav-star" data-tool="hline" onclick="_dtToggleFav('hline',this)" title="Favourite">☆</button>
-  </div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="vline" onclick="_dtSelect('vline',this)">
-      <span class="dp-tool-icon">|</span><span class="dp-tool-label">Vertical Line</span>
-    </button>
-    <button class="dp-fav-star" data-tool="vline" onclick="_dtToggleFav('vline',this)" title="Favourite">☆</button>
-  </div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="ray" onclick="_dtSelect('ray',this)">
-      <span class="dp-tool-icon">↗</span><span class="dp-tool-label">Ray</span>
-    </button>
-    <button class="dp-fav-star" data-tool="ray" onclick="_dtToggleFav('ray',this)" title="Favourite">☆</button>
-  </div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="extended" onclick="_dtSelect('extended',this)">
-      <span class="dp-tool-icon">↔</span><span class="dp-tool-label">Extended Line</span>
-    </button>
-    <button class="dp-fav-star" data-tool="extended" onclick="_dtToggleFav('extended',this)" title="Favourite">☆</button>
-  </div>
-
-  <div class="dp-section">Shapes & Arrows</div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="arrow" onclick="_dtSelect('arrow',this)">
-      <span class="dp-tool-icon">➡</span><span class="dp-tool-label">Arrow</span>
-    </button>
-    <button class="dp-fav-star" data-tool="arrow" onclick="_dtToggleFav('arrow',this)" title="Favourite">☆</button>
-  </div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="rect" onclick="_dtSelect('rect',this)">
-      <span class="dp-tool-icon">▭</span><span class="dp-tool-label">Rectangle</span>
-    </button>
-    <button class="dp-fav-star" data-tool="rect" onclick="_dtToggleFav('rect',this)" title="Favourite">☆</button>
-  </div>
-
-  <div class="dp-section">Text</div>
-  <div class="dp-tool-row">
-    <button class="dp-tool-btn" data-tool="text" onclick="_dtSelect('text',this)">
-      <span class="dp-tool-icon">T</span><span class="dp-tool-label">Text Label</span>
-    </button>
-    <button class="dp-fav-star" data-tool="text" onclick="_dtToggleFav('text',this)" title="Favourite">☆</button>
-  </div>
-
-  <div class="dp-section">Actions</div>
-  <div class="dp-tool-row" style="padding:4px 6px 2px">
-    <button class="dp-tool-btn" style="color:#ef5350" onclick="_dtUndoLast()">
-      <span class="dp-tool-icon">↩</span><span class="dp-tool-label">Undo Last</span>
-    </button>
-  </div>
-  <div class="dp-tool-row" style="padding:2px 6px 4px">
-    <button class="dp-tool-btn" style="color:#ef5350" onclick="_dtClearAll()">
-      <span class="dp-tool-icon">🗑</span><span class="dp-tool-label">Clear All</span>
-    </button>
-  </div>
-
-  <div class="dp-actions">
-    <button class="dp-esc-btn" onclick="_dtDeselect()">✕ Cancel Tool</button>
-    <button class="dp-show-fav-btn" onclick="_dtShowFavBar()">★ Show Favourites</button>
-  </div>
-</div>
-
-<!-- ═══ FLOATING FAVOURITE BAR ══════════════════════════════════════════ -->
-<div id="fav-bar">
-  <div id="fav-bar-drag" title="Drag to move">⠿</div>
-  <div id="fav-bar-tools">
-    <span id="fav-bar-empty">No favourites yet</span>
-  </div>
-  <button id="fav-bar-hide" onclick="_dtHideFavBar()" title="Hide bar">✕</button>
-</div>
-
-<!-- ═══ DRAWING SETTINGS MODAL ══════════════════════════════════════════ -->
-<!-- ═══ DRAWING FLOAT TOOLBAR ════════════════════════════════════════════ -->
-<div id="dt-float-toolbar">
-  <button class="dtft-btn" onclick="_dtFTSettings()" title="Settings">⚙️</button>
-  <div class="dtft-sep"></div>
-  <button class="dtft-btn dtft-del" onclick="_dtFTDelete()" title="Delete">🗑️</button>
-  <div class="dtft-sep"></div>
-  <button class="dtft-btn" onclick="_dtFTClose()" title="Deselect">✕</button>
-</div>
-
-<div id="dt-settings-overlay">
-  <div id="dt-settings-box">
-    <div id="dt-set-hdr">
-      <span id="dt-set-title">Drawing Settings</span>
-      <button id="dt-set-del" onclick="_dtDeleteSelected()" title="Delete drawing">🗑</button>
-      <button id="dt-set-close" onclick="_dtCloseSettings()">✕</button>
-    </div>
-    <div id="dt-set-body">
-      <!-- Preview -->
-      <div id="dt-set-preview"><canvas id="dt-prev-canvas" width="300" height="36"></canvas></div>
-
-      <!-- Color -->
-      <div class="dts-row">
-        <span class="dts-label">Colour</span>
-        <div class="dts-ctrl">
-          <input type="color" id="dts-color-inp" style="opacity:0;position:absolute;width:1px;height:1px">
-          <button class="dts-color-swatch" id="dts-color-swatch" onclick="document.getElementById('dts-color-inp').click()" style="background:#2962ff"></button>
-        </div>
-      </div>
-
-      <!-- Line Width -->
-      <div class="dts-row">
-        <span class="dts-label">Thickness</span>
-        <div class="dts-ctrl dts-w-group" id="dts-width-group">
-          <button class="dts-w-btn" data-w="1" onclick="_dtsSetWidth(1,this)">─</button>
-          <button class="dts-w-btn on" data-w="2" onclick="_dtsSetWidth(2,this)">━</button>
-          <button class="dts-w-btn" data-w="3" onclick="_dtsSetWidth(3,this)">▬</button>
-          <button class="dts-w-btn" data-w="4" onclick="_dtsSetWidth(4,this)">█</button>
-        </div>
-      </div>
-
-      <!-- Line Style -->
-      <div class="dts-row">
-        <span class="dts-label">Style</span>
-        <div class="dts-ctrl dts-style-group" id="dts-style-group">
-          <button class="dts-style-btn on" data-s="solid" onclick="_dtsSetStyle('solid',this)">——</button>
-          <button class="dts-style-btn" data-s="dashed" onclick="_dtsSetStyle('dashed',this)">- - -</button>
-          <button class="dts-style-btn" data-s="dotted" onclick="_dtsSetStyle('dotted',this)">· · ·</button>
-        </div>
-      </div>
-
-      <!-- TF Filter (only for hline, vline, trendline, ray, extended) -->
-      <div id="dts-tf-section" style="display:none">
-        <div class="dts-section">Show on Timeframes (leave all OFF = show on all)</div>
-        <div class="dts-tf-wrap" id="dts-tf-chips"></div>
-      </div>
-
-      <button id="dt-set-save" onclick="_dtsApply()">✓ Apply</button>
-    </div>
-  </div>
-</div>
-
-
-
-<!-- ═══ SINGLE-CHART WORKSPACE ══════════════════════════════════════════ -->
-<div id="workspace">
-  <div id="chart-area">
-    <div id="legend">
-      <div class="leg-sym" id="leg-sym">📊 BANKNIFTY<span id="leg-tf"></span></div>
-      <span id="leg-ohlc-grp">
-        <span class="leg-o">O <b id="leg-o">--</b></span>&nbsp;
-        <span class="leg-h">H <b id="leg-h">--</b></span>&nbsp;
-        <span class="leg-l">L <b id="leg-l">--</b></span>&nbsp;
-        <span class="leg-c">C <b id="leg-c">--</b></span>&nbsp;
-      </span>
-      <span class="leg-chg" id="leg-chg"></span>
-      <div class="leg-status" id="leg-status"><span class="leg-dot"></span>CLOSED</div>
-    </div>
-    <div id="main-chart"></div>
-    <button id="main-cset-btn" class="cell-settings-btn" onclick="_openMainChartSettings(this)" title="Chart Settings">⚙</button>
-  </div>
-</div>
-
 <!-- Always-visible "go to latest" — fixed bottom-right, works in all layouts -->
 <button id="goto-latest-btn" onclick="gotoLatest()" title="Go to latest candle">&#x23ED;</button>
-
-<!-- ═══ GRID VIEW ════════════════════════════════════════════════════════ -->
-<div id="grid-view">
-  <div id="grid-container"></div>
-</div>
 
 <!-- ═══ STACK VIEW (scrollable multi-chart stack) ═══════════════════════ -->
 <div id="stack-view">
@@ -1769,7 +1117,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
-  <button id="grid-btn" onclick="toggleGridPicker()">📜 Stack View</button>
+  <button id="grid-btn" onclick="openStackSettings()" title="Stack View Settings">📜 Stack View</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
@@ -1809,20 +1157,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ FULLSCREEN RESTORE BANNER ═══════════════════════════════════════ -->
 <div id="fs-restore" onclick="restoreFS()">
   ⛶ &nbsp;Tap here to restore fullscreen &nbsp;⛶
-</div>
-
-<!-- ═══ GRID LAYOUT PICKER ══════════════════════════════════════════════ -->
-<div id="grid-picker">
-  <div id="gp-scroll">
-    <div class="gp-section-title">Scroll layout</div>
-    <div id="gp-stack-row" class="gp-stack-row">
-      <span class="gp-stack-icon">📜</span>
-      <span class="gp-stack-label">Stack View (scrollable)</span>
-      <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
-      <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
-    </div>
-
-  </div>
 </div>
 
 <!-- ═══ STACK VIEW SETTINGS PANEL ═══════════════════════════════════════ -->
@@ -1885,20 +1219,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button id="ind-close" onclick="toggleIndPanel()">×</button>
     </div>
     <div id="ind-body">
-      <div class="ind-group">
-        <div class="ind-group-title">Moving Average</div>
-        <div class="ind-row">
-          <span class="ind-name">MA</span>
-          <div class="ind-ctrl">
-            <select id="ma-type" onchange="rebuildChart()" style="background:#2a2e39;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 4px;font-size:12px">
-              <option value="ema">EMA</option>
-              <option value="sma">SMA</option>
-            </select>
-            <input class="ind-len" id="ma-len" type="number" value="20" min="1" max="500" onchange="rebuildChart()">
-            <label class="toggle"><input type="checkbox" id="ck-ma" onchange="rebuildChart()"><span class="sl"></span></label>
-          </div>
-        </div>
-      </div>
       <div class="ind-group">
         <div class="ind-group-title">Swing High / Low</div>
         <div class="ind-row">
@@ -2130,6 +1450,25 @@ const BN_DAILY    = __BN_DAILY__;
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
+// Pick the right base dataset for a timeframe.
+// ≥ 1D  → full daily history (server-injected, geo-block proof)
+// 45m–12H → 45m candles (native from Fyers)
+// 15m–44m → 15m candles (native from Fyers)
+// 5m–14m  → 5m candles  (native from Fyers)
+// < 5m    → 1m candles
+function _baseDataFor(asset, tfMin) {
+  if (asset === BN_ASSET) {
+    if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
+    if (tfMin >= 45   && Array.isArray(BN_45M)   && BN_45M.length)   return BN_45M;
+    if (tfMin >= 15   && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
+    if (tfMin >= 5    && Array.isArray(BN_5M)    && BN_5M.length)    return BN_5M;
+    return ALLDATA[asset] || [];
+  }
+  if (tfMin >= 1440 && Array.isArray(BTC_DAILY) && BTC_DAILY.length) return BTC_DAILY;
+  if (tfMin >= 15   && Array.isArray(BTC_15M)   && BTC_15M.length)   return BTC_15M;
+  return ALLDATA[asset] || [];
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════════════════════
@@ -2269,7 +1608,6 @@ function _currentSnapshot(name) {
     vLine:       {...S.vLine},
     favTFs:      [..._favTFs],
     cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
-    drawings:    JSON.parse(JSON.stringify(_DT.drawings || [])),
     indSwing:    SWING_STATE.visible,
     indBTC2:     BTC2_SWING_STATE.visible,
     swingLineW:  SWING_LINE_WIDTH,
@@ -2446,13 +1784,6 @@ function loadFromSlot(idx) {
   // Restore cell configs for buildGrid
   _savedCells = slot.cells && slot.cells.length ? slot.cells : null;
 
-  // ── Restore drawings ──────────────────────────────────────────────────
-  if (slot.drawings && Array.isArray(slot.drawings)) {
-    _DT.drawings = JSON.parse(JSON.stringify(slot.drawings));
-    _DT._nextId  = (_DT.drawings.reduce((m,d) => Math.max(m, d.id||0), 0)) + 1;
-  } else {
-    _DT.drawings = [];
-  }
 
   // ── Restore indicators ────────────────────────────────────────────────
   if (typeof slot.indSwing === 'boolean') {
@@ -2475,7 +1806,7 @@ function loadFromSlot(idx) {
   }
 
   applyBgToPage();
-  setLayout(slot.layout || '1x1', null);
+  selectStackView();
   _renderLayoutDropdown();
 
   // Close menu
@@ -2538,90 +1869,6 @@ function _flashBtn(id, msg) {
 let chart=null, mainSeries=null;
 const CELLS = [];
 
-// Every layout is defined by its grid-template-areas rows. The number of unique
-// area names = number of chart cells. Both the picker preview icons and the real
-// grid are generated from the same spec (see _parseAreas / buildGrid).
-const LAYOUTS = {
-  // 1
-  '1x1':    {areas:['a']},
-  // 2
-  '2-cols': {areas:['a b']},
-  '2-rows': {areas:['a','b']},
-  // 3
-  '3-cols': {areas:['a b c']},
-  '3-rows': {areas:['a','b','c']},
-  '3-1l2r': {areas:['a b','a c']},
-  '3-2l1r': {areas:['a c','b c']},
-  '3-1t2b': {areas:['a a','b c']},
-  '3-2t1b': {areas:['a b','c c']},
-  // 4
-  '4-grid': {areas:['a b','c d']},
-  '4-cols': {areas:['a b c d']},
-  '4-rows': {areas:['a','b','c','d']},
-  '4-1l3r': {areas:['a b','a c','a d']},
-  '4-3l1r': {areas:['a d','b d','c d']},
-  '4-1t3b': {areas:['a a a','b c d']},
-  '4-3t1b': {areas:['a b c','d d d']},
-  // 5
-  '5-cols':  {areas:['a b c d e']},
-  '5-rows':  {areas:['a','b','c','d','e']},
-  '5-1l4r':  {areas:['a b','a c','a d','a e']},
-  '5-4l1r':  {areas:['a e','b e','c e','d e']},
-  '5-1t4b':  {areas:['a a a a','b c d e']},
-  '5-4t1b':  {areas:['a b c d','e e e e']},
-  '5-1l2x2': {areas:['a b c','a d e']},
-  '5-2x2b':  {areas:['a b','c d','e e']},
-  // 6
-  '6-3x2':  {areas:['a b c','d e f']},
-  '6-2x3':  {areas:['a b','c d','e f']},
-  '6-cols': {areas:['a b c d e f']},
-  '6-rows': {areas:['a','b','c','d','e','f']},
-  '6-1t5b': {areas:['a a a a a','b c d e f']},
-  '6-1l5r': {areas:['a b','a c','a d','a e','a f']},
-  // 7
-  '7-grid': {areas:['a b c','d e f','g g g']},
-  '7-1l6r': {areas:['a b c','a d e','a f g']},
-  '7-1t6b': {areas:['a a a','b c d','e f g']},
-  // 8
-  '8-4x2':  {areas:['a b c d','e f g h']},
-  '8-2x4':  {areas:['a b','c d','e f','g h']},
-  '8-1l7r': {areas:['a b','a c','a d','a e','a f','a g','a h']},
-  '8-1t7b': {areas:['a a a a a a a','b c d e f g h']},
-  // 9
-  '9-3x3':  {areas:['a b c','d e f','g h i']},
-  '9-1l8r': {areas:['a b c','a d e','a f g','a h i']},
-  '9-1t8b': {areas:['a a a a','b c d e','f g h i']},
-  // 10
-  '10-5x2': {areas:['a b c d e','f g h i j']},
-  '10-2x5': {areas:['a b','c d','e f','g h','i j']},
-  '10-1t9b':{areas:['a a a','b c d','e f g','h i j']},
-  // 12
-  '12-4x3': {areas:['a b c d','e f g h','i j k l']},
-  '12-3x4': {areas:['a b c','d e f','g h i','j k l']},
-  '12-6x2': {areas:['a b c d e f','g h i j k l']},
-  // 14
-  '14-7x2': {areas:['a b c d e f g','h i j k l m n']},
-  // 16
-  '16-4x4': {areas:['a b c d','e f g h','i j k l','m n o p']},
-  '16-8x2': {areas:['a b c d e f g h','i j k l m n o p']},
-};
-
-// Picker groups, by chart count (mirrors the TradingView layout menu).
-const GROUPS = [
-  {count:1,  ids:['1x1']},
-  {count:2,  ids:['2-cols','2-rows']},
-  {count:3,  ids:['3-cols','3-rows','3-1l2r','3-2l1r','3-1t2b','3-2t1b']},
-  {count:4,  ids:['4-grid','4-cols','4-rows','4-1l3r','4-3l1r','4-1t3b','4-3t1b']},
-  {count:5,  ids:['5-cols','5-rows','5-1l4r','5-4l1r','5-1t4b','5-4t1b','5-1l2x2','5-2x2b']},
-  {count:6,  ids:['6-3x2','6-2x3','6-cols','6-rows','6-1t5b','6-1l5r']},
-  {count:7,  ids:['7-grid','7-1l6r','7-1t6b']},
-  {count:8,  ids:['8-4x2','8-2x4','8-1l7r','8-1t7b']},
-  {count:9,  ids:['9-3x3','9-1l8r','9-1t8b']},
-  {count:10, ids:['10-5x2','10-2x5','10-1t9b']},
-  {count:12, ids:['12-4x3','12-3x4','12-6x2']},
-  {count:14, ids:['14-7x2']},
-  {count:16, ids:['16-4x4','16-8x2']},
-];
 
 // Sync-in-layout flags (persisted). Crosshair on by default, like TradingView.
 let SYNC = {symbol:false, interval:false, crosshair:false, time:false, dateRange:false};
@@ -2748,22 +1995,11 @@ function _renderStackSwitch() {
   if (btn) btn.classList.toggle('on', _stackOnOff);
 }
 
-// Switch flipped ON  → activate Stack View now (and remember the choice).
-// Switch flipped OFF → go back to whatever the normal grid/1x1 layout was.
+// Stack View is the only layout now — this always (re)activates it.
 function toggleStackOnOff() {
-  _stackOnOff = !_stackOnOff;
+  _stackOnOff = true;
   _renderStackSwitch();
-  if (_stackOnOff) {
-    selectStackView();
-  } else {
-    // Fall back to the last non-stack layout choice (or 1x1 if none saved).
-    let fallback = '1x1';
-    try {
-      const saved = _LS.getItem('tvLayout');
-      if (saved && saved !== 'stack' && LAYOUTS[saved]) fallback = saved;
-    } catch(_) {}
-    setLayout(fallback, null);
-  }
+  selectStackView();
 }
 
 function _loadStackCfg() {
@@ -2918,32 +2154,22 @@ function destroyStackCells() {
   if (sc) sc.innerHTML = '';
 }
 
-// Activates Stack View as the current layout mode (parallel to setLayout('4-grid') etc.)
+// Activates Stack View — the app's only layout mode (Grid and 1x1 removed).
 function selectStackView() {
-  document.getElementById('grid-picker').classList.remove('open');
-  document.querySelectorAll('.gp-layout').forEach(b => b.classList.remove('active'));
-  const row = document.getElementById('gp-stack-row');
-  if (row) row.classList.add('active');
-
   _stackActive = true;
   _stackOnOff  = true;
   _renderStackSwitch();
   S.layout = 'stack';
   try { _LS.setItem('tvLayout', 'stack'); } catch(_) {}
 
-  const wsEl = document.getElementById('workspace');
-  const gv   = document.getElementById('grid-view');
   const sv   = document.getElementById('stack-view');
   const cmBtn = document.getElementById('cell-maximize-btn');
 
-  wsEl.style.display = 'none';
-  gv.classList.remove('active');
   sv.classList.add('active');
   document.getElementById('grid-btn').classList.add('active');
   if (cmBtn) cmBtn.style.display = 'none';   // per-cell fullscreen not wired for stack yet
 
-  destroyCharts();
-  destroyGridCells();
+  unwireSync();
   buildStack();
   setTimeout(_startCellTimers, 200);
   setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
@@ -3592,9 +2818,6 @@ function closeTfDropdown() {
 // CLICK DISMISS
 // ════════════════════════════════════════════════════════════════════════════
 document.addEventListener('click', e => {
-  if (!document.getElementById('grid-picker').contains(e.target) &&
-      !document.getElementById('grid-btn').contains(e.target))
-    document.getElementById('grid-picker').classList.remove('open');
   const dd      = document.getElementById('tf-dropdown');
   const menuBtn = document.getElementById('tf-menu-btn');
   if (dd && dd.classList.contains('open') &&
@@ -4045,250 +3268,9 @@ function _vlResizeCellCanvas(idx) {
   c._vlCanvas.style.height = el.clientHeight + 'px';
 }
 
-// Main-chart settings panel
-let _mainSettingsPanel = null;
-function _openMainChartSettings(btn) {
-  if (_mainSettingsPanel) { _mainSettingsPanel.remove(); _mainSettingsPanel = null; return; }
-  const vl = S.vLine;
-  const panel = document.createElement('div');
-  panel.className = 'cell-settings-panel open';
-  panel.innerHTML =
-    `<div class="csp-title"><span>Chart Settings</span><button class="csp-close" onclick="_closeMainChartSettings()">✕</button></div>`+
-    `<div class="csp-row"><span>Future Line</span>`+
-      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="S.vLine.enabled=this.checked;_vlDraw();saveState();"><span class="sl"></span></label></div>`+
-    `<div class="csp-row"><span>Color</span>`+
-      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#2962ff'?'#fff':'#444'};background:#2962ff;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLine.color='#2962ff';_setVLineColor(S.asset,S.tf,'#2962ff');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Blue"></button>`+
-      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#f23645'?'#fff':'#444'};background:#f23645;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLine.color='#f23645';_setVLineColor(S.asset,S.tf,'#f23645');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>`+
-      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#26a69a'?'#fff':'#444'};background:#26a69a;cursor:pointer" onclick="event.stopPropagation();S.vLine.color='#26a69a';_setVLineColor(S.asset,S.tf,'#26a69a');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Green"></button>`+
-    `</div>`+
-    `<div class="csp-row"><span>Width</span>`+
-      `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="S.vLine.width=+this.value;_vlDraw();saveState();"></div>`+
-    `<div class="csp-row"><span>Offset (candles)</span>`+
-      `<input class="vl-num-inp" type="number" min="1" max="50" value="${vl.offset}" onchange="S.vLine.offset=+this.value;_vlDraw();saveState();"></div>`+
-    `<div class="csp-row"><span>Solid Line</span>`+
-      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">`+
-        `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="S.vLine.style=this.checked?'solid':'dashed';_vlDraw();saveState();">`+
-        `<span class="sl"></span></label></div>`;
-  document.body.appendChild(panel);
-  const pW = panel.offsetWidth || 172, pH = panel.offsetHeight || 140;
-  const rect = btn.getBoundingClientRect();
-  const vw = window.innerWidth, vh = window.innerHeight;
-  let left = rect.right - pW, top = rect.top - pH - 4;
-  if (left < 4) left = 4;
-  if (left + pW > vw - 4) left = vw - pW - 4;
-  if (top < 4) top = rect.bottom + 4;
-  if (top + pH > vh - 4) top = vh - pH - 4;
-  panel.style.left = left + 'px'; panel.style.top = top + 'px';
-  _mainSettingsPanel = panel;
-}
-function _closeMainChartSettings() {
-  if (_mainSettingsPanel) { _mainSettingsPanel.remove(); _mainSettingsPanel = null; }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// DESTROY MAIN CHARTS
-// ════════════════════════════════════════════════════════════════════════════
-function destroyCharts() {
-  _vlRemoveCanvas();
-  try { if (chart) chart.remove(); } catch(_) {}
-  chart = mainSeries = null;
-  _mainVLTime = null;
-  document.getElementById('main-chart').innerHTML = '';
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// REBUILD MAIN CHART
-// ════════════════════════════════════════════════════════════════════════════
-// Pick the right base dataset for a timeframe.
-// ≥ 1D  → full daily history (server-injected, geo-block proof)
-// 45m–12H → 45m candles (native from Fyers)
-// 15m–44m → 15m candles (native from Fyers)
-// 5m–14m  → 5m candles  (native from Fyers)
-// < 5m    → 1m candles
-function _baseDataFor(asset, tfMin) {
-  if (asset === BN_ASSET) {
-    if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
-    if (tfMin >= 45   && Array.isArray(BN_45M)   && BN_45M.length)   return BN_45M;
-    if (tfMin >= 15   && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
-    if (tfMin >= 5    && Array.isArray(BN_5M)    && BN_5M.length)    return BN_5M;
-    return ALLDATA[asset] || [];
-  }
-  if (tfMin >= 1440 && Array.isArray(BTC_DAILY) && BTC_DAILY.length) return BTC_DAILY;
-  if (tfMin >= 15   && Array.isArray(BTC_15M)   && BTC_15M.length)   return BTC_15M;
-  return ALLDATA[asset] || [];
-}
-
-function _updateSingleChartLegendTf() {
-  const legSym = document.getElementById('leg-sym');
-  const legTf  = document.getElementById('leg-tf');
-  if (legSym && legSym.childNodes[0]) legSym.childNodes[0].textContent = S.asset || '';
-  if (legTf) legTf.textContent = ' · ' + _cellTfLabel(S.tf || 1);
-}
-function rebuildChart() {
-  if (S.layout !== '1x1') return;
-  destroyCharts();
-
-  const rawData = _baseDataFor(S.asset, S.tf);
-  const data    = resampleForTF(rawData, S.tf, S.asset);
-  _updateSingleChartLegendTf();
-  const closes  = data.map(d => d.close);
-
-
-  const mainEl = document.getElementById('main-chart');
-  chart = LightweightCharts.createChart(mainEl, chartOpts(mainEl));
-  _followLive = true;
-  mainEl.addEventListener('pointerdown', ()=>{ _followLive = false; }, {passive:true});
-  mainEl.addEventListener('wheel', ()=>{ _followLive = false; }, {passive:true});
-
-  if (S.chartType === 'candle') {
-    mainSeries = chart.addCandlestickSeries({
-      upColor:S.upColor, downColor:S.dnColor,
-      borderUpColor:S.upColor, borderDownColor:S.dnColor,
-      wickUpColor:S.upColor, wickDownColor:S.dnColor,
-      wickVisible:S.wicks, priceLineVisible:true,
-    });
-  } else if (S.chartType === 'bar') {
-    mainSeries = chart.addBarSeries({upColor:S.upColor, downColor:S.dnColor, thinBars:false});
-  } else if (S.chartType === 'line') {
-    mainSeries = chart.addLineSeries({color:'#2962ff',lineWidth:2,priceLineVisible:true});
-  } else {
-    mainSeries = chart.addAreaSeries({
-      topColor:'#2962ff44', bottomColor:'#2962ff00',
-      lineColor:'#2962ff', lineWidth:2, priceLineVisible:true,
-    });
-  }
-
-  if (data.length) {
-    if (S.chartType === 'line' || S.chartType === 'area')
-      mainSeries.setData(data.map(d => ({time:d.time, value:d.close})));
-    else
-      mainSeries.setData(data);
-    _applyZoom(chart.timeScale(), S.asset, S.tf);
-  }
-
-  // ── Save zoom level whenever user scrolls/zooms (debounced 600ms) ────────
-  chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
-    clearTimeout(_zoomSaveTid);
-    _zoomSaveTid = setTimeout(() => _saveZoom(S.asset, S.tf, r), 600);
-  });
-
-  // ── EMA/SMA overlay ──────────────────────────────────────────────────────
-  if (document.getElementById('ck-ma').checked) {
-    const period  = +document.getElementById('ma-len').value;
-    const maType  = document.getElementById('ma-type').value;
-    const vals    = maType === 'sma' ? smaArr(closes,period) : emaArr(closes,period);
-    const maSeries = chart.addLineSeries({
-      color:'#FF6B35', lineWidth:1,
-      priceLineVisible:false, lastValueVisible:false,
-      title: maType.toUpperCase()+period,
-    });
-    maSeries.setData(toSeries(data, vals));
-  }
-
-  // ── Legend price ─────────────────────────────────────────────────────────
-  updateHeaderPrice(data);
-
-  const _fmtLeg = v => v!=null
-    ? v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '--';
-  function _resetLegToLatest() {
-    if (!_latestBar) return;
-    const b = _latestBar;
-    document.getElementById('leg-o').textContent = _fmtLeg(b.open);
-    document.getElementById('leg-h').textContent = _fmtLeg(b.high);
-    document.getElementById('leg-l').textContent = _fmtLeg(b.low);
-    document.getElementById('leg-c').textContent = _fmtLeg(b.close);
-    const chg = b.close - b.open, pct = b.open ? (chg/b.open*100).toFixed(2) : 0;
-    const chgEl = document.getElementById('leg-chg');
-    if (chgEl) { chgEl.style.color = chg>=0?'#26a69a':'#ef5350';
-      chgEl.textContent = (chg>=0?'+':'')+_fmtLeg(chg)+' ('+pct+'%)'; }
-    { const g=document.getElementById('leg-ohlc-grp'); if(g) g.style.display='none'; }
-    if (!S.legChg && chgEl) chgEl.style.display='none';
-    
-    // Reset header to latest bar with day-open based change
-    if (S.hdrOhlc) {
-      const fmt = v => v!=null ? v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '--';
-      const dayOpen = _candleOpen[S.asset] ?? b.open;
-      const dayChg = b.close - dayOpen;
-      const dayPct = dayOpen ? (dayChg/dayOpen*100).toFixed(2) : 0;
-      const hdrLtp=document.getElementById('hdr-ltp');
-      if (hdrLtp) hdrLtp.textContent = fmt(b.close);
-      const hdrChg=document.getElementById('hdr-chg');
-      if (hdrChg) {
-        hdrChg.textContent = (dayChg>=0?'+':'')+fmt(dayChg)+' ('+dayPct+'%)';
-        hdrChg.className = dayChg>=0?'up':'dn';
-      }
-    }
-  }
-  // ── RAF-throttled crosshair legend update ──────────────────────────────────
-  let _legRAF = null;
-  chart.subscribeCrosshairMove(param => {
-    if (_legRAF) return;
-    _legRAF = requestAnimationFrame(() => {
-      _legRAF = null;
-      const isOnChart = !!(param?.seriesData?.size);
-      _hdrXActive = isOnChart && S.hdrOhlc;
-      // Show OHLC group when hdrOhlc is ON and cursor is on chart
-      const grp = document.getElementById('leg-ohlc-grp');
-      if (grp) grp.style.display = (S.hdrOhlc && isOnChart) ? 'inline' : 'none';
-      if (!isOnChart) { _resetLegToLatest(); return; }
-      const raw = param.seriesData.get(mainSeries);
-      if (!raw) { _resetLegToLatest(); return; }
-      const o = raw.open  ?? raw.value;
-      const h = raw.high  ?? raw.value;
-      const l = raw.low   ?? raw.value;
-      const c = raw.close ?? raw.value;
-      document.getElementById('leg-o').textContent = _fmtLeg(o);
-      document.getElementById('leg-h').textContent = _fmtLeg(h);
-      document.getElementById('leg-l').textContent = _fmtLeg(l);
-      document.getElementById('leg-c').textContent = _fmtLeg(c);
-      const chg = c - o, pct = o ? (chg/o*100).toFixed(2) : 0;
-      const chgEl = document.getElementById('leg-chg');
-      chgEl.style.color = chg >= 0 ? '#26a69a' : '#ef5350';
-      chgEl.textContent = (chg>=0?'+':'')+_fmtLeg(chg)+' ('+pct+'%)';
-      if (!S.legChg) { chgEl.style.display='none'; }
-      
-      // Update header (top-left) with live OHLC when S.hdrOhlc is enabled
-      if (S.hdrOhlc) {
-        const fmt = v => v!=null ? v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '--';
-        const hdrLtp=document.getElementById('hdr-ltp');
-        if (hdrLtp) hdrLtp.textContent = fmt(c);
-        const hdrChg=document.getElementById('hdr-chg');
-        if (hdrChg) {
-          hdrChg.textContent = (chg>=0?'+':'')+fmt(chg)+' ('+pct+'%)';
-          hdrChg.className = chg>=0?'up':'dn';
-        }
-      }
-    });
-  });
-
-  // Apply cursor settings to newly rebuilt chart
-  setTimeout(()=>{ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 50);
-  bindPriceScaleTouchZoom();
-  bindMainResize();
-  initCandleTimer();
-  applyLegendVisibility();
-  swingAfterRebuild();
-  _mainVLTime = data.length ? data[data.length - 1].time : null;
-  _applyVLineColor(S.asset, S.tf, S.vLine);
-  _vlCreateCanvas();
-  chart.timeScale().subscribeVisibleLogicalRangeChange(_vlDraw);
-  // RAF-throttle vlDraw on crosshair move — prevents double-paint with legend RAF
-  let _vlRAF = null;
-  chart.subscribeCrosshairMove(() => {
-    if (_vlRAF) return;
-    _vlRAF = requestAnimationFrame(() => { _vlRAF = null; _vlDraw(); });
-  });
-  _vlDraw();
-}
 
 function gotoLatest() {
-  if (S.layout === '1x1') {
-    _followLive = true;
-    if (chart) chart.timeScale().scrollToRealTime();
-  } else {
-    // In grid mode, scroll all cells to latest
-    CELLS.forEach(c => { c._followLive = true; if (c.chart) try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} });
-  }
+  CELLS.forEach(c => { c._followLive = true; if (c.chart) try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4579,28 +3561,9 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
   };
 }
 
-// ── Single-chart binding (called after rebuildChart) ──────────────────────
-let _mobTouchCleanup = null;
-
-function bindPriceScaleTouchZoom() {
-  if (_mobTouchCleanup) { _mobTouchCleanup(); _mobTouchCleanup = null; }
-  const container = document.getElementById('main-chart');
-  _mobTouchCleanup = attachMobileTouchUX(container, chart, () => mainSeries);
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // RESIZE OBSERVER
 // ════════════════════════════════════════════════════════════════════════════
-let _mainResizeObs = null;
-function bindMainResize() {
-  if (_mainResizeObs) _mainResizeObs.disconnect();
-  const area=document.getElementById('chart-area'), mainEl=document.getElementById('main-chart');
-  _mainResizeObs = new ResizeObserver(() => {
-    const w=area.clientWidth, h=mainEl.clientHeight;
-    if (chart) chart.applyOptions({width:w, height:Math.max(h,100)});
-  });
-  _mainResizeObs.observe(area); _mainResizeObs.observe(mainEl);
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // TIME SCALE SYNC
@@ -4648,10 +3611,6 @@ function updateHeaderPrice(data) {
   document.getElementById('hh').textContent = fmt(last.high);
   document.getElementById('hl').textContent = fmt(last.low);
   document.getElementById('hc').textContent = fmt(last.close);
-  document.getElementById('leg-o').textContent = fmt(last.open);
-  document.getElementById('leg-h').textContent = fmt(last.high);
-  document.getElementById('leg-l').textContent = fmt(last.low);
-  document.getElementById('leg-c').textContent = fmt(last.close);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4666,22 +3625,7 @@ function toggleTfBar() {
   try{_LS.setItem('tvTfHidden',hidden?'1':'0');}catch(_){}
 }
 
-function toggleGridPicker() {
-  const p=document.getElementById('grid-picker');
-  const open=p.classList.toggle('open');
-  if (open){ renderGridPicker(); renderSyncToggles(); }
-}
-
 // Parse a grid-template-areas spec → geometry + ordered unique cell names.
-function _parseAreas(areas) {
-  const rows=areas.length;
-  const cols=areas[0].trim().split(/\s+/).length;
-  const names=[];
-  areas.forEach(r=>r.trim().split(/\s+/).forEach(n=>{ if(!names.includes(n)) names.push(n); }));
-  const tmpl=areas.map(r=>"'"+r.trim().replace(/\s+/g,' ')+"'").join(' ');
-  return {rows, cols, names, tmpl, n:names.length};
-}
-
 function _cellTfLabel(tf){ const t=CELL_TFS.find(x=>x.tf===tf); return t?t.label:tfMinToLabel(tf); }
 function _cellAssetShort(a){ return a===BN_ASSET?'\ud83d\udcca BN':'\u20bf BTC'; }
 function refreshCellHeaders(){
@@ -4691,34 +3635,6 @@ function refreshCellHeaders(){
     const s=cell.querySelector('.cell-sym'); if(s) s.textContent=_cellAssetShort(c.asset)+' '+_cellTfLabel(c.tf);
     const o=cell.querySelector('.co-sym');   if(o) o.textContent=_cellAssetShort(c.asset);
     const otf=cell.querySelector('.co-tf');  if(otf) otf.textContent=' \u00b7 '+_cellTfLabel(c.tf);
-  });
-}
-
-// ── Layout picker rendering ─────────────────────────────────────────────────
-function renderGridPicker() {
-  const host=document.getElementById('gp-layouts');
-  if(!host) return;
-  host.innerHTML='';
-  GROUPS.forEach(g=>{
-    const row=document.createElement('div'); row.className='gp-group';
-    const cnt=document.createElement('div'); cnt.className='gp-count'; cnt.textContent=g.count;
-    const vars=document.createElement('div'); vars.className='gp-variants';
-    g.ids.forEach(id=>{
-      const def=LAYOUTS[id]; if(!def) return;
-      const p=_parseAreas(def.areas);
-      const btn=document.createElement('button');
-      btn.className='gp-layout'+(id===S.layout?' active':'');
-      btn.dataset.layout=id; btn.title=g.count+' charts';
-      const mini=document.createElement('div'); mini.className='gp-mini';
-      mini.style.gridTemplateColumns='repeat('+p.cols+',1fr)';
-      mini.style.gridTemplateRows='repeat('+p.rows+',1fr)';
-      mini.style.gridTemplateAreas=p.tmpl;
-      p.names.forEach(nm=>{ const d=document.createElement('div'); d.className='gp-mini-cell'; d.style.gridArea=nm; mini.appendChild(d); });
-      btn.appendChild(mini);
-      btn.addEventListener('click',()=>setLayout(id,btn));
-      vars.appendChild(btn);
-    });
-    row.appendChild(cnt); row.appendChild(vars); host.appendChild(row);
   });
 }
 
@@ -4864,185 +3780,6 @@ function wireSync(){
   }
 }
 
-function setLayout(key, btn) {
-  if(!LAYOUTS[key]) key='1x1';
-  document.getElementById('grid-picker').classList.remove('open');
-  document.querySelectorAll('.gp-layout').forEach(b =>
-    b.classList.toggle('active', b.dataset.layout===key));
-  document.getElementById('gp-stack-row')?.classList.remove('active');
-  _stackActive = false;
-  _stackOnOff  = false;
-  _renderStackSwitch();
-  const sv=document.getElementById('stack-view');
-  if (sv) sv.classList.remove('active');
-  destroyStackCells();
-  S.layout = key;
-  try{_LS.setItem('tvLayout',key);}catch(_){}
-  const ws=document.getElementById('workspace');
-  const gv=document.getElementById('grid-view');
-  const cmBtn=document.getElementById('cell-maximize-btn');
-  if (key === '1x1') {
-    ws.style.display=''; gv.classList.remove('active');
-    document.getElementById('grid-btn').classList.remove('active');
-    if (cmBtn) cmBtn.style.display='none';
-    unwireSync(); destroyGridCells(); rebuildChart();
-    if (_cellTimerIv){clearInterval(_cellTimerIv);_cellTimerIv=null;}
-  } else {
-    ws.style.display='none'; gv.classList.add('active');
-    document.getElementById('grid-btn').classList.add('active');
-    if (cmBtn){cmBtn.style.display='';cmBtn.textContent='⛶';cmBtn.classList.remove('active');}
-    destroyCharts(); buildGrid(key);
-    setTimeout(_startCellTimers, 200);
-    // Re-apply crosshair color/style/width to ALL cells after grid is fully built
-    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-  }
-}
-
-let _gridResizeObs=null;
-function destroyGridCells() {
-  unwireSync();
-  if(_gridResizeObs){ try{_gridResizeObs.disconnect();}catch(_){} _gridResizeObs=null; }
-  CELLS.forEach(c => { try{c.chart.remove();}catch(_){} });
-  CELLS.length=0; document.getElementById('grid-container').innerHTML='';
-}
-
-function buildGrid(key) {
-  destroyGridCells();
-  const def=LAYOUTS[key]; if(!def){ setLayout('1x1',null); return; }
-  const {cols,rows,names,tmpl,n}=_parseAreas(def.areas);
-  const gc=document.getElementById('grid-container');
-  gc.style.gridTemplateColumns='repeat('+cols+',1fr)';
-  gc.style.gridTemplateRows='repeat('+rows+',1fr)';
-  gc.style.gridTemplateAreas=tmpl;
-  gc.innerHTML='';
-
-  // Default TFs per cell (cycled) so panes start on varied timeframes
-  const defaultTfs=[1,5,15,60,240,1440];
-
-  for (let i=0;i<n;i++) {
-    const sc=_savedCells && _savedCells[i];
-    const tf=(sc&&sc.tf)?sc.tf:defaultTfs[i%defaultTfs.length];
-    const asset=(sc&&sc.asset&&ASSET_NAMES.includes(sc.asset))?sc.asset:S.asset;
-    const cellObj={asset, tf, chart:null, series:null, el:null, vLine:(sc&&sc.vLine)?{...sc.vLine}:null};
-    CELLS.push(cellObj);
-
-    const cell=document.createElement('div');
-    cell.className='grid-cell'; cell.dataset.idx=i; cell.style.gridArea=names[i];
-
-    // Hidden hdr — kept in DOM so JS selectors (.cell-sym etc.) still work
-    const hdr=document.createElement('div');
-    hdr.className='cell-hdr';
-    hdr.innerHTML=
-      '<button class="cell-sym" data-idx="'+i+'">'+_cellAssetShort(cellObj.asset)+' '+_cellTfLabel(tf)+'</button>'+
-      '<span class="cell-price up">--</span>'+
-      '<span class="cell-chg" style="color:#555">--</span>';
-    cell.appendChild(hdr);
-
-    // Restore button directly on cell (not inside hidden hdr)
-    const restoreBtn=document.createElement('button');
-    restoreBtn.className='cell-restore-btn';
-    restoreBtn.textContent='\u22a1 Grid';
-    restoreBtn.onclick=function(e){ toggleCellFS(i); e.stopPropagation(); };
-    cell.appendChild(restoreBtn);
-
-    // Fix 8: per-cell settings icon (⚙) top-right
-    const csetBtn=document.createElement('button');
-    csetBtn.className='cell-settings-btn';
-    csetBtn.title='Cell Settings';
-    csetBtn.textContent='⚙';
-    csetBtn.onclick=function(e){ _openCellSettings(i, csetBtn); e.stopPropagation(); };
-    cell.appendChild(csetBtn);
-
-    // Screen counter badge: "1:4", "2:4" etc. — left of settings icon
-    const screenBadge=document.createElement('span');
-    screenBadge.className='cell-screen-badge';
-    screenBadge.textContent=(i+1)+':'+n;
-    cell.appendChild(screenBadge);
-
-    // Overlay — symbol + price shown inside chart top-left
-    const overlay=document.createElement('div');
-    overlay.className='cell-overlay';
-    overlay.innerHTML=
-      '<span class="co-sym">'+_cellAssetShort(cellObj.asset)+'</span>'+
-      '<span class="co-tf"> \u00b7 '+_cellTfLabel(tf)+'</span>'+
-      '<span class="co-price up">--</span>'+
-      '<span class="co-chg" style="color:#555">--</span>'+
-      '<span class="co-ohlc-grp">'+
-        '<span class="co-o">O <b class="co-ov">--</b></span> '+
-        '<span class="co-h">H <b class="co-hv">--</b></span> '+
-        '<span class="co-l">L <b class="co-lv">--</b></span> '+
-        '<span class="co-c">C <b class="co-cv">--</b></span>'+
-      '</span>';
-
-    const chartDiv=document.createElement('div');
-    chartDiv.className='cell-chart'; chartDiv.id='cell-chart-'+i;
-
-    // Per-cell "go to latest" button — bottom-right corner
-    const gotoBtn=document.createElement('button');
-    gotoBtn.className='cell-goto-btn';
-    gotoBtn.title='Go to latest candle';
-    gotoBtn.textContent='\u23ED';
-    gotoBtn.onclick=function(e){
-      const c2=CELLS[i]; if(c2&&c2.chart) try{c2.chart.timeScale().scrollToRealTime();}catch(_){}
-      e.stopPropagation();
-    };
-
-    // Small countdown chip — sits just below each cell's native price badge
-    const timerBadge=document.createElement('div');
-    timerBadge.className='cell-timer-badge';
-    timerBadge.dataset.cellIdx=i;
-    if (S.showTimer!==false) timerBadge.classList.add('timer-on');
-    chartDiv.style.position='relative';
-
-    cell.appendChild(overlay); cell.appendChild(chartDiv);
-    chartDiv.appendChild(timerBadge);
-    cell.appendChild(gotoBtn);
-    gc.appendChild(cell); cellObj.el=chartDiv;
-    cell.addEventListener('pointerdown',()=>selectCell(i));
-
-    // TF cycling on cell header sym button (respects interval sync)
-    hdr.querySelector('.cell-sym').addEventListener('click', e => {
-      const idx=+e.currentTarget.dataset.idx;
-      const cur=CELL_TFS.findIndex(t=>t.tf===CELLS[idx].tf);
-      const next=CELL_TFS[(cur+1)%CELL_TFS.length];
-      if(SYNC.interval){
-        CELLS.forEach(c=>c.tf=next.tf);
-        CELLS.forEach((_,k)=>buildCellChart(k));
-        refreshCellHeaders();
-      } else {
-        CELLS[idx].tf=next.tf;
-        e.currentTarget.textContent='\u20bf '+next.label;
-        buildCellChart(idx);
-      }
-      wireSync(); saveState(); e.stopPropagation();
-    });
-  }
-
-  requestAnimationFrame(()=>selectCell(0));
-  requestAnimationFrame(()=>{
-    CELLS.forEach((_,i)=>buildCellChart(i));
-    // Delay wireSync until all cells have series assigned (buildCellChart is sync but series set at end)
-    requestAnimationFrame(()=>requestAnimationFrame(()=>wireSync()));
-    if(_gridResizeObs){ try{_gridResizeObs.disconnect();}catch(_){} }
-    _gridResizeObs=new ResizeObserver(()=>{
-      CELLS.forEach((c,i)=>{
-        if (!c.chart) return;
-        const el=document.getElementById('cell-chart-'+i);
-        if (!el) return;
-        c.chart.applyOptions({width:el.clientWidth,height:el.clientHeight});
-        if (c.swing && c.swing.canvas) {
-          const _d=window.devicePixelRatio||1;
-          c.swing.canvas.width  = el.clientWidth  * _d;
-          c.swing.canvas.height = el.clientHeight * _d;
-          c.swing.canvas.style.width  = el.clientWidth  + 'px';
-          c.swing.canvas.style.height = el.clientHeight + 'px';
-          if (c.swing.draw) c.swing.draw();
-        }
-      });
-    });
-    _gridResizeObs.observe(gc);
-  });
-}
 
 // ── Cell Fullscreen ───────────────────────────────────────────────────────
 let _cellFSIdx=null;
@@ -5365,22 +4102,20 @@ function applySettings() {
   // Fix 4: axis label visibility
   const halEl=document.getElementById('s-hide-axis-labels');
   if(halEl){ S.hideAxisLabels=halEl.checked; _applyCrosshairAxisLabels(); }
-  toggleSettings(); saveState(); applyBgToPage(); rebuildChart();
-  if(S.layout!=='1x1') CELLS.forEach((_,k)=>buildCellChart(k));
+  toggleSettings(); saveState(); applyBgToPage();
+  CELLS.forEach((_,k)=>buildCellChart(k));
   applyLegendVisibility();
 }
 
 // Fix 7: apply timer visibility
 function _applyTimerVisibility() {
   if (S.showTimer===false) {
-    if (_timerEl) _timerEl.style.visibility='hidden';
     document.querySelectorAll('.cell-timer-badge').forEach(b => {
       b.classList.remove('timer-on');
       b.style.visibility='hidden';
     });
   } else {
     document.querySelectorAll('.cell-timer-badge').forEach(b => b.classList.add('timer-on'));
-    _tickTimer();
     _tickCellTimers();
   }
 }
@@ -5734,10 +4469,6 @@ document.addEventListener('click', (e) => {
   if(_cellSettingsPanel && !_cellSettingsPanel.contains(e.target) &&
      !e.target.classList.contains('cell-settings-btn'))
     { _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
-  // Main chart settings panel
-  if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
-     e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
-    { _mainSettingsPanel.remove(); _mainSettingsPanel=null; }
 });
 
 // Fix 12: color picker helper for settings modal
@@ -5839,7 +4570,6 @@ function _fsTapStart() {
 // ════════════════════════════════════════════════════════════════════════════
 // CANDLE COUNTDOWN TIMER
 // ════════════════════════════════════════════════════════════════════════════
-let _lastLTP=null, _timerEl=null, _timerIv=null;
 
 // ── IST helpers ────────────────────────────────────────────────────────────
 function _istNowMs() { return Date.now() + 5.5 * 3600000; }
@@ -6005,72 +4735,8 @@ function _startCellTimers() {
   _cellTimerRafId=requestAnimationFrame(posLoop);
 }
 
-let _timerRafId=0;
-
-function initCandleTimer() {
-  if (_timerEl){_timerEl.remove();_timerEl=null;}
-  if (_timerIv){clearInterval(_timerIv);_timerIv=null;}
-  if (_timerRafId){cancelAnimationFrame(_timerRafId);_timerRafId=0;}
-  _lastLTP=null;
-  if (S.layout!=='1x1'||!mainSeries) return;
-  // Keep TradingView/LightweightCharts' own native price badge + dashed
-  // price-line exactly as-is — just glue a small countdown chip directly
-  // underneath it (vertically stacked), instead of beside it.
-  try{mainSeries.applyOptions({lastValueVisible:true, priceLineVisible:true, title:''});}catch(_){}
-  const mainEl=document.getElementById('main-chart');
-  if (!mainEl) return;
-  mainEl.style.position='relative';
-  _timerEl=document.createElement('div');
-  _timerEl.id='candle-timer-widget';
-  _timerEl.style.cssText=
-    'position:absolute;right:0;z-index:60;pointer-events:none;'+
-    'font:bold 5px/8px monospace;color:#d1d4dc;background:#1a1e2d;'+
-    'border:1px solid #2f3241;padding:1px 3px;text-align:right;'+
-    'border-radius:0 0 2px 2px;white-space:nowrap;visibility:hidden;';
-  mainEl.appendChild(_timerEl);
-  _timerIv=setInterval(_tickTimerText,1000);
-  _tickTimerText();
-  const posLoop=()=>{
-    _positionTimerEl();
-    _timerRafId=requestAnimationFrame(posLoop);
-  };
-  _timerRafId=requestAnimationFrame(posLoop);
-  // Hide the chip while the crosshair is active so its native price label
-  // (drawn on the canvas, above our DOM overlay) stays fully readable.
-  try{
-    chart.subscribeCrosshairMove(param => {
-      if (!_timerEl) return;
-      _timerEl.style.opacity = (param && param.point) ? '0' : '1';
-    });
-  }catch(_){}
-}
 
 const _candleOpen={};
-
-// Updates only the countdown text — runs once per second
-function _tickTimerText() {
-  if (!_timerEl||!mainSeries||S.layout!=='1x1') return;
-  if (S.showTimer===false) return;
-  const tfSec=(S.tf||1)*60;
-  const remaining = _calcRemaining(tfSec, S.asset);
-  _timerEl.textContent = (remaining === null) ? 'Closed' : _fmtRemaining(remaining, tfSec);
-}
-
-// Updates only the vertical position — runs every animation frame so the
-// chip stays glued to the price badge with zero perceptible lag.
-function _positionTimerEl() {
-  if (!_timerEl||!mainSeries||S.layout!=='1x1') return;
-  if (S.showTimer===false){ _timerEl.style.visibility='hidden'; return; }
-  if (_lastLTP===null) return;
-  const y=mainSeries.priceToCoordinate(_lastLTP);
-  if (y==null) return;
-  // Native price badge is roughly 16px tall centered on y — sit flush below it
-  _timerEl.style.top=Math.round(y+8)+'px';
-  _timerEl.style.visibility='visible';
-}
-
-// Backward-compatible alias (older call sites may still reference _tickTimer)
-function _tickTimer(){ _tickTimerText(); _positionTimerEl(); }
 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -6144,7 +4810,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // First-time user — Stack View hamesha ON
       selectStackView();
     }
-  } catch(_) { rebuildChart(); }
+  } catch(_) { selectStackView(); }
 
   // Apply top-left overlay show/hide from restored settings
   applyLegendVisibility();
@@ -6208,7 +4874,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Start timers (no live data)
   setTimeout(()=>{
-    initCandleTimer();
     _startCellTimers();
   }, 800);
 
@@ -7700,8 +6365,7 @@ function _tvcOpen(anchorEl, currentHex, callback) {
         S.upColor = theme.up;
         S.dnColor = theme.dn;
         applyBgToPage();
-        rebuildChart();
-        if(S.layout!=='1x1') CELLS.forEach((_,k)=>buildCellChart(k));
+        CELLS.forEach((_,k)=>buildCellChart(k));
         // Mark theme as selected
         document.querySelectorAll('.tv-cp-theme-btn').forEach(b => b.classList.remove('tv-cp-theme-sel'));
         btn.classList.add('tv-cp-theme-sel');
@@ -8017,998 +6681,6 @@ document.addEventListener('focusout', e => {
       _kbHide();
     }
   }, 200);
-});
-
-// ════════════════════════════════════════════════════════════════════════════
-// DRAWING TOOLS ENGINE v2
-// Features:
-// • Draw: trendline, hline, vline, ray, extended, arrow, rect, text
-// • Tap/click on drawing → Settings modal (colour, thickness, style, TF filter)
-// • Undo / Clear All
-// • Favourites + draggable Fav Bar
-// • Works on single chart + all grid cells
-// • Mobile touch-friendly
-// ════════════════════════════════════════════════════════════════════════════
-
-// ── State ──────────────────────────────────────────────────────────────────
-const _DT = {
-  tool: null,
-  drawings: [],        // [{id,tool,chartKey,p1,p2,text,color,width,style,tfs}]
-  favs: [],
-  favBarPos: {x:null, y:null},
-  _nextId: 1,
-  _canvases: {},       // {key: {chartObj,seriesObj,el,canvas,ctx,_bound}}
-  _active: false,      // mid-draw (2-pt tools)
-  _p1: null,
-  _tempP2: null,
-  _chartKey: null,
-  _textInput: null,
-  _selectedId: null,   // id of drawing being edited in settings modal
-  // settings modal working copy
-  _setColor: '#2962ff',
-  _setWidth: 1,
-  _setStyle: 'solid',
-  _setTfs: [],         // [] = all TFs; else [5,15,…]
-};
-
-const _DT_TOOLS = {
-  trendline: { icon:'📈', label:'Trend Line'     },
-  hline:     { icon:'➖', label:'Horizontal Line' },
-  vline:     { icon:'|',  label:'Vertical Line'  },
-  ray:       { icon:'↗',  label:'Ray'            },
-  extended:  { icon:'↔',  label:'Extended Line'  },
-  arrow:     { icon:'➡',  label:'Arrow'          },
-  rect:      { icon:'▭',  label:'Rectangle'      },
-  text:      { icon:'T',  label:'Text Label'     },
-};
-const _DT_DEF_COLOR = '#2962ff';
-const _DT_LSKEY_FAV = 'dtFavourites2';
-const _DT_LSKEY_POS = 'dtFavBarPos2';
-// TF filter applies to these tools
-const _DT_HAS_TF = ['hline','vline','trendline','ray','extended'];
-
-// ── lineDash helper ─────────────────────────────────────────────────────────
-function _dtLineDash(style, width) {
-  if (style === 'dashed') return [width*4, width*3];
-  if (style === 'dotted') return [width, width*2];
-  return [];
-}
-
-// ── Init ────────────────────────────────────────────────────────────────────
-function _dtInit() {
-  try { _DT.favs = JSON.parse(_LS.getItem(_DT_LSKEY_FAV)) || []; } catch(_) { _DT.favs = []; }
-  try {
-    const p = JSON.parse(_LS.getItem(_DT_LSKEY_POS));
-    if (p) _DT.favBarPos = p;
-  } catch(_) {}
-  _dtRefreshPanelStars();
-  _dtRefreshFavBar();
-  _dtInitFavBarDrag();
-  _dtInitSettingsColorPicker();
-}
-document.addEventListener('DOMContentLoaded', _dtInit);
-
-// ── Panel toggle ─────────────────────────────────────────────────────────────
-function toggleDrawPanel() {
-  const panel = document.getElementById('draw-panel');
-  const btn   = document.getElementById('draw-btn');
-  const open  = panel.classList.toggle('open');
-  btn.classList.toggle('open', open);
-  if (open) {
-    document.getElementById('tf-dropdown')?.classList.remove('open');
-    document.getElementById('grid-picker')?.classList.remove('open');
-    document.getElementById('layout-menu').style.display = 'none';
-  }
-}
-function _dtClosePanel() {
-  document.getElementById('draw-panel').classList.remove('open');
-  document.getElementById('draw-btn').classList.remove('open');
-}
-
-// ── Tool select / deselect ───────────────────────────────────────────────────
-function _dtSelect(tool, btn) {
-  if (_DT.tool === tool) { _dtDeselect(); return; }
-  _DT.tool   = tool;
-  _DT._active = false;
-  _DT._p1     = null;
-  _DT._selectedId = null;
-  document.querySelectorAll('.dp-tool-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  document.querySelectorAll('.fav-tool-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.tool === tool));
-  _dtSetCursor(true);
-  // Raise all drawing canvases above indicator canvases
-  Object.keys(_DT._canvases).forEach(k => _dtRaiseCanvas(k));
-  _dtAttachAll();
-  document.getElementById('draw-btn').classList.add('tool-active');
-  _dtClosePanel();
-}
-
-function _dtDeselect() {
-  _DT.tool = null;
-  _DT._active = false;
-  _DT._p1 = null;
-  _DT._selectedId = null;
-  document.querySelectorAll('.dp-tool-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.fav-tool-btn').forEach(b => b.classList.remove('active'));
-  _dtSetCursor(false);
-  _dtDetachAll();
-  _dtRedrawAll();
-  document.getElementById('draw-btn').classList.remove('tool-active');
-}
-
-function _dtSetCursor(on) {
-  [document.getElementById('main-chart'),
-   document.getElementById('grid-container')].forEach(el => {
-    if (el) el.classList.toggle('chart-draw-mode', on);
-  });
-  document.querySelectorAll('.cell-chart').forEach(el => el.classList.toggle('chart-draw-mode', on));
-}
-
-// ── Register chart ───────────────────────────────────────────────────────────
-function _dtRegisterChart(chartKey, chartObj, seriesObj, containerEl) {
-  if (!_DT._canvases[chartKey]) {
-    _DT._canvases[chartKey] = { chartObj, seriesObj, el: containerEl, canvas:null, ctx:null, _bound:null };
-  } else {
-    Object.assign(_DT._canvases[chartKey], { chartObj, seriesObj, el: containerEl });
-  }
-  _dtMakeCanvas(chartKey);
-  // RAF-throttled — prevents hang during touch pan/zoom
-  let _dtRangeRAF = null;
-  const _dtRangeRedraw = () => {
-    if (_dtRangeRAF) return;
-    _dtRangeRAF = requestAnimationFrame(() => {
-      _dtRangeRAF = null;
-      _dtRedraw(chartKey);
-      _dtRefreshHandles();
-    });
-  };
-  try { chartObj.timeScale().subscribeVisibleLogicalRangeChange(_dtRangeRedraw); } catch(_) {}
-  try { seriesObj.priceScale().subscribeVisiblePriceRangeChange(_dtRangeRedraw); } catch(_) {}
-  if (_DT.tool) _dtAttach(chartKey);
-  // Ensure drawing canvas is always on top after other indicator canvases may have been added
-  setTimeout(() => { _dtRaiseCanvas(chartKey); _dtUpdateEditCursor(); }, 100);
-  setTimeout(() => { _dtRaiseCanvas(chartKey); _dtUpdateEditCursor(); }, 1000);
-}
-
-// ── Canvas ───────────────────────────────────────────────────────────────────
-function _dtMakeCanvas(key) {
-  const rec = _DT._canvases[key];
-  if (!rec || !rec.el) return;
-  if (rec.canvas?.parentNode) rec.canvas.parentNode.removeChild(rec.canvas);
-  const el = rec.el;
-  el.style.position = 'relative';
-  const c = document.createElement('canvas');
-  c.className = 'dt-canvas';
-  const dpr = window.devicePixelRatio || 1;
-  c.width  = el.clientWidth  * dpr;
-  c.height = el.clientHeight * dpr;
-  // CSS class controls pointer-events (none by default, all in draw-mode)
-  c.style.cssText = `width:${el.clientWidth}px;height:${el.clientHeight}px;position:absolute;top:0;left:0;z-index:50;`;
-  el.appendChild(c);
-  rec.canvas = c; rec.ctx = c.getContext('2d');
-
-  // Container-level tap for editing drawings (touchend = doesn't block scroll)
-  if (!rec._containerTapBound) {
-    let _tx = 0, _ty = 0, _tt = 0;
-    el.addEventListener('touchstart', (e) => {
-      if (e.touches.length !== 1) return;
-      _tx = e.touches[0].clientX; _ty = e.touches[0].clientY; _tt = Date.now();
-    }, {passive:true});
-    el.addEventListener('touchend', (e) => {
-      if (Date.now() - _tt > 500) return; // not a tap
-      const t = e.changedTouches[0];
-      if (Math.abs(t.clientX - _tx) > 12 || Math.abs(t.clientY - _ty) > 12) return; // moved = scroll
-      if (rec._bound) return; // draw-mode canvas handles it via touchstart
-      // no tool active — check if tapped on a drawing
-      const r = el.getBoundingClientRect();
-      const x = t.clientX - r.left, y = t.clientY - r.top;
-      const hit = _dtHitTest(key, x, y);
-      if (hit) { e.preventDefault(); _dtOpenSettings(hit.id); }
-    }, {passive:false});
-    rec._containerTapBound = true;
-  }
-}
-
-// Raise drawing canvas to top of its container (call after other canvases are added)
-function _dtRaiseCanvas(key) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas || !rec.el) return;
-  rec.el.appendChild(rec.canvas); // move to last child = DOM top
-}
-
-function _dtResizeCanvas(key) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas || !rec.el) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = rec.el.clientWidth, h = rec.el.clientHeight;
-  if (rec.canvas.width !== w*dpr || rec.canvas.height !== h*dpr) {
-    rec.canvas.width  = w*dpr; rec.canvas.height = h*dpr;
-    rec.canvas.style.width  = w+'px'; rec.canvas.style.height = h+'px';
-  }
-}
-
-// ── Attach / Detach ───────────────────────────────────────────────────────────
-function _dtAttachAll() { Object.keys(_DT._canvases).forEach(k => _dtAttach(k)); }
-function _dtDetachAll() {
-  Object.keys(_DT._canvases).forEach(k => _dtDetach(k));
-  if (_DT._textInput) { _DT._textInput.remove(); _DT._textInput = null; }
-}
-
-function _dtAttach(key) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas) return;
-  _dtDetach(key);
-  const canvas = rec.canvas;
-  canvas.classList.add('draw-mode');
-  const onDown = (e) => { e.stopPropagation(); _dtPointerDown(key, e); };
-  const onMove = (e) => {
-    if (_DT._active) { e.stopPropagation(); e.preventDefault(); }
-    _dtPointerMove(key, e);
-  };
-  const onUp   = (e) => { _dtPointerUp(key, e); };
-  canvas.addEventListener('mousedown',  onDown);
-  canvas.addEventListener('mousemove',  onMove);
-  canvas.addEventListener('mouseup',    onUp);
-  canvas.addEventListener('touchstart', onDown, {passive:false});
-  canvas.addEventListener('touchmove',  onMove, {passive:false});
-  canvas.addEventListener('touchend',   onUp,   {passive:false});
-  rec._bound = { onDown, onMove, onUp };
-}
-
-function _dtDetach(key) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas || !rec._bound) return;
-  const {onDown, onMove, onUp} = rec._bound;
-  rec.canvas.classList.remove('draw-mode');
-  rec.canvas.removeEventListener('mousedown',  onDown);
-  rec.canvas.removeEventListener('mousemove',  onMove);
-  rec.canvas.removeEventListener('mouseup',    onUp);
-  rec.canvas.removeEventListener('touchstart', onDown);
-  rec.canvas.removeEventListener('touchmove',  onMove);
-  rec.canvas.removeEventListener('touchend',   onUp);
-  rec._bound = null;
-  // Keep canvas clickable for editing existing drawings
-  _dtUpdateEditCursor();
-}
-
-// ── Edit cursor: no-op placeholder ───────────────────────────────────────────
-function _dtUpdateEditCursor() { /* handled by permanent canvas listeners */ }
-
-// ── Coordinate helpers ────────────────────────────────────────────────────────
-function _dtEventXY(canvas, e) {
-  const r = canvas.getBoundingClientRect();
-  // touchend has no e.touches — use changedTouches
-  const src = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
-  return { x: src.clientX - r.left, y: src.clientY - r.top };
-}
-
-function _dtXYtoChartPt(key, x, y) {
-  const rec = _DT._canvases[key];
-  if (!rec?.chartObj || !rec.seriesObj) return null;
-  try {
-    const time  = rec.chartObj.timeScale().coordinateToTime(x);
-    const price = rec.seriesObj.coordinateToPrice(y);
-    if (time == null || price == null) return null;
-    return { x, y, time, price };
-  } catch(_) { return null; }
-}
-
-function _dtPtToXY(key, pt) {
-  const rec = _DT._canvases[key];
-  if (!rec?.chartObj || !rec.seriesObj) return null;
-  try {
-    const px = rec.chartObj.timeScale().timeToCoordinate(pt.time);
-    const py = rec.seriesObj.priceToCoordinate(pt.price);
-    if (px == null || py == null) return null;
-    return { x: px, y: py };
-  } catch(_) { return null; }
-}
-
-// ── Hit test — tap on existing drawing? ─────────────────────────────────────
-const _DT_HIT_R = 22; // px — larger for mobile finger tap
-
-function _dtHitTest(key, x, y) {
-  const rec = _DT._canvases[key];
-  if (!rec) return null;
-  const W = rec.canvas ? rec.canvas.width / (window.devicePixelRatio||1) : 9999;
-  const H = rec.canvas ? rec.canvas.height / (window.devicePixelRatio||1) : 9999;
-
-  // check in reverse order (topmost first)
-  for (let i = _DT.drawings.length - 1; i >= 0; i--) {
-    const d = _DT.drawings[i];
-    if (d.chartKey !== key) continue;
-    // TF filter check
-    if (!_dtDrawingVisibleInCurrentTF(d)) continue;
-    if (_dtHitDrawing(d, key, x, y, W, H)) return d;
-  }
-  return null;
-}
-
-function _dtHitDrawing(d, key, x, y, W, H) {
-  const xy1 = _dtPtToXY(key, d.p1);
-  const xy2 = d.p2 ? _dtPtToXY(key, d.p2) : null;
-  const R = _DT_HIT_R;
-
-  switch (d.tool) {
-    case 'hline':
-      return xy1 && Math.abs(y - xy1.y) < R;
-    case 'vline':
-      return xy1 && Math.abs(x - xy1.x) < R;
-    case 'trendline':
-      return xy1 && xy2 && _dtDistToSeg(x, y, xy1.x, xy1.y, xy2.x, xy2.y) < R;
-    case 'ray': {
-      if (!xy1 || !xy2) return false;
-      const dx = xy2.x-xy1.x, dy = xy2.y-xy1.y, len=Math.sqrt(dx*dx+dy*dy)||1;
-      const scale = Math.max(W,H)*3;
-      return _dtDistToSeg(x, y, xy1.x, xy1.y, xy1.x+dx/len*scale, xy1.y+dy/len*scale) < R;
-    }
-    case 'extended': {
-      if (!xy1 || !xy2) return false;
-      const dx = xy2.x-xy1.x, dy = xy2.y-xy1.y, len=Math.sqrt(dx*dx+dy*dy)||1;
-      const sc = Math.max(W,H)*3;
-      return _dtDistToSeg(x, y, xy1.x-dx/len*sc, xy1.y-dy/len*sc, xy1.x+dx/len*sc, xy1.y+dy/len*sc) < R;
-    }
-    case 'arrow':
-      return xy1 && xy2 && _dtDistToSeg(x, y, xy1.x, xy1.y, xy2.x, xy2.y) < R;
-    case 'rect': {
-      if (!xy1 || !xy2) return false;
-      const minX=Math.min(xy1.x,xy2.x), maxX=Math.max(xy1.x,xy2.x);
-      const minY=Math.min(xy1.y,xy2.y), maxY=Math.max(xy1.y,xy2.y);
-      return (Math.abs(x-minX)<R||Math.abs(x-maxX)<R||Math.abs(y-minY)<R||Math.abs(y-maxY)<R)
-          && x>minX-R && x<maxX+R && y>minY-R && y<maxY+R;
-    }
-    case 'text':
-      return xy1 && Math.abs(x-xy1.x)<60 && Math.abs(y-xy1.y)<20;
-  }
-  return false;
-}
-
-// point-to-segment distance
-function _dtDistToSeg(px, py, ax, ay, bx, by) {
-  const dx = bx-ax, dy = by-ay, len2 = dx*dx+dy*dy;
-  if (len2 === 0) return Math.hypot(px-ax, py-ay);
-  let t = ((px-ax)*dx + (py-ay)*dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax+t*dx), py - (ay+t*dy));
-}
-
-// ── TF visibility ─────────────────────────────────────────────────────────────
-function _dtDrawingVisibleInCurrentTF(d) {
-  if (!d.tfs || !d.tfs.length) return true; // all TFs
-  const activeTf = (typeof CELLS !== 'undefined' && CELLS.length && CELLS[SELECTED_CELL])
-    ? CELLS[SELECTED_CELL].tf
-    : (typeof S !== 'undefined' ? (S.tf || 1) : 1);
-  return d.tfs.includes(activeTf);
-}
-
-// ── Pointer down ──────────────────────────────────────────────────────────────
-function _dtPointerDown(key, e) {
-  const rec = _DT._canvases[key];
-  if (!rec) return;
-  const {x, y} = _dtEventXY(rec.canvas, e);
-
-  // tap on existing drawing → open settings
-  const hit = _dtHitTest(key, x, y);
-  if (hit) {
-    if (e.touches) e.preventDefault();
-    _dtOpenSettings(hit.id);
-    return;
-  }
-
-  if (!_DT.tool) return;
-  if (e.touches) e.preventDefault();
-
-  const pt = _dtXYtoChartPt(key, x, y);
-  if (!pt) return;
-
-  // 1-tap tools
-  if (_DT.tool === 'text') { _dtPlaceTextInput(key, x, y, pt); _dtDeselect(); return; }
-  if (_DT.tool === 'hline') {
-    _DT.drawings.push({ id:_DT._nextId++, tool:'hline', chartKey:key,
-      p1:pt, p2:null, color:_DT_DEF_COLOR, width:1, style:'solid', tfs:[] });
-    _dtRedrawAll(); _dtDeselect(); return;
-  }
-  if (_DT.tool === 'vline') {
-    _DT.drawings.push({ id:_DT._nextId++, tool:'vline', chartKey:key,
-      p1:pt, p2:null, color:_DT_DEF_COLOR, width:1, style:'solid', tfs:[] });
-    _dtRedrawAll(); _dtDeselect(); return;
-  }
-
-  // 2-tap tools
-  if (!_DT._active) {
-    _DT._active = true; _DT._p1 = pt; _DT._chartKey = key; _DT._tempP2 = pt;
-  } else {
-    _DT.drawings.push({ id:_DT._nextId++, tool:_DT.tool, chartKey:_DT._chartKey,
-      p1:_DT._p1, p2:pt, color:_DT_DEF_COLOR, width:1, style:'solid', tfs:[] });
-    _DT._active = false; _DT._p1 = null; _DT._tempP2 = null;
-    _dtRedrawAll(); _dtDeselect();
-  }
-}
-
-let _dtMoveRAF = null;
-let _dtMoveXY  = null;
-function _dtPointerMove(key, e) {
-  if (!_DT._active || _DT._chartKey !== key) return;
-  if (e.touches) e.preventDefault();
-  const rec = _DT._canvases[key];
-  if (!rec) return;
-  // Cheap: store raw pixels on touch thread
-  _dtMoveXY = _dtEventXY(rec.canvas, e);
-  if (_dtMoveRAF) return;
-  _dtMoveRAF = requestAnimationFrame(() => {
-    _dtMoveRAF = null;
-    if (!_dtMoveXY || !_DT._active) return;
-    // Expensive chart API calls inside RAF only
-    const pt = _dtXYtoChartPt(key, _dtMoveXY.x, _dtMoveXY.y);
-    if (!pt) return;
-    _DT._tempP2 = pt;
-    _dtRedraw(key);
-  });
-}
-function _dtPointerUp() {}
-
-// ── Text input ────────────────────────────────────────────────────────────────
-function _dtPlaceTextInput(key, x, y, pt) {
-  const rec = _DT._canvases[key];
-  if (!rec) return;
-  if (_DT._textInput) { _DT._textInput.remove(); _DT._textInput = null; }
-  const inp = document.createElement('input');
-  inp.type = 'text'; inp.placeholder = 'Type…';
-  inp.style.cssText = `position:absolute;left:${x}px;top:${y-14}px;z-index:200;
-    background:#1e222d;color:#d1d4dc;border:1px solid #2962ff;border-radius:3px;
-    font-size:12px;padding:2px 6px;outline:none;min-width:80px;width:120px;`;
-  rec.el.appendChild(inp);
-  _DT._textInput = inp;
-  inp.focus();
-  const commit = () => {
-    const txt = inp.value.trim();
-    if (txt) {
-      _DT.drawings.push({ id:_DT._nextId++, tool:'text', chartKey:key,
-        p1:pt, p2:null, text:txt, color:_DT_DEF_COLOR, width:1, style:'solid', tfs:[] });
-      _dtRedraw(key);
-    }
-    inp.remove(); _DT._textInput = null;
-  };
-  inp.addEventListener('keydown', e2 => {
-    if (e2.key === 'Enter') commit();
-    if (e2.key === 'Escape') { inp.remove(); _DT._textInput = null; }
-  });
-  inp.addEventListener('blur', () => setTimeout(commit, 150));
-}
-
-// ── Redraw ────────────────────────────────────────────────────────────────────
-function _dtRedraw(key) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas || !rec.ctx) return;
-  _dtResizeCanvas(key);
-  const ctx = rec.ctx;
-  const dpr = window.devicePixelRatio || 1;
-  const W = rec.canvas.width/dpr, H = rec.canvas.height/dpr;
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.lineCap  = 'round';
-  ctx.lineJoin = 'round';
-  ctx.clearRect(0,0,W,H);
-
-  for (const d of _DT.drawings) {
-    if (d.chartKey !== key) continue;
-    if (!_dtDrawingVisibleInCurrentTF(d)) continue;
-    _dtDrawOne(ctx, d, key, W, H, d.id === _DT._selectedId);
-  }
-
-  // in-progress preview
-  if (_DT._active && _DT._chartKey === key && _DT._p1 && _DT._tempP2) {
-    _dtDrawOne(ctx, { tool:_DT.tool, chartKey:key,
-      p1:_DT._p1, p2:_DT._tempP2, color:_DT_DEF_COLOR, width:1, style:'dashed', tfs:[], _preview:true
-    }, key, W, H, false);
-  }
-}
-
-function _dtRedrawAll() { Object.keys(_DT._canvases).forEach(k => _dtRedraw(k)); }
-
-function _dtDrawOne(ctx, d, key, W, H, isSelected) {
-  const xy1 = _dtPtToXY(key, d.p1);
-  const xy2 = d.p2 ? _dtPtToXY(key, d.p2) : null;
-  const col  = d.color || _DT_DEF_COLOR;
-  const lw   = d.width || 1;
-  const dash = _dtLineDash(d.style || 'solid', lw);
-
-  ctx.save();
-  ctx.strokeStyle = col;
-  ctx.fillStyle   = col;
-  ctx.lineWidth   = lw;
-  ctx.globalAlpha = d._preview ? 0.6 : 1;
-  ctx.setLineDash(dash);
-
-  // selected highlight
-  if (isSelected && !d._preview) {
-    ctx.shadowColor = col; ctx.shadowBlur = 6;
-  }
-
-  switch (d.tool) {
-    case 'hline':
-      if (!xy1) break;
-      ctx.beginPath(); ctx.moveTo(0, xy1.y); ctx.lineTo(W, xy1.y); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.font = 'bold 10px system-ui'; ctx.fillStyle = col;
-      ctx.fillText(d.p1.price.toFixed(2), W - 62, xy1.y - 3);
-      break;
-
-    case 'vline':
-      if (!xy1) break;
-      ctx.beginPath(); ctx.moveTo(xy1.x, 0); ctx.lineTo(xy1.x, H); ctx.stroke();
-      break;
-
-    case 'trendline':
-      if (!xy1 || !xy2) break;
-      ctx.beginPath(); ctx.moveTo(xy1.x,xy1.y); ctx.lineTo(xy2.x,xy2.y); ctx.stroke();
-      if (!d._preview) { ctx.setLineDash([]); _dtDot(ctx,xy1,col,lw); _dtDot(ctx,xy2,col,lw); }
-      break;
-
-    case 'ray': {
-      if (!xy1 || !xy2) break;
-      const dx=xy2.x-xy1.x, dy=xy2.y-xy1.y, len=Math.sqrt(dx*dx+dy*dy)||1, sc=Math.max(W,H)*3;
-      ctx.beginPath(); ctx.moveTo(xy1.x,xy1.y); ctx.lineTo(xy1.x+dx/len*sc, xy1.y+dy/len*sc); ctx.stroke();
-      if (!d._preview) { ctx.setLineDash([]); _dtDot(ctx,xy1,col,lw); }
-      break;
-    }
-
-    case 'extended': {
-      if (!xy1 || !xy2) break;
-      const dx=xy2.x-xy1.x, dy=xy2.y-xy1.y, len=Math.sqrt(dx*dx+dy*dy)||1, sc=Math.max(W,H)*3;
-      ctx.beginPath(); ctx.moveTo(xy1.x-dx/len*sc,xy1.y-dy/len*sc); ctx.lineTo(xy1.x+dx/len*sc,xy1.y+dy/len*sc); ctx.stroke();
-      break;
-    }
-
-    case 'arrow': {
-      if (!xy1 || !xy2) break;
-      ctx.beginPath(); ctx.moveTo(xy1.x,xy1.y); ctx.lineTo(xy2.x,xy2.y); ctx.stroke();
-      ctx.setLineDash([]);
-      const ang=Math.atan2(xy2.y-xy1.y,xy2.x-xy1.x), al=8+lw*2;
-      ctx.beginPath(); ctx.moveTo(xy2.x,xy2.y);
-      ctx.lineTo(xy2.x-al*Math.cos(ang-0.4), xy2.y-al*Math.sin(ang-0.4));
-      ctx.lineTo(xy2.x-al*Math.cos(ang+0.4), xy2.y-al*Math.sin(ang+0.4));
-      ctx.closePath(); ctx.fill();
-      break;
-    }
-
-    case 'rect':
-      if (!xy1 || !xy2) break;
-      ctx.beginPath(); ctx.rect(xy1.x,xy1.y,xy2.x-xy1.x,xy2.y-xy1.y);
-      ctx.globalAlpha = d._preview ? 0.15 : 0.1;
-      ctx.fill(); ctx.globalAlpha = d._preview ? 0.6 : 1;
-      ctx.stroke();
-      break;
-
-    case 'text':
-      if (!xy1) break;
-      ctx.setLineDash([]);
-      ctx.font = `bold ${10+lw}px system-ui`; ctx.fillStyle = col;
-      ctx.fillText(d.text||'', xy1.x, xy1.y);
-      break;
-  }
-  ctx.restore();
-}
-
-function _dtDot(ctx, pt, col, lw) {
-  if (!pt) return;
-  ctx.save(); ctx.setLineDash([]);
-  ctx.fillStyle = col;
-  ctx.beginPath(); ctx.arc(pt.x, pt.y, 2+lw*0.5, 0, Math.PI*2); ctx.fill();
-  ctx.restore();
-}
-
-// ── Settings Modal ────────────────────────────────────────────────────────────
-// ── Floating toolbar ─────────────────────────────────────────────────────────
-function _dtFTClose() {
-  document.getElementById('dt-float-toolbar').classList.remove('open');
-  _DT._selectedId = null;
-  _dtRemoveHandles();
-  _dtRedrawAll();
-}
-function _dtFTSettings() {
-  _dtOpenSettingsModal(_DT._selectedId);
-}
-function _dtFTDelete() {
-  if (_DT._selectedId == null) return;
-  _DT.drawings = _DT.drawings.filter(d => d.id !== _DT._selectedId);
-  _dtFTClose();
-}
-
-function _dtOpenSettings(id) {
-  const d = _DT.drawings.find(x => x.id === id);
-  if (!d) return;
-  _DT._selectedId = id;
-  _dtRedrawAll(); // highlight selected
-  _dtShowFloatToolbar(d);
-  _dtPlaceHandles(d);
-}
-
-function _dtShowFloatToolbar(d) {
-  const tb = document.getElementById('dt-float-toolbar');
-  // Position toolbar: try to place it near the drawing
-  const key = d.chartKey;
-  const rec = _DT._canvases[key];
-  let tx = window.innerWidth / 2 - 75, ty = 60;
-  if (rec?.canvas) {
-    const xy1 = _dtPtToXY(key, d.p1);
-    if (xy1) {
-      const r = rec.canvas.getBoundingClientRect();
-      tx = Math.min(Math.max(r.left + xy1.x - 75, 4), window.innerWidth - 160);
-      ty = Math.max(r.top + xy1.y - 60, 30);
-    }
-  }
-  tb.style.left = tx + 'px';
-  tb.style.top  = ty + 'px';
-  tb.classList.add('open');
-}
-
-// ── Drag Handles ─────────────────────────────────────────────────────────────
-const _DT_HANDLES = []; // [{el, ptKey}]  ptKey = 'p1'|'p2'
-
-function _dtRemoveHandles() {
-  _DT_HANDLES.forEach(h => h.el.remove());
-  _DT_HANDLES.length = 0;
-}
-
-function _dtPlaceHandles(d) {
-  _dtRemoveHandles();
-  const key = d.chartKey;
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas) return;
-
-  const pts = d.p2 ? ['p1','p2'] : ['p1'];
-  pts.forEach(ptKey => {
-    const el = document.createElement('div');
-    el.className = 'dt-handle';
-    document.body.appendChild(el);
-    _DT_HANDLES.push({el, ptKey});
-    _dtPositionHandle(el, d, key, ptKey);
-    _dtAttachHandleDrag(el, d, key, ptKey);
-  });
-}
-
-function _dtPositionHandle(el, d, key, ptKey) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas) return;
-  const pt = d[ptKey];
-  if (!pt) return;
-  const xy = _dtPtToXY(key, pt);
-  if (!xy) return;
-  const r = rec.canvas.getBoundingClientRect();
-  // For hline: handle in the middle horizontally
-  let cx = r.left + xy.x, cy = r.top + xy.y;
-  if (d.tool === 'hline') cx = r.left + (r.width / 2);
-  if (d.tool === 'vline') cy = r.top  + (r.height / 2);
-  el.style.left = cx + 'px';
-  el.style.top  = cy + 'px';
-}
-
-function _dtAttachHandleDrag(el, d, key, ptKey) {
-  const rec = _DT._canvases[key];
-  if (!rec?.canvas) return;
-
-  let dragging = false;
-
-  const onMove = (e) => {
-    if (!dragging) return;
-    e.preventDefault();
-    const src = e.touches ? e.touches[0] : e;
-    const r = rec.canvas.getBoundingClientRect();
-    const x = src.clientX - r.left;
-    const y = src.clientY - r.top;
-    const pt = _dtXYtoChartPt(key, x, y);
-    if (!pt) return;
-
-    if (d.tool === 'hline') {
-      // hline: only move price (y), keep time
-      d.p1.price = pt.price;
-    } else if (d.tool === 'vline') {
-      // vline: only move time (x), keep price
-      d.p1.time = pt.time;
-    } else {
-      d[ptKey] = pt;
-    }
-
-    // Update handle position
-    _dtPositionHandle(el, d, key, ptKey);
-    // Update other handle too
-    _DT_HANDLES.forEach(h => {
-      if (h.el !== el) _dtPositionHandle(h.el, d, key, h.ptKey);
-    });
-    // Update toolbar position
-    _dtShowFloatToolbar(d);
-    _dtRedrawAll();
-  };
-
-  const onDown = (e) => {
-    dragging = true;
-    e.preventDefault(); e.stopPropagation();
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchmove', onMove, {passive:false});
-    document.addEventListener('touchend', onUp);
-  };
-  const onUp = () => {
-    if (!dragging) return;
-    dragging = false;
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup', onUp);
-    document.removeEventListener('touchmove', onMove);
-    document.removeEventListener('touchend', onUp);
-  };
-
-  el.addEventListener('mousedown',  onDown);
-  el.addEventListener('touchstart', onDown, {passive:false});
-}
-
-// Refresh handle positions on chart pan/zoom
-function _dtRefreshHandles() {
-  if (_DT._selectedId == null) return;
-  const d = _DT.drawings.find(x => x.id === _DT._selectedId);
-  if (!d) return;
-  _DT_HANDLES.forEach(h => _dtPositionHandle(h.el, d, d.chartKey, h.ptKey));
-}
-
-// ── Full settings modal (opened from toolbar ⚙️) ─────────────────────────────
-function _dtOpenSettingsModal(id) {
-  const d = _DT.drawings.find(x => x.id === id);
-  if (!d) return;
-  _DT._selectedId = id;
-  _DT._setColor = d.color || _DT_DEF_COLOR;
-  _DT._setWidth = d.width || 2;
-  _DT._setStyle = d.style || 'solid';
-  _DT._setTfs   = [...(d.tfs||[])];
-
-  const info = _DT_TOOLS[d.tool] || {};
-  document.getElementById('dt-set-title').textContent = (info.icon||'') + ' ' + (info.label||'Drawing') + ' Settings';
-  document.getElementById('dts-color-swatch').style.background = _DT._setColor;
-  document.getElementById('dts-color-inp').value = _DT._setColor;
-  document.querySelectorAll('.dts-w-btn').forEach(b =>
-    b.classList.toggle('on', parseInt(b.dataset.w) === _DT._setWidth));
-  document.querySelectorAll('.dts-style-btn').forEach(b =>
-    b.classList.toggle('on', b.dataset.s === _DT._setStyle));
-
-  const tfSec = document.getElementById('dts-tf-section');
-  if (_DT_HAS_TF.includes(d.tool)) { tfSec.style.display=''; _dtBuildTFChips(); }
-  else tfSec.style.display = 'none';
-
-  _dtUpdatePreview();
-  document.getElementById('dt-settings-overlay').classList.add('open');
-}
-
-function _dtCloseSettings() {
-  document.getElementById('dt-settings-overlay').classList.remove('open');
-  // Apply was already saved in _dtsApply; just close modal, keep selection + handles
-  _dtRedrawAll();
-}
-
-function _dtDeleteSelected() {
-  if (_DT._selectedId == null) return;
-  _DT.drawings = _DT.drawings.filter(d => d.id !== _DT._selectedId);
-  document.getElementById('dt-settings-overlay').classList.remove('open');
-  _dtFTClose();
-}
-
-function _dtsApply() {
-  if (_DT._selectedId == null) return;
-  const d = _DT.drawings.find(x => x.id === _DT._selectedId);
-  if (!d) return;
-  d.color = _DT._setColor;
-  d.width = _DT._setWidth;
-  d.style = _DT._setStyle;
-  d.tfs   = [..._DT._setTfs];
-  _dtCloseSettings();
-}
-
-function _dtsSetWidth(w, btn) {
-  _DT._setWidth = w;
-  document.querySelectorAll('.dts-w-btn').forEach(b => b.classList.toggle('on', parseInt(b.dataset.w)===w));
-  _dtUpdatePreview();
-}
-
-function _dtsSetStyle(s, btn) {
-  _DT._setStyle = s;
-  document.querySelectorAll('.dts-style-btn').forEach(b => b.classList.toggle('on', b.dataset.s===s));
-  _dtUpdatePreview();
-}
-
-function _dtInitSettingsColorPicker() {
-  const inp = document.getElementById('dts-color-inp');
-  const sw  = document.getElementById('dts-color-swatch');
-  if (!inp || !sw) return;
-  inp.addEventListener('input', () => {
-    _DT._setColor = inp.value;
-    sw.style.background = inp.value;
-    _dtUpdatePreview();
-  });
-}
-
-// TF chips inside settings modal
-function _dtBuildTFChips() {
-  const wrap = document.getElementById('dts-tf-chips');
-  if (!wrap) return;
-  wrap.innerHTML = '';
-  // gather all TFs from the app
-  let tfs = [];
-  try { tfs = allTFsSorted().map(x => ({label: x.label, tfMin: x.tfMin})); } catch(_) {}
-  if (!tfs.length) {
-    tfs = [5,15,45,135,160,480,1440,4320].map(m => ({label: tfMinToLabel ? tfMinToLabel(m) : m+'m', tfMin: m}));
-  }
-  tfs.forEach(({label, tfMin}) => {
-    const chip = document.createElement('button');
-    chip.className = 'dts-tf-chip';
-    chip.textContent = label;
-    chip.dataset.tf = tfMin;
-    chip.classList.toggle('on', _DT._setTfs.includes(tfMin));
-    chip.addEventListener('click', () => {
-      const idx = _DT._setTfs.indexOf(tfMin);
-      if (idx === -1) _DT._setTfs.push(tfMin);
-      else _DT._setTfs.splice(idx, 1);
-      chip.classList.toggle('on', _DT._setTfs.includes(tfMin));
-    });
-    wrap.appendChild(chip);
-  });
-}
-
-// Preview canvas in settings modal
-function _dtUpdatePreview() {
-  const canvas = document.getElementById('dt-prev-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0,0,W,H);
-  ctx.save();
-  ctx.strokeStyle = _DT._setColor;
-  ctx.fillStyle   = _DT._setColor;
-  ctx.lineWidth   = _DT._setWidth;
-  ctx.setLineDash(_dtLineDash(_DT._setStyle, _DT._setWidth));
-  ctx.beginPath(); ctx.moveTo(20, H/2); ctx.lineTo(W-20, H/2); ctx.stroke();
-  ctx.restore();
-}
-
-// ── Undo / Clear ──────────────────────────────────────────────────────────────
-function _dtUndoLast() {
-  if (!_DT.drawings.length) return;
-  _DT.drawings.pop();
-  _dtRedrawAll(); _dtClosePanel(); _dtUpdateEditCursor();
-}
-function _dtClearAll() {
-  if (!confirm('Sare drawings delete karein?')) return;
-  _DT.drawings = []; _DT._active = false; _DT._p1 = null;
-  _dtRedrawAll(); _dtClosePanel(); _dtUpdateEditCursor();
-}
-
-// ── Favourites ────────────────────────────────────────────────────────────────
-function _dtToggleFav(tool, starBtn) {
-  const idx = _DT.favs.indexOf(tool);
-  if (idx === -1) { _DT.favs.push(tool); starBtn.textContent='★'; starBtn.classList.add('on'); }
-  else            { _DT.favs.splice(idx,1); starBtn.textContent='☆'; starBtn.classList.remove('on'); }
-  try { _LS.setItem(_DT_LSKEY_FAV, JSON.stringify(_DT.favs)); } catch(_) {}
-  _dtRefreshFavBar();
-}
-function _dtRefreshPanelStars() {
-  document.querySelectorAll('.dp-fav-star').forEach(btn => {
-    const on = _DT.favs.includes(btn.dataset.tool);
-    btn.textContent = on ? '★' : '☆'; btn.classList.toggle('on', on);
-  });
-}
-function _dtRefreshFavBar() {
-  const container = document.getElementById('fav-bar-tools');
-  const emptyEl   = document.getElementById('fav-bar-empty');
-  if (!container) return;
-  container.querySelectorAll('.fav-tool-btn').forEach(b => b.remove());
-  if (!_DT.favs.length) { if (emptyEl) emptyEl.style.display=''; return; }
-  if (emptyEl) emptyEl.style.display='none';
-  _DT.favs.forEach(tool => {
-    const info = _DT_TOOLS[tool]; if (!info) return;
-    const btn = document.createElement('button');
-    btn.className='fav-tool-btn'; btn.dataset.tool=tool; btn.title=info.label; btn.textContent=info.icon;
-    btn.classList.toggle('active', _DT.tool===tool);
-    btn.addEventListener('click', () => _dtSelect(tool, null));
-    container.appendChild(btn);
-  });
-}
-function _dtShowFavBar() {
-  const bar = document.getElementById('fav-bar'); if (!bar) return;
-  bar.classList.add('visible');
-  if (_DT.favBarPos.x !== null) { bar.style.left=_DT.favBarPos.x+'px'; bar.style.top=_DT.favBarPos.y+'px'; bar.style.transform='none'; }
-  _dtClosePanel();
-}
-function _dtHideFavBar() { document.getElementById('fav-bar')?.classList.remove('visible'); }
-
-// ── Draggable Fav Bar ─────────────────────────────────────────────────────────
-function _dtInitFavBarDrag() {
-  const bar=document.getElementById('fav-bar'), drag=document.getElementById('fav-bar-drag');
-  if (!bar||!drag) return;
-  let _ox=0,_oy=0,_bx=0,_by=0,_dragging=false;
-  const start=(e)=>{
-    _dragging=true; const src=e.touches?e.touches[0]:e;
-    _ox=src.clientX; _oy=src.clientY;
-    const r=bar.getBoundingClientRect(); _bx=r.left; _by=r.top;
-    bar.style.transform='none'; e.preventDefault();
-  };
-  const move=(e)=>{
-    if(!_dragging) return; const src=e.touches?e.touches[0]:e;
-    bar.style.left=(_bx+src.clientX-_ox)+'px'; bar.style.top=(_by+src.clientY-_oy)+'px'; e.preventDefault();
-  };
-  const end=()=>{
-    if(!_dragging) return; _dragging=false;
-    const r=bar.getBoundingClientRect(); _DT.favBarPos={x:r.left,y:r.top};
-    try{_LS.setItem(_DT_LSKEY_POS,JSON.stringify(_DT.favBarPos));}catch(_){}
-  };
-  drag.addEventListener('mousedown', start);
-  document.addEventListener('mousemove', move);
-  document.addEventListener('mouseup', end);
-  drag.addEventListener('touchstart', start,{passive:false});
-  document.addEventListener('touchmove', move,{passive:false});
-  document.addEventListener('touchend', end);
-}
-
-// ── Auto-hook into existing charts ────────────────────────────────────────────
-function _dtHookMainChart() {
-  if (typeof chart !== 'undefined' && chart && typeof mainSeries !== 'undefined' && mainSeries) {
-    const el = document.getElementById('main-chart');
-    if (el) _dtRegisterChart('main', chart, mainSeries, el);
-  }
-}
-function _dtHookCellChart(idx) {
-  const c = (typeof CELLS !== 'undefined') ? CELLS[idx] : null;
-  if (!c?.chart || !c.series) return;
-  const el = document.getElementById('cell-chart-'+idx);
-  if (el) _dtRegisterChart('cell_'+idx, c.chart, c.series, el);
-}
-(function _dtAutoHook() {
-  let tries=0;
-  const tryHook=()=>{
-    tries++;
-    _dtHookMainChart();
-    if (typeof CELLS !== 'undefined' && CELLS.length)
-      CELLS.forEach((_,i) => _dtHookCellChart(i));
-    if (tries < 30) setTimeout(tryHook, 800);
-  };
-  setTimeout(tryHook, 1200);
-})();
-
-// ── Close panel on outside click ──────────────────────────────────────────────
-document.addEventListener('click', (e) => {
-  const panel=document.getElementById('draw-panel'), btn=document.getElementById('draw-btn');
-  if (!panel?.classList.contains('open')) return;
-  if (!panel.contains(e.target) && e.target!==btn && !btn.contains(e.target)) _dtClosePanel();
-}, true);
-
-// Close float toolbar on outside tap
-document.addEventListener('touchend', (e) => {
-  const tb = document.getElementById('dt-float-toolbar');
-  if (!tb?.classList.contains('open')) return;
-  const isHandle = e.target?.classList?.contains('dt-handle');
-  if (!tb.contains(e.target) && !isHandle) {
-    // check if tapped on a drawing
-    const tap = e.changedTouches[0];
-    let hitAny = false;
-    Object.keys(_DT._canvases).forEach(key => {
-      const rec = _DT._canvases[key];
-      if (!rec?.canvas) return;
-      const r = rec.canvas.getBoundingClientRect();
-      const x = tap.clientX - r.left, y = tap.clientY - r.top;
-      if (_dtHitTest(key, x, y)) hitAny = true;
-    });
-    if (!hitAny) _dtFTClose();
-  }
-}, {passive:true});
-
-// ── Escape = deselect tool ────────────────────────────────────────────────────
-document.addEventListener('keydown', (e) => {
-  if (e.key==='Escape') {
-    if (document.getElementById('dt-settings-overlay')?.classList.contains('open')) _dtCloseSettings();
-    else if (_DT.tool) _dtDeselect();
-  }
-});
-
-// ── Close settings on overlay backdrop tap ────────────────────────────────────
-document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) => {
-  if (e.target === document.getElementById('dt-settings-overlay')) _dtCloseSettings();
 });
 
 
@@ -10217,12 +7889,6 @@ function _replayToggleMinimize() {
         ⏱ <span id="rp-tf-menu-label">--</span>
       </button>
 
-      <!-- Draw button -->
-      <button onclick="toggleDrawPanel()"
-        style="height:18px;padding:0 7px;background:#2a2e39;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;flex-shrink:0;">
-        ✏️ Draw
-      </button>
-
       <!-- Hamburger / TF-bar toggle -->
       <button onclick="toggleTfBar()"
         style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -10436,8 +8102,8 @@ function _replayToggleMinimize() {
     // DOM Elements check
     var domChecks = [
       'app','hdr','tf-bar','stack-view','stack-container',
-      'bottom-bar','workspace','grid-view','grid-picker',
-      'draw-panel','layout-menu','stack-settings-panel',
+      'bottom-bar',
+      'layout-menu','stack-settings-panel',
       'ind-panel','settings-modal','goto-latest-btn'
     ];
     setTimeout(function(){
