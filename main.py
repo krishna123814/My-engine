@@ -997,69 +997,138 @@ def _register_api_route():
                         available_keys = [k for k in _data.keys() if k != "meta"]
                         debug_log.append(f"[10] Available TF keys: {available_keys}")
 
-                        # ── Step C: TF lookup (exact → lowercase fallback) ─────
-                        tf_list = _data.get(tf)
-                        matched_key = tf
-                        if tf_list is None:
+                        # ── Resampling maps ───────────────────────────────────
+                        # BankNifty: bar-count based (session gaps ko handle karta hai)
+                        # 1 trading day = 75 bars (9:15–15:30, 5m each)
+                        _BN_TF_BARS = {
+                            "5m":   1,
+                            "15m":  3,
+                            "45m":  9,
+                            "135m": 27,
+                            "1d":   75,
+                            "3d":   225,
+                            "9d":   675,
+                            "27d":  2025,
+                        }
+                        # BTC: timestamp bucket based (24x7, no gaps)
+                        _BTC_TF_SECS = {
+                            "5m":   300,
+                            "160m": 9600,
+                            "8h":   28800,
+                            "1d":   86400,
+                            "3d":   259200,
+                            "9d":   777600,
+                            "27d":  2332800,
+                        }
+
+                        def _resample_bn(rows, tf_key):
+                            """Bar-count grouping for BankNifty (handles session gaps)."""
+                            factor = _BN_TF_BARS.get(tf_key.lower(), 0)
+                            if factor <= 1:
+                                return rows
+                            out = []
+                            for i in range(0, len(rows), factor):
+                                grp = rows[i : i + factor]
+                                if not grp:
+                                    continue
+                                out.append({
+                                    "t": grp[0]["t"],
+                                    "o": grp[0]["o"],
+                                    "h": max(r["h"] for r in grp),
+                                    "l": min(r["l"] for r in grp),
+                                    "c": grp[-1]["c"],
+                                })
+                            return out
+
+                        def _resample_btc(rows, tf_key):
+                            """Timestamp-bucket grouping for BTC (24x7 continuous)."""
+                            interval = _BTC_TF_SECS.get(tf_key.lower(), 0)
+                            if interval <= 300:
+                                return rows
+                            out = []
+                            bucket_start = None
+                            grp = []
+                            for row in rows:
+                                t      = row["t"]
+                                bucket = (t // interval) * interval
+                                if bucket != bucket_start:
+                                    if grp:
+                                        out.append({
+                                            "t": bucket_start,
+                                            "o": grp[0]["o"],
+                                            "h": max(r["h"] for r in grp),
+                                            "l": min(r["l"] for r in grp),
+                                            "c": grp[-1]["c"],
+                                        })
+                                    grp          = [row]
+                                    bucket_start = bucket
+                                else:
+                                    grp.append(row)
+                            if grp:  # flush last bucket
+                                out.append({
+                                    "t": bucket_start,
+                                    "o": grp[0]["o"],
+                                    "h": max(r["h"] for r in grp),
+                                    "l": min(r["l"] for r in grp),
+                                    "c": grp[-1]["c"],
+                                })
+                            return out
+
+                        # ── Step C: Get base 5m data (always "5m" key in both files) ──
+                        # Both files store only 5m raw data — we resample on-the-fly.
+                        # Try requested tf key first (future-proof), else fall back to "5m".
+                        base_key = tf if _data.get(tf) is not None else None
+                        if base_key is None:
                             for k in _data.keys():
                                 if k.lower() == tf.lower():
-                                    tf_list = _data[k]
-                                    matched_key = k
-                                    debug_log.append(f"[11] '{tf}' matched via lowercase → '{k}'")
+                                    base_key = k
                                     break
+                        # If tf not found as a key, load raw 5m and resample
+                        if base_key is None:
+                            base_key = "5m" if "5m" in _data else (available_keys[0] if available_keys else None)
+                            debug_log.append(f"[11] TF '{tf}' not a stored key → loading '{base_key}' for resampling")
+                        else:
+                            debug_log.append(f"[11] TF '{tf}' found as stored key '{base_key}'")
+
+                        tf_list = _data.get(base_key) if base_key else None
+
                         if tf_list is None:
-                            debug_log.append(f"[11] ❌ TF '{tf}' NOT found. Keys: {available_keys}")
+                            debug_log.append(f"[11] ❌ No usable data found. Keys: {available_keys}")
                             body = json.dumps({"error": "tf_not_found", "tf_requested": tf, "available": available_keys, "debug": debug_log}).encode()
                             self.send_response(404)
                         else:
-                            total_rows = len(tf_list)
-                            start  = chunk * CHUNK_SIZE
-                            end    = min(start + CHUNK_SIZE, total_rows)
-                            slice_list = tf_list[start:end]
-                            debug_log.append(f"[11] TF='{matched_key}'  rows={total_rows}  chunk={chunk}  slice={start}→{end}")
+                            # ── Step C.5: Resample 5m → requested TF ─────────
+                            raw_count = len(tf_list)
+                            if asset == "bn":
+                                tf_list = _resample_bn(tf_list, tf)
+                                debug_log.append(f"[C.5] BN bar-count resample: {raw_count} 5m bars → {len(tf_list)} {tf} candles")
+                            else:
+                                tf_list = _resample_btc(tf_list, tf)
+                                debug_log.append(f"[C.5] BTC timestamp resample: {raw_count} 5m bars → {len(tf_list)} {tf} candles")
 
-                            # ── Step D: Convert JSON rows → OHLC candles ──────
-                            # BN format:  {"ts": "2015-01-09 09:15", "o": ..., "h": ..., "l": ..., "c": ...}
-                            # BTC format: {"Datetime": "2017-01-01T05:30:00.000", "Open": ..., "High": ..., "Low": ..., "Close": ...}
-                            import datetime as _dt
+                            # ── Step D: Chunk + convert to final OHLC format ──
+                            total_rows = len(tf_list)
+                            start      = chunk * CHUNK_SIZE
+                            end        = min(start + CHUNK_SIZE, total_rows)
+                            slice_list = tf_list[start:end]
+                            debug_log.append(f"[D] chunk={chunk}  slice={start}→{end}  total={total_rows}")
+
                             candles  = []
                             bad_rows = 0
                             for row in slice_list:
                                 try:
-                                    # ── Timestamp ──────────────────────────────
-                                    ts_str = (row.get("ts") or row.get("Datetime") or "").strip()
-                                    if "T" in ts_str:
-                                        # ISO: "2017-01-01T05:30:00.000" — already UTC
-                                        dt_obj = _dt.datetime.strptime(ts_str[:16], "%Y-%m-%dT%H:%M")
-                                        ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
-                                    elif " " in ts_str:
-                                        # "2015-01-09 09:15" — IST, convert to UTC
-                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d %H:%M")
-                                        IST_OFFSET = _dt.timedelta(hours=5, minutes=30)
-                                        ts = int((dt_obj - IST_OFFSET).replace(tzinfo=_dt.timezone.utc).timestamp())
-                                    else:
-                                        # "2015-01-09" — date only
-                                        dt_obj = _dt.datetime.strptime(ts_str, "%Y-%m-%d")
-                                        ts = int(dt_obj.replace(tzinfo=_dt.timezone.utc).timestamp())
-
-                                    # ── OHLC: BN lowercase keys, BTC Title case keys ──
-                                    o = float(row.get("o") or row.get("Open"))
-                                    h = float(row.get("h") or row.get("High"))
-                                    l = float(row.get("l") or row.get("Low"))
-                                    c = float(row.get("c") or row.get("Close"))
-
                                     candles.append({
-                                        "time":  ts,
-                                        "open":  round(o, 2),
-                                        "high":  round(h, 2),
-                                        "low":   round(l, 2),
-                                        "close": round(c, 2),
+                                        "time":  int(row["t"]),
+                                        "open":  round(float(row["o"]), 2),
+                                        "high":  round(float(row["h"]), 2),
+                                        "low":   round(float(row["l"]), 2),
+                                        "close": round(float(row["c"]), 2),
                                     })
                                 except Exception:
                                     bad_rows += 1
 
                             total_elapsed = round(time.time() - t0, 2)
-                            debug_log.append(f"[12] Candles={len(candles)}  bad_rows={bad_rows}  total={total_elapsed}s")
+                            debug_log.append(f"[E] Candles={len(candles)}  bad_rows={bad_rows}  elapsed={total_elapsed}s")
 
                             result = {
                                 "candles":      candles,
