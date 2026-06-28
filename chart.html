@@ -502,67 +502,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .lm-new-btn:hover{color:#d1d4dc;border-color:#555}
 
-/* ── Broker (Fyers) Panel ────────────────────────────────────────── */
-#broker-btn{
-  height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;
-  border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;
-  cursor:pointer;white-space:nowrap;flex-shrink:0;
-}
-#broker-btn:active{background:#2a2e39}
-#broker-btn.bk-live{border-color:#26a69a;color:#26a69a}
-#broker-btn.bk-dead{border-color:#ef5350;color:#ef5350}
-#broker-panel{
-  display:none;position:fixed;top:28px;right:6px;z-index:9500;
-  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
-  width:min(320px,96vw);box-shadow:0 8px 32px #000b;overflow:hidden;
-}
-#broker-panel.open{display:block}
-.bk-hdr{
-  display:flex;align-items:center;padding:10px 12px 8px;
-  border-bottom:1px solid #2a2e39;gap:6px;
-}
-.bk-hdr-title{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
-.bk-status-dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0}
-.bk-status-dot.live{background:#26a69a;box-shadow:0 0 5px #26a69a}
-.bk-status-dot.dead{background:#ef5350}
-.bk-status-txt{font-size:10px;color:#787b86}
-.bk-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
-.bk-close:hover{color:#d1d4dc}
-.bk-body{padding:10px 12px 12px}
-.bk-row{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
-.bk-lbl{font-size:10px;color:#787b86;font-weight:600}
-.bk-inp{
-  height:28px;background:#131722;border:1px solid #363c4e;border-radius:4px;
-  color:#d1d4dc;font-size:11px;padding:0 8px;outline:none;width:100%;
-  -webkit-user-select:auto;user-select:auto;
-}
-.bk-inp:focus{border-color:#2962ff}
-.bk-inp.bk-url{height:34px;font-size:10px}
-.bk-row2{display:flex;gap:6px;margin-bottom:8px}
-.bk-row2 .bk-row{flex:1;margin-bottom:0}
-.bk-link{
-  display:block;margin-bottom:8px;padding:8px;
-  background:#162044;border:1px solid #2962ff44;border-radius:4px;
-  color:#5b9cf6;font-size:11px;text-align:center;cursor:pointer;text-decoration:none;
-}
-.bk-link:hover{background:#1a2a55;border-color:#2962ff}
-.bk-divider{height:1px;background:#2a2e39;margin:8px 0}
-.bk-hint{font-size:10px;color:#555;margin-bottom:6px}
-.bk-connect-btn{
-  width:100%;height:34px;background:#2962ff;border:none;border-radius:5px;
-  color:#fff;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;
-}
-.bk-connect-btn:active{background:#1a53e0}
-.bk-connect-btn:disabled{background:#363c4e;color:#555;cursor:not-allowed}
-.bk-msg{font-size:11px;margin-top:6px;text-align:center;min-height:16px}
-.bk-msg.ok{color:#26a69a} .bk-msg.err{color:#ef5350}
-/* ── Broker panel tabs ── */
-.bk-tabs{display:flex;border-bottom:1px solid #2a2e39;margin-bottom:10px;gap:2px}
-.bk-tab-btn{flex:1;height:26px;background:transparent;border:none;border-bottom:2px solid transparent;color:#787b86;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.3px}
-.bk-tab-btn.active{color:#2962ff;border-bottom-color:#2962ff}
-.bk-tab-pane{display:none}
-.bk-tab-pane.active{display:block}
-
 /* ── Workspace ───────────────────────────────────────────────────── */
 #workspace{flex:1;display:flex;overflow:hidden;min-height:0}
 
@@ -1233,13 +1172,6 @@ select.s-select{
 }
 .cell-timer-badge.timer-on{display:block}
 
-/* ── WS status ────────────────────────────────────────────────────── */
-#ws-dot{
-  display:inline-block;width:7px;height:7px;border-radius:50%;
-  background:#555;margin-right:4px;vertical-align:middle;
-}
-#ws-dot.live{background:#26a69a}
-#ws-status{font-size:10px;color:#787b86;white-space:nowrap;flex-shrink:0}
 
 /* ══ ADVANCED MOBILE TOUCH UX ═══════════════════════════════════════ */
 
@@ -1614,19 +1546,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
     <button class="hdr-icon-btn" id="layout-btn" onclick="toggleLayoutMenu(event)" title="Layouts">⊟</button>
-    <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
+
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
-    <button class="hdr-icon-btn" id="gh-save-btn" 
-      onclick="GH.push(true)" 
-      oncontextmenu="event.preventDefault(); GH.reset();"
-      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
-      ontouchend="clearTimeout(this._ghLong)"
-      title="Save to GitHub (Long-press to reset token)" 
-      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
-      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-    </button>
-    <span id="ws-status"><span id="ws-dot"></span></span>
+
+
   </div>
 </div>
 
@@ -1654,51 +1578,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
   
-  <!-- GitHub Sync Buttons (Moved to Top) -->
-  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
-    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
-    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
-      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
-      PULL (Restore)
-    </button>
-    <button onclick="GH.reset()" 
-      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
-      Reset
-    </button>
-  </div>
 
-  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
-    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
-    <!-- Auto-save toggle -->
-    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
-      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
-             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
-             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
-      title="Auto-save on/off">⚡ Auto</button>
-    <!-- Cloud on/off toggle -->
-    <button id="gd-toggle" onclick="gdToggle()"
-      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
-             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
-      title="Cloud sync on/off">🟢</button>
-    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
-  </div>
-
-  <!-- Manual token paste — popup URL copy karke yahan paste karo -->
-  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
-    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
-    <div style="display:flex;gap:6px;">
-      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
-        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
-               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
-      <button onclick="gdManualToken()"
-        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
-               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
-        ✓ OK
-      </button>
-    </div>
-  </div>
-  <!-- ss-status hidden — sirf internal use -->
-  <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
 </div>
@@ -1848,62 +1728,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
 </div>
 
-<!-- ═══ BROKER (FYERS) PANEL ════════════════════════════════════════════ -->
-<div id="broker-panel">
-  <div class="bk-hdr">
-    <span class="bk-status-dot" id="bk-dot"></span>
-    <span class="bk-hdr-title">🔑 Fyers Broker</span>
-    <span class="bk-status-txt" id="bk-status-txt">Checking…</span>
-    <button class="bk-close" onclick="toggleBrokerPanel()">✕</button>
-  </div>
-  <div class="bk-body">
-    <!-- Shared: App ID + Secret -->
-    <div class="bk-row2">
-      <div class="bk-row">
-        <span class="bk-lbl">APP ID</span>
-        <input class="bk-inp" id="bk-app-id" value="__FYERS_APP_ID__" placeholder="XXXXXXXX-100">
-      </div>
-      <div class="bk-row">
-        <span class="bk-lbl">SECRET KEY</span>
-        <input class="bk-inp" id="bk-secret" value="__FYERS_SECRET__" placeholder="XXXXXXXXXX">
-      </div>
-    </div>
 
-    <!-- Tab buttons -->
-    <div class="bk-tabs">
-      <button class="bk-tab-btn active" onclick="bkSwitchTab('manual',this)">🔗 Google URL</button>
-      <button class="bk-tab-btn" onclick="bkSwitchTab('totp',this)">🤖 TOTP Auto</button>
-    </div>
-
-    <!-- Tab 1: Manual Google URL -->
-    <div class="bk-tab-pane active" id="bk-pane-manual">
-      <div class="bk-lbl" style="margin-bottom:4px">STEP 1 — Fyers login link kholo</div>
-      <a id="bk-login-link" class="bk-link" href="#" target="_blank" onclick="bkOpenLogin(event)">
-        👉 Fyers Login Link Open Karo (new tab)
-      </a>
-      <div class="bk-divider"></div>
-      <div class="bk-lbl" style="margin-bottom:4px">STEP 2 — Google URL ya auth_code paste karo</div>
-      <div class="bk-hint">Login ke baad Google page aayega → poora URL paste karo</div>
-      <div class="bk-row">
-        <input class="bk-inp bk-url" id="bk-url-inp" placeholder="https://www.google.com/?s=ok&auth_code=eyJ…" oninput="bkOnUrlInput(this)">
-      </div>
-      <div id="bk-code-preview" style="font-size:9px;color:#555;margin:-4px 0 6px;word-break:break-all;min-height:12px"></div>
-      <button class="bk-connect-btn" id="bk-conn-btn" onclick="bkConnect()" disabled>⚡ Connect</button>
-      <div class="bk-msg" id="bk-msg"></div>
-    </div>
-
-    <!-- Tab 2: TOTP Auto Login -->
-    <div class="bk-tab-pane" id="bk-pane-totp">
-      <div class="bk-lbl" style="margin-bottom:4px">TOTP Secret (32-char key — ek baar daalo)</div>
-      <div class="bk-hint">Google Authenticator / Authy mein Fyers ka backup key</div>
-      <div class="bk-row">
-        <input class="bk-inp" id="bk-totp-secret" type="password" placeholder="JBSWY3DPEHPK3PXP…" style="letter-spacing:1px">
-      </div>
-      <button class="bk-connect-btn" id="bk-totp-btn" onclick="bkTotpLogin()" style="margin-top:4px">🚀 Auto Login (TOTP)</button>
-      <div class="bk-msg" id="bk-totp-msg"></div>
-    </div>
-  </div>
-</div>
 
 <!-- ═══ SINGLE-CHART WORKSPACE ══════════════════════════════════════════ -->
 <div id="workspace">
@@ -2653,10 +2478,6 @@ function loadFromSlot(idx) {
   setLayout(slot.layout || '1x1', null);
   _renderLayoutDropdown();
 
-  // ── Start/stop live polling based on restored asset ────────────────────
-  if (slot.asset === BN_ASSET) _startBNPolling();
-  else _stopBNPolling();
-
   // Close menu
   const menu = document.getElementById('layout-menu');
   if (menu) menu.style.display = 'none';
@@ -2704,182 +2525,6 @@ function toggleLayoutMenu(e) {
   }, 0);
 }
 
-// ══ BROKER (FYERS) PANEL LOGIC ═══════════════════════════════════════════════
-const _BK_STATUS = '__FYERS_STATUS__'; // injected by Python: 'connected' | 'disconnected'
-const _API_PORT  = __API_PORT__;       // injected by Python: side HTTP server port (e.g. 8502), 0 = not ready
-
-function _bkInitStatus() {
-  const dot  = document.getElementById('bk-dot');
-  const txt  = document.getElementById('bk-status-txt');
-  const btn  = document.getElementById('broker-btn');
-  const live = _BK_STATUS === 'connected';
-  if (dot) { dot.className = 'bk-status-dot ' + (live ? 'live' : 'dead'); }
-  if (txt) { txt.textContent = live ? '● Live' : '○ Not connected'; }
-  if (btn) { btn.className = live ? 'bk-live' : 'bk-dead'; }
-}
-
-let _bkOutsideHandler = null;
-function toggleBrokerPanel(e) {
-  if (e) e.stopPropagation();
-  const panel = document.getElementById('broker-panel');
-  if (!panel) return;
-  const isOpen = panel.classList.contains('open');
-  if (isOpen) {
-    panel.classList.remove('open');
-    if (_bkOutsideHandler) { document.removeEventListener('click', _bkOutsideHandler, true); _bkOutsideHandler = null; }
-    return;
-  }
-  panel.classList.add('open');
-  _bkInitStatus();
-  _bkUpdateLoginLink();
-  // Close on outside click
-  setTimeout(() => {
-    _bkOutsideHandler = function _bkOut(ev) {
-      const b = document.getElementById('broker-btn');
-      if (!panel.contains(ev.target) && ev.target !== b && !(b && b.contains(ev.target))) {
-        panel.classList.remove('open');
-        document.removeEventListener('click', _bkOut, true);
-        _bkOutsideHandler = null;
-      }
-    };
-    document.addEventListener('click', _bkOutsideHandler, { capture: true });
-  }, 0);
-}
-
-function _bkUpdateLoginLink() {
-  const appId  = (document.getElementById('bk-app-id')  || {value:''}).value.trim() || '__FYERS_APP_ID__';
-  const link   = document.getElementById('bk-login-link');
-  if (!link) return;
-  const url = 'https://api-t1.fyers.in/api/v3/generate-authcode'
-    + '?client_id=' + encodeURIComponent(appId)
-    + '&redirect_uri=https%3A%2F%2Fwww.google.com'
-    + '&response_type=code&state=None';
-  link.href = url;
-}
-
-function bkOpenLogin(e) {
-  _bkUpdateLoginLink();
-  // allow default <a href> open
-}
-
-function _bkExtractCode(raw) {
-  raw = (raw || '').trim();
-  if (!raw) return '';
-  if (raw.startsWith('http')) {
-    try {
-      const u = new URL(raw);
-      return u.searchParams.get('auth_code') || '';
-    } catch(_) { return ''; }
-  }
-  // raw code pasted directly
-  return raw.length > 10 ? raw : '';
-}
-
-function bkOnUrlInput(inp) {
-  const code = _bkExtractCode(inp.value);
-  const preview = document.getElementById('bk-code-preview');
-  const connBtn = document.getElementById('bk-conn-btn');
-  if (preview) {
-    preview.textContent = code ? ('✓ Code: ' + code.slice(0, 28) + '…') : '';
-    preview.style.color = code ? '#26a69a' : '#555';
-  }
-  if (connBtn) connBtn.disabled = !code;
-}
-
-function bkConnect() {
-  const appId  = (document.getElementById('bk-app-id')  || {value:''}).value.trim();
-  const secret = (document.getElementById('bk-secret')  || {value:''}).value.trim();
-  const urlRaw = (document.getElementById('bk-url-inp') || {value:''}).value.trim();
-  const code   = _bkExtractCode(urlRaw);
-  const msg    = document.getElementById('bk-msg');
-
-  if (!code) {
-    if (msg) { msg.textContent = '❌ Valid URL ya auth_code paste karo'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (!appId || !secret) {
-    if (msg) { msg.textContent = '❌ App ID aur Secret fill karo'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (msg) { msg.textContent = '⏳ Connecting…'; msg.className = 'bk-msg'; }
-
-  // Streamlit iframe sandbox blocks window.parent.location.href assignment.
-  // Workaround: create a GET form in the PARENT document and submit it —
-  // parent-document forms are not subject to the child-frame sandbox.
-  try {
-    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-    const pdoc = window.parent.document;
-
-    const form = pdoc.createElement('form');
-    form.method = 'GET';
-    form.action = parentUrl;
-
-    const addHidden = (name, val) => {
-      const el = pdoc.createElement('input');
-      el.type = 'hidden'; el.name = name; el.value = val;
-      form.appendChild(el);
-    };
-    addHidden('fyers_app_id', appId);
-    addHidden('fyers_secret',  secret);
-    addHidden('fyers_code',    code);
-
-    pdoc.body.appendChild(form);
-    form.submit();
-  } catch(err) {
-    if (msg) { msg.textContent = '❌ Error: ' + err.message; msg.className = 'bk-msg err'; }
-  }
-}
-
-// ── Tab switching ─────────────────────────────────────────────────────────────
-function bkSwitchTab(name, btn) {
-  ['manual','totp'].forEach(t => {
-    const pane = document.getElementById('bk-pane-' + t);
-    if (pane) pane.classList.toggle('active', t === name);
-  });
-  document.querySelectorAll('.bk-tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-}
-
-// ── TOTP Auto Login ───────────────────────────────────────────────────────────
-function bkTotpLogin() {
-  const secret = (document.getElementById('bk-totp-secret') || {value:''}).value.trim();
-  const appId  = (document.getElementById('bk-app-id')     || {value:''}).value.trim();
-  const sec    = (document.getElementById('bk-secret')     || {value:''}).value.trim();
-  const msg    = document.getElementById('bk-totp-msg');
-  const btn    = document.getElementById('bk-totp-btn');
-
-  if (!secret) {
-    if (msg) { msg.textContent = '❌ TOTP secret daalo pehle'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (msg) { msg.textContent = '⏳ Logging in… (Steps 1→5)'; msg.className = 'bk-msg'; }
-  if (btn) btn.disabled = true;
-
-  try {
-    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-    const pdoc = window.parent.document;
-    const form = pdoc.createElement('form');
-    form.method = 'GET';
-    form.action = parentUrl;
-    const h = (name, val) => {
-      const el = pdoc.createElement('input');
-      el.type = 'hidden'; el.name = name; el.value = val;
-      form.appendChild(el);
-    };
-    h('totp_trigger', '1');
-    h('totp_secret',  secret);
-    h('fyers_app_id', appId);
-    h('fyers_secret', sec);
-    pdoc.body.appendChild(form);
-    form.submit();
-  } catch(err) {
-    if (msg) { msg.textContent = '❌ ' + err.message; msg.className = 'bk-msg err'; }
-    if (btn) btn.disabled = false;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', _bkInitStatus);
-// ─────────────────────────────────────────────────────────────────────────────
 
 function _flashBtn(id, msg) {
   const btn = document.getElementById(id);
@@ -3096,18 +2741,7 @@ let _stackActive = false;   // is Stack View the current layout mode RIGHT NOW?
 // _stackActive (which just tracks whether it's the currently-rendered mode).
 // On page load, if this is ON, Stack View is what gets built; if OFF, the
 // normal grid/1x1 system behaves exactly as before this feature existed.
-const _STACK_ONOFF_KEY = 'btcStackOnOff1';
-function _loadStackOnOff() {
-  try {
-    const raw = _LS.getItem(_STACK_ONOFF_KEY);
-    if (raw === null) return true;   // default ON
-    return raw === '1';
-  } catch(_) { return true; }
-}
-function _saveStackOnOff(on) {
-  try { _LS.setItem(_STACK_ONOFF_KEY, on ? '1' : '0'); } catch(_) {}
-}
-let _stackOnOff = _loadStackOnOff();
+let _stackOnOff = true; // always Stack View
 
 function _renderStackSwitch() {
   const btn = document.getElementById('gp-stack-switch');
@@ -3118,7 +2752,6 @@ function _renderStackSwitch() {
 // Switch flipped OFF → go back to whatever the normal grid/1x1 layout was.
 function toggleStackOnOff() {
   _stackOnOff = !_stackOnOff;
-  _saveStackOnOff(_stackOnOff);
   _renderStackSwitch();
   if (_stackOnOff) {
     selectStackView();
@@ -3294,7 +2927,6 @@ function selectStackView() {
 
   _stackActive = true;
   _stackOnOff  = true;
-  _saveStackOnOff(true);
   _renderStackSwitch();
   S.layout = 'stack';
   try { _LS.setItem('tvLayout', 'stack'); } catch(_) {}
@@ -3918,20 +3550,8 @@ function applyTF(tfMin) {
       if (SYNC.interval) { CELLS.forEach(c=>c.tf=tfMin); CELLS.forEach((_,i)=>buildCellChart(i)); }
       else buildCellChart(SELECTED_CELL);
       refreshCellHeaders(); wireSync();
-      // BTC grid cell ke liye WS ensure karo
-      if (CELLS[SELECTED_CELL] && CELLS[SELECTED_CELL].asset === BTC_ASSET) {
-        if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
-      }
+      // BTC grid cell ke liye WS ensure karo (no-op, live data removed)
     }
-  } else {
-    S.tf = tfMin; rebuildChart();
-    if (S.asset === BTC_ASSET) _loadBTCHistory(S.tf);
-    else if (S.asset === BN_ASSET) _loadBNHistory(S.tf);
-    // TF change par bucket reset — naya TF fresh accumulation se shuru karega
-    _bnBucket.tf = null; _bnBucket.time = null; _bnBucket.open = null;
-    _bnBucket.high = -Infinity; _bnBucket.low = Infinity; _bnBucket.close = null;
-    _btcBucket.tf = null; _btcBucket.time = null; _btcBucket.open = null;
-    _btcBucket.high = -Infinity; _btcBucket.low = Infinity; _btcBucket.close = null;
   }
   document.querySelectorAll('.tf-btn').forEach(b =>
     b.classList.toggle('active', +b.dataset.tf === tfMin));
@@ -5252,7 +4872,6 @@ function setLayout(key, btn) {
   document.getElementById('gp-stack-row')?.classList.remove('active');
   _stackActive = false;
   _stackOnOff  = false;
-  _saveStackOnOff(false);
   _renderStackSwitch();
   const sv=document.getElementById('stack-view');
   if (sv) sv.classList.remove('active');
@@ -5473,80 +5092,11 @@ async function buildCellChart(idx) {
   const myVer = ++c._buildVer;
 
   // --- 1. DATA RESOLUTION FOR GRID CELLS ---
-  // Daily+ TFs (≥1440 min, e.g. 27d/81d/243d): always use pre-loaded BTC_DAILY
-  // (3218 candles, 2017→now). Never browser-fetch — instant resampling only.
-  // Intraday TFs: use pre-loaded pools; only browser-fetch if pool is truly empty.
   let rawData = _baseDataFor(c.asset, c.tf);
-  if (c.tf >= 1440) {
-    if (c.asset === BTC_ASSET) {
-      // BTC_DAILY seedha check karo — _baseDataFor fallback 1m data deta hai jo galat hai
-      rawData = (Array.isArray(BTC_DAILY) && BTC_DAILY.length) ? BTC_DAILY : [];
-      if (!rawData.length) {
-        // BTC_DAILY empty hai (server ne inject nahi kiya) — browser se fetch karo
-        try {
-          let endTime   = Date.now();
-          let allKlines = [];
-          let pagesDone = 0;
-          const MAX_PAGES = 40;
-          while (pagesDone < MAX_PAGES) {
-            const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=1000&endTime=' + endTime;
-            const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-            if (c._buildVer !== myVer) return;
-            if (!r.ok) break;
-            const chunk = await r.json();
-            if (!chunk.length) break;
-            allKlines = [...chunk, ...allKlines];
-            pagesDone++;
-            if (parseInt(chunk[0][0]) <= BTC_LAUNCH_MS) break;
-            if (chunk.length < 1000) break;
-            endTime = parseInt(chunk[0][0]) - 1;
-            await new Promise(res => setTimeout(res, 80));
-          }
-          if (allKlines.length) {
-            const seen = new Set();
-            rawData = allKlines
-              .map(_parseKline)
-              .filter(b => { if (seen.has(b.time)) return false; seen.add(b.time); return true; })
-              .sort((a, b) => a.time - b.time);
-            // BTC_DAILY update karo — baaki cells dobara fetch nahi karenge
-            BTC_DAILY.length = 0;
-            rawData.forEach(x => BTC_DAILY.push(x));
-          }
-        } catch(e) {
-          rawData = [];
-        }
-      }
-    } else if (!rawData || !rawData.length) rawData = [];
-  } else if (c.asset === BN_ASSET) {
-    // BankNifty: always use Angel-injected data (no public Binance equivalent)
-    if (!rawData || !rawData.length) rawData = [];
-  } else {
-    // BTC intraday — seedha sahi pool check karo (bypass _baseDataFor fallback)
-    if (c.tf >= 15) {
-      rawData = (Array.isArray(BTC_15M) && BTC_15M.length) ? BTC_15M : [];
-    } else {
-      rawData = (Array.isArray(ALLDATA[c.asset]) && ALLDATA[c.asset].length) ? ALLDATA[c.asset] : [];
-    }
-    if (!rawData.length) {
-      try {
-        const iv = _binanceIvFor(c.tf);
-        const r = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=' + iv + '&limit=1000');
-        if (c._buildVer !== myVer) return;
-        if (r.ok) {
-          const klines = await r.json();
-          rawData = klines.map(_parseKline);
-          if (c.tf >= 15) { BTC_15M.length = 0; rawData.forEach(x=>BTC_15M.push(x)); }
-          else { ALLDATA[c.asset] = rawData; }
-        }
-      } catch(e) {
-        rawData = [];
-      }
-    }
+  if (c.tf >= 1440 && c.asset === BTC_ASSET) {
+    rawData = (Array.isArray(BTC_DAILY) && BTC_DAILY.length) ? BTC_DAILY : rawData;
   }
-  // ── BTC grid cell: ensure live WebSocket is running ──────────────────────
-  if (c.asset === BTC_ASSET && !_btcWsOk && !_btcPollTimer) {
-    _connectBTCWS();
-  }
+  if (!rawData || !rawData.length) rawData = [];
   // -------------------------------------------------------------------------
 
   const data=resampleForTF(rawData, c.tf, c.asset);
@@ -5602,10 +5152,6 @@ async function buildCellChart(idx) {
     clearTimeout(c._zoomTid);
     c._zoomTid = setTimeout(() => _saveZoom(c.asset, c.tf, r), 600);
   });
-  // Lazy history extension for BN grid cells
-  if (c.asset === BN_ASSET) {
-    _attachBNLazyScroll(c.chart, c.series, c.tf);
-  }
   c.chart.subscribeClick(()=>selectCell(idx));
   c._followLive = true;
   el.addEventListener('pointerdown', ()=>{ c._followLive = false; }, {passive:true});
@@ -6230,16 +5776,6 @@ function applyLegendVisibility() {
     if(ohlcGrp && !S.hdrOhlc) ohlcGrp.style.display = 'none';
   });
 }
-let _wsLive=false;
-function setLiveStatus(live) {
-  _wsLive=live;
-  const el=document.getElementById('leg-status');
-  if(el){
-    el.className='leg-status '+(live?'live':'closed');
-    el.innerHTML='<span class="leg-dot"></span>'+(live?'LIVE':'CLOSED');
-    el.style.display=S.legStatus?'':'none';
-  }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // FULLSCREEN
@@ -6536,1207 +6072,6 @@ function _positionTimerEl() {
 // Backward-compatible alias (older call sites may still reference _tickTimer)
 function _tickTimer(){ _tickTimerText(); _positionTimerEl(); }
 
-// ════════════════════════════════════════════════════════════════════════════
-// LIVE CANDLE — BTC/USDT via Binance WebSocket (tick-by-tick)
-// ════════════════════════════════════════════════════════════════════════════
-const _btcBucket={tf:null,time:null,open:null,high:-Infinity,low:Infinity,close:null};
-let _swingRebuildTimer=null, _btcRafId=0, _bnRafId=0;
-const BTC_ASSET='\u20bf BTC/USDT';
-
-// ── Asset switcher ────────────────────────────────────────────────────────
-let _assetPickerEl = null;
-let _assetPickerOutsideHandler = null;
-function _closeAssetPicker() {
-  if (_assetPickerEl) { _assetPickerEl.remove(); _assetPickerEl = null; }
-  if (_assetPickerOutsideHandler) { document.removeEventListener('click', _assetPickerOutsideHandler, true); _assetPickerOutsideHandler = null; }
-}
-function _openAssetPicker(btn) {
-  if (_assetPickerEl) { _closeAssetPicker(); return; }
-  const panel = document.createElement('div');
-  panel.className = 'cell-settings-panel open';
-  panel.style.cssText = 'min-width:140px;padding:4px 0;z-index:9999';
-  panel.innerHTML = ASSET_NAMES.map(n =>
-    `<div class="csp-row" style="cursor:pointer;justify-content:flex-start;gap:8px;${n===S.asset?'color:#2962ff;font-weight:700':''}" onclick="switchAsset('${n}')">`+
-    `<span>${n}</span></div>`).join('');
-  document.body.appendChild(panel);
-  _assetPickerEl = panel;
-  const rect = btn.getBoundingClientRect();
-  panel.style.left = Math.max(4, rect.left) + 'px';
-  panel.style.top  = (rect.bottom + 4) + 'px';
-  setTimeout(() => {
-    _assetPickerOutsideHandler = function _h(e) {
-      if (!panel.contains(e.target)) { _closeAssetPicker(); }
-    };
-    document.addEventListener('click', _assetPickerOutsideHandler, true);
-  }, 50);
-}
-
-function switchAsset(name) {
-  if (!ASSET_NAMES.includes(name)) return;
-  _closeAssetPicker();
-  S.asset = name;
-  _swingPresetOnAssetChange(name);  // auto-apply preset if locked
-  const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
-  // Update LTP area label for non-BTC assets
-  const ltpEl = document.getElementById('hdr-ltp'); if (ltpEl && name !== BTC_ASSET) ltpEl.textContent = '--';
-  const chgEl = document.getElementById('hdr-chg'); if (chgEl && name !== BTC_ASSET) chgEl.textContent = '--';
-  saveState();
-  if (S.layout === '1x1') {
-    rebuildChart();
-    if (name === BTC_ASSET) _loadBTCHistory(S.tf);
-    else if (name === BN_ASSET) _loadBNHistory(S.tf);
-  } else if (S.layout === 'stack') {
-    // Stack View: switching symbol means a DIFFERENT screen-count and TF
-    // set entirely (BTC: 6 screens, BankNifty: 8 screens, each with its
-    // own default TFs) — so rebuild the whole stack from Settings for the
-    // new symbol, rather than patching the existing CELLS in place (which
-    // would keep the old symbol's screen-count and TFs).
-    _savedCells = null; _savedCellsLayout = null;   // don't let old-symbol saved state leak in
-    buildStack();
-    setTimeout(_startCellTimers, 200);
-    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-    if (name === BTC_ASSET) {
-      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
-    }
-  } else {
-    CELLS.forEach(c => c.asset = name);
-    CELLS.forEach((_, i) => buildCellChart(i));
-    refreshCellHeaders(); wireSync();
-    // Grid mode mein bhi BTC WS ensure karo
-    if (name === BTC_ASSET) {
-      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
-    }
-  }
-  // ── Asset-specific live feed control ──────────────────────────────────────
-  if (name === BN_ASSET) {
-    // BN mode: BTC REST polling band karo (WS band mat karo — reconnect costly)
-    // BTC ka _applyBTCKline already S.asset check karta hai (1x1 mein guard hai)
-    // lekin REST polling CPU waste karti hai — isliye band karo
-    _btcStopRest();
-    _startBNPolling();
-  } else {
-    // BTC mode: BN polling band karo, BTC start karo
-    _stopBNPolling();
-    if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
-    else _btcStartRest();
-  }
-}
-
-function _applyBTCKline(k) {
-  const close=parseFloat(k.c), high=parseFloat(k.h),
-        low  =parseFloat(k.l), open=parseFloat(k.o);
-  const kOpenSec=Math.floor(parseInt(k.t)/1000);
-  const tfSec   =(S.tf||1)*60;
-  const bucket  =Math.floor(kOpenSec/tfSec)*tfSec;
-
-  // Track per-minute open for timer color
-  const minBucket=Math.floor(kOpenSec/60)*60;
-  if (_candleOpen[BTC_ASSET]===undefined||_btcBucket.time!==bucket)
-    _candleOpen[BTC_ASSET]=open;
-
-  if (_btcBucket.time!==bucket||_btcBucket.tf!==S.tf) {
-    // Previous candle just CLOSED — save it to the correct data array so
-    // swingCompute validates candle H/L lines with fresh closed-candle data.
-    if (_btcBucket.time && _btcBucket.tf===S.tf) {
-      const closed={time:_btcBucket.time, open:_btcBucket.open,
-                    high:_btcBucket.high, low:_btcBucket.low, close:_btcBucket.close};
-      // Pick the same array _baseDataFor() will use for the current TF
-      const tf=S.tf||1;
-      const arr = tf>=1440 && Array.isArray(BTC_DAILY) ? BTC_DAILY
-                : tf>=15   && Array.isArray(BTC_15M)   ? BTC_15M
-                : ALLDATA[BTC_ASSET];
-      if (arr) {
-        if (arr.length && arr[arr.length-1].time===closed.time) {
-          arr[arr.length-1]=closed;       // update existing last bar
-        } else if (!arr.length || arr[arr.length-1].time < closed.time) {
-          arr.push(closed);               // append newly closed candle
-        }
-      }
-      // Recompute candle H/L lines with the updated data (debounced 300ms)
-      clearTimeout(_swingRebuildTimer);
-      _swingRebuildTimer=setTimeout(()=>{
-        if (S.layout==='1x1') swingAfterRebuild();
-        else CELLS.forEach((_,i)=>buildCellSwing(i));
-      }, 300);
-    }
-    _btcBucket.tf=S.tf; _btcBucket.time=bucket;
-    // Parent dot update — new bucket = new candle closed, dot may shift
-    _pdotOnLiveTick();
-    // For large synthetic TFs (e.g. 27D) the current bucket already contains
-    // many past days of historical data.  Seeding only from the incoming 1m
-    // kline would collapse that data into a tiny bar — causing a sudden gap.
-    // Instead, look up the historical bar for this exact bucket and start from
-    // its accumulated OHLC, then extend with the live close/high/low.
-    (function() {
-      const _raw = _baseDataFor(BTC_ASSET, S.tf);
-      const _hist = (S.tf > 1) ? resampleForTF(_raw, S.tf, BTC_ASSET) : _raw;
-      const _last = _hist.length ? _hist[_hist.length - 1] : null;
-      if (_last && _last.time === bucket) {
-        _btcBucket.open  = _last.open;
-        _btcBucket.high  = Math.max(_last.high, high);
-        _btcBucket.low   = Math.min(_last.low,  low);
-        _btcBucket.close = close;
-      } else {
-        _btcBucket.open  = open;
-        _btcBucket.high  = high;
-        _btcBucket.low   = low;
-        _btcBucket.close = close;
-      }
-    })();
-  } else {
-    _btcBucket.high=Math.max(_btcBucket.high,high);
-    _btcBucket.low =Math.min(_btcBucket.low, low);
-    _btcBucket.close=close;
-  }
-
-  const bar={time:bucket, open:_btcBucket.open, high:_btcBucket.high,
-             low:_btcBucket.low, close:_btcBucket.close, value:_btcBucket.close};
-
-  // Header LTP/% — update on every tick regardless of layout (1x1 or grid),
-  // so it doesn't stay stuck on '--' while viewing the grid.
-  if (S.asset===BTC_ASSET && !_hdrXActive) {
-    const fmtH=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const ltpElH=document.getElementById('hdr-ltp');
-    if (ltpElH) ltpElH.textContent=fmtH(close);
-    const openRef=_candleOpen[BTC_ASSET];
-    if (openRef!=null) {
-      const chgH=close-openRef;
-      const pctH=openRef?(chgH/openRef*100).toFixed(2):'0.00';
-      const signH=chgH>=0?'+':'';
-      const chgElH=document.getElementById('hdr-chg');
-      if (chgElH) {
-        chgElH.textContent=signH+fmtH(chgH)+' ('+signH+pctH+'%)';
-        chgElH.className=chgH>=0?'up':'dn';
-      }
-    }
-  }
-
-  // Single chart mode (Fix 5: rAF-batched update to prevent last-candle flicker)
-  if (S.layout==='1x1'&&mainSeries&&S.asset===BTC_ASSET) {
-    _lastLTP=close;
-    _mainVLTime = bucket; _vlDraw();
-    cancelAnimationFrame(_btcRafId);
-    _btcRafId=requestAnimationFrame(()=>{
-      if(!mainSeries) return;
-      try{mainSeries.update(bar);}catch(_){}
-      // For 1D and higher TFs, the saved zoom range can end before "today's"
-      // live-forming candle — keep it visible by scrolling to real time.
-      if ((S.tf||1)>=1440 && chart && _followLive) {
-        try{chart.timeScale().scrollToRealTime();}catch(_){}
-      }
-      const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-      const ltpEl=document.getElementById('hdr-ltp');
-      if (ltpEl && !_hdrXActive) ltpEl.textContent=fmt(close);
-    });
-  }
-
-  // Grid mode — RAF throttled per cell to avoid main thread blocking
-  CELLS.forEach(c => {
-    if (c.asset!==BTC_ASSET||!c.series) return;
-    const cTfSec=(c.tf||1)*60, cBucket=Math.floor(kOpenSec/cTfSec)*cTfSec;
-    if (!c._btcBkt||c._btcBkt.time!==cBucket||c._btcBkt.tf!==c.tf) {
-      // Bucket change: resample sirf tab karo — yeh expensive hai
-      const _cRaw  = _baseDataFor(c.asset, c.tf);
-      const _cHist = (c.tf > 1) ? resampleForTF(_cRaw, c.tf, c.asset) : _cRaw;
-      const _cLast = _cHist.length ? _cHist[_cHist.length - 1] : null;
-      if (_cLast && _cLast.time === cBucket) {
-        c._btcBkt = {tf:c.tf, time:cBucket, open:_cLast.open,
-                     high:Math.max(_cLast.high,high),
-                     low :Math.min(_cLast.low, low),
-                     close};
-      } else {
-        c._btcBkt = {tf:c.tf, time:cBucket, open, high, low, close};
-      }
-    } else {
-      // Same bucket: sirf OHLC update karo — resample nahi
-      c._btcBkt.high=Math.max(c._btcBkt.high,high);
-      c._btcBkt.low =Math.min(c._btcBkt.low, low);
-      c._btcBkt.close=close;
-    }
-    // RAF throttle: chart update sirf ek baar per frame
-    if (!c._btcRafPending) {
-      c._btcRafPending = true;
-      requestAnimationFrame(() => {
-        c._btcRafPending = false;
-        if (!c.series || !c._btcBkt) return;
-        try{c.series.update({...c._btcBkt,value:c._btcBkt.close});}catch(_){}
-        if ((c.tf||1)>=1440 && c.chart && c._followLive) {
-          try{c.chart.timeScale().scrollToRealTime();}catch(_){}
-        }
-        const _ci = CELLS.indexOf(c); c._vlTime = c._btcBkt.time; _vlDrawCell(_ci);
-        _pdotDraw(_ci);
-        c._lastLTP=c._btcBkt.close;
-        c._candleOpen=c._btcBkt.open;
-        const cell=document.querySelector('.grid-cell[data-idx="'+_ci+'"]');
-        if (cell) {
-          const _ltp=c._btcBkt.close;
-          const _dayOpen=_candleOpen[BTC_ASSET]??c._btcBkt.open;
-          const _chg=_ltp-_dayOpen;
-          const _pct=_dayOpen?(_chg/_dayOpen*100).toFixed(2):'0.00';
-          const _fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-          const _cls=_chg>=0?'up':'dn', _color=_chg>=0?'#26a69a':'#ef5350';
-          const _pctStr=(_chg>=0?'+':'')+_pct+'%';
-          const pe=cell.querySelector('.cell-price'); if(pe){pe.textContent=_fmt(_ltp);pe.className='cell-price '+_cls;}
-          const op=cell.querySelector('.co-price');   if(op){op.textContent=_fmt(_ltp);op.className='co-price '+_cls;}
-          const oc=cell.querySelector('.co-chg');     if(oc){oc.textContent=_pctStr;oc.style.color=_color;}
-        }
-      });
-    }
-  });
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════════════════════
-// ════════════════════════════════════════════════════════════════════════════
-// BTC LIVE — WebSocket primary + REST parallel backup
-// Termux/Android/Cloud safe — turant connect, zero gap
-// ════════════════════════════════════════════════════════════════════════════
-let _btcWs           = null;
-let _btcPollTimer    = null;
-let _btcRestBusy     = false;
-let _btcWsOk         = false;
-let _btcLastTickMs   = 0;
-let _btcWsRetryDelay = 1000;
-let _btcWsUrlIdx     = 0;
-
-function _btcSetStatus(live) {
-  const dot = document.getElementById('ws-dot');
-  const st  = document.getElementById('ws-status');
-  if (live) {
-    if (dot) dot.className = 'live';
-    if (st)  st.innerHTML  = '<span id="ws-dot" class="live"></span>Live';
-    setLiveStatus(true);
-  } else {
-    if (dot) dot.className = '';
-    if (st)  st.innerHTML  = '<span id="ws-dot"></span>Connecting…';
-    setLiveStatus(false);
-  }
-}
-
-// ── REST loop ─────────────────────────────────────────────────────────────
-async function _btcRestOnce() {
-  if (_btcRestBusy) return;
-  _btcRestBusy = true;
-  try {
-    const r = await fetch(
-      'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=2',
-      { cache: 'no-store', signal: AbortSignal.timeout(1500) }
-    );
-    if (r.ok) {
-      const data = await r.json();
-      if (data && data.length) {
-        const k = data[data.length - 1];
-        _applyBTCKline({ t: parseInt(k[0]), o: k[1], h: k[2], l: k[3], c: k[4] });
-        _btcLastTickMs = Date.now();
-        _btcSetStatus(true);
-      }
-    }
-  } catch(_) {}
-  _btcRestBusy = false;
-  // WebSocket connected hai to REST sirf backup — slow poll (2s)
-  // WebSocket nahi hai to fast poll (200ms) for smooth candles
-  const delay = _btcWsOk ? 2000 : 200;
-  _btcPollTimer = setTimeout(_btcRestOnce, delay);
-}
-
-function _btcStartRest() {
-  if (_btcPollTimer || _btcRestBusy) return;
-  _btcRestOnce(); // immediate first tick
-}
-
-function _btcStopRest() {
-  if (_btcPollTimer) { clearTimeout(_btcPollTimer); _btcPollTimer = null; }
-}
-
-// ── WebSocket ─────────────────────────────────────────────────────────────
-const _BTC_WS_URLS = [
-  'wss://stream.binance.com/ws/btcusdt@kline_1m',
-  'wss://data-stream.binance.com/ws/btcusdt@kline_1m',
-  'wss://stream.binance.com:9443/ws/btcusdt@kline_1m',
-];
-
-function _connectBTCWS() {
-  try { if (_btcWs) { _btcWs.onclose = null; _btcWs.close(); } } catch(_) {}
-  _btcWsOk = false;
-
-  // REST turant shuru — WS connect hone tak data aata rahe
-  _btcStartRest();
-
-  const url = _BTC_WS_URLS[_btcWsUrlIdx % _BTC_WS_URLS.length];
-  _btcWs = new WebSocket(url);
-
-  _btcWs.onopen = () => {
-    _btcWsOk = true;
-    _btcWsUrlIdx = 0;
-    _btcWsRetryDelay = 1000;
-    _btcSetStatus(true);
-    // REST band mat karo — parallel chalao (double coverage)
-  };
-
-  _btcWs.onmessage = evt => {
-    try {
-      const d = JSON.parse(evt.data);
-      if (d.k) {
-        _applyBTCKline(d.k);
-        _btcLastTickMs = Date.now();
-        _btcSetStatus(true);
-      }
-    } catch(_) {}
-  };
-
-  _btcWs.onerror = () => { _btcWsOk = false; };
-
-  _btcWs.onclose = () => {
-    _btcWsOk = false;
-    _btcWsUrlIdx++;
-    _btcWsRetryDelay = Math.min(_btcWsRetryDelay * 2, 10000);
-    // REST already chal rahi hogi — WS retry
-    setTimeout(_connectBTCWS, _btcWsRetryDelay);
-  };
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-// Native Binance interval to use for a given TF (minutes).
-// Pick the LARGEST native interval that evenly divides tfMin so synthetic
-// TFs (e.g. 45m←15m, 2H←1h, 2.5H←15m) resample into clean, aligned candles.
-function _binanceIvFor(tfMin) {
-  const natives = [
-    {iv:'1w', m:10080},{iv:'1d', m:1440},{iv:'4h', m:240},{iv:'1h', m:60},
-    {iv:'15m', m:15},{iv:'5m', m:5},{iv:'3m', m:3},{iv:'1m', m:1},
-  ];
-  for (const n of natives) {
-    if (n.m <= tfMin && tfMin % n.m === 0) return n.iv;
-  }
-  return '1m';   // 1m divides everything (fallback)
-}
-function _binanceIvMin(iv) {
-  return {'1m':1,'3m':3,'5m':5,'15m':15,'30m':30,'1h':60,'4h':240,'1d':1440,'1w':10080}[iv]||1;
-}
-
-// Parse a raw Binance kline array row into a bar object
-function _parseKline(k) {
-  return {
-    time:   Math.floor(parseInt(k[0]) / 1000),
-    open:   parseFloat(k[1]),
-    high:   parseFloat(k[2]),
-    low:    parseFloat(k[3]),
-    close:  parseFloat(k[4]),
-    volume: parseFloat(k[5]),
-  };
-}
-
-// ── Show / hide an inline loading label on the header ─────────────────────
-function _setLoadingLabel(msg) {
-  let el = document.getElementById('_hist-loading');
-  if (!el) {
-    el = document.createElement('span');
-    el.id = '_hist-loading';
-    el.style.cssText = 'font-size:10px;color:#f0b429;margin-left:6px;flex-shrink:0;';
-    const hdrPrice = document.getElementById('hdr-price');
-    if (hdrPrice) hdrPrice.appendChild(el);
-  }
-  el.textContent = msg || '';
-  if (!msg) el.remove();
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// HISTORY LOADER
-//   • Intraday (< 1440 min)  →  single REST call, limit=1000
-//   • Daily+ (≥ 1440 min)    →  paginated back to BTC launch (Aug 2017)
-// After loading, seeds the live-bucket state and reconnects the WebSocket.
-// ════════════════════════════════════════════════════════════════════════════
-const BTC_LAUNCH_MS = 1502928000000;  // 2017-08-17 00:00:00 UTC
-
-async function _loadBTCHistory(tfMin) {
-  const iv     = _binanceIvFor(tfMin);
-  const ivMin  = _binanceIvMin(iv);
-  const isDaily = tfMin >= 1440;
-
-  _setLoadingLabel(isDaily ? '⏳ Loading full history…' : '⏳ Loading…');
-
-  try {
-    let bars = [];
-
-    // ── DAILY / WEEKLY TFs: paginate all the way back to Aug 2017 ──────────
-    if (isDaily) {
-      // Fast path: BTC_DAILY is pre-loaded server-side with full history (2017→now).
-      // Skip the browser fetch entirely — it takes 2-10s and we already have the data.
-      if (Array.isArray(BTC_DAILY) && BTC_DAILY.length > 3000) {
-        bars = (tfMin > 1440) ? resampleForTF(BTC_DAILY, tfMin, BTC_ASSET) : BTC_DAILY.slice();
-      } else {
-        // Fallback: BTC_DAILY missing or incomplete — try browser fetch
-        let fetched = [];
-        try {
-          let endTime   = Date.now();
-          let allKlines = [];
-          let pagesDone = 0;
-          const MAX_PAGES = 40;
-
-          while (pagesDone < MAX_PAGES) {
-            const url =
-              'https://api.binance.com/api/v3/klines?symbol=BTCUSDT' +
-              '&interval=' + iv +
-              '&limit=1000' +
-              '&endTime=' + endTime;
-
-            const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const chunk = await r.json();
-            if (!chunk.length) break;
-
-            allKlines = [...chunk, ...allKlines];
-            pagesDone++;
-
-            if (parseInt(chunk[0][0]) <= BTC_LAUNCH_MS) break;
-            if (chunk.length < 1000) break;
-
-            endTime = parseInt(chunk[0][0]) - 1;
-            await new Promise(res => setTimeout(res, 80));
-
-            const oldest = new Date(parseInt(chunk[0][0]));
-            _setLoadingLabel('⏳ ' + oldest.getFullYear() + '…');
-          }
-
-          const seen = new Set();
-          fetched = allKlines
-            .map(_parseKline)
-            .filter(b => { if (seen.has(b.time)) return false; seen.add(b.time); return true; })
-            .sort((a, b) => a.time - b.time);
-        } catch(_) { fetched = []; }
-
-        if (fetched.length) {
-          bars = (tfMin > ivMin) ? resampleForTF(fetched, tfMin, BTC_ASSET) : fetched;
-        } else if (Array.isArray(BTC_DAILY) && BTC_DAILY.length) {
-          bars = (tfMin > 1440) ? resampleForTF(BTC_DAILY, tfMin, BTC_ASSET) : BTC_DAILY.slice();
-        }
-      }
-
-    // ── INTRADAY TFs: single call, 1000 bars ──────────────────────────────
-    } else {
-      const url =
-        'https://api.binance.com/api/v3/klines?symbol=BTCUSDT' +
-        '&interval=' + iv + '&limit=1000';
-      const r = await fetch(url, { signal: AbortSignal.timeout(15000) });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const klines = await r.json();
-      const rawBars = klines.map(_parseKline);
-      bars = (tfMin > ivMin) ? resample(rawBars, tfMin, BTC_ASSET) : rawBars;
-    }
-
-    // Cache intraday results so grid cells benefit. Never overwrite with daily
-    // bars — daily+ TFs render from BTC_DAILY, and clobbering the 1-min seed
-    // would break intraday TFs for geo-blocked users whose browser fetch fails.
-    if (!isDaily) ALLDATA[BTC_ASSET] = bars;
-
-    // Guard: user may have changed asset/TF while we were fetching
-    if (!mainSeries || S.asset !== BTC_ASSET || S.tf !== tfMin) {
-      _setLoadingLabel('');
-      _connectBTCWS();
-      return;
-    }
-
-    // Clear any stale data, then load the full history
-    // Exclude the LAST bar (still forming) — REST poll will update it live
-    const histBars = bars.length > 1 ? bars.slice(0, -1) : bars;
-    mainSeries.setData([]);
-    if (S.chartType === 'line' || S.chartType === 'area')
-      mainSeries.setData(histBars.map(b => ({ time: b.time, value: b.close })));
-    else
-      mainSeries.setData(histBars);
-    _applyZoom(chart.timeScale(), S.asset, S.tf);
-
-    // Seed live-update accumulator from the last historical bar
-    if (bars.length) {
-      const last = bars[bars.length - 1];
-      _lastLTP          = last.close;
-      _btcBucket.tf     = tfMin;
-      _btcBucket.time   = last.time;
-      _btcBucket.open   = last.open;
-      _btcBucket.high   = last.high;
-      _btcBucket.low    = last.low;
-      _btcBucket.close  = last.close;
-      _candleOpen[BTC_ASSET] = last.open;
-      updateHeaderPrice(bars);
-      _mainVLTime = last.time; _vlDraw();
-    }
-
-  } catch(err) {
-    // Fetch failed — WS will still keep the live candle moving
-  }
-
-  _setLoadingLabel('');
-  _connectBTCWS();
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// BANKNIFTY HISTORY LOADER + LIVE POLLING
-// ════════════════════════════════════════════════════════════════════════════
-async function _loadBNHistory(tfMin) {
-  _setLoadingLabel('\u23f3 Loading BankNifty\u2026');
-  try {
-    let rawBars = _baseDataFor(BN_ASSET, tfMin);
-
-    // ── API fallback: if server-injected data is empty, fetch from /api/bn_history ──
-    if (!rawBars.length) {
-      try {
-        const res  = tfMin >= 1440 ? '1D' : tfMin >= 45 ? '45' : tfMin >= 15 ? '15' : tfMin >= 5 ? '5' : '1';
-        const days = tfMin >= 1440 ? 365  : tfMin >= 45 ? 90   : tfMin >= 15 ? 60   : tfMin >= 5 ? 30 : 10;
-        const r    = await fetch(`/api/bn_history?resolution=${res}&days=${days}`,
-                                 { signal: AbortSignal.timeout(15000) });
-        if (r.ok) {
-          const d = await r.json();
-          if (d.candles && d.candles.length) {
-            // candles from API are in seconds already
-            const fetched = d.candles.map(c => ({
-              time:   c.time,
-              open:   c.open,
-              high:   c.high,
-              low:    c.low,
-              close:  c.close,
-              volume: c.volume || 0,
-            }));
-            // Seed into appropriate array
-            if (tfMin >= 1440) {
-              BN_DAILY.length = 0; fetched.forEach(c => BN_DAILY.push(c));
-            } else if (tfMin >= 45) {
-              BN_45M.length = 0; fetched.forEach(c => BN_45M.push(c));
-            } else if (tfMin >= 15) {
-              BN_15M.length = 0; fetched.forEach(c => BN_15M.push(c));
-            } else if (tfMin >= 5) {
-              BN_5M.length = 0; fetched.forEach(c => BN_5M.push(c));
-            } else {
-              const arr = ALLDATA[BN_ASSET]; arr.length = 0;
-              fetched.forEach(c => arr.push(c));
-            }
-            rawBars = _baseDataFor(BN_ASSET, tfMin);
-          }
-        }
-      } catch(_) {}
-    }
-
-    const bars = resampleForTF(rawBars, tfMin, BN_ASSET);
-    if (!bars.length) { _setLoadingLabel(''); return; }
-
-    // Only update the chart if the user is still on BN + this TF
-    if (mainSeries && S.asset === BN_ASSET && S.tf === tfMin && S.layout === '1x1') {
-      mainSeries.setData([]);
-      if (S.chartType === 'line' || S.chartType === 'area')
-        mainSeries.setData(bars.map(b => ({ time:b.time, value:b.close })));
-      else
-        mainSeries.setData(bars);
-      _applyZoom(chart.timeScale(), BN_ASSET, tfMin);
-
-      const last = bars[bars.length - 1];
-      _lastLTP = last.close;
-      _mainVLTime = last.time; _vlDraw();
-      // Update header price
-      const ltpEl = document.getElementById('hdr-ltp');
-      const chgEl = document.getElementById('hdr-chg');
-      if (ltpEl) ltpEl.textContent = last.close.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
-      if (chgEl && bars.length > 1) {
-        const open0 = bars[0].open, chg = last.close - open0;
-        const pct = (open0 ? chg/open0*100 : 0).toFixed(2);
-        chgEl.textContent = (chg>=0?'+':'')+pct+'%';
-        chgEl.className = chg >= 0 ? 'up' : 'dn';
-      }
-    }
-
-    // Seed grid cells too
-    CELLS.forEach((c, i) => {
-      if (c.asset !== BN_ASSET || !c.series) return;
-      const raw2  = _baseDataFor(BN_ASSET, c.tf);
-      const data2 = resampleForTF(raw2, c.tf, BN_ASSET);
-      if (!data2.length) return;
-      if (S.chartType === 'line' || S.chartType === 'area')
-        c.series.setData(data2.map(b=>({time:b.time,value:b.close})));
-      else
-        c.series.setData(data2);
-      updateCellPrice(i, data2);
-    });
-  } catch(_) {}
-  _setLoadingLabel('');
-
-  // ── Lazy history extension: subscribe after data is loaded ───────────────
-  _attachBNLazyScroll(chart, mainSeries, tfMin);
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// LAZY / INFINITE SCROLL — BN HISTORY EXTENSION
-//
-// Trigger: user scrolls left until logicalRange.from < _LAZY_BUFFER_BARS
-//   (meaning fewer than N candle-slots remain to the LEFT of the viewport).
-//   logicalRange.from is negative when left whitespace is showing, so this
-//   fires naturally as the user approaches/crosses the oldest bar.
-//
-// API: Python spins a ThreadingTCPServer on _API_PORT (written to .api_port).
-//   URL built with _bnHistoryUrl() using window.location.hostname + port.
-//   Dates converted to IST (Fyers uses IST dates).
-// ════════════════════════════════════════════════════════════════════════════
-
-const _bnOldestLoaded = {};  // key=String(tfMin) → oldest epoch-sec fetched so far
-let   _bnExtendInFlight = false;
-let   _lazyScrollTid    = null;
-const _LAZY_BUFFER_BARS = 20;  // trigger when within 20 bars of left edge
-
-function _bnResolutionFor(tfMin) {
-  if (tfMin >= 1440) return { res: '1D', chunkDays: 365 };
-  if (tfMin >=   45) return { res: '45', chunkDays:  90 };
-  if (tfMin >=   15) return { res: '15', chunkDays:  60 };
-  if (tfMin >=    5) return { res: '5',  chunkDays:  30 };
-  return                    { res: '1',  chunkDays:  10 };
-}
-
-function _bnArrayFor(tfMin) {
-  if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
-  if (tfMin >=   45 && Array.isArray(BN_45M)   && BN_45M.length)   return BN_45M;
-  if (tfMin >=   15 && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
-  if (tfMin >=    5 && Array.isArray(BN_5M)    && BN_5M.length)    return BN_5M;
-  return ALLDATA[BN_ASSET] || [];
-}
-
-// Convert epoch-seconds to YYYY-MM-DD in IST (Fyers needs IST dates)
-function _epochToIST(sec) {
-  const d    = new Date((sec + 19800) * 1000);
-  const yyyy = d.getUTCFullYear();
-  const mm   = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const dd   = String(d.getUTCDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-// Build URL for the side-port HTTP server injected by Python.
-// If _API_PORT is 0 (server not ready at page-build time), probe ports 8502-8510.
-let _resolvedApiPort = (typeof _API_PORT !== 'undefined' && _API_PORT > 0) ? _API_PORT : 0;
-
-async function _probeApiPort() {
-  if (_resolvedApiPort > 0) return _resolvedApiPort;
-  const host = window.location.hostname || 'localhost';
-  for (let p = 8502; p <= 8510; p++) {
-    try {
-      const r = await fetch(`http://${host}:${p}/api/bn_history?resolution=D&days=1`,
-                            { signal: AbortSignal.timeout(1500) });
-      if (r.ok || r.status === 401) { _resolvedApiPort = p; return p; }
-    } catch(_) {}
-  }
-  return 0;
-}
-
-function _bnHistoryUrl(res, fromDate, toDate) {
-  const path = `/api/bn_history?resolution=${res}&from=${fromDate}&to=${toDate}`;
-  if (_resolvedApiPort > 0) {
-    return `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}${path}`;
-  }
-  return path;  // same-origin fallback
-}
-
-async function _extendBNHistory(tfMin, seriesRef, chartRef) {
-  if (_bnExtendInFlight) return;
-
-  // Ensure we know the API port before fetching
-  if (_resolvedApiPort === 0) {
-    await _probeApiPort();
-    if (_resolvedApiPort === 0) {
-      console.warn('[BN lazy] API server not reachable yet — retry later');
-      return;
-    }
-  }
-
-  const arr = _bnArrayFor(tfMin);
-  if (!arr.length) return;
-
-  const oldestTs = arr[0].time;
-  const key      = String(tfMin);
-
-  // Guard: _bnOldestLoaded[key] holds the oldest ts we've already fetched.
-  // If we've already fetched down to or beyond oldestTs → nothing more to do.
-  if (_bnOldestLoaded[key] !== undefined && _bnOldestLoaded[key] >= oldestTs) return;
-
-  _bnExtendInFlight = true;
-  _setLoadingLabel('⏳ Loading older history…');
-
-  try {
-    const { res, chunkDays } = _bnResolutionFor(tfMin);
-    const toEpoch   = oldestTs - 1;
-    const fromEpoch = toEpoch  - chunkDays * 86400;
-    const toDate    = _epochToIST(toEpoch);
-    const fromDate  = _epochToIST(fromEpoch);
-    const url       = _bnHistoryUrl(res, fromDate, toDate);
-
-    console.log(`[BN lazy] Fetching tf=${tfMin} from=${fromDate} to=${toDate} url=${url}`);
-
-    let newBars = [];
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(20000) });
-      if (r.ok) {
-        const d = await r.json();
-        if (d && Array.isArray(d.candles)) newBars = d.candles;
-      } else {
-        console.warn('[BN lazy] HTTP', r.status);
-      }
-    } catch(fe) {
-      console.warn('[BN lazy] fetch error:', fe.message);
-    }
-
-    if (!newBars.length) {
-      _bnOldestLoaded[key] = oldestTs;  // mark: nothing older exists
-      _setLoadingLabel('');
-      _bnExtendInFlight = false;
-      return;
-    }
-
-    const existingSet = new Set(arr.map(b => b.time));
-    const fresh = newBars
-      .filter(b => b.time < oldestTs && !existingSet.has(b.time))
-      .sort((a, b) => a.time - b.time);
-
-    if (!fresh.length) {
-      _bnOldestLoaded[key] = oldestTs;
-      _setLoadingLabel('');
-      _bnExtendInFlight = false;
-      return;
-    }
-
-    arr.unshift(...fresh);
-    _bnOldestLoaded[key] = arr[0].time;
-    console.log(`[BN lazy] +${fresh.length} bars. Total arr=${arr.length}`);
-
-    // Re-render preserving the exact visible time window
-    if (seriesRef && chartRef) {
-      let savedRange = null;
-      try { savedRange = chartRef.timeScale().getVisibleRange(); } catch(_) {}
-
-      const resampled = resampleForTF(arr, tfMin, BN_ASSET);
-      if (resampled.length) {
-        seriesRef.setData([]);
-        if (S.chartType === 'line' || S.chartType === 'area')
-          seriesRef.setData(resampled.map(b => ({ time: b.time, value: b.close })));
-        else
-          seriesRef.setData(resampled);
-        if (savedRange) {
-          try { chartRef.timeScale().setVisibleRange(savedRange); } catch(_) {}
-        }
-      }
-    }
-
-    // Sync all grid cells for same asset+tf
-    CELLS.forEach((c, i) => {
-      if (c.asset !== BN_ASSET || c.tf !== tfMin || !c.series || !c.chart) return;
-      if (c.series === seriesRef) return;
-      try {
-        let ctr = null;
-        try { ctr = c.chart.timeScale().getVisibleRange(); } catch(_) {}
-        const rd = resampleForTF(_bnArrayFor(tfMin), tfMin, BN_ASSET);
-        if (!rd.length) return;
-        c.series.setData([]);
-        if (S.chartType === 'line' || S.chartType === 'area')
-          c.series.setData(rd.map(b => ({ time: b.time, value: b.close })));
-        else
-          c.series.setData(rd);
-        if (ctr) { try { c.chart.timeScale().setVisibleRange(ctr); } catch(_) {} }
-        updateCellPrice(i, rd);
-      } catch(_) {}
-    });
-
-  } catch(e) {
-    console.warn('[BN lazy] extend error:', e);
-  }
-
-  _setLoadingLabel('');
-  _bnExtendInFlight = false;
-}
-
-function _attachBNLazyScroll(chartRef, seriesRef, tfMin) {
-  if (!chartRef || !seriesRef) return;
-  try {
-    chartRef.timeScale().subscribeVisibleLogicalRangeChange(function() {
-      let lr = null;
-      try { lr = chartRef.timeScale().getVisibleLogicalRange(); } catch(_) { return; }
-      if (!lr) return;
-      // lr.from < _LAZY_BUFFER_BARS: user is near (or past) the left edge of data
-      if (lr.from < _LAZY_BUFFER_BARS) {
-        clearTimeout(_lazyScrollTid);
-        _lazyScrollTid = setTimeout(function() {
-          _extendBNHistory(tfMin, seriesRef, chartRef);
-        }, 300);
-      }
-    });
-  } catch(e) {
-    console.warn('[BN lazy] attach error:', e);
-  }
-}
-
-// ── BN live — postMessage bridge (Streamlit iframe safe) ──────────────────
-// Python injects live tick via postMessage every time it writes bn_live.json.
-// This avoids /api/bn_live which doesn't exist in Streamlit's file server.
-let _bnPollIv = null;
-
-// ── BN per-TF bucket accumulator (same pattern as BTC _btcBucket) ────────────
-// Ek global bucket 1x1 mode ke liye, plus per-cell bucket grid mode ke liye.
-// Key insight: Python sirf 1-min candle bhejta hai. Hum JS mein har TF ke liye
-// usse accumulate karte hain — Daily, Custom, sab kuch.
-const _bnBucket = { tf: null, time: null, open: null, high: -Infinity, low: Infinity, close: null };
-
-// BN 1-min ALLDATA mein naya tick daal ke latest bar return karta hai
-function _bnUpdateRaw(latest) {
-  const arr = ALLDATA[BN_ASSET];
-  if (!Array.isArray(arr)) return;
-  if (arr.length && arr[arr.length-1].time === latest.time) {
-    arr[arr.length-1] = { ...arr[arr.length-1], high: Math.max(arr[arr.length-1].high, latest.high),
-      low: Math.min(arr[arr.length-1].low, latest.low), close: latest.close, value: latest.close };
-  } else if (!arr.length || arr[arr.length-1].time < latest.time) {
-    arr.push({ ...latest });
-  }
-
-  // ── Helper: kisi bhi TF array ko live 1m tick se update karo ──
-  function _updateTfArr(tfArr, tfSec) {
-    if (!Array.isArray(tfArr) || !tfArr.length) return;
-    const bucket = Math.floor(latest.time / tfSec) * tfSec;
-    const last = tfArr[tfArr.length - 1];
-    if (last && last.time === bucket) {
-      last.high  = Math.max(last.high,  latest.high);
-      last.low   = Math.min(last.low,   latest.low);
-      last.close = latest.close;
-    } else if (!last || last.time < bucket) {
-      tfArr.push({ time: bucket, open: latest.open, high: latest.high,
-                   low: latest.low, close: latest.close, volume: 0 });
-    }
-  }
-
-  // BN_5M update
-  _updateTfArr(BN_5M,  5  * 60);
-  // BN_15M update
-  _updateTfArr(BN_15M, 15 * 60);
-  // BN_45M update
-  _updateTfArr(BN_45M, 45 * 60);
-
-  // BN_DAILY bhi update karo (IST midnight aligned)
-  if (Array.isArray(BN_DAILY) && BN_DAILY.length) {
-    const dayMs  = 86400;
-    const istSec = latest.time + 19800;
-    const dayKey = Math.floor(istSec / dayMs) * dayMs - 19800;
-    const lastD  = BN_DAILY[BN_DAILY.length - 1];
-    if (lastD && lastD.time === dayKey) {
-      lastD.high  = Math.max(lastD.high,  latest.high);
-      lastD.low   = Math.min(lastD.low,   latest.low);
-      lastD.close = latest.close;
-    } else if (!lastD || lastD.time < dayKey) {
-      BN_DAILY.push({ time: dayKey, open: latest.open, high: latest.high,
-                      low: latest.low, close: latest.close, volume: 0 });
-    }
-  }
-}
-
-// Per-TF bucket: BTC ke _btcBucket jaisa — daily/custom TF ke liye candle accumulate karo
-
-// ── Session-anchored bucket for LIVE/forming candles (5m/15m/45m/135m etc) ──
-// Same 9:15am-anchor math as resample() — used here so the still-forming
-// candle lines up with the historical (closed) candles instead of using a
-// raw UTC-epoch modulo, which used to misalign tfMins like 135 (candle
-// boundaries landing at 10:00/12:15 IST instead of 9:15/11:30/13:45).
-function _bnSessionBucket(timeSec, tfMin) {
-  const IST_OFFSET_SEC = 5.5 * 3600;
-  const SESSION_START  = 9 * 60 + 15;   // 9:15 AM
-  const istSec   = timeSec + IST_OFFSET_SEC;
-  const dayStart = istSec - (istSec % 86400);
-  const minOfDay = Math.floor((istSec % 86400) / 60);
-  const minSinceOpen   = Math.max(0, minOfDay - SESSION_START);
-  const bucketIdx      = Math.floor(minSinceOpen / tfMin);
-  const bucketStartMin = SESSION_START + bucketIdx * tfMin;
-  return (dayStart - IST_OFFSET_SEC) + bucketStartMin * 60;
-}
-
-function _bnGetBar(latest, tfMin) {
-  const tfSec = tfMin * 60;
-
-  // Daily+ TF: special bucket alignment (NSE trading day based)
-  let bucket;
-  if (tfMin >= 1440) {
-    // Daily candle: IST midnight se align karo
-    const istSec = latest.time + 19800;
-    const dayKey = Math.floor(istSec / 86400) * 86400 - 19800;
-    if (tfMin === 1440) {
-      bucket = dayKey;
-    } else {
-      // Multi-day: BN_DAILY se last bar ka time lo (already aligned by resampleWorkingDays)
-      const hist = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
-      bucket = hist.length ? hist[hist.length-1].time : dayKey;
-    }
-  } else {
-    bucket = _bnSessionBucket(latest.time, tfMin);
-  }
-
-  // Bucket change hua? → purana candle close, naya shuru
-  if (_bnBucket.time !== bucket || _bnBucket.tf !== tfMin) {
-    // Purana closed candle → sahi array mein save karo
-    if (_bnBucket.time && _bnBucket.tf === tfMin && _bnBucket.open !== null) {
-      const closed = { time: _bnBucket.time, open: _bnBucket.open,
-                       high: _bnBucket.high, low: _bnBucket.low, close: _bnBucket.close };
-      const tgt = tfMin >= 1440 && Array.isArray(BN_DAILY) ? BN_DAILY
-                : tfMin >= 45   && Array.isArray(BN_45M)   ? BN_45M
-                : tfMin >= 15   && Array.isArray(BN_15M)   ? BN_15M
-                : tfMin >= 5    && Array.isArray(BN_5M)    ? BN_5M
-                : ALLDATA[BN_ASSET];
-      if (tgt) {
-        if (tgt.length && tgt[tgt.length-1].time === closed.time) tgt[tgt.length-1] = closed;
-        else if (!tgt.length || tgt[tgt.length-1].time < closed.time) tgt.push(closed);
-      }
-      clearTimeout(_swingRebuildTimer);
-      _swingRebuildTimer = setTimeout(() => {
-        if (S.layout === '1x1') swingAfterRebuild();
-        else CELLS.forEach((_, i) => buildCellSwing(i));
-      }, 250);
-    }
-
-    // Naya bucket seed: historical bar se open/high/low lo
-    _bnBucket.tf   = tfMin;
-    _bnBucket.time = bucket;
-    const hist2 = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
-    const hlast  = hist2.length ? hist2[hist2.length-1] : null;
-    if (hlast && hlast.time === bucket) {
-      _bnBucket.open  = hlast.open;
-      _bnBucket.high  = Math.max(hlast.high, latest.high);
-      _bnBucket.low   = Math.min(hlast.low,  latest.low);
-      _bnBucket.close = latest.close;
-    } else {
-      _bnBucket.open  = latest.open;
-      _bnBucket.high  = latest.high;
-      _bnBucket.low   = latest.low;
-      _bnBucket.close = latest.close;
-    }
-  } else {
-    // Same bucket: OHLC accumulate karo
-    _bnBucket.high  = Math.max(_bnBucket.high,  latest.high);
-    _bnBucket.low   = Math.min(_bnBucket.low,   latest.low);
-    _bnBucket.close = latest.close;
-  }
-
-  return { time: bucket, open: _bnBucket.open, high: _bnBucket.high,
-           low: _bnBucket.low, close: _bnBucket.close, value: _bnBucket.close };
-}
-
-// Per-cell bucket accumulator (grid mode ke liye — har cell ka apna bucket)
-function _bnGetCellBar(c, latest) {
-  const tfMin = c.tf || 1;
-  const tfSec = tfMin * 60;
-
-  let bucket;
-  if (tfMin >= 1440) {
-    const istSec = latest.time + 19800;
-    const dayKey = Math.floor(istSec / 86400) * 86400 - 19800;
-    if (tfMin === 1440) {
-      bucket = dayKey;
-    } else {
-      const hist = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
-      bucket = hist.length ? hist[hist.length-1].time : dayKey;
-    }
-  } else {
-    bucket = _bnSessionBucket(latest.time, tfMin);
-  }
-
-  if (!c._bnBkt || c._bnBkt.time !== bucket || c._bnBkt.tf !== tfMin) {
-    const hist3 = resampleForTF(_baseDataFor(BN_ASSET, tfMin), tfMin, BN_ASSET);
-    const hlast3 = hist3.length ? hist3[hist3.length-1] : null;
-    if (hlast3 && hlast3.time === bucket) {
-      c._bnBkt = { tf: tfMin, time: bucket, open: hlast3.open,
-                   high: Math.max(hlast3.high, latest.high),
-                   low:  Math.min(hlast3.low,  latest.low), close: latest.close };
-    } else {
-      c._bnBkt = { tf: tfMin, time: bucket, open: latest.open,
-                   high: latest.high, low: latest.low, close: latest.close };
-    }
-  } else {
-    c._bnBkt.high  = Math.max(c._bnBkt.high,  latest.high);
-    c._bnBkt.low   = Math.min(c._bnBkt.low,   latest.low);
-    c._bnBkt.close = latest.close;
-  }
-
-  return { time: bucket, open: c._bnBkt.open, high: c._bnBkt.high,
-           low: c._bnBkt.low, close: c._bnBkt.close, value: c._bnBkt.close };
-}
-
-function _applyBNLiveTick(d) {
-  // d = { ts, ltp, candle: {time, open, high, low, close} }
-  if (!d || !d.candle) return;
-  const latest = {
-    time:   d.candle.time,
-    open:   d.candle.open,
-    high:   d.candle.high,
-    low:    d.candle.low,
-    close:  d.candle.close,
-    value:  d.candle.close,
-  };
-
-  // ── Step 1: 1-min raw data update (ALLDATA + BN_15M + BN_DAILY) ───────────
-  const arr = ALLDATA[BN_ASSET];
-  const prevLastTime = (Array.isArray(arr) && arr.length) ? arr[arr.length-1].time : null;
-  const isNewCandle  = prevLastTime !== null && latest.time !== prevLastTime;
-  _bnUpdateRaw(latest);
-
-  // ── Step 2: SR lines redraw agar 1-min candle close hua ──────────────────
-  if (isNewCandle) {
-    clearTimeout(_swingRebuildTimer);
-    _swingRebuildTimer = setTimeout(() => {
-      if (S.layout === '1x1') swingAfterRebuild();
-      else CELLS.forEach((_, i) => buildCellSwing(i));
-    }, 200);
-  }
-
-  // ── Step 3: Single chart update (1x1 mode) ────────────────────────────────
-  if (S.layout === '1x1' && mainSeries && S.asset === BN_ASSET) {
-    const tfMin = S.tf || 1;
-    const bar   = _bnGetBar(latest, tfMin);
-
-    cancelAnimationFrame(_bnRafId);
-    _bnRafId = requestAnimationFrame(() => {
-      if (!mainSeries) return;
-      try { mainSeries.update(bar); } catch(_) {}
-      // Daily+ TF: scrollToRealTime karo taaki forming candle visible rahe
-      if (tfMin >= 1440 && chart && _followLive) {
-        try { chart.timeScale().scrollToRealTime(); } catch(_) {}
-      }
-    });
-
-    const ltpEl = document.getElementById('hdr-ltp');
-    if (ltpEl && !_hdrXActive)
-      ltpEl.textContent = latest.close.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
-
-    // Price change % (day open se)
-    const chgEl = document.getElementById('hdr-chg');
-    if (chgEl && !_hdrXActive) {
-      const dayOpen = _candleOpen[BN_ASSET] || latest.open;
-      const chg = latest.close - dayOpen;
-      const pct = dayOpen ? (chg/dayOpen*100).toFixed(2) : '0.00';
-      const sign = chg >= 0 ? '+' : '';
-      chgEl.textContent = sign + latest.close.toLocaleString('en-IN',{minimumFractionDigits:2}) + 
-                          ' (' + sign + pct + '%)';
-      chgEl.className = chg >= 0 ? 'up' : 'dn';
-    }
-    if (!_candleOpen[BN_ASSET]) _candleOpen[BN_ASSET] = latest.open;
-
-    _lastLTP = latest.close;
-    _mainVLTime = bar.time; _vlDraw();
-  }
-
-  // ── Step 4: Grid cells update ─────────────────────────────────────────────
-  CELLS.forEach((c, ci) => {
-    if (c.asset !== BN_ASSET || !c.series) return;
-    const cellBar = _bnGetCellBar(c, latest);
-
-    if (!c._bnRafPending) {
-      c._bnRafPending = true;
-      requestAnimationFrame(() => {
-        c._bnRafPending = false;
-        if (!c.series || !c._bnBkt) return;
-        try { c.series.update({ ...cellBar }); } catch(_) {}
-        if ((c.tf||1) >= 1440 && c.chart && c._followLive) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-        }
-        const _ci2 = CELLS.indexOf(c); c._vlTime = cellBar.time; _vlDrawCell(_ci2);
-        _pdotDraw(_ci2);
-        c._lastLTP = cellBar.close;
-        const cell2 = document.querySelector('.grid-cell[data-idx="'+ci+'"]');
-        if (cell2) {
-          const pe = cell2.querySelector('.cell-price');
-          if (pe) {
-            pe.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
-            pe.className   = 'cell-price ' + (cellBar.close >= (c._bnBkt.open||cellBar.close) ? 'up' : 'dn');
-          }
-          const op = cell2.querySelector('.co-price');
-          if (op) op.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
-          const oc = cell2.querySelector('.co-chg');
-          if (oc) {
-            const _d = cellBar.close - (c._bnBkt.open||cellBar.close);
-            const _p = c._bnBkt.open ? (_d/c._bnBkt.open*100).toFixed(2) : '0.00';
-            oc.textContent = (_d>=0?'+':'')+_p+'%';
-            oc.style.color = _d >= 0 ? '#26a69a' : '#ef5350';
-          }
-        }
-      });
-    }
-  });
-
-  // ── Step 5: Live indicator ────────────────────────────────────────────────
-  if (S.asset === BN_ASSET || CELLS.some(c=>c.asset===BN_ASSET)) {
-    const st = document.getElementById('ws-status');
-    if (st && S.asset === BN_ASSET)
-      st.innerHTML = '<span id="ws-dot" class="live"></span>Live';
-  }
-  // ── Parent dot live update (throttled — only on new candle) ──────────────
-  if (isNewCandle) _pdotOnLiveTick();
-}
-
-// Listen for postMessage from Streamlit parent (Python pushes tick every ~1s)
-window.addEventListener('message', function(evt) {
-  try {
-    const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'bn_live') _applyBNLiveTick(msg.data);
-    // Also accept BTC tick override from parent (future use)
-  } catch(_) {}
-});
-
-// ── Fast direct tick poll — talks straight to the local side-port HTTP
-// server (the same one /api/bn_history already uses) instead of going
-// through Streamlit's 1s @st.fragment rerun + postMessage relay chain.
-// That chain was the main source of the 2-3s lag: Python only reruns the
-// pusher fragment once/sec, then Streamlit has to tear down and remount a
-// fresh iframe each time before anything can be pushed. This polls the
-// in-memory tick (_get_live_payload — no disk I/O) directly every 300ms,
-// with a sub-second float ts so same-second ticks no longer get deduped
-// away. The bn_live.json poll + postMessage listener above stay as
-// fallbacks for any environment where the side port isn't reachable.
-let _bnFastTickTs = 0;
-let _bnFastPollIv = null;
-
-async function _pollBNTickFast() {
-  if (_resolvedApiPort === 0) { await _probeApiPort(); }
-  if (_resolvedApiPort === 0) return;  // side port not reachable here — fallbacks will cover it
-  try {
-    const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/bn_tick`;
-    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(1200) });
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d && d.candle && d.ts && d.ts !== _bnFastTickTs) {
-      _bnFastTickTs = d.ts;
-      _applyBNLiveTick(d);
-    }
-  } catch(_) {}
-}
-
-function _startBNFastPolling() {
-  if (_bnFastPollIv) return;
-  _pollBNTickFast();
-  _bnFastPollIv = setInterval(_pollBNTickFast, 300);
-}
-_startBNFastPolling();
-
-// BN Live Poll — bn_live.json direct fetch (Streamlit mein /api/bn_live exist nahi)
-let _bnLastTs = 0;
-
-async function _pollBNLive() {
-  try {
-    const paths = ['./bn_live.json', '/bn_live.json', 'bn_live.json'];
-    let d = null;
-    for (const p of paths) {
-      try {
-        const r = await fetch(p + '?_t=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(2000) });
-        if (r.ok) { d = await r.json(); if (d && d.candle) break; }
-      } catch(_) { continue; }
-    }
-    if (d && d.candle && d.ts && d.ts !== _bnLastTs) {
-      _bnLastTs = d.ts;
-      _applyBNLiveTick(d);
-    }
-  } catch(_) {}
-}
-
-function _stopBNPolling() {
-  if (_bnPollIv) { clearInterval(_bnPollIv); _bnPollIv = null; }
-}
-
-function _startBNPolling() {
-  _stopBNPolling();
-  _pollBNLive();
-  _bnPollIv = setInterval(_pollBNLive, 800);
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // INIT
@@ -7799,23 +6134,15 @@ document.addEventListener('DOMContentLoaded', () => {
         layout = slotLayout;
       }
 
-      if (_stackOnOff) {
-        selectStackView();
-        const sc=st.selCell||0;
-        requestAnimationFrame(()=>requestAnimationFrame(()=>selectCell(sc)));
-      } else if (layout!=='1x1'&&LAYOUTS[layout]) {
-        setLayout(layout,null);
-        const sc=st.selCell||0;
-        requestAnimationFrame(()=>requestAnimationFrame(()=>selectCell(sc)));
-      } else {
-        setLayout('1x1',null);
-      }
+      // Always open Stack View on startup
+      selectStackView();
+      const sc=st.selCell||0;
+      requestAnimationFrame(()=>requestAnimationFrame(()=>selectCell(sc)));
       _savedCells=null;
       _savedCellsLayout=null;
     } else {
-      // First-time user, no saved state at all — Stack View is ON by default.
-      if (_stackOnOff) selectStackView();
-      else rebuildChart();
+      // First-time user — Stack View hamesha ON
+      selectStackView();
     }
   } catch(_) { rebuildChart(); }
 
@@ -7879,17 +6206,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('pointerdown', _autoFS, {capture:true, once:true});
   })();
 
-  // Start live data
+  // Start timers (no live data)
   setTimeout(()=>{
     initCandleTimer();
     _startCellTimers();
-    if (S.asset === BN_ASSET) {
-      _loadBNHistory(S.tf);
-      _connectBTCWS(); // BTC WS bhi start karo background mein (grid cells ke liye)
-    } else {
-      _loadBTCHistory(S.tf);
-    }
-    _startBNPolling(); // always poll BN — data ready when user switches
   }, 800);
 
   // Fix 4 & 12: apply crosshair/cursor settings from saved state
@@ -10693,952 +9013,6 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
-// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
-// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
-// ════════════════════════════════════════════════════════════════════════════
-const GD = (function () {
-  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
-  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
-  const FILE_NAME = 'banknifty-layout-sync.json';
-  const AUTH_FLAG = 'gdAuthed';
-
-  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
-  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
-
-  // ── UI helpers ────────────────────────────────────────────────────────────
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-  function _showBtn(label, show) {
-    const b = document.getElementById('gd-btn');
-    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
-    // Manual paste row bhi sign in button ke saath dikhao
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = show ? '' : 'none';
-  }
-  function _toast(msg, color) {
-    let t = document.getElementById('gd-toast');
-    if (!t) {
-      t = document.createElement('div');
-      t.id = 'gd-toast';
-      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
-        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
-        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
-        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
-      document.body.appendChild(t);
-    }
-    t.style.background = color || '#26a69a';
-    t.textContent = msg;
-    t.style.opacity = '1';
-    clearTimeout(t._iv);
-    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
-  }
-  function _now() {
-    try {
-      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    } catch (_) { return ''; }
-  }
-
-  // ── localStorage snapshot / apply (captures every key = all features) ──────
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === AUTH_FLAG) continue;
-        if (localStorage.getItem(k) !== data[k]) {
-          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
-          changed = true;
-        }
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  // ── OAuth token handling ───────────────────────────────────────────────────
-  function _onToken(resp) {
-    if (resp && resp.access_token) {
-      accessToken = resp.access_token;
-      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
-      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
-      const cb = _pending; _pending = null; if (cb) cb(true);
-    } else {
-      const cb = _pending; _pending = null; if (cb) cb(false);
-    }
-  }
-  function _onTokenErr() {
-    const cb = _pending; _pending = null;
-    _setStatus('☁ Cloud: tap to sign in', '#f23645');
-    _showBtn('Sign in', true);
-    if (cb) cb(false);
-  }
-
-  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
-  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
-  // Google Cloud Console mein dono register honi chahiye:
-  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
-  //   http://localhost:8501/?gd_cb=1
-
-  function _getRedirectURI() {
-    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
-    try {
-      const origin = window.parent !== window
-        ? document.referrer
-          ? new URL(document.referrer).origin
-          : window.location.origin
-        : window.location.origin;
-      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
-    } catch(_) {}
-    // Fallback: Streamlit URL
-    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
-  }
-
-  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
-
-  // postMessage listener — callback page token bhejta hai yahan
-  window.addEventListener('message', function(e) {
-    try {
-      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-      if (d && d.type === 'gd_oauth_token' && d.access_token) {
-        clearInterval(_popupTimer);
-        clearInterval(_lsPollIv);
-        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
-      }
-    } catch(_) {}
-  });
-
-  // localStorage polling fallback (agar postMessage cross-origin block ho)
-  function _startLSPoll(cb) {
-    clearInterval(_lsPollIv);
-    _lsPollIv = setInterval(() => {
-      try {
-        const raw = localStorage.getItem('_gd_oauth_pending');
-        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
-        if (raw && (Date.now() - ts) < 60000) {
-          clearInterval(_lsPollIv);
-          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
-          const d = JSON.parse(raw);
-          if (d && d.access_token) {
-            clearInterval(_popupTimer);
-            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-            if (cb) cb(true);
-          }
-        }
-      } catch(_) {}
-    }, 800);
-    setTimeout(() => clearInterval(_lsPollIv), 120000);
-  }
-
-  function _openAuthPopup(cb) {
-    _oauthCb = cb;
-    const REDIRECT_URI = _getRedirectURI();
-
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id:              CLIENT_ID,
-      redirect_uri:           REDIRECT_URI,
-      response_type:          'token',
-      scope:                  SCOPE,
-      include_granted_scopes: 'true',
-      prompt:                 'consent',
-    });
-
-    const w = 480, h = 620;
-    const left = Math.max(0, (screen.width  - w) / 2);
-    const top  = Math.max(0, (screen.height - h) / 2);
-
-    _popupWin = window.open(
-      authUrl, 'gdauth',
-      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
-    );
-
-    if (!_popupWin || _popupWin.closed) {
-      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
-      _showBtn('Sign in', true);
-      _oauthCb = null;
-      if (cb) cb(false);
-      return;
-    }
-
-    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
-
-    // localStorage fallback polling
-    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
-
-    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
-    clearInterval(_popupTimer);
-    _popupTimer = setInterval(() => {
-      try {
-        if (_popupWin && _popupWin.closed) {
-          clearInterval(_popupTimer);
-          setTimeout(() => {
-            if (_oauthCb) {
-              clearInterval(_lsPollIv);
-              _setStatus('☁ Sign-in cancel hua', '#f23645');
-              _showBtn('Sign in', true);
-              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
-            }
-          }, 2000);
-          return;
-        }
-        // Same-origin check — jab popup redirect_uri pe aa jaaye
-        try {
-          const href = _popupWin.location.href;
-          const fragment = _popupWin.location.hash;
-          if (href && fragment && fragment.includes('access_token')) {
-            // Fragment mil gaya — Streamlit strip karne se pehle
-            clearInterval(_popupTimer);
-            clearInterval(_lsPollIv);
-            const p = new URLSearchParams(fragment.substring(1));
-            const token = p.get('access_token');
-            const exp   = parseInt(p.get('expires_in') || '3600', 10);
-            try { _popupWin.close(); } catch(_) {}
-            if (token) {
-              // localStorage mein bhi save karo backup ke liye
-              try {
-                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
-                localStorage.setItem('_gd_oauth_pending', msg);
-                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
-              } catch(_) {}
-              _onToken({ access_token: token, expires_in: exp });
-              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
-            }
-          }
-        } catch(crossOriginErr) {
-          // Popup abhi Google ke domain pe hai — normal, wait karo
-        }
-      } catch(_) {}
-    }, 300);
-  }
-
-  function _requestToken(interactive, cb) {
-    _pending = cb;
-    if (interactive) {
-      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
-      return;
-    }
-    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
-    if (cb) cb(false);
-  }
-  function _withToken(cb) {
-    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
-    _requestToken(false, cb);
-  }
-
-  // ── Drive REST helpers ──────────────────────────────────────────────────────
-  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
-  function _findFile(cb) {
-    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
-      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
-      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
-    fetch(url, { headers: _hdr() })
-      .then(r => r.json())
-      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
-      .catch(() => cb(null));
-  }
-  function _download(cb) {
-    if (!fileId) { cb(null); return; }
-    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
-      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
-  }
-  function _uploadMedia(payload, cb) {
-    if (fileId) {
-      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
-        method: 'PATCH',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
-        body: payload,
-      }).then(r => cb(r.ok)).catch(() => cb(false));
-    } else {
-      const boundary = 'gdsync' + Date.now();
-      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
-      const body =
-        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(meta) + '\r\n' +
-        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
-        payload + '\r\n--' + boundary + '--';
-      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-        method: 'POST',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
-        body: body,
-      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
-        .catch(() => cb(false));
-    }
-  }
-
-  // ── Public: push (save) ──────────────────────────────────────────────────────
-  function push(showToast) {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      if (showToast) _toast('Sign in to Google first', '#f23645');
-      return;
-    }
-    _withToken(ok => {
-      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
-      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-      const doUpload = () => _uploadMedia(payload, okk => {
-        if (okk) {
-          _dirty = false;
-          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
-          if (showToast) _toast('☁ Saved to Google Cloud');
-        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
-      });
-      if (fileId) doUpload(); else _findFile(() => doUpload());
-    });
-  }
-
-  // ── Public: pull (restore) ───────────────────────────────────────────────────
-  function pull(after) {
-    _withToken(ok => {
-      if (!ok) { if (after) after(false, false); return; }
-      _findFile(id => {
-        if (!id) { if (after) after(false, false); return; }
-        _download(obj => {
-          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
-          else if (after) after(false, false);
-        });
-      });
-    });
-  }
-
-  // ── Boot: silent auto-login + restore on page open ──────────────────────────
-  function _boot() {
-    if (_booted) return; _booted = true;
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      _setStatus('☁ Cloud: not signed in');
-      _showBtn('Sign in', true);
-      return;
-    }
-    _setStatus('☁ Cloud: connecting…');
-    _showBtn('', false);
-    _requestToken(false, ok => {
-      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      // Show "restore completed" once after a reload triggered by restore
-      if (sessionStorage.getItem('gdJustRestored') === '1') {
-        sessionStorage.removeItem('gdJustRestored');
-        _toast('✓ Restore completed');
-      }
-      if (sessionStorage.getItem('gdRestored') === '1') {
-        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
-        return;
-      }
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found && changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          _toast('✓ Restore completed');
-          setTimeout(() => location.reload(), 950);
-        } else if (found) {
-          _setStatus('☁ Cloud: restored ✓', '#26a69a');
-          _toast('✓ Restore completed');
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(false); // first-time upload of current local state
-        }
-      });
-    });
-  }
-
-  // ── Manual sign-in (first time) ──────────────────────────────────────────────
-  function signIn() {
-    _setStatus('☁ Cloud: opening Google…');
-    _requestToken(true, ok => {
-      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      sessionStorage.removeItem('gdRestored');
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found) {
-          _toast('✓ Restore completed');
-          if (changed) {
-            sessionStorage.setItem('gdJustRestored', '1');
-            setTimeout(() => location.reload(), 950);
-          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(true); // nothing on Drive yet → upload current
-        }
-      });
-    });
-  }
-
-  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
-  let _origSetItem = null;
-  function _initAutoSave() {
-    try {
-      _origSetItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = function (k, v) {
-        _origSetItem(k, v);
-        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
-          _dirty = true;
-          _schedule();
-        }
-      };
-    } catch (_) {}
-  }
-  function _schedule() {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
-    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
-    const autoOn = localStorage.getItem('gdAutoSave') === '1';
-    if (!autoOn) return;
-    clearTimeout(_pushTimer);
-    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
-  }
-
-  // Public: force push (manual Save Layout button ke liye)
-  function pushNow() { push(true); }
-
-  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
-  // (GIS iframe mein origin=null error deta hai)
-  function _waitGIS() { _boot(); } // GIS skip, seedha boot
-  function init() {
-    _initAutoSave();
-    _boot(); // GIS SDK load nahi karo
-  }
-
-  // Manual token inject (URL paste se)
-  function _manualToken(token, exp) {
-    _onToken({ access_token: token, expires_in: exp || 3600 });
-    _showBtn('', false);
-    sessionStorage.removeItem('gdRestored');
-    _setStatus('☁ Cloud: restoring…');
-    pull((found, changed) => {
-      sessionStorage.setItem('gdRestored', '1');
-      if (found) {
-        _toast('✓ Restore completed');
-        if (changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          setTimeout(() => location.reload(), 950);
-        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-      } else {
-        _setStatus('☁ Cloud: connected', '#26a69a');
-        push(true);
-      }
-    });
-  }
-
-  // Save on tab hide / close (best-effort)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && _dirty) push(false);
-  });
-
-  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
-})();
-
-// Global handler for the menu button
-function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
-
-// Manual token paste — popup URL se token extract karo
-function gdManualToken() {
-  const inp = document.getElementById('gd-token-inp');
-  if (!inp) return;
-  const raw = inp.value.trim();
-  if (!raw) return;
-
-  // URL mein se fragment nikalo: #access_token=...
-  let fragment = '';
-  try {
-    const hashIdx = raw.indexOf('#');
-    if (hashIdx !== -1) {
-      fragment = raw.substring(hashIdx + 1);
-    } else if (raw.includes('access_token')) {
-      // Sirf fragment part paste kiya hoga
-      fragment = raw;
-    }
-  } catch(_) {}
-
-  if (!fragment) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  const p     = new URLSearchParams(fragment);
-  const token = p.get('access_token');
-  const exp   = parseInt(p.get('expires_in') || '3600', 10);
-
-  if (!token) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  // Token mil gaya — GD ko dedo
-  inp.value = '';
-  const row = document.getElementById('gd-manual-row');
-  if (row) row.style.display = 'none';
-  try { GD._manualToken(token, exp); } catch(_) {}
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// SERVER SAVE  (Streamlit server file — Google Drive ke bina)
-// Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
-// snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
-// Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
-// ════════════════════════════════════════════════════════════════════════════
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// GITHUB SYNC (Gist API)
-// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
-// ════════════════════════════════════════════════════════════════════════════
-const GH = (function () {
-  const GIST_NAME = 'banknifty-layout-sync.json';
-  const TOKEN_KEY = 'gh_token';
-  const GIST_ID_KEY = 'gh_gist_id';
-
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status'); // Reuse GD status for now
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-
-  function _toast(msg, color) {
-    if (window.GD && GD._toast) GD._toast(msg, color);
-    else alert(msg);
-  }
-
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        // Force overwrite even if it looks the same, to be sure
-        localStorage.setItem(k, data[k]);
-        changed = true;
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  async function push(showToast) {
-    // Force save current state to localStorage first
-    if (window.saveState) saveState();
-    if (window.saveToActiveLayout) saveToActiveLayout();
-    
-    let token = localStorage.getItem(TOKEN_KEY);
-    if (!token || token.length < 5) {
-      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
-      if (token && token.trim().length > 5) {
-        token = token.trim();
-        localStorage.setItem(TOKEN_KEY, token);
-      } else {
-        _setStatus('🐙 GitHub: Token required', '#f23645');
-        return;
-      }
-    }
-
-    _setStatus('🐙 GitHub: saving...', '#f0b429');
-    let gistId = localStorage.getItem(GIST_ID_KEY);
-    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json'
-    };
-
-    try {
-      let url = 'https://api.github.com/gists';
-      let method = 'POST';
-      let body = {
-        description: 'BankNifty Layout Sync',
-        public: false,
-        files: { [GIST_NAME]: { content: payload } }
-      };
-
-      if (gistId) {
-        url = `https://api.github.com/gists/${gistId}`;
-        method = 'PATCH';
-      }
-
-      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
-      const json = await resp.json();
-
-      if (resp.ok) {
-        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
-        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
-        if (showToast) _toast('☁ Saved to GitHub Gist');
-      } else {
-        console.error('GH Save Error:', json);
-        const errMsg = json.message || 'Save Failed';
-        
-        if (resp.status === 409) {
-          // Conflict error - force update by creating a new one or trying to pull first
-          console.warn('409 Conflict, retrying as new gist...');
-          localStorage.removeItem(GIST_ID_KEY);
-          return push(showToast);
-        }
-
-        if (resp.status === 404) {
-          localStorage.removeItem(GIST_ID_KEY);
-          const msg = "GitHub Error 404: Not Found.\n\n" +
-                      "This usually means your Token is missing 'gist' permission.\n" +
-                      "Please check 'gist' scope in GitHub Token settings.";
-          alert(msg);
-          _setStatus('🐙 GitHub: 404 Error', '#f23645');
-          return;
-        }
-
-        if (resp.status === 401) {
-          localStorage.removeItem(TOKEN_KEY);
-          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
-          _toast('Invalid Token: ' + errMsg, '#f23645');
-        } else {
-          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
-          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
-        }
-      }
-    } catch (err) {
-      _setStatus('🐙 GitHub: error', '#f23645');
-      _toast('GitHub Error: ' + err.message, '#f23645');
-    }
-  }
-
-  function reset() {
-    if (confirm("Reset GitHub Token and Gist ID?")) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(GIST_ID_KEY);
-      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
-      _toast('GitHub settings reset. Tap again to enter new token.');
-    }
-  }
-
-  async function pull(after) {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (!token || !gistId) { if (after) after(false, false); return; }
-
-    _setStatus('🐙 GitHub: restoring...', '#f0b429');
-    const headers = {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json'
-    };
-
-    try {
-      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
-      const json = await resp.json();
-
-      if (resp.ok && json.files[GIST_NAME]) {
-        const content = JSON.parse(json.files[GIST_NAME].content);
-        const changed = _apply(content.data);
-        if (after) after(true, changed);
-      } else {
-        if (after) after(false, false);
-      }
-    } catch (err) {
-      if (after) after(false, false);
-    }
-  }
-
-  function init() {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (token && gistId) {
-      // Check if we just restored to avoid infinite loop
-      if (sessionStorage.getItem('gh_just_restored') === '1') {
-        sessionStorage.removeItem('gh_just_restored');
-        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
-        _toast('✓ GitHub Restore completed');
-        return;
-      }
-
-      _setStatus('🐙 GitHub: checking...', '#f0b429');
-      pull((found, changed) => {
-        if (found && changed) {
-          sessionStorage.setItem('gh_just_restored', '1');
-          _toast('✓ GitHub Restore completed');
-          setTimeout(() => location.reload(), 800);
-        } else if (found) {
-          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
-        } else {
-          _setStatus('🐙 GitHub: connected', '#787b86');
-        }
-      });
-    }
-  }
-
-  return { push, pull, init, reset };
-})();
-
-// Auto-init GitHub
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => GH.init());
-} else {
-  GH.init();
-}
-
-const SS = (function () {
-  function _setStatus(txt, color) {
-    const s = document.getElementById('ss-status');
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__') continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (localStorage.getItem(k) !== data[k]) {
-          localStorage.setItem(k, data[k]);
-          changed = true;
-        }
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  // ── Save: localStorage snapshot ko JSON file mein download karo (no reload) ──
-  // Form submit se page blank ho jaata tha — isliye ab direct download approach.
-  // Data localStorage mein already saved hai, ek .json backup bhi de dete hain.
-  function push() {
-    try {
-      const payload = JSON.stringify(_snapshot(), null, 2);
-      if (payload.length > 5000000) {
-        _setStatus('💽 JSON: data bahut bada hai', '#f23645');
-        return;
-      }
-      _setStatus('💽 JSON: saving…', '#f0b429');
-
-      // localStorage mein bhi save karo backup key ke saath
-      try {
-        localStorage.setItem('__ss_backup__', payload);
-      } catch(_) {}
-
-      _setStatus('💽 JSON: saved ✓', '#26a69a');
-      setTimeout(() => _setStatus('💽 JSON: ready', '#26a69a'), 2000);
-    } catch (err) {
-      _setStatus('💽 JSON: save failed', '#f23645');
-    }
-  }
-
-  // ── Download: JSON file phone mein save karo ──────────────────────────────
-  function download() {
-    try {
-      const payload = JSON.stringify(_snapshot(), null, 2);
-      const blob = new Blob([payload], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'banknifty-layout-' + new Date().toISOString().slice(0,10) + '.json';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-      _setStatus('💽 JSON: downloaded ✓', '#26a69a');
-    } catch(err) {
-      _setStatus('💽 JSON: download failed', '#f23645');
-    }
-  }
-
-  // ── Restore from JSON file ────────────────────────────────────────────────
-  function restoreFromFile(file) {
-    const reader = new FileReader();
-    reader.onload = function(e) {
-      try {
-        const data = JSON.parse(e.target.result);
-        const changed = _apply(data);
-        _setStatus('💽 JSON: restored ✓', '#26a69a');
-        if (changed) {
-          setTimeout(() => { location.reload(); }, 600);
-        }
-      } catch(_) {
-        _setStatus('💽 JSON: invalid file', '#f23645');
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  // ── Restore: localStorage backup se auto-restore ────────────────────────────
-  function _boot() {
-    // Python inject (window.__CHART_STATE_RESTORE__) ya localStorage backup dono check
-    const restored = window.__CHART_STATE_RESTORE__;
-    const lsBkp = (() => {
-      try { const r = localStorage.getItem('__ss_backup__'); return r ? JSON.parse(r) : null; } catch(_) { return null; }
-    })();
-
-    if (!restored && !lsBkp) { _setStatus('💽 JSON: ready', '#26a69a'); return; }
-
-    if (sessionStorage.getItem('ssRestored') === '1') {
-      _setStatus('💽 JSON: ready', '#26a69a');
-      return;
-    }
-    sessionStorage.setItem('ssRestored', '1');
-    // Python inject pehle try karo, warna localStorage backup use karo
-    const src = restored || lsBkp;
-    const changed = _apply(src);
-    if (changed) {
-      _setStatus('💽 JSON: restoring…');
-      setTimeout(() => location.reload(), 600);
-    } else {
-      _setStatus('💽 JSON: ready', '#26a69a');
-    }
-  }
-
-  function init() { _boot(); }
-  return { init, push, download, restoreFromFile };
-})();
-
-// Save Layout / New Layout pe server-side save bhi ho jaye (GD wale hook ke saath)
-(function () {
-  const _origSave2 = window.saveToActiveLayout;
-  window.saveToActiveLayout = function () {
-    if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
-    try { SS.push(); } catch (_) {}
-    // Cloud sync bhi karo (agar enabled ho)
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
-  };
-  const _origNew2 = window.newLayout;
-  window.newLayout = function () {
-    if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
-    try { SS.push(); } catch (_) {}
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
-  };
-})();
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => SS.init());
-} else {
-  SS.init();
-}
-
-// Auto-save toggle
-function gdAutoSaveToggle() {
-  const cur = localStorage.getItem('gdAutoSave') === '1';
-  const next = !cur;
-  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
-  _updateAutoSaveUI();
-  if (next && _gdEnabled) {
-    // Turant ek push karo
-    try { GD.pushNow(); } catch(_) {}
-  }
-}
-function _updateAutoSaveUI() {
-  const btn = document.getElementById('gd-autosave-btn');
-  if (!btn) return;
-  const on = localStorage.getItem('gdAutoSave') === '1';
-  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
-  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
-  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
-  btn.style.color         = on ? '#26a69a' : '#787b86';
-}
-let _gdEnabled = (() => {
-  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
-})();
-
-function gdToggle() {
-  _gdEnabled = !_gdEnabled;
-  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
-  _updateGdToggleUI();
-  if (_gdEnabled) {
-    // _booted flag reset karo taaki GD dobara connect kar sake
-    try { GD._resetBoot(); } catch(_) {}
-    GD.init();
-  } else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    const b = document.getElementById('gd-btn');
-    if (b) b.style.display = 'none';
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = 'none';
-  }
-}
-function _updateGdToggleUI() {
-  const tog = document.getElementById('gd-toggle');
-  if (!tog) return;
-  tog.textContent = _gdEnabled ? '🟢' : '⚫';
-  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
-}
-
-// Hook GD save with toggle check
-(function () {
-  const _origSave = window.saveToActiveLayout;
-  window.saveToActiveLayout = function () {
-    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-  const _origNew = window.newLayout;
-  window.newLayout = function () {
-    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-})();
-
-// Start cloud sync once DOM is ready (only if enabled)
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    _updateGdToggleUI();
-    _updateAutoSaveUI();
-    if (_gdEnabled) GD.init();
-    else {
-      const s = document.getElementById('gd-status');
-      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    }
-  });
-} else {
-  _updateGdToggleUI();
-  _updateAutoSaveUI();
-  if (_gdEnabled) GD.init();
-  else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// KEEP-ALIVE — ping Streamlit server every 4 min to prevent Replit sleep
-// ════════════════════════════════════════════════════════════════════════════
-(function _keepAlive() {
-  const INTERVAL = 4 * 60 * 1000; // 4 minutes
-  function ping() {
-    try {
-      fetch('/_stcore/health', { method: 'GET', cache: 'no-store' }).catch(() => {});
-    } catch(_) {}
-  }
-  setInterval(ping, INTERVAL);
-  // Also ping immediately on page visibility restore (user switches back to tab)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') ping();
-  });
-})();
-
-// ════════════════════════════════════════════════════════════════════════════
 // REPLAY VIEW — .gz historical data, BankNifty + BTC
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -12855,12 +10229,6 @@ function _replayToggleMinimize() {
         ≡
       </button>
 
-      <!-- Broker button -->
-      <button onclick="toggleBrokerPanel(event)"
-        style="height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:11px;cursor:pointer;white-space:nowrap;flex-shrink:0;">
-        🔑
-      </button>
-
       <!-- Settings -->
       <button onclick="toggleSettings()"
         style="width:22px;height:18px;background:transparent;border:1px solid #2a2e39;border-radius:3px;color:#9598a1;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -12978,6 +10346,200 @@ function _replayToggleMinimize() {
 
   </div>
 </div>
+
+<!-- ═══ STARTUP DEBUG OVERLAY ════════════════════════════════════════════ -->
+<div id="startup-debug-overlay" style="
+  display:none;position:fixed;inset:0;z-index:99999;
+  background:rgba(0,0,0,0.93);overflow-y:auto;
+  font-family:'Courier New',monospace;padding:12px;
+  touch-action:pan-y;
+">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+    <span style="font-size:15px;font-weight:900;color:#f0b429;letter-spacing:1px;">🐛 STARTUP DEBUG LOG</span>
+    <button id="sdbg-copy-btn" onclick="_sdbgCopyAll()" style="
+      height:32px;padding:0 14px;background:#2962ff;border:none;border-radius:6px;
+      color:#fff;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">
+      📋 Copy All
+    </button>
+    <button onclick="_sdbgClose()" style="
+      height:32px;padding:0 14px;background:#363c4e;border:none;border-radius:6px;
+      color:#d1d4dc;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">
+      ✕ Close
+    </button>
+  </div>
+  <div style="font-size:10px;color:#555;margin-bottom:8px;">
+    Ye log copy karke Claude ko do — sabhi errors yahan dikhenge
+  </div>
+  <div id="sdbg-log" style="
+    font-size:11px;line-height:1.7;color:#9598a1;
+    white-space:pre-wrap;word-break:break-all;
+  "></div>
+  <div style="font-size:10px;color:#555;margin-top:10px;text-align:center;">
+    Page load hone ke baad sab errors yahan aa jayenge — Copy All karo
+  </div>
+</div>
+
+<script>
+(function(){
+  const _t0 = Date.now();
+  const _logs = [];
+
+  function _ms() { return '[+' + (Date.now()-_t0) + 'ms]'; }
+
+  function _log(level, tag, msg) {
+    const icon = level==='ok' ? '✅' : level==='err' ? '❌' : 'ℹ️';
+    const line = _ms() + ' [' + icon + ' ' + tag + '] ' + msg;
+    _logs.push(line);
+    const el = document.getElementById('sdbg-log');
+    if (el) el.textContent = _logs.join('\n');
+  }
+
+  function _ok(tag, msg)   { _log('ok',  tag, msg); }
+  function _err(tag, msg)  { _log('err', tag, msg); }
+  function _info(tag, msg) { _log('info',tag, msg); }
+
+  // ── Show overlay immediately ──────────────────────────────────────────────
+  function _show() {
+    const ov = document.getElementById('startup-debug-overlay');
+    if (ov) ov.style.display = 'block';
+  }
+
+  window._sdbgClose = function() {
+    const ov = document.getElementById('startup-debug-overlay');
+    if (ov) ov.style.display = 'none';
+  };
+
+  window._sdbgCopyAll = function() {
+    const text = _logs.join('\n');
+    const btn = document.getElementById('sdbg-copy-btn');
+    navigator.clipboard.writeText(text).then(function(){
+      if (btn) { btn.textContent = '✅ Copied!'; setTimeout(()=>{ btn.textContent='📋 Copy All'; }, 2000); }
+    }).catch(function(){
+      // Fallback
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch(_){}
+      document.body.removeChild(ta);
+      if (btn) { btn.textContent = '✅ Copied!'; setTimeout(()=>{ btn.textContent='📋 Copy All'; }, 2000); }
+    });
+  };
+
+  _info('SCRIPT', 'Debug overlay script loaded');
+  _show();
+
+  // ── Run checks on DOMContentLoaded ───────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', function(){
+    _info('READY STATE', document.readyState);
+    _info('INIT', 'Debug capture active — waiting for app events…');
+
+    // DOM Elements check
+    var domChecks = [
+      'app','hdr','tf-bar','stack-view','stack-container',
+      'bottom-bar','workspace','grid-view','grid-picker',
+      'draw-panel','layout-menu','stack-settings-panel',
+      'ind-panel','settings-modal','goto-latest-btn'
+    ];
+    setTimeout(function(){
+      domChecks.forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) _ok('DOM EL', '#' + id + ' found');
+        else    _err('DOM EL', '#' + id + ' MISSING');
+      });
+
+      // LightweightCharts
+      if (typeof LightweightCharts !== 'undefined')
+        _ok('LWC', 'LightweightCharts OK — version: ' + (LightweightCharts.version ? LightweightCharts.version() : '?'));
+      else
+        _err('LWC', 'LightweightCharts UNDEFINED');
+
+      // localStorage
+      try { localStorage.setItem('__dbg__','1'); localStorage.removeItem('__dbg__'); _ok('STORAGE','localStorage working'); }
+      catch(e) { _err('STORAGE','localStorage BLOCKED: ' + e.message); }
+
+      // _API_PORT (may be injected or undefined)
+      try {
+        var p = (typeof _API_PORT !== 'undefined') ? _API_PORT : 'UNDEFINED';
+        _info('API_PORT', '_API_PORT = ' + p);
+      } catch(e) { _info('API_PORT', '_API_PORT = UNDEFINED'); }
+
+      // ALLDATA
+      try {
+        if (typeof ALLDATA !== 'undefined') {
+          var keys = Object.keys(ALLDATA);
+          var counts = keys.map(function(k){ return k + ': ' + (ALLDATA[k]||[]).length + ' bars'; });
+          _ok('ALLDATA', 'ALLDATA defined — ' + (counts.join(', ')||'empty'));
+        } else {
+          _err('ALLDATA', 'ALLDATA is UNDEFINED');
+        }
+      } catch(e) { _err('ALLDATA', 'ALLDATA error: ' + e.message); }
+
+      // S object
+      try {
+        if (typeof S !== 'undefined' && S && typeof S.asset !== 'undefined')
+          _ok('STATE S', 'S object OK — asset: ' + S.asset + ', tf: ' + S.tf + ', layout: ' + S.layout);
+        else
+          _err('STATE S', 'S object is UNDEFINED or incomplete');
+      } catch(e) { _err('STATE S', 'S error: ' + e.message); }
+
+      // chart variable
+      try {
+        if (typeof chart !== 'undefined' && chart !== null)
+          _ok('CHART VAR', 'chart variable OK');
+        else
+          _info('CHART VAR', 'chart = null (Stack View mode — expected)');
+      } catch(e) { _err('CHART VAR', 'chart error: ' + e.message); }
+
+      // Stack View
+      try {
+        var sv = document.getElementById('stack-view');
+        if (sv && sv.classList.contains('active'))
+          _ok('STACK VIEW', 'Stack View is ACTIVE ✓');
+        else
+          _err('STACK VIEW', 'Stack View NOT active — class: ' + (sv ? sv.className : 'el missing'));
+      } catch(e) { _err('STACK VIEW', e.message); }
+
+      // STACK_CELLS
+      try {
+        if (typeof STACK_CELLS !== 'undefined')
+          _ok('STACK CELLS', 'STACK_CELLS count: ' + STACK_CELLS.length);
+        else
+          _err('STACK CELLS', 'STACK_CELLS UNDEFINED');
+      } catch(e) { _err('STACK CELLS', e.message); }
+
+      // JS errors
+      if (window._sdbgJsErrors && window._sdbgJsErrors.length) {
+        window._sdbgJsErrors.forEach(function(e){ _err('JS ERROR', e); });
+      } else {
+        _ok('JS ERRORS', 'No JS errors caught');
+      }
+
+      _info('DONE', '✅ Startup check complete — scroll up for any errors');
+    }, 50);
+  });
+
+  // ── Window load (heavier check) ───────────────────────────────────────────
+  window.addEventListener('load', function(){
+    _info('WINDOW', 'window load event fired');
+    if (typeof LightweightCharts !== 'undefined')
+      _ok('LWC', 'LightweightCharts available after window load');
+  });
+
+  // ── Global JS error catcher ───────────────────────────────────────────────
+  window._sdbgJsErrors = [];
+  window.addEventListener('error', function(e){
+    var msg = (e.message||'?') + ' @ ' + (e.filename||'?') + ':' + (e.lineno||'?');
+    window._sdbgJsErrors.push(msg);
+    _err('JS ERROR', msg);
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    var msg = 'Unhandled promise: ' + ((e.reason && e.reason.message) || String(e.reason));
+    window._sdbgJsErrors.push(msg);
+    _err('PROMISE', msg);
+  });
+
+})();
+</script>
 
 </body>
 </html>
