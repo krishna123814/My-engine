@@ -720,6 +720,25 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
    this element. We deliberately do NOT set touch-action:none here, because
    that would also interfere with the chart library's own pan/zoom touch
    handling inside the candle area, making drag/pinch-zoom feel jerky. */
+
+/* ── Stack View 2 (independent copy, empty chart, no live/historical data) ── */
+#stack-view-2{display:none;flex:1;overflow:hidden;min-height:0;}
+#stack-view-2.active{display:flex;flex-direction:column}
+#stack-container-2{
+  flex:1;display:flex;flex-direction:column;
+  background:#2a2e39;overflow-y:auto;min-height:0;
+  touch-action:none;
+}
+.stack2-cell{
+  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
+  position:relative;
+  display:flex;flex-direction:column;
+}
+.stack2-cell .cell-overlay{
+  pointer-events:none;
+  min-height:28px;
+}
+.stack2-cell .cell-overlay > *{ pointer-events:none; }
 /* Top strip — reuses the existing symbol/TF/letter overlay line.
    Purely visual now: pointer-events:none so touches pass straight through
    to the chart underneath (no more touch capture / drag-to-scroll here). */
@@ -1937,6 +1956,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="stack-container"></div>
 </div>
 
+<!-- ═══ STACK VIEW 2 (independent copy, empty chart, no live/historical data) ═ -->
+<div id="stack-view-2">
+  <div id="stack-container-2"></div>
+</div>
+
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
@@ -1948,6 +1972,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
+  <button id="stack2-up-btn" onclick="_stack2StepJump(-1)" title="Stack2: Scroll up" style="display:none">▲②</button>
+  <button id="stack2-down-btn" onclick="_stack2StepJump(1)" title="Stack2: Scroll down" style="display:none">▼②</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -1995,6 +2021,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <span class="gp-stack-label">Stack View (scrollable)</span>
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
+    </div>
+    <div id="gp-stack2-row" class="gp-stack-row" style="background:rgba(41,98,255,0.06);">
+      <span class="gp-stack-icon">📋</span>
+      <span class="gp-stack-label">Stack View 2 (empty)</span>
+      <button class="gp-stack-gear" onclick="event.stopPropagation(); openStack2Settings()">⚙</button>
+      <button id="gp-stack2-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStack2OnOff()"></button>
     </div>
     <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
@@ -2046,6 +2078,35 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
 
   <button class="ss-done-btn" onclick="ssApplyAndClose()">Done</button>
+</div>
+
+<!-- ═══ STACK VIEW 2 SETTINGS PANEL ═════════════════════════════════════════ -->
+<div id="stack2-settings-panel" style="display:none;position:fixed;z-index:10100;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e222d;border:1px solid #363c4e;border-radius:12px;padding:16px 14px 14px;box-shadow:0 8px 32px #0009;min-width:260px;max-width:94vw;max-height:80vh;overflow-y:auto;">
+  <div class="ss-title" style="display:flex;align-items:center;justify-content:space-between;font:700 13px sans-serif;color:#d1d4dc;margin-bottom:12px;">
+    <span>📋 Stack View 2 Settings</span>
+    <button onclick="closeStack2Settings()" style="background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
+  </div>
+  <div style="font-size:11px;color:#787b86;margin-bottom:10px;">Stack View 2 — Stack View ki copy lekin independent. No live/historical data.</div>
+  <div class="ss-section">
+    <div class="ss-section-title">Screens</div>
+    <div class="ss-row">
+      <span>Total screens</span>
+      <input type="number" id="ss2-total-count" min="1" max="16" value="6">
+    </div>
+    <div class="ss-row">
+      <span>Visible at once</span>
+      <input type="number" id="ss2-visible-count" min="1" max="8" value="4">
+    </div>
+    <div class="ss-row">
+      <span>Step count (per drag)</span>
+      <input type="number" id="ss2-step-count" min="1" max="4" value="1">
+    </div>
+  </div>
+  <div class="ss-section">
+    <div class="ss-section-title">Label per slot (optional)</div>
+    <div class="ss-tf-grid" id="ss2-label-grid"><!-- filled by JS --></div>
+  </div>
+  <button class="ss-done-btn" onclick="ss2ApplyAndClose()">Done</button>
 </div>
 
 
@@ -3296,6 +3357,374 @@ function destroyStackCells() {
   if (sc) sc.innerHTML = '';
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// STACK VIEW 2 — Independent copy of Stack View, empty charts (no live/historical data)
+// ════════════════════════════════════════════════════════════════════════════
+const STACK2_CELLS = [];      // independent CELLS array for Stack View 2
+let _stack2Active  = false;
+let _stack2OnOff   = false;
+let _stack2ResizeObs = null;
+let _stack2ScrollAnim = null;
+
+const _STACK2_ONOFF_KEY = 'btcStack2OnOff1';
+const _STACK2_CFG_KEY   = 'btcStack2Cfg1';
+
+function _loadStack2OnOff() {
+  try { const r = _LS.getItem(_STACK2_ONOFF_KEY); return r === '1'; } catch(_) { return false; }
+}
+function _saveStack2OnOff(on) {
+  try { _LS.setItem(_STACK2_ONOFF_KEY, on ? '1' : '0'); } catch(_) {}
+}
+_stack2OnOff = _loadStack2OnOff();
+
+function _stack2DefaultCfg() {
+  return { total: 6, visible: 4, step: 1, labels: [] };
+}
+
+function _loadStack2Cfg() {
+  try {
+    const raw = _LS.getItem(_STACK2_CFG_KEY);
+    if (!raw) return _stack2DefaultCfg();
+    return Object.assign({}, _stack2DefaultCfg(), JSON.parse(raw));
+  } catch(_) { return _stack2DefaultCfg(); }
+}
+function _saveStack2Cfg(cfg) {
+  try { _LS.setItem(_STACK2_CFG_KEY, JSON.stringify(cfg)); } catch(_) {}
+}
+
+let _stack2Cfg = _loadStack2Cfg();
+
+function _renderStack2Switch() {
+  const btn = document.getElementById('gp-stack2-switch');
+  if (btn) btn.classList.toggle('on', _stack2OnOff);
+}
+
+function toggleStack2OnOff() {
+  _stack2OnOff = !_stack2OnOff;
+  _saveStack2OnOff(_stack2OnOff);
+  _renderStack2Switch();
+  if (_stack2OnOff) {
+    selectStack2View();
+  } else {
+    // Deactivate Stack View 2 → go back to 1x1
+    _deactivateStack2();
+    setLayout('1x1', null);
+  }
+}
+
+function _deactivateStack2() {
+  _stack2Active = false;
+  _stack2OnOff  = false;
+  _saveStack2OnOff(false);
+  _renderStack2Switch();
+  const row = document.getElementById('gp-stack2-row');
+  if (row) row.classList.remove('active');
+  const sv2 = document.getElementById('stack-view-2');
+  if (sv2) sv2.classList.remove('active');
+  destroyStack2Cells();
+  // hide Stack2 scroll buttons
+  const u = document.getElementById('stack2-up-btn');
+  const d = document.getElementById('stack2-down-btn');
+  if (u) u.style.display = 'none';
+  if (d) d.style.display = 'none';
+}
+
+function destroyStack2Cells() {
+  if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
+  STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} });
+  STACK2_CELLS.length = 0;
+  const sc = document.getElementById('stack-container-2');
+  if (sc) sc.innerHTML = '';
+}
+
+function selectStack2View() {
+  // Deactivate Stack View 1 if active
+  if (_stackActive) {
+    _stackActive = false;
+    _stackOnOff  = false;
+    _saveStackOnOff(false);
+    _renderStackSwitch();
+    const row1 = document.getElementById('gp-stack-row');
+    if (row1) row1.classList.remove('active');
+    destroyStackCells();
+  }
+
+  // Deactivate normal grid/1x1
+  destroyCharts();
+  destroyGridCells();
+
+  document.getElementById('grid-picker').classList.remove('open');
+  document.querySelectorAll('.gp-layout').forEach(b => b.classList.remove('active'));
+  const row2 = document.getElementById('gp-stack2-row');
+  if (row2) row2.classList.add('active');
+
+  _stack2Active = true;
+  _stack2OnOff  = true;
+  _saveStack2OnOff(true);
+  _renderStack2Switch();
+  S.layout = 'stack2';
+  try { _LS.setItem('tvLayout', 'stack2'); } catch(_) {}
+
+  const wsEl = document.getElementById('workspace');
+  const gv   = document.getElementById('grid-view');
+  const sv   = document.getElementById('stack-view');
+  const sv2  = document.getElementById('stack-view-2');
+  const cmBtn = document.getElementById('cell-maximize-btn');
+
+  wsEl.style.display = 'none';
+  gv.classList.remove('active');
+  if (sv) sv.classList.remove('active');
+  if (sv2) sv2.classList.add('active');
+  document.getElementById('grid-btn').classList.add('active');
+  if (cmBtn) cmBtn.style.display = 'none';
+
+  // Show Stack2 scroll buttons, hide Stack1 buttons
+  const su = document.getElementById('stack-up-btn');
+  const sd = document.getElementById('stack-down-btn');
+  const s2u = document.getElementById('stack2-up-btn');
+  const s2d = document.getElementById('stack2-down-btn');
+  if (su) su.style.display = 'none';
+  if (sd) sd.style.display = 'none';
+  if (s2u) s2u.style.display = '';
+  if (s2d) s2d.style.display = '';
+
+  buildStack2();
+  setTimeout(_startCellTimers, 200);
+  setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+}
+
+function buildStack2() {
+  destroyStack2Cells();
+  _stack2Cfg = _loadStack2Cfg();
+  const cfg = _stack2Cfg;
+  const total   = Math.max(1, cfg.total   || 6);
+  const visible = Math.max(1, cfg.visible || 4);
+  const sc = document.getElementById('stack-container-2');
+  if (!sc) return;
+  sc.innerHTML = '';
+
+  for (let i = 0; i < total; i++) {
+    const label = (cfg.labels && cfg.labels[i]) || (STACK_LETTERS[i] || (i+1));
+    const cellObj = {
+      asset: S.asset, tf: 1440, chart: null, series: null, el: null, vLine: null,
+      _stack2: true,   // marker so buildCellChart2 is used instead
+    };
+    STACK2_CELLS.push(cellObj);
+
+    const cell = document.createElement('div');
+    cell.className = 'stack2-cell grid-cell';
+    cell.dataset.idx2 = i;
+    cell.style.height = 'calc(100% / ' + Math.max(1, visible) + ')';
+
+    const overlay = document.createElement('div');
+    overlay.className = 'cell-overlay';
+    overlay.innerHTML =
+      '<span class="co-sym">📋</span>'+
+      '<span class="co-tf"> · ' + label + '</span>'+
+      '<span class="co-price up">--</span>'+
+      '<span class="co-chg" style="color:#555">--</span>'+
+      '<span class="co-ohlc-grp">'+
+        '<span class="co-o">O <b class="co-ov">--</b></span> '+
+        '<span class="co-h">H <b class="co-hv">--</b></span> '+
+        '<span class="co-l">L <b class="co-lv">--</b></span> '+
+        '<span class="co-c">C <b class="co-cv">--</b></span>'+
+      '</span>';
+
+    const chartDiv = document.createElement('div');
+    chartDiv.className = 'cell-chart';
+    chartDiv.id = 'stack2-chart-' + i;
+    chartDiv.style.position = 'relative';
+
+    // Settings gear button
+    const csetBtn = document.createElement('button');
+    csetBtn.className = 'cell-settings-btn';
+    csetBtn.title = 'Cell Settings';
+    csetBtn.textContent = '⚙';
+    csetBtn.onclick = function(e){ _openStack2CellSettings(i, csetBtn); e.stopPropagation(); };
+    cell.appendChild(csetBtn);
+
+    // Screen badge
+    const screenBadge = document.createElement('span');
+    screenBadge.className = 'cell-screen-badge';
+    screenBadge.textContent = (i+1) + ':' + total;
+    cell.appendChild(screenBadge);
+
+    // Go-to-latest button
+    const gotoBtn = document.createElement('button');
+    gotoBtn.className = 'cell-goto-btn';
+    gotoBtn.title = 'Go to latest candle';
+    gotoBtn.textContent = '⏭';
+    gotoBtn.onclick = function(e){
+      const c2 = STACK2_CELLS[i];
+      if (c2 && c2.chart) try{ c2.chart.timeScale().scrollToRealTime(); }catch(_){}
+      e.stopPropagation();
+    };
+
+    cell.appendChild(overlay);
+    cell.appendChild(chartDiv);
+    cell.appendChild(gotoBtn);
+    sc.appendChild(cell);
+    cellObj.el = chartDiv;
+
+    // Build empty chart for this cell
+    _buildStack2CellChart(i);
+  }
+
+  // Resize observer
+  if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} }
+  _stack2ResizeObs = new ResizeObserver(() => {
+    STACK2_CELLS.forEach((c, i) => {
+      if (!c.chart) return;
+      const el = document.getElementById('stack2-chart-' + i);
+      if (!el) return;
+      c.chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+    });
+  });
+  _stack2ResizeObs.observe(sc);
+}
+
+function _buildStack2CellChart(idx) {
+  const c = STACK2_CELLS[idx];
+  const el = document.getElementById('stack2-chart-' + idx);
+  if (!el || !c) return;
+  if (c.chart) { try{ c.chart.remove(); }catch(_){} c.chart = null; c.series = null; }
+
+  c.chart = LightweightCharts.createChart(el, {
+    width:  el.clientWidth  || 200,
+    height: el.clientHeight || 200,
+    layout: { background: { type:'solid', color: S.bgColor }, textColor: S.textColor, fontSize: 7 },
+    grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
+    crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
+    rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
+    localization: {
+      timeFormatter: (t) => fmtChartTime(t),
+      priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
+    },
+    handleScroll: { mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:true },
+    handleScale:  { axisPressedMouseMove:true, mouseWheel:true, pinch:true },
+    kineticScroll: { mouse:true, touch:true },
+  });
+
+  // Empty candlestick series — no data set (Stack View 2 = blank chart)
+  c.series = c.chart.addCandlestickSeries({
+    upColor: S.upColor, downColor: S.dnColor,
+    borderUpColor: S.upColor, borderDownColor: S.dnColor,
+    wickUpColor: S.upColor, wickDownColor: S.dnColor,
+    priceLineVisible: false,
+  });
+  // No data loaded — intentionally empty
+
+  // Drawing tools support (same as grid cells — uses existing _DT system)
+  if (typeof _dtRegisterChart === 'function') {
+    try { _dtRegisterChart('stack2-' + idx, c.chart, c.series, el); } catch(_) {}
+  }
+  // Mobile touch UX
+  if (typeof attachMobileTouchUX === 'function') {
+    try { attachMobileTouchUX(el, c.chart, () => c.series); } catch(_) {}
+  }
+}
+
+function _openStack2CellSettings(idx, anchorEl) {
+  // Reuse existing cell settings panel if available
+  if (typeof _openCellSettings === 'function') {
+    // Temporarily patch CELLS[idx] to point to STACK2_CELLS[idx] for the modal
+    // Since _openCellSettings uses CELLS[idx], we do a safe redirect
+    const tmpOld = CELLS[idx];
+    CELLS[idx] = STACK2_CELLS[idx];
+    try { _openCellSettings(idx, anchorEl); } catch(_) {}
+    // Restore (the panel will operate on the cell object directly via reference)
+  }
+}
+
+// Stack View 2 scroll helpers
+function _stack2EaseOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function _stack2AnimateScrollTo(containerEl, targetTop, durationMs) {
+  if (_stack2ScrollAnim) { cancelAnimationFrame(_stack2ScrollAnim.raf); _stack2ScrollAnim = null; }
+  const startTop = containerEl.scrollTop;
+  const delta = targetTop - startTop;
+  if (Math.abs(delta) < 0.5) { containerEl.scrollTop = targetTop; return; }
+  const startTime = performance.now();
+  const anim = { raf: 0 };
+  const step = (now) => {
+    const elapsed = now - startTime;
+    const t = Math.min(1, elapsed / durationMs);
+    containerEl.scrollTop = startTop + delta * _stack2EaseOutCubic(t);
+    if (t < 1) { anim.raf = requestAnimationFrame(step); }
+    else { containerEl.scrollTop = targetTop; _stack2ScrollAnim = null; }
+  };
+  anim.raf = requestAnimationFrame(step);
+  _stack2ScrollAnim = anim;
+}
+
+function _stack2StepJump(dir) {
+  const containerEl = document.getElementById('stack-container-2');
+  if (!containerEl) return;
+  const first = containerEl.querySelector('.stack2-cell');
+  const chartH = first ? first.getBoundingClientRect().height : containerEl.clientHeight;
+  if (!chartH) return;
+  const step = Math.max(1, _stack2Cfg.step || 1);
+  const nearest = Math.round(containerEl.scrollTop / chartH);
+  const target = (nearest + dir * step) * chartH;
+  const max = containerEl.scrollHeight - containerEl.clientHeight;
+  _stack2AnimateScrollTo(containerEl, Math.max(0, Math.min(max, target)), 280);
+}
+
+// Stack View 2 Settings
+function openStack2Settings() {
+  _stack2Cfg = _loadStack2Cfg();
+  document.getElementById('ss2-total-count').value   = _stack2Cfg.total   || 6;
+  document.getElementById('ss2-visible-count').value = _stack2Cfg.visible || 4;
+  document.getElementById('ss2-step-count').value    = _stack2Cfg.step    || 1;
+  _ss2RenderLabelGrid();
+  document.getElementById('stack2-settings-panel').style.display = '';
+  const gp = document.getElementById('grid-picker');
+  if (gp) gp.classList.remove('open');
+}
+
+function closeStack2Settings() {
+  document.getElementById('stack2-settings-panel').style.display = 'none';
+}
+
+function _ss2RenderLabelGrid() {
+  const grid = document.getElementById('ss2-label-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const total = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10) || _stack2Cfg.total || 6));
+  for (let i = 0; i < total; i++) {
+    const letter = STACK_LETTERS[i] || (i+1);
+    const val = (_stack2Cfg.labels && _stack2Cfg.labels[i]) || '';
+    const row = document.createElement('div');
+    row.className = 'ss-tf-slot';
+    row.innerHTML =
+      '<span class="ss-tf-letter">' + letter + '</span>'+
+      '<input type="text" data-s2-slot-idx="' + i + '" value="' + val + '" placeholder="Label (optional)">';
+    grid.appendChild(row);
+  }
+}
+
+function ss2ApplyAndClose() {
+  const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 6));
+  const visible = Math.max(1, Math.min(total, parseInt(document.getElementById('ss2-visible-count').value, 10) || 4));
+  const step    = Math.max(1, Math.min(4,     parseInt(document.getElementById('ss2-step-count').value, 10)  || 1));
+  const labels  = [];
+  document.querySelectorAll('#ss2-label-grid input[data-s2-slot-idx]').forEach(inp => {
+    labels[parseInt(inp.getAttribute('data-s2-slot-idx'), 10)] = inp.value.trim();
+  });
+  _stack2Cfg = { total, visible, step, labels };
+  _saveStack2Cfg(_stack2Cfg);
+  closeStack2Settings();
+  if (_stack2Active) {
+    buildStack2();
+    setTimeout(_startCellTimers, 200);
+    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+  }
+}
+// ════════════════════════════════════════════════════════════════════════════
+// END STACK VIEW 2
+// ════════════════════════════════════════════════════════════════════════════
+
 // Activates Stack View as the current layout mode (parallel to setLayout('4-grid') etc.)
 function selectStackView() {
   document.getElementById('grid-picker').classList.remove('open');
@@ -3321,8 +3750,19 @@ function selectStackView() {
   document.getElementById('grid-btn').classList.add('active');
   if (cmBtn) cmBtn.style.display = 'none';   // per-cell fullscreen not wired for stack yet
 
+  // Show Stack1 buttons, hide Stack2 buttons
+  const _su = document.getElementById('stack-up-btn');
+  const _sd = document.getElementById('stack-down-btn');
+  const _s2u = document.getElementById('stack2-up-btn');
+  const _s2d = document.getElementById('stack2-down-btn');
+  if (_su) _su.style.display = '';
+  if (_sd) _sd.style.display = '';
+  if (_s2u) _s2u.style.display = 'none';
+  if (_s2d) _s2d.style.display = 'none';
+
   destroyCharts();
   destroyGridCells();
+  if (_stack2Active) _deactivateStack2();
   buildStack();
   setTimeout(_startCellTimers, 200);
   setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
@@ -5268,6 +5708,8 @@ function setLayout(key, btn) {
   const sv=document.getElementById('stack-view');
   if (sv) sv.classList.remove('active');
   destroyStackCells();
+  // Also deactivate Stack View 2 if active
+  if (_stack2Active) _deactivateStack2();
   S.layout = key;
   try{_LS.setItem('tvLayout',key);}catch(_){}
   const ws=document.getElementById('workspace');
@@ -7849,6 +8291,7 @@ document.addEventListener('DOMContentLoaded', () => {
   _renderWsBar();
   // Sync Stack View ON/OFF switch visual with the loaded preference
   _renderStackSwitch();
+  _renderStack2Switch();
 
   // Rebuild TF bar with current S.tf and any favorited custom TFs
   rebuildTfBar();
