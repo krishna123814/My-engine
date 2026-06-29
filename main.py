@@ -503,24 +503,39 @@ def _sv2_load_btc_gz() -> list:
     return rows
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
-    """BN 5m data ko intraday TF mein resample karo (session-aware: 9:15–15:30 IST)."""
-    IST_OFF       = 5.5 * 3600
-    SESSION_START = 9 * 60 + 15    # 555 min
-    SESSION_END   = 15 * 60 + 30  # 930 min
+    """BN 5m data ko intraday TF mein resample karo (session-aware: 9:15–15:30 IST).
+    Sabhi TFs ke liye out-of-session candles filter hoti hain."""
+    IST_OFF       = int(5.5 * 3600)   # 19800 seconds
+    SESSION_START = 9 * 60 + 15       # 555 min from midnight IST
+    SESSION_END   = 15 * 60 + 30      # 930 min from midnight IST
+
     if tf_min <= 5:
-        return [{"time": r["t"], "open": r["o"], "high": r["h"],
-                 "low": r["l"], "close": r["c"]} for r in rows]
+        # 5m: session filter lagao, time UTC mein hi raho
+        out = []
+        for r in rows:
+            ist_sec    = r["t"] + IST_OFF
+            min_of_day = int((ist_sec % 86400) / 60)
+            if min_of_day < SESSION_START or min_of_day >= SESSION_END:
+                continue
+            out.append({"time": r["t"], "open": r["o"], "high": r["h"],
+                        "low": r["l"], "close": r["c"]})
+        return out
+
+    # Higher intraday TFs (15m, 45m, 135m, etc.)
     buckets: dict = {}
     for r in rows:
         ist_sec      = r["t"] + IST_OFF
-        day_start    = ist_sec - (ist_sec % 86400)
+        # IST midnight of this day (in IST seconds)
+        ist_midnight = ist_sec - (ist_sec % 86400)
         min_of_day   = int((ist_sec % 86400) / 60)
+        # Session filter: sirf 9:15–15:30 IST
         if min_of_day < SESSION_START or min_of_day >= SESSION_END:
             continue
         min_since_open   = min_of_day - SESSION_START
         bucket_idx       = int(min_since_open / tf_min)
         bucket_start_min = SESSION_START + bucket_idx * tf_min
-        key = int(day_start - IST_OFF) + bucket_start_min * 60
+        # Bucket ka UTC timestamp = IST midnight - IST_OFF + bucket_start seconds
+        key = int(ist_midnight - IST_OFF) + bucket_start_min * 60
         if key not in buckets:
             buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
                             "low": r["l"], "close": r["c"]}
