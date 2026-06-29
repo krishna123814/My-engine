@@ -464,24 +464,24 @@ import io as _io
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
 
 # GitHub raw URLs — repo: krishna123814/My-engine, branch: main
-_GH_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
-_GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv.json.gz"
-_GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m.json.gz"
+_GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
+_GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv_json.gz"
+_GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
 
 def _sv2_fetch_gz_from_url(url: str) -> list:
-    """GitHub raw URL se .gz file fetch karo aur JSON parse karo."""
+    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo."""
     try:
-        resp = requests.get(url, timeout=60)
+        resp = requests.get(url, timeout=90)
         resp.raise_for_status()
         with _gzip.open(_io.BytesIO(resp.content), "rb") as f:
             data = json.load(f)
-        rows = data["data"] if isinstance(data, dict) else data
-        return rows
-    except Exception as e:
+        # Both formats supported: {"meta":..,"data":[..]} or plain list
+        return data["data"] if isinstance(data, dict) else data
+    except Exception:
         return []
 
 def _sv2_load_bn_gz() -> list:
-    """BankNifty 5m candles — GitHub se fetch karo."""
+    """BankNifty 5m candles — GitHub se fetch karo (cached)."""
     if "bn_raw" in _SV2_CACHE:
         return _SV2_CACHE["bn_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
@@ -492,7 +492,7 @@ def _sv2_load_bn_gz() -> list:
     return rows
 
 def _sv2_load_btc_gz() -> list:
-    """BTC 5m candles — GitHub se fetch karo."""
+    """BTC 5m candles — GitHub se fetch karo (cached)."""
     if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
@@ -605,7 +605,7 @@ def _sv2_resample_btc(rows: list, tf_min: int) -> list:
 
 # Mobile ke liye max candles per TF (chunked inject)
 _SV2_MAX = {
-    "5m": 3000, "15m": 3000, "45m": 2000, "135m": 2000,
+    "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
     "160m": 2000, "8H": 2000,
     "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
 }
