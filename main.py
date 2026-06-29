@@ -463,24 +463,27 @@ import gzip as _gzip
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
 
 def _sv2_find_gz(filename: str) -> str:
-    """Gz file ka path dhundho — Streamlit ke sab possible locations check karo."""
+    """Gz file dhundho — Streamlit Cloud mein app ka cwd hi repo root hota hai."""
     import glob as _glob
-    candidates = [
-        filename,                                                         # bare name (cwd)
-        os.path.join(os.getcwd(), filename),                              # explicit cwd
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), filename),  # script dir
-    ]
-    # Glob fallback: poore filesystem mein dhundho (Streamlit Cloud /mount structure)
+    candidates = []
+    # 1. Streamlit Cloud: cwd = repo root (most common)
+    candidates.append(os.path.join(os.getcwd(), filename))
+    # 2. Same dir as main.py / app.py
     try:
-        hits = _glob.glob(f"**/{filename}", recursive=True)
-        candidates += hits
-        hits2 = _glob.glob(f"/mount/**/{filename}", recursive=True)
-        candidates += hits2
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), filename))
+    except Exception:
+        pass
+    # 3. Bare filename (relative to cwd)
+    candidates.append(filename)
+    # 4. Recursive glob from cwd
+    try:
+        for hit in _glob.glob(os.path.join(os.getcwd(), "**", filename), recursive=True):
+            candidates.append(hit)
     except Exception:
         pass
     for p in candidates:
         try:
-            if os.path.exists(p):
+            if p and os.path.isfile(p):
                 return os.path.abspath(p)
         except Exception:
             pass
