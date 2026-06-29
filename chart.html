@@ -2086,12 +2086,18 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <span>📋 Stack View 2 Settings</span>
     <button onclick="closeStack2Settings()" style="background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
   </div>
-  <div style="font-size:11px;color:#787b86;margin-bottom:10px;">Stack View 2 — Stack View ki copy lekin independent. No live/historical data.</div>
+  <div style="font-size:11px;color:#787b86;margin-bottom:10px;">Asset ke hisab se alag cells — BTC (6 cells) / BankNifty (8 cells)</div>
+  <!-- Asset Tabs -->
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <button id="ss2-tab-btc" class="ss-asset-tab active" onclick="ss2SwitchAssetTab('btc')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #2962ff;background:#2962ff22;color:#2962ff;font-size:12px;font-weight:600;cursor:pointer;">₿ BTC</button>
+    <button id="ss2-tab-bn" class="ss-asset-tab" onclick="ss2SwitchAssetTab('bn')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">📊 BankNifty</button>
+    <button id="ss2-tab-3" class="ss-asset-tab" onclick="ss2SwitchAssetTab('third')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">+ 3rd</button>
+  </div>
   <div class="ss-section">
-    <div class="ss-section-title">Screens</div>
+    <div class="ss-section-title">SCREENS</div>
     <div class="ss-row">
       <span>Total screens</span>
-      <input type="number" id="ss2-total-count" min="1" max="16" value="6">
+      <input type="number" id="ss2-total-count" min="1" max="16" value="6" oninput="ss2OnTotalChange()">
     </div>
     <div class="ss-row">
       <span>Visible at once</span>
@@ -2103,8 +2109,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </div>
   </div>
   <div class="ss-section">
-    <div class="ss-section-title">Label per slot (optional)</div>
-    <div class="ss-tf-grid" id="ss2-label-grid"><!-- filled by JS --></div>
+    <div class="ss-section-title">TIMEFRAME PER SLOT</div>
+    <div class="ss-tf-grid" id="ss2-tf-grid"><!-- filled by JS --></div>
   </div>
   <button class="ss-done-btn" onclick="ss2ApplyAndClose()">Done</button>
 </div>
@@ -3378,14 +3384,45 @@ function _saveStack2OnOff(on) {
 _stack2OnOff = _loadStack2OnOff();
 
 function _stack2DefaultCfg() {
-  return { total: 6, visible: 4, step: 1, labels: [] };
+  return {
+    btc: {
+      total:   6,
+      visible: 4,
+      step:    1,
+      tfs: ['160m', '8H', '1D', '3D', '9D', '27D'],
+    },
+    bn: {
+      total:   8,
+      visible: 4,
+      step:    1,
+      tfs: ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
+    },
+    third: {
+      total:   0,
+      visible: 4,
+      step:    1,
+      tfs: [],
+      symbolName: '',
+    },
+  };
 }
 
 function _loadStack2Cfg() {
   try {
     const raw = _LS.getItem(_STACK2_CFG_KEY);
     if (!raw) return _stack2DefaultCfg();
-    return Object.assign({}, _stack2DefaultCfg(), JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    // If old format (flat: total/visible/step/labels), migrate to new asset-wise format
+    if (parsed && typeof parsed.btc === 'undefined') {
+      // legacy flat format — ignore and use defaults
+      return _stack2DefaultCfg();
+    }
+    const def = _stack2DefaultCfg();
+    return {
+      btc:   Object.assign({}, def.btc,   parsed.btc   || {}),
+      bn:    Object.assign({}, def.bn,    parsed.bn    || {}),
+      third: Object.assign({}, def.third, parsed.third || {}),
+    };
   } catch(_) { return _stack2DefaultCfg(); }
 }
 function _saveStack2Cfg(cfg) {
@@ -3496,7 +3533,9 @@ function selectStack2View() {
 function buildStack2() {
   destroyStack2Cells();
   _stack2Cfg = _loadStack2Cfg();
-  const cfg = _stack2Cfg;
+  // Pick config for current asset (same logic as Stack View 1)
+  const assetKey = _stackKeyForAsset(S.asset);
+  const cfg = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
   const total   = Math.max(1, cfg.total   || 6);
   const visible = Math.max(1, cfg.visible || 4);
   const sc = document.getElementById('stack-container-2');
@@ -3504,7 +3543,7 @@ function buildStack2() {
   sc.innerHTML = '';
 
   for (let i = 0; i < total; i++) {
-    const label = (cfg.labels && cfg.labels[i]) || (STACK_LETTERS[i] || (i+1));
+    const label = (cfg.tfs && cfg.tfs[i]) || (STACK_LETTERS[i] || (i+1));
     const cellObj = {
       asset: S.asset, tf: 1440, chart: null, series: null, el: null, vLine: null,
       _stack2: true,   // marker so buildCellChart2 is used instead
@@ -3664,20 +3703,99 @@ function _stack2StepJump(dir) {
   const first = containerEl.querySelector('.stack2-cell');
   const chartH = first ? first.getBoundingClientRect().height : containerEl.clientHeight;
   if (!chartH) return;
-  const step = Math.max(1, _stack2Cfg.step || 1);
+  const assetKey2 = _stackKeyForAsset(S.asset);
+  const step = Math.max(1, ((_stack2Cfg[assetKey2] || _stack2Cfg.btc).step) || 1);
   const nearest = Math.round(containerEl.scrollTop / chartH);
   const target = (nearest + dir * step) * chartH;
   const max = containerEl.scrollHeight - containerEl.clientHeight;
   _stack2AnimateScrollTo(containerEl, Math.max(0, Math.min(max, target)), 280);
 }
 
+// Stack View 2 Settings — asset tab currently being edited
+let _ss2Tab = 'btc';
+
+function ss2SwitchAssetTab(tab) {
+  _ss2Tab = tab;
+  document.querySelectorAll('#stack2-settings-panel .ss-asset-tab').forEach(el => {
+    el.classList.remove('active');
+    el.style.borderColor = '#363c4e';
+    el.style.background  = 'transparent';
+    el.style.color       = '#787b86';
+  });
+  const map = { btc: 'ss2-tab-btc', bn: 'ss2-tab-bn', third: 'ss2-tab-3' };
+  const el = document.getElementById(map[tab]);
+  if (el) {
+    el.classList.add('active');
+    el.style.borderColor = '#2962ff';
+    el.style.background  = '#2962ff22';
+    el.style.color       = '#2962ff';
+  }
+  _ss2RenderForTab();
+}
+
+function _ss2RenderForTab() {
+  const cfg = _stack2Cfg[_ss2Tab] || _stack2Cfg.btc;
+  document.getElementById('ss2-total-count').value   = cfg.total   ?? 6;
+  document.getElementById('ss2-visible-count').value = cfg.visible ?? 4;
+  document.getElementById('ss2-step-count').value    = cfg.step    ?? 1;
+  _ss2RenderTfGrid(cfg);
+}
+
+function _ss2RenderTfGrid(cfg) {
+  const grid = document.getElementById('ss2-tf-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const total = Math.max(1, Math.min(16, parseInt(cfg.total, 10) || 0));
+  for (let i = 0; i < total; i++) {
+    const letter = STACK_LETTERS[i];
+    const tfVal  = (cfg.tfs && cfg.tfs[i] != null) ? cfg.tfs[i] : '';
+    const row = document.createElement('div');
+    row.className = 'ss-tf-slot';
+    row.innerHTML =
+      '<span class="ss-tf-letter">' + letter + '</span>' +
+      '<input type="text" data-s2-slot-idx="' + i + '" value="' + tfVal + '" placeholder="e.g. 15m, 1D, 3D">';
+    grid.appendChild(row);
+  }
+}
+
+function ss2OnTotalChange() {
+  const cfg = _stack2Cfg[_ss2Tab] || _stack2Cfg.btc;
+  const newTotal = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10) || cfg.total));
+  const existing = _ss2ReadTfInputs();
+  const newTfs = [];
+  for (let i = 0; i < newTotal; i++) newTfs.push(existing[i] || '');
+  const fakeCfg = Object.assign({}, cfg, { total: newTotal, tfs: newTfs });
+  _ss2RenderTfGrid(fakeCfg);
+}
+
+function _ss2ReadTfInputs() {
+  const tfs = [];
+  document.querySelectorAll('#ss2-tf-grid input[data-s2-slot-idx]').forEach(inp => {
+    tfs[parseInt(inp.getAttribute('data-s2-slot-idx'), 10)] = inp.value.trim();
+  });
+  return tfs;
+}
+
 // Stack View 2 Settings
 function openStack2Settings() {
   _stack2Cfg = _loadStack2Cfg();
-  document.getElementById('ss2-total-count').value   = _stack2Cfg.total   || 6;
-  document.getElementById('ss2-visible-count').value = _stack2Cfg.visible || 4;
-  document.getElementById('ss2-step-count').value    = _stack2Cfg.step    || 1;
-  _ss2RenderLabelGrid();
+  _ss2Tab = _stackKeyForAsset(S.asset);  // open on current asset tab
+  // Reset tab styles then activate current
+  document.querySelectorAll('#stack2-settings-panel .ss-asset-tab').forEach(el => {
+    el.classList.remove('active');
+    el.style.borderColor = '#363c4e';
+    el.style.background  = 'transparent';
+    el.style.color       = '#787b86';
+  });
+  const tabMap = { btc: 'ss2-tab-btc', bn: 'ss2-tab-bn', third: 'ss2-tab-3' };
+  const activeTab = document.getElementById(tabMap[_ss2Tab] || 'ss2-tab-btc');
+  if (activeTab) {
+    activeTab.classList.add('active');
+    activeTab.style.borderColor = '#2962ff';
+    activeTab.style.background  = '#2962ff22';
+    activeTab.style.color       = '#2962ff';
+  }
+  _ss2RenderForTab();
   document.getElementById('stack2-settings-panel').style.display = '';
   const gp = document.getElementById('grid-picker');
   if (gp) gp.classList.remove('open');
@@ -3687,32 +3805,14 @@ function closeStack2Settings() {
   document.getElementById('stack2-settings-panel').style.display = 'none';
 }
 
-function _ss2RenderLabelGrid() {
-  const grid = document.getElementById('ss2-label-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-  const total = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10) || _stack2Cfg.total || 6));
-  for (let i = 0; i < total; i++) {
-    const letter = STACK_LETTERS[i] || (i+1);
-    const val = (_stack2Cfg.labels && _stack2Cfg.labels[i]) || '';
-    const row = document.createElement('div');
-    row.className = 'ss-tf-slot';
-    row.innerHTML =
-      '<span class="ss-tf-letter">' + letter + '</span>'+
-      '<input type="text" data-s2-slot-idx="' + i + '" value="' + val + '" placeholder="Label (optional)">';
-    grid.appendChild(row);
-  }
-}
+function _ss2RenderLabelGrid() { _ss2RenderForTab(); }  // backward compat shim
 
 function ss2ApplyAndClose() {
   const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 6));
   const visible = Math.max(1, Math.min(total, parseInt(document.getElementById('ss2-visible-count').value, 10) || 4));
   const step    = Math.max(1, Math.min(4,     parseInt(document.getElementById('ss2-step-count').value, 10)  || 1));
-  const labels  = [];
-  document.querySelectorAll('#ss2-label-grid input[data-s2-slot-idx]').forEach(inp => {
-    labels[parseInt(inp.getAttribute('data-s2-slot-idx'), 10)] = inp.value.trim();
-  });
-  _stack2Cfg = { total, visible, step, labels };
+  const tfs = _ss2ReadTfInputs();
+  _stack2Cfg[_ss2Tab] = Object.assign({}, _stack2Cfg[_ss2Tab] || {}, { total, visible, step, tfs });
   _saveStack2Cfg(_stack2Cfg);
   closeStack2Settings();
   if (_stack2Active) {
