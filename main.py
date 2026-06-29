@@ -462,12 +462,26 @@ import gzip as _gzip
 
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
 
+def _sv2_find_gz(filename: str) -> str:
+    """Gz file ka path dhundho — multiple locations check karo."""
+    candidates = [
+        filename,                                                        # cwd
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), filename),  # script dir
+        os.path.join(os.getcwd(), filename),                            # explicit cwd
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return ""
+
 def _sv2_load_bn_gz() -> list:
     """banknifty_5m_csv_json.gz se raw 5m candles load karo."""
     if "bn_raw" in _SV2_CACHE:
         return _SV2_CACHE["bn_raw"]
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "banknifty_5m_csv_json.gz")
-    if not os.path.exists(path):
+    path = _sv2_find_gz("banknifty_5m_csv_json.gz")
+    _SV2_CACHE["bn_path"] = path   # debug ke liye
+    if not path:
+        _SV2_CACHE["bn_err"] = "FILE_NOT_FOUND"
         return []
     try:
         with _gzip.open(path, "rb") as f:
@@ -475,15 +489,18 @@ def _sv2_load_bn_gz() -> list:
         rows = data["data"] if isinstance(data, dict) else data
         _SV2_CACHE["bn_raw"] = rows
         return rows
-    except Exception:
+    except Exception as e:
+        _SV2_CACHE["bn_err"] = str(e)
         return []
 
 def _sv2_load_btc_gz() -> list:
     """Bitcoin_BTCUSDT_IST_5m_json.gz se raw 5m candles load karo."""
     if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Bitcoin_BTCUSDT_IST_5m_json.gz")
-    if not os.path.exists(path):
+    path = _sv2_find_gz("Bitcoin_BTCUSDT_IST_5m_json.gz")
+    _SV2_CACHE["btc_path"] = path  # debug ke liye
+    if not path:
+        _SV2_CACHE["btc_err"] = "FILE_NOT_FOUND"
         return []
     try:
         with _gzip.open(path, "rb") as f:
@@ -491,7 +508,8 @@ def _sv2_load_btc_gz() -> list:
         rows = data["data"] if isinstance(data, dict) else data
         _SV2_CACHE["btc_raw"] = rows
         return rows
-    except Exception:
+    except Exception as e:
+        _SV2_CACHE["btc_err"] = str(e)
         return []
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
@@ -1512,10 +1530,21 @@ def _build_chart_html(
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
 
     # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
+    _sv2_err_msg = ""
     try:
         _sv2 = _build_sv2_data()
         _bn  = _sv2["bn"]
         _btc = _sv2["btc"]
+        # Debug info: paths + counts inject karo
+        _sv2_debug_info = {
+            "bn_path":  _SV2_CACHE.get("bn_path", "?"),
+            "btc_path": _SV2_CACHE.get("btc_path", "?"),
+            "bn_err":   _SV2_CACHE.get("bn_err", ""),
+            "btc_err":  _SV2_CACHE.get("btc_err", ""),
+            "bn_counts": {k: len(v) for k, v in _bn.items()},
+            "btc_counts": {k: len(v) for k, v in _btc.items()},
+        }
+        _sv2_err_msg = json.dumps(_sv2_debug_info)
         html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
         html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
         html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
@@ -1530,13 +1559,18 @@ def _build_chart_html(
         html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))
         html = html.replace("__SV2_BTC_9D__",   _sv2_to_js(_btc["9D"]))
         html = html.replace("__SV2_BTC_27D__",  _sv2_to_js(_btc["27D"]))
-    except Exception:
+    except Exception as _sv2_ex:
+        _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
         # Fallback: empty arrays agar gz file missing/corrupt ho
         for _ph in ["__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
                     "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
                     "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
                     "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
             html = html.replace(_ph, "[]")
+    # Inject debug info as JS variable — visible via window.__SV2_DEBUG in browser console
+    _sv2_safe = _sv2_err_msg.replace("</", "<\/")
+    html = html.replace("</body>",
+        f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};</script>\n</body>", 1)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 

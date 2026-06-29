@@ -3731,6 +3731,10 @@ function _buildStack2CellChart(idx) {
       _dbg.push('lookup="'+keyLower+'" '+dataInfo);
 
       if (!Array.isArray(data) || !data.length) {
+        // Also show Python-side debug info if available
+        try {
+          if (window.__SV2_DEBUG) _dbg.push('PY_DEBUG: '+window.__SV2_DEBUG);
+        } catch(_) {}
         _sv2DebugShow(idx,'NO_DATA',_dbg); return;
       }
 
