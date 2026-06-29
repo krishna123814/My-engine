@@ -3490,6 +3490,31 @@ function _deactivateStack2() {
   if (d) d.style.display = 'none';
 }
 
+// ── Stack View 2 Debug overlay — shows on chart cell when data fails ─────────
+function _sv2DebugShow(idx, reason, lines) {
+  try {
+    const el = document.getElementById('stack2-chart-' + idx);
+    if (!el) return;
+    // Remove old debug overlay if any
+    const old = el.querySelector('._sv2dbg');
+    if (old) old.remove();
+    const box = document.createElement('div');
+    box.className = '_sv2dbg';
+    box.style.cssText = [
+      'position:absolute','top:4px','left:4px','right:4px',
+      'background:rgba(30,10,10,0.92)','color:#ff6b6b',
+      'font-size:10px','font-family:monospace','padding:6px 8px',
+      'border-radius:6px','z-index:9999','overflow-y:auto','max-height:90%',
+      'white-space:pre-wrap','pointer-events:none',
+    ].join(';');
+    box.textContent = '[SV2 DEBUG idx=' + idx + '] REASON: ' + reason + '\n' + lines.join('\n');
+    el.style.position = 'relative';
+    el.appendChild(box);
+    // Also log to console
+    console.warn('[SV2 idx='+idx+'] '+reason, lines);
+  } catch(_) {}
+}
+
 function destroyStack2Cells() {
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
   STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} });
@@ -3677,51 +3702,65 @@ function _buildStack2CellChart(idx) {
   });
 
   // ── Load pre-resampled data from gz-based SV2_BN / SV2_BTC ──────────────
-  // tf label comes from cfg.tfs[idx] which is a string like '5m','160m','1D' etc.
   (function _sv2LoadData() {
+    const _dbg = [];
     try {
       const assetKey2 = _stackKeyForAsset(S.asset);
+      _dbg.push('idx='+idx+' asset='+S.asset+' assetKey='+assetKey2);
+
       const cfg2 = (_stack2Cfg[assetKey2] || _stack2Cfg.btc);
       const tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
-      if (!tfLabel) return;
+      _dbg.push('tfLabel="'+tfLabel+'" tfs='+JSON.stringify(cfg2.tfs));
+      if (!tfLabel) { _sv2DebugShow(idx,'NO_TFLABEL',_dbg); return; }
 
-      // Pick the right data store
+      const bnOk  = (typeof SV2_BN  !== 'undefined');
+      const btcOk = (typeof SV2_BTC !== 'undefined');
+      _dbg.push('SV2_BN='+bnOk+' SV2_BTC='+btcOk);
+      if (!bnOk || !btcOk) { _sv2DebugShow(idx,'SV2_MISSING',_dbg); return; }
+
       const store = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
-      // Case-insensitive lookup (user might type '8h' or '8H')
+      const storeKeys = Object.keys(store);
+      _dbg.push('storeKeys='+JSON.stringify(storeKeys));
+
       let data = null;
       const keyLower = tfLabel.toLowerCase();
-      for (const k of Object.keys(store)) {
+      for (const k of storeKeys) {
         if (k.toLowerCase() === keyLower) { data = store[k]; break; }
       }
-      if (!Array.isArray(data) || !data.length) return;
+      const dataInfo = Array.isArray(data) ? ('len='+data.length) : ('type='+typeof data);
+      _dbg.push('lookup="'+keyLower+'" '+dataInfo);
 
-      // Feed in chunks to avoid blocking the main thread on mobile
+      if (!Array.isArray(data) || !data.length) {
+        _sv2DebugShow(idx,'NO_DATA',_dbg); return;
+      }
+
+      _dbg.push('first='+JSON.stringify(data[0]));
+
       const CHUNK = 500;
       let offset = 0;
       function feedChunk() {
         if (!c.series) return;
         const slice = data.slice(offset, offset + CHUNK);
         if (!slice.length) {
-          // All done — scroll to latest
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
           return;
         }
         try {
-          if (offset === 0) {
-            c.series.setData(slice);
-          } else {
-            slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} });
-          }
-        } catch(_) {}
-        offset += CHUNK;
-        if (offset < data.length) {
-          setTimeout(feedChunk, 0);  // yield to browser, then continue
-        } else {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          if (offset === 0) { c.series.setData(slice); }
+          else { slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} }); }
+        } catch(e) {
+          _dbg.push('setData ERR offset='+offset+': '+e.message);
+          _sv2DebugShow(idx,'SETDATA_ERR',_dbg); return;
         }
+        offset += CHUNK;
+        if (offset < data.length) { setTimeout(feedChunk, 0); }
+        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
-      setTimeout(feedChunk, idx * 30);  // stagger cells to avoid simultaneous heavy work
-    } catch(_) {}
+      setTimeout(feedChunk, idx * 30);
+    } catch(e) {
+      _dbg.push('EXCEPTION: '+e.message);
+      _sv2DebugShow(idx,'EXCEPTION',_dbg);
+    }
   })();
 
   // Drawing tools support (same as grid cells — uses existing _DT system)
