@@ -3399,14 +3399,41 @@ const _stack2BaseLoading = { btc: null, bn: null };   // in-flight Promise, so s
 
 // Normalize one raw record {t,o,h,l,c} (or {time,open,high,low,close,volume})
 // into the {time,open,high,low,close,volume} shape resample()/resampleForTF() expect.
+// Returns null for a row that can't be normalized to a finite time/OHLC set,
+// so one bad row degrades gracefully instead of corrupting/crashing the
+// whole load (every numeric field is validated, not just coerced blindly).
 function _stack2NormalizeRow(r) {
-  const t = r.t !== undefined ? r.t : r.time;
-  const o = r.o !== undefined ? r.o : r.open;
-  const h = r.h !== undefined ? r.h : r.high;
-  const l = r.l !== undefined ? r.l : r.low;
-  const c = r.c !== undefined ? r.c : r.close;
-  const v = r.v !== undefined ? r.v : (r.volume || 0);
-  return { time: Math.round(t), open: +o, high: +h, low: +l, close: +c, volume: +v || 0 };
+  if (!r || typeof r !== 'object') return null;
+  const tRaw = r.t !== undefined ? r.t : r.time;
+  const oRaw = r.o !== undefined ? r.o : r.open;
+  const hRaw = r.h !== undefined ? r.h : r.high;
+  const lRaw = r.l !== undefined ? r.l : r.low;
+  const cRaw = r.c !== undefined ? r.c : r.close;
+  const vRaw = r.v !== undefined ? r.v : r.volume;
+
+  const t = Math.round(Number(tRaw));
+  const o = Number(oRaw), h = Number(hRaw), l = Number(lRaw), c = Number(cRaw);
+  const v = Number(vRaw) || 0;
+
+  if (!Number.isFinite(t) || !Number.isFinite(o) || !Number.isFinite(h) ||
+      !Number.isFinite(l) || !Number.isFinite(c)) {
+    return null;
+  }
+  return { time: t, open: o, high: h, low: l, close: c, volume: v };
+}
+
+// Crash-proof "YYYY-MM-DD HH:MM UTC" formatter for debug-log lines only.
+// Never throws — bad input renders as "invalid(<raw value>)" instead of
+// taking down the whole load via an uncaught RangeError from toISOString().
+function _stack2DebugFmtTime(epochSec) {
+  try {
+    if (!Number.isFinite(epochSec)) return 'invalid(' + epochSec + ')';
+    const d = new Date(epochSec * 1000);
+    if (isNaN(d.getTime())) return 'invalid(' + epochSec + ')';
+    return d.toISOString();
+  } catch (e) {
+    return 'invalid(' + epochSec + ')';
+  }
 }
 
 // Fetch + gunzip + parse a .gz JSON file using the browser's native
@@ -3457,13 +3484,19 @@ async function _stack2LoadBase(assetKey) {
       if (!rows.length) {
         _stack2DebugLine('base[' + assetKey + ']: 0 rows after shape-detection — check JSON structure matches expected {t,o,h,l,c} or {data:[...]}', 'warn');
       }
-      const norm = rows.map(_stack2NormalizeRow).sort((a, b) => a.time - b.time);
+      const normAll = rows.map(_stack2NormalizeRow);
+      const droppedCount = normAll.length - normAll.filter(Boolean).length;
+      if (droppedCount > 0) {
+        _stack2DebugLine('base[' + assetKey + ']: dropped ' + droppedCount + ' row(s) with non-finite time/OHLC values', 'warn');
+      }
+      const norm = normAll.filter(Boolean).sort((a, b) => a.time - b.time);
       _stack2Base[assetKey] = norm;
       _stack2DebugLine('base[' + assetKey + ']: normalized ' + norm.length + ' rows, range ' +
-        (norm.length ? (new Date(norm[0].time*1000).toISOString() + ' \u2192 ' + new Date(norm[norm.length-1].time*1000).toISOString()) : 'n/a'), 'ok');
+        (norm.length ? (_stack2DebugFmtTime(norm[0].time) + ' \u2192 ' + _stack2DebugFmtTime(norm[norm.length-1].time)) : 'n/a'), 'ok');
       return norm;
     } catch (err) {
-      _stack2DebugLine('base[' + assetKey + ']: LOAD FAILED — ' + (err && err.message ? err.message : err), 'err');
+      _stack2DebugLine('base[' + assetKey + ']: LOAD FAILED — ' + (err && err.message ? err.message : err) +
+        (err && err.stack ? (' | stack: ' + String(err.stack).split('\n').slice(0,3).join(' << ')) : ''), 'err');
       console.error('[Stack2] gz load failed for', assetKey, err);
       _stack2Base[assetKey] = [];   // cache the failure as empty so we don't retry-loop forever
       return [];
@@ -3509,7 +3542,7 @@ async function _stack2DataFor(asset, tfMin) {
   }
   const out = _stack2ResampleForTF(base, tfMin, asset);
   _stack2DebugLine('_stack2DataFor: assetKey=' + assetKey + ' tf=' + tfMin + 'm \u2192 ' + out.length + ' bars' +
-    (out.length ? (' (last=' + new Date(out[out.length-1].time*1000).toISOString() + ' close=' + out[out.length-1].close + ')') : ''),
+    (out.length ? (' (last=' + _stack2DebugFmtTime(out[out.length-1].time) + ' close=' + out[out.length-1].close + ')') : ''),
     out.length > 1 ? 'ok' : 'warn');
   return out;
 }
@@ -3631,6 +3664,7 @@ function destroyStack2Cells() {
 // on most mobile setups).
 const _stack2DebugLog = [];
 let _stack2DebugPanelEl = null;
+let _stack2DebugMinimized = false;
 
 function _stack2DebugClear() {
   _stack2DebugLog.length = 0;
@@ -3644,26 +3678,51 @@ function _stack2DebugLine(text, level) {
   _stack2DebugRender();
 }
 
+// Plain-text dump of the whole log, suitable for pasting elsewhere
+// (WhatsApp, notes app, back to me for diagnosis, etc).
+function _stack2DebugAsText() {
+  return _stack2DebugLog.map(l => '[' + l.ts + '] ' + l.text).join('\n');
+}
+
+async function _stack2DebugCopy(btn) {
+  const text = _stack2DebugAsText();
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (_) { /* fall through to legacy method below */ }
+  if (!ok) {
+    // Fallback for browsers/contexts where navigator.clipboard is blocked
+    // (e.g. non-HTTPS iframe contexts some WebViews use).
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (_) { ok = false; }
+  }
+  if (btn) {
+    const orig = btn.textContent;
+    btn.textContent = ok ? 'Copied ✓' : 'Copy failed';
+    setTimeout(() => { btn.textContent = orig; }, 1200);
+  }
+}
+
+function _stack2DebugSetMinimized(min) {
+  _stack2DebugMinimized = min;
+  _stack2DebugRender();
+}
+
 function _stack2DebugEnsurePanel() {
   if (_stack2DebugPanelEl) return _stack2DebugPanelEl;
   const panel = document.createElement('div');
   panel.id = 'stack2-debug-panel';
-  panel.style.cssText =
-    'position:fixed;left:0;right:0;bottom:0;max-height:42vh;overflow-y:auto;' +
-    'background:#0d0f14;color:#d1d4dc;font:10px/1.4 monospace;z-index:99999;' +
-    'border-top:2px solid #2962ff;padding:6px 8px 8px;box-shadow:0 -4px 16px #000a;';
-  panel.innerHTML =
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-      '<b style="color:#2962ff;">Stack View 2 — Debug Log</b>' +
-      '<span>' +
-        '<button id="s2dbg-clear" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Clear</button>' +
-        '<button id="s2dbg-close" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;font:10px monospace;">✕</button>' +
-      '</span>' +
-    '</div>' +
-    '<div id="s2dbg-body"></div>';
   document.body.appendChild(panel);
-  panel.querySelector('#s2dbg-clear').onclick = _stack2DebugClear;
-  panel.querySelector('#s2dbg-close').onclick = () => { panel.style.display = 'none'; };
   _stack2DebugPanelEl = panel;
   return panel;
 }
@@ -3672,6 +3731,52 @@ function _stack2DebugRender() {
   const panel = _stack2DebugPanelEl;
   if (!panel) return;
   panel.style.display = '';
+
+  if (_stack2DebugMinimized) {
+    // Collapsed: a small pill, top area out of the way of the cell toolbar,
+    // tap anywhere on it to re-expand. Shows latest line + error/warn count
+    // so a problem is visible even while minimized.
+    const errCount  = _stack2DebugLog.filter(l => l.level === 'err').length;
+    const warnCount = _stack2DebugLog.filter(l => l.level === 'warn').length;
+    const last = _stack2DebugLog.length ? _stack2DebugLog[_stack2DebugLog.length-1].text : 'no log yet';
+    panel.style.cssText =
+      'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;' +
+      'background:#1e222d;color:#d1d4dc;font:10px/1.3 monospace;' +
+      'border:1px solid #2962ff;border-radius:8px;padding:6px 10px;' +
+      'box-shadow:0 4px 16px #000a;display:flex;align-items:center;gap:8px;cursor:pointer;';
+    panel.innerHTML =
+      '<b style="color:#2962ff;flex:none;">S2 Debug</b>' +
+      (errCount  ? '<span style="color:#f23645;flex:none;">' + errCount + ' err</span>' : '') +
+      (warnCount ? '<span style="color:#f0b429;flex:none;">' + warnCount + ' warn</span>' : '') +
+      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#787b86;">' +
+        last.replace(/</g,'&lt;') +
+      '</span>' +
+      '<span style="flex:none;color:#2962ff;">▲</span>';
+    panel.onclick = () => _stack2DebugSetMinimized(false);
+    return;
+  }
+
+  panel.onclick = null;
+  panel.style.cssText =
+    'position:fixed;left:0;right:0;bottom:0;max-height:42vh;overflow-y:auto;' +
+    'background:#0d0f14;color:#d1d4dc;font:10px/1.4 monospace;z-index:99999;' +
+    'border-top:2px solid #2962ff;padding:6px 8px 8px;box-shadow:0 -4px 16px #000a;';
+  panel.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+      '<b style="color:#2962ff;">Stack View 2 — Debug Log</b>' +
+      '<span>' +
+        '<button id="s2dbg-copy" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Copy</button>' +
+        '<button id="s2dbg-min" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Minimize</button>' +
+        '<button id="s2dbg-clear" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Clear</button>' +
+        '<button id="s2dbg-close" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;font:10px monospace;">✕</button>' +
+      '</span>' +
+    '</div>' +
+    '<div id="s2dbg-body"></div>';
+  panel.querySelector('#s2dbg-copy').onclick  = (e) => { e.stopPropagation(); _stack2DebugCopy(e.currentTarget); };
+  panel.querySelector('#s2dbg-min').onclick   = (e) => { e.stopPropagation(); _stack2DebugSetMinimized(true); };
+  panel.querySelector('#s2dbg-clear').onclick = (e) => { e.stopPropagation(); _stack2DebugClear(); };
+  panel.querySelector('#s2dbg-close').onclick = (e) => { e.stopPropagation(); panel.style.display = 'none'; };
+
   const body = panel.querySelector('#s2dbg-body');
   const colors = { info:'#d1d4dc', ok:'#26a69a', warn:'#f0b429', err:'#f23645' };
   body.innerHTML = _stack2DebugLog.map(l =>
@@ -3687,6 +3792,7 @@ function _stack2DebugShow() {
 }
 
 function selectStack2View() {
+  _stack2DebugMinimized = false;
   _stack2DebugClear();
   _stack2DebugShow();
   _stack2DebugLine('selectStack2View() called — asset=' + S.asset);
