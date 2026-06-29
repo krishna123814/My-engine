@@ -2380,6 +2380,30 @@ const BN_15M      = __BN_15M__;
 const BN_45M      = __BN_45M__;
 
 const BN_DAILY    = __BN_DAILY__;
+
+// ── Stack View 2: pre-resampled data from .gz files (injected by Python) ────
+// BN: 5m, 15m, 45m, 135m, 1D, 3D, 9D, 27D  |  BTC: 160m, 8H, 1D, 3D, 9D, 27D
+// Each value is an array of {time,open,high,low,close} objects (LWC format).
+// Chunks of last ~3000 candles per TF so mobile doesn't hang.
+const SV2_BN = {
+  '5m':   __SV2_BN_5M__,
+  '15m':  __SV2_BN_15M__,
+  '45m':  __SV2_BN_45M__,
+  '135m': __SV2_BN_135M__,
+  '1D':   __SV2_BN_1D__,
+  '3D':   __SV2_BN_3D__,
+  '9D':   __SV2_BN_9D__,
+  '27D':  __SV2_BN_27D__,
+};
+const SV2_BTC = {
+  '160m': __SV2_BTC_160M__,
+  '8H':   __SV2_BTC_8H__,
+  '1D':   __SV2_BTC_1D__,
+  '3D':   __SV2_BTC_3D__,
+  '9D':   __SV2_BTC_9D__,
+  '27D':  __SV2_BTC_27D__,
+};
+
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
@@ -3645,14 +3669,60 @@ function _buildStack2CellChart(idx) {
     kineticScroll: { mouse:true, touch:true },
   });
 
-  // Empty candlestick series — no data set (Stack View 2 = blank chart)
   c.series = c.chart.addCandlestickSeries({
     upColor: S.upColor, downColor: S.dnColor,
     borderUpColor: S.upColor, borderDownColor: S.dnColor,
     wickUpColor: S.upColor, wickDownColor: S.dnColor,
     priceLineVisible: false,
   });
-  // No data loaded — intentionally empty
+
+  // ── Load pre-resampled data from gz-based SV2_BN / SV2_BTC ──────────────
+  // tf label comes from cfg.tfs[idx] which is a string like '5m','160m','1D' etc.
+  (function _sv2LoadData() {
+    try {
+      const assetKey2 = _stackKeyForAsset(S.asset);
+      const cfg2 = (_stack2Cfg[assetKey2] || _stack2Cfg.btc);
+      const tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
+      if (!tfLabel) return;
+
+      // Pick the right data store
+      const store = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
+      // Case-insensitive lookup (user might type '8h' or '8H')
+      let data = null;
+      const keyLower = tfLabel.toLowerCase();
+      for (const k of Object.keys(store)) {
+        if (k.toLowerCase() === keyLower) { data = store[k]; break; }
+      }
+      if (!Array.isArray(data) || !data.length) return;
+
+      // Feed in chunks to avoid blocking the main thread on mobile
+      const CHUNK = 500;
+      let offset = 0;
+      function feedChunk() {
+        if (!c.series) return;
+        const slice = data.slice(offset, offset + CHUNK);
+        if (!slice.length) {
+          // All done — scroll to latest
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          return;
+        }
+        try {
+          if (offset === 0) {
+            c.series.setData(slice);
+          } else {
+            slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} });
+          }
+        } catch(_) {}
+        offset += CHUNK;
+        if (offset < data.length) {
+          setTimeout(feedChunk, 0);  // yield to browser, then continue
+        } else {
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+        }
+      }
+      setTimeout(feedChunk, idx * 30);  // stagger cells to avoid simultaneous heavy work
+    } catch(_) {}
+  })();
 
   // Drawing tools support (same as grid cells — uses existing _DT system)
   if (typeof _dtRegisterChart === 'function') {

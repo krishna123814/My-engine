@@ -457,6 +457,173 @@ def is_session_active() -> bool:
     _sess_cache.update({"active": active, "ts": now})
     return active
 
+# ─── Stack View 2: .gz file se data load + resample ──────────────────────────
+import gzip as _gzip
+
+_SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
+
+def _sv2_load_bn_gz() -> list:
+    """banknifty_5m_csv_json.gz se raw 5m candles load karo."""
+    if "bn_raw" in _SV2_CACHE:
+        return _SV2_CACHE["bn_raw"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "banknifty_5m_csv_json.gz")
+    if not os.path.exists(path):
+        return []
+    try:
+        with _gzip.open(path, "rb") as f:
+            data = json.load(f)
+        rows = data["data"] if isinstance(data, dict) else data
+        _SV2_CACHE["bn_raw"] = rows
+        return rows
+    except Exception:
+        return []
+
+def _sv2_load_btc_gz() -> list:
+    """Bitcoin_BTCUSDT_IST_5m_json.gz se raw 5m candles load karo."""
+    if "btc_raw" in _SV2_CACHE:
+        return _SV2_CACHE["btc_raw"]
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Bitcoin_BTCUSDT_IST_5m_json.gz")
+    if not os.path.exists(path):
+        return []
+    try:
+        with _gzip.open(path, "rb") as f:
+            data = json.load(f)
+        rows = data["data"] if isinstance(data, dict) else data
+        _SV2_CACHE["btc_raw"] = rows
+        return rows
+    except Exception:
+        return []
+
+def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
+    """BN 5m data ko intraday TF mein resample karo (session-aware: 9:15–15:30 IST)."""
+    IST_OFF       = 5.5 * 3600
+    SESSION_START = 9 * 60 + 15    # 555 min
+    SESSION_END   = 15 * 60 + 30  # 930 min
+    if tf_min <= 5:
+        return [{"time": r["t"], "open": r["o"], "high": r["h"],
+                 "low": r["l"], "close": r["c"]} for r in rows]
+    buckets: dict = {}
+    for r in rows:
+        ist_sec      = r["t"] + IST_OFF
+        day_start    = ist_sec - (ist_sec % 86400)
+        min_of_day   = int((ist_sec % 86400) / 60)
+        if min_of_day < SESSION_START or min_of_day >= SESSION_END:
+            continue
+        min_since_open   = min_of_day - SESSION_START
+        bucket_idx       = int(min_since_open / tf_min)
+        bucket_start_min = SESSION_START + bucket_idx * tf_min
+        key = int(day_start - IST_OFF) + bucket_start_min * 60
+        if key not in buckets:
+            buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
+                            "low": r["l"], "close": r["c"]}
+        else:
+            b = buckets[key]
+            b["high"]  = max(b["high"],  r["h"])
+            b["low"]   = min(b["low"],   r["l"])
+            b["close"] = r["c"]
+    return sorted(buckets.values(), key=lambda x: x["time"])
+
+def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
+    """BN 5m data ko daily / multi-day candles mein resample karo."""
+    IST_OFF       = 5.5 * 3600
+    SESSION_START = 9 * 60 + 15
+    SESSION_END   = 15 * 60 + 30
+    day_buckets: dict = {}
+    for r in rows:
+        ist_sec    = r["t"] + IST_OFF
+        day_start_utc = int(ist_sec - (ist_sec % 86400) - IST_OFF)
+        min_of_day = int((ist_sec % 86400) / 60)
+        if min_of_day < SESSION_START or min_of_day >= SESSION_END:
+            continue
+        key = day_start_utc
+        if key not in day_buckets:
+            day_buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
+                                "low": r["l"], "close": r["c"]}
+        else:
+            b = day_buckets[key]
+            b["high"]  = max(b["high"],  r["h"])
+            b["low"]   = min(b["low"],   r["l"])
+            b["close"] = r["c"]
+    days = sorted(day_buckets.values(), key=lambda x: x["time"])
+    if n_days <= 1:
+        return days
+    out = []
+    for i in range(0, len(days), n_days):
+        chunk = days[i:i + n_days]
+        if not chunk:
+            break
+        out.append({
+            "time":  chunk[0]["time"],
+            "open":  chunk[0]["open"],
+            "high":  max(c["high"] for c in chunk),
+            "low":   min(c["low"]  for c in chunk),
+            "close": chunk[-1]["close"],
+        })
+    return out
+
+def _sv2_resample_btc(rows: list, tf_min: int) -> list:
+    """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto)."""
+    if tf_min <= 5:
+        return [{"time": r["t"], "open": r["o"], "high": r["h"],
+                 "low": r["l"], "close": r["c"]} for r in rows]
+    sec = tf_min * 60
+    buckets: dict = {}
+    for r in rows:
+        key = (r["t"] // sec) * sec
+        if key not in buckets:
+            buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
+                            "low": r["l"], "close": r["c"]}
+        else:
+            b = buckets[key]
+            b["high"]  = max(b["high"],  r["h"])
+            b["low"]   = min(b["low"],   r["l"])
+            b["close"] = r["c"]
+    return sorted(buckets.values(), key=lambda x: x["time"])
+
+# Mobile ke liye max candles per TF (chunked inject)
+_SV2_MAX = {
+    "5m": 3000, "15m": 3000, "45m": 2000, "135m": 2000,
+    "160m": 2000, "8H": 2000,
+    "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
+}
+
+def _sv2_trim(data: list, label: str) -> list:
+    """Last N candles rakh, baaki drop karo (mobile hang prevention)."""
+    n = _SV2_MAX.get(label, 2000)
+    return data[-n:] if len(data) > n else data
+
+def _sv2_to_js(data: list) -> str:
+    """List of dicts → compact JSON string for inline JS."""
+    return json.dumps(data, separators=(",", ":"))
+
+def _build_sv2_data() -> dict:
+    """Dono .gz files se sab TFs ka resampled data build karo."""
+    bn_raw  = _sv2_load_bn_gz()
+    btc_raw = _sv2_load_btc_gz()
+
+    bn_tfs = {
+        "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
+        "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
+        "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
+        "135m": _sv2_resample_bn_intraday(bn_raw,  135),
+        "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
+        "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
+        "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
+        "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
+    }
+    btc_tfs = {
+        "160m": _sv2_resample_btc(btc_raw, 160),
+        "8H":   _sv2_resample_btc(btc_raw, 480),
+        "1D":   _sv2_resample_btc(btc_raw, 1440),
+        "3D":   _sv2_resample_btc(btc_raw, 1440 * 3),
+        "9D":   _sv2_resample_btc(btc_raw, 1440 * 9),
+        "27D":  _sv2_resample_btc(btc_raw, 1440 * 27),
+    }
+    return {
+        "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
+        "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
+    }
+
 # ─── Fyers historical data ─────────────────────────────────────────────────────
 def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
     creds = load_creds()
@@ -1343,7 +1510,33 @@ def _build_chart_html(
     html = html.replace("__BN_15M__",      _to_lwc(bn_15m))
     html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
-    html = html.replace("__FYERS_STATUS__", status)
+
+    # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
+    try:
+        _sv2 = _build_sv2_data()
+        _bn  = _sv2["bn"]
+        _btc = _sv2["btc"]
+        html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
+        html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
+        html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
+        html = html.replace("__SV2_BN_135M__", _sv2_to_js(_bn["135m"]))
+        html = html.replace("__SV2_BN_1D__",   _sv2_to_js(_bn["1D"]))
+        html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
+        html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
+        html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
+        html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
+        html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
+        html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
+        html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))
+        html = html.replace("__SV2_BTC_9D__",   _sv2_to_js(_btc["9D"]))
+        html = html.replace("__SV2_BTC_27D__",  _sv2_to_js(_btc["27D"]))
+    except Exception:
+        # Fallback: empty arrays agar gz file missing/corrupt ho
+        for _ph in ["__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
+                    "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
+                    "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
+                    "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
+            html = html.replace(_ph, "[]")
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
