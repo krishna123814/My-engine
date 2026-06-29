@@ -2420,21 +2420,14 @@ const TZ_MAP = {
 
 // Format: DD/MM/YYYY  HH:MM  or  DD/MM/YYYY  hh:MM AM/PM
 // For daily+ TFs — only show date, no time
-// forcedTf: optional explicit timeframe (minutes) to use instead of
-// guessing from the global CELLS[SELECTED_CELL]. Stack View 2 cells pass
-// their own fixed tf here, since they live in STACK2_CELLS — not CELLS —
-// so the global guess would silently fall back to a wrong/stale TF (this
-// was the cause of "Invalid Date" showing on Stack View 2 charts).
-function fmtChartTime(t, forcedTf) {
+function fmtChartTime(t) {
   const d = new Date(t * 1000);
   const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
   const use12h = S.hour12 === true;
 
   // Current active TF (minutes)
-  const activeTf = (typeof forcedTf === 'number')
-    ? forcedTf
-    : (CELLS.length > 0 && CELLS[SELECTED_CELL])
-      ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
+  const activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
+    ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
 
   // Daily or higher → only date, no time
   if (activeTf >= 1440) {
@@ -3371,294 +3364,8 @@ function destroyStackCells() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// STACK VIEW 2 — DATA SOURCE: GitHub-hosted .gz historical files (5m base)
+// STACK VIEW 2 — Independent copy of Stack View, empty charts (no live/historical data)
 // ════════════════════════════════════════════════════════════════════════════
-// Each symbol's full 5m history lives in a gzip-compressed JSON file in the
-// same GitHub repo this app is served from. Stack View 2's cells never call
-// any live broker API — every one of a symbol's 8 (BN) / 6 (BTC) slots is
-// built purely by resampling that symbol's single 5m base array to each
-// slot's own fixed timeframe (resampleForTF — same resampler Stack View 1
-// and the main chart use elsewhere in this file).
-//
-// File formats on disk (confirmed from the actual uploaded .gz files):
-//   Bitcoin_BTCUSDT_IST_5m.json.gz  → plain array:  [{"t","o","h","l","c"}, ...]
-//   banknifty_5m_csv.json.gz        → wrapped:      {"meta":{...}, "data":[{"t","o","h","l","c"}, ...]}
-// Both use UTC epoch-seconds in "t". Stack View 2 never needs IST-converted
-// keys — resample()/resampleForTF() already work in UTC seconds.
-const STACK2_GZ_BASE = 'https://raw.githubusercontent.com/krishna123814/My-engine/main/';
-const STACK2_GZ_FILES = {
-  btc: STACK2_GZ_BASE + 'Bitcoin_BTCUSDT_IST_5m.json.gz',
-  bn:  STACK2_GZ_BASE + 'banknifty_5m_csv.json.gz',
-};
-
-// In-memory cache: assetKey ('btc'|'bn') → resolved [{time,open,high,low,close,volume}]
-// sorted ascending. Populated once per page load, shared by every Stack View 2
-// cell of that asset (each cell only resamples this — never refetches).
-const _stack2Base = { btc: null, bn: null };
-const _stack2BaseLoading = { btc: null, bn: null };   // in-flight Promise, so simultaneous cells share one fetch
-
-// Normalize one raw record into the {time,open,high,low,close,volume} shape
-// resample()/resampleForTF() expect. Handles multiple possible source shapes
-// since the exact .gz export format isn't something this code controls:
-//   • object with short keys:  {t,o,h,l,c,v?}
-//   • object with long keys:   {time,open,high,low,close,volume?}
-//   • array form:               [t,o,h,l,c] or [t,o,h,l,c,v]
-// Returns null for a row that can't be normalized to a finite time/OHLC set,
-// so one bad row degrades gracefully instead of corrupting/crashing the
-// whole load (every numeric field is validated, not just coerced blindly).
-// Parse "YYYY-MM-DD HH:MM" IST string → UTC epoch seconds.
-// Treats the string as IST (UTC+5:30) since BankNifty data is in IST.
-function _stack2ParseTsString(tsStr) {
-  if (typeof tsStr !== 'string') return NaN;
-  // Expected format: "2015-01-09 09:15" or "2015-01-09T09:15"
-  const m = tsStr.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
-  if (!m) return NaN;
-  const [, yr, mo, dy, hr, mn] = m.map(Number);
-  // Build UTC epoch: treat as IST (subtract 5h30m = 19800s)
-  const utcMs = Date.UTC(yr, mo - 1, dy, hr, mn, 0) - 19800000;
-  return Math.round(utcMs / 1000);
-}
-
-function _stack2NormalizeRow(r) {
-  if (!r) return null;
-
-  let tRaw, oRaw, hRaw, lRaw, cRaw, vRaw;
-  if (Array.isArray(r)) {
-    // [t, o, h, l, c] or [t, o, h, l, c, v]
-    tRaw = r[0]; oRaw = r[1]; hRaw = r[2]; lRaw = r[3]; cRaw = r[4]; vRaw = r[5];
-  } else if (typeof r === 'object') {
-    // Support: t / time / timestamp / ts (BankNifty legacy "YYYY-MM-DD HH:MM" string)
-    tRaw = r.t  !== undefined ? r.t  :
-           r.time !== undefined ? r.time :
-           r.timestamp !== undefined ? r.timestamp :
-           r.ts; // ← legacy string key used in older BankNifty exports
-    oRaw = r.o  !== undefined ? r.o  : r.open;
-    hRaw = r.h  !== undefined ? r.h  : r.high;
-    lRaw = r.l  !== undefined ? r.l  : r.low;
-    cRaw = r.c  !== undefined ? r.c  : r.close;
-    vRaw = r.v  !== undefined ? r.v  : r.volume;
-  } else {
-    return null;
-  }
-
-  // If tRaw is a string like "2015-01-09 09:15", parse it as IST → epoch seconds
-  let t;
-  if (typeof tRaw === 'string') {
-    t = _stack2ParseTsString(tRaw);
-  } else {
-    t = Number(tRaw);
-  }
-
-  const o = Number(oRaw), h = Number(hRaw), l = Number(lRaw), c = Number(cRaw);
-  const v = Number(vRaw) || 0;
-
-  // If the timestamp looks like milliseconds (13 digits, > year-2001 in ms
-  // terms) rather than seconds, convert it — a common source-format mismatch
-  // that would otherwise silently shift every candle by a factor of 1000.
-  if (Number.isFinite(t) && Math.abs(t) > 1e12) t = t / 1000;
-  t = Math.round(t);
-
-  if (!Number.isFinite(t) || !Number.isFinite(o) || !Number.isFinite(h) ||
-      !Number.isFinite(l) || !Number.isFinite(c)) {
-    return null;
-  }
-  return { time: t, open: o, high: h, low: l, close: c, volume: v };
-}
-
-// Crash-proof "YYYY-MM-DD HH:MM UTC" formatter for debug-log lines only.
-// Never throws — bad input renders as "invalid(<raw value>)" instead of
-// taking down the whole load via an uncaught RangeError from toISOString().
-function _stack2DebugFmtTime(epochSec) {
-  try {
-    if (!Number.isFinite(epochSec)) return 'invalid(' + epochSec + ')';
-    const d = new Date(epochSec * 1000);
-    if (isNaN(d.getTime())) return 'invalid(' + epochSec + ')';
-    return d.toISOString();
-  } catch (e) {
-    return 'invalid(' + epochSec + ')';
-  }
-}
-
-// Fetch + gunzip + parse a .gz JSON file using the browser's native
-// DecompressionStream (Chrome/Edge/Android WebView — no extra CDN library
-// needed). Returns the parsed JSON value (array, or {meta,data} object).
-//
-// IMPORTANT: GitHub raw CDN sets Content-Encoding:gzip on .gz files which
-// causes browser fetch() to auto-decompress the body before we see it.
-// If we then pipe that plain JSON through DecompressionStream it crashes/hangs.
-// Fix: read raw ArrayBuffer first, check magic bytes 0x1F 0x8B.
-// If gzip magic found → decompress manually.
-// If not found → browser already decompressed, decode as UTF-8 directly.
-async function _stack2FetchGz(url) {
-  _stack2DebugLine('fetch start: ' + url);
-  const t0 = performance.now();
-  const resp = await fetch(url, { cache: 'no-cache' });
-  const contentEncoding = resp.headers.get('content-encoding') || '';
-  const contentLength   = resp.headers.get('content-length') || '?';
-  _stack2DebugLine('fetch HTTP ' + resp.status + ' (' + Math.round(performance.now()-t0) + 'ms)' +
-    ' — content-length=' + contentLength +
-    ' content-encoding=[' + contentEncoding + ']');
-  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
-
-  const t1 = performance.now();
-  const arrayBuf = await resp.arrayBuffer();
-  const bytes = new Uint8Array(arrayBuf);
-  const isGzip = bytes.length >= 2 && bytes[0] === 0x1F && bytes[1] === 0x8B;
-  _stack2DebugLine('raw read (' + Math.round(performance.now()-t1) + 'ms)' +
-    ' size=' + bytes.length +
-    ' magic=0x' + bytes[0].toString(16).padStart(2,'0') + bytes[1].toString(16).padStart(2,'0') +
-    ' isGzip=' + isGzip);
-
-  let text;
-  const t2 = performance.now();
-  if (isGzip) {
-    if (typeof DecompressionStream === 'undefined') {
-      throw new Error('DecompressionStream not supported — cannot gunzip ' + url);
-    }
-    const ds = new DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    writer.write(bytes);
-    writer.close();
-    text = await new Response(ds.readable).text();
-    _stack2DebugLine('gunzip done (' + Math.round(performance.now()-t2) + 'ms) — ' + text.length + ' chars');
-  } else {
-    text = new TextDecoder('utf-8').decode(bytes);
-    _stack2DebugLine('already decompressed by browser (' + Math.round(performance.now()-t2) + 'ms) — ' + text.length + ' chars');
-  }
-
-  const t3 = performance.now();
-  const parsed = JSON.parse(text);
-  _stack2DebugLine('JSON.parse done (' + Math.round(performance.now()-t3) + 'ms)');
-  return parsed;
-}
-
-// Load (and cache) the full 5m base series for one asset key. Safe to call
-// from multiple cells at once — they all await the same in-flight fetch.
-async function _stack2LoadBase(assetKey) {
-  if (_stack2Base[assetKey]) {
-    _stack2DebugLine('base[' + assetKey + ']: using cache (' + _stack2Base[assetKey].length + ' rows)');
-    return _stack2Base[assetKey];
-  }
-  if (_stack2BaseLoading[assetKey]) {
-    _stack2DebugLine('base[' + assetKey + ']: awaiting in-flight fetch from another cell');
-    return _stack2BaseLoading[assetKey];
-  }
-
-  const url = STACK2_GZ_FILES[assetKey];
-  if (!url) { _stack2DebugLine('base[' + assetKey + ']: no URL configured for this asset key', 'err'); return []; }
-
-  _stack2BaseLoading[assetKey] = (async () => {
-    try {
-      const raw = await _stack2FetchGz(url);
-      // BankNifty file is {meta, data:[...]}; BTC file is a plain [...] array.
-      const isArr = Array.isArray(raw);
-      const rows = isArr ? raw : (raw && Array.isArray(raw.data) ? raw.data : []);
-      _stack2DebugLine('base[' + assetKey + ']: parsed shape=' + (isArr ? 'plain array' : 'object{meta,data}') + ' rawRows=' + rows.length);
-      if (!isArr && raw && raw.meta) {
-        _stack2DebugLine('base[' + assetKey + ']: meta=' + JSON.stringify(raw.meta));
-      }
-      if (rows.length) {
-        _stack2DebugLine('base[' + assetKey + ']: sample row[0]=' + JSON.stringify(rows[0]) +
-          ' | row[' + (rows.length-1) + ']=' + JSON.stringify(rows[rows.length-1]));
-      } else {
-        _stack2DebugLine('base[' + assetKey + ']: 0 rows after shape-detection — check JSON structure matches expected {t,o,h,l,c} or {data:[...]}', 'warn');
-      }
-      const normAll = rows.map(_stack2NormalizeRow);
-      const droppedCount = normAll.length - normAll.filter(Boolean).length;
-
-      // ── Detailed format-detection debug ──────────────────────────────────
-      if (rows.length > 0) {
-        const r0 = rows[0];
-        const keys = Array.isArray(r0) ? '[array]' : Object.keys(r0).join(',');
-        const tsKey = !Array.isArray(r0) ? (
-          r0.t !== undefined ? 't(numeric)' :
-          r0.time !== undefined ? 'time(numeric)' :
-          r0.timestamp !== undefined ? 'timestamp' :
-          r0.ts !== undefined ? ('ts(' + typeof r0.ts + ')') : 'UNKNOWN'
-        ) : 'array[0]';
-        _stack2DebugLine('base[' + assetKey + ']: row format keys=[' + keys + '] tsKey=' + tsKey);
-
-        // Show what the first row normalises to
-        const firstNorm = normAll[0];
-        if (firstNorm) {
-          _stack2DebugLine('base[' + assetKey + ']: row[0] → time=' + firstNorm.time +
-            ' (' + _stack2DebugFmtTime(firstNorm.time) + ') o=' + firstNorm.open + ' c=' + firstNorm.close, 'ok');
-        } else {
-          // Show WHY row[0] failed
-          const rr = rows[0];
-          const tRaw = Array.isArray(rr) ? rr[0] : (rr.t !== undefined ? rr.t : rr.time !== undefined ? rr.time : rr.timestamp !== undefined ? rr.timestamp : rr.ts);
-          _stack2DebugLine('base[' + assetKey + ']: row[0] FAILED normalize — tRaw=' + JSON.stringify(tRaw) +
-            ' typeof=' + typeof tRaw +
-            ' Number(tRaw)=' + Number(tRaw) +
-            ' oRaw=' + JSON.stringify(Array.isArray(rr) ? rr[1] : (rr.o !== undefined ? rr.o : rr.open)), 'err');
-        }
-      }
-      // ─────────────────────────────────────────────────────────────────────
-
-      if (droppedCount > 0) {
-        const firstBadIdx = normAll.findIndex(x => !x);
-        _stack2DebugLine('base[' + assetKey + ']: dropped ' + droppedCount + '/' + rows.length +
-          ' row(s) with non-finite time/OHLC — first bad row[' + firstBadIdx + ']=' +
-          JSON.stringify(rows[firstBadIdx]), 'warn');
-      }
-      const norm = normAll.filter(Boolean).sort((a, b) => a.time - b.time);
-      _stack2Base[assetKey] = norm;
-      _stack2DebugLine('base[' + assetKey + ']: normalized ' + norm.length + ' rows, range ' +
-        (norm.length ? (_stack2DebugFmtTime(norm[0].time) + ' \u2192 ' + _stack2DebugFmtTime(norm[norm.length-1].time)) : 'n/a'), 'ok');
-      return norm;
-    } catch (err) {
-      _stack2DebugLine('base[' + assetKey + ']: LOAD FAILED — ' + (err && err.message ? err.message : err) +
-        (err && err.stack ? (' | stack: ' + String(err.stack).split('\n').slice(0,3).join(' << ')) : ''), 'err');
-      console.error('[Stack2] gz load failed for', assetKey, err);
-      _stack2Base[assetKey] = [];   // cache the failure as empty so we don't retry-loop forever
-      return [];
-    } finally {
-      _stack2BaseLoading[assetKey] = null;
-    }
-  })();
-  return _stack2BaseLoading[assetKey];
-}
-
-// Get this symbol's 5m base data resampled to one cell's fixed tfMin.
-// asset param is the real S.asset-style name (e.g. BTC_ASSET / BN_ASSET);
-// we map it to 'btc'/'bn' via the existing _stackKeyForAsset() helper.
-//
-// IMPORTANT: resampleForTF()'s >1440min branch calls resampleWorkingDays(),
-// which assumes its input is ALREADY one-row-per-trading-day (that's true
-// for Stack View 1 / the main chart, which feed it BN_DAILY — daily bars
-// supplied by the server). Stack View 2's base data is raw 5-MINUTE bars,
-// so calling resampleWorkingDays() directly on it groups every nDays
-// worth of 5-minute ROWS together (a few minutes) instead of nDays worth
-// of TRADING DAYS — producing thousands of near-instant micro-bars all
-// squashed at the same effective time, which is what rendered as a single
-// visible candle with "Invalid Date" on the time axis.
-// Fix: for NSE-style multi-day TFs, explicitly collapse 5m → 1D first
-// (resample(rows, 1440, asset)), THEN hand those true daily bars to
-// resampleWorkingDays(). Crypto (BTC) is unaffected — it already uses
-// the calendar-anchor resample() path, never resampleWorkingDays().
-function _stack2ResampleForTF(rows, tfMin, asset) {
-  if (tfMin > 1440 && !isCryptoSymbol(asset)) {
-    const nDays = Math.round(tfMin / 1440);
-    const daily = resample(rows, 1440, asset);
-    return resampleWorkingDays(daily, nDays);
-  }
-  return resampleForTF(rows, tfMin, asset);
-}
-
-async function _stack2DataFor(asset, tfMin) {
-  const assetKey = _stackKeyForAsset(asset);
-  const base = await _stack2LoadBase(assetKey === 'bn' ? 'bn' : 'btc');
-  if (!base.length) {
-    _stack2DebugLine('_stack2DataFor: base empty for assetKey=' + assetKey + ' tf=' + tfMin + 'm — returning []', 'warn');
-    return [];
-  }
-  const out = _stack2ResampleForTF(base, tfMin, asset);
-  _stack2DebugLine('_stack2DataFor: assetKey=' + assetKey + ' tf=' + tfMin + 'm \u2192 ' + out.length + ' bars' +
-    (out.length ? (' (last=' + _stack2DebugFmtTime(out[out.length-1].time) + ' close=' + out[out.length-1].close + ')') : ''),
-    out.length > 1 ? 'ok' : 'warn');
-  return out;
-}
-
 const STACK2_CELLS = [];      // independent CELLS array for Stack View 2
 let _stack2Active  = false;
 let _stack2OnOff   = false;
@@ -3757,7 +3464,6 @@ function _deactivateStack2() {
   const d = document.getElementById('stack2-down-btn');
   if (u) u.style.display = 'none';
   if (d) d.style.display = 'none';
-  if (_stack2DebugPanelEl) _stack2DebugPanelEl.style.display = 'none';
 }
 
 function destroyStack2Cells() {
@@ -3768,147 +3474,7 @@ function destroyStack2Cells() {
   if (sc) sc.innerHTML = '';
 }
 
-// ── Stack View 2 debug panel ────────────────────────────────────────────────
-// Visible step-by-step log of the .gz fetch → gunzip → parse → resample
-// pipeline for each cell, so problems (wrong URL, HTTP error, bad gzip,
-// bad JSON shape, resample producing 0/1 bars) are visible directly in
-// the UI instead of only in the browser console (which isn't reachable
-// on most mobile setups).
-const _stack2DebugLog = [];
-let _stack2DebugPanelEl = null;
-let _stack2DebugMinimized = false;
-
-function _stack2DebugClear() {
-  _stack2DebugLog.length = 0;
-  _stack2DebugRender();
-}
-
-function _stack2DebugLine(text, level) {
-  const ts = new Date().toLocaleTimeString('en-GB', { hour12:false });
-  _stack2DebugLog.push({ ts, text, level: level || 'info' });
-  if (_stack2DebugLog.length > 200) _stack2DebugLog.shift();
-  _stack2DebugRender();
-}
-
-// Plain-text dump of the whole log, suitable for pasting elsewhere
-// (WhatsApp, notes app, back to me for diagnosis, etc).
-function _stack2DebugAsText() {
-  return _stack2DebugLog.map(l => '[' + l.ts + '] ' + l.text).join('\n');
-}
-
-async function _stack2DebugCopy(btn) {
-  const text = _stack2DebugAsText();
-  let ok = false;
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    }
-  } catch (_) { /* fall through to legacy method below */ }
-  if (!ok) {
-    // Fallback for browsers/contexts where navigator.clipboard is blocked
-    // (e.g. non-HTTPS iframe contexts some WebViews use).
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
-      document.body.appendChild(ta);
-      ta.select();
-      ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-    } catch (_) { ok = false; }
-  }
-  if (btn) {
-    const orig = btn.textContent;
-    btn.textContent = ok ? 'Copied ✓' : 'Copy failed';
-    setTimeout(() => { btn.textContent = orig; }, 1200);
-  }
-}
-
-function _stack2DebugSetMinimized(min) {
-  _stack2DebugMinimized = min;
-  _stack2DebugRender();
-}
-
-function _stack2DebugEnsurePanel() {
-  if (_stack2DebugPanelEl) return _stack2DebugPanelEl;
-  const panel = document.createElement('div');
-  panel.id = 'stack2-debug-panel';
-  document.body.appendChild(panel);
-  _stack2DebugPanelEl = panel;
-  return panel;
-}
-
-function _stack2DebugRender() {
-  const panel = _stack2DebugPanelEl;
-  if (!panel) return;
-  panel.style.display = '';
-
-  if (_stack2DebugMinimized) {
-    // Collapsed: a small pill, top area out of the way of the cell toolbar,
-    // tap anywhere on it to re-expand. Shows latest line + error/warn count
-    // so a problem is visible even while minimized.
-    const errCount  = _stack2DebugLog.filter(l => l.level === 'err').length;
-    const warnCount = _stack2DebugLog.filter(l => l.level === 'warn').length;
-    const last = _stack2DebugLog.length ? _stack2DebugLog[_stack2DebugLog.length-1].text : 'no log yet';
-    panel.style.cssText =
-      'position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;' +
-      'background:#1e222d;color:#d1d4dc;font:10px/1.3 monospace;' +
-      'border:1px solid #2962ff;border-radius:8px;padding:6px 10px;' +
-      'box-shadow:0 4px 16px #000a;display:flex;align-items:center;gap:8px;cursor:pointer;';
-    panel.innerHTML =
-      '<b style="color:#2962ff;flex:none;">S2 Debug</b>' +
-      (errCount  ? '<span style="color:#f23645;flex:none;">' + errCount + ' err</span>' : '') +
-      (warnCount ? '<span style="color:#f0b429;flex:none;">' + warnCount + ' warn</span>' : '') +
-      '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#787b86;">' +
-        last.replace(/</g,'&lt;') +
-      '</span>' +
-      '<span style="flex:none;color:#2962ff;">▲</span>';
-    panel.onclick = () => _stack2DebugSetMinimized(false);
-    return;
-  }
-
-  panel.onclick = null;
-  panel.style.cssText =
-    'position:fixed;left:0;right:0;bottom:0;max-height:42vh;overflow-y:auto;' +
-    'background:#0d0f14;color:#d1d4dc;font:10px/1.4 monospace;z-index:99999;' +
-    'border-top:2px solid #2962ff;padding:6px 8px 8px;box-shadow:0 -4px 16px #000a;';
-  panel.innerHTML =
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
-      '<b style="color:#2962ff;">Stack View 2 — Debug Log</b>' +
-      '<span>' +
-        '<button id="s2dbg-copy" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Copy</button>' +
-        '<button id="s2dbg-min" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Minimize</button>' +
-        '<button id="s2dbg-clear" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Clear</button>' +
-        '<button id="s2dbg-close" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;font:10px monospace;">✕</button>' +
-      '</span>' +
-    '</div>' +
-    '<div id="s2dbg-body"></div>';
-  panel.querySelector('#s2dbg-copy').onclick  = (e) => { e.stopPropagation(); _stack2DebugCopy(e.currentTarget); };
-  panel.querySelector('#s2dbg-min').onclick   = (e) => { e.stopPropagation(); _stack2DebugSetMinimized(true); };
-  panel.querySelector('#s2dbg-clear').onclick = (e) => { e.stopPropagation(); _stack2DebugClear(); };
-  panel.querySelector('#s2dbg-close').onclick = (e) => { e.stopPropagation(); panel.style.display = 'none'; };
-
-  const body = panel.querySelector('#s2dbg-body');
-  const colors = { info:'#d1d4dc', ok:'#26a69a', warn:'#f0b429', err:'#f23645' };
-  body.innerHTML = _stack2DebugLog.map(l =>
-    '<div style="color:' + (colors[l.level]||colors.info) + ';white-space:pre-wrap;word-break:break-all;">' +
-    '[' + l.ts + '] ' + l.text.replace(/</g,'&lt;') + '</div>'
-  ).join('');
-  body.scrollTop = body.scrollHeight;
-}
-
-function _stack2DebugShow() {
-  _stack2DebugEnsurePanel();
-  _stack2DebugRender();
-}
-
 function selectStack2View() {
-  _stack2DebugMinimized = false;
-  _stack2DebugClear();
-  _stack2DebugShow();
-  _stack2DebugLine('selectStack2View() called — asset=' + S.asset);
-
   // Deactivate Stack View 1 if active
   if (_stackActive) {
     _stackActive = false;
@@ -3973,19 +3539,14 @@ function buildStack2() {
   const total   = Math.max(1, cfg.total   || 6);
   const visible = Math.max(1, cfg.visible || 4);
   const sc = document.getElementById('stack-container-2');
-  if (!sc) { _stack2DebugLine('buildStack2: #stack-container-2 not found in DOM — aborting', 'err'); return; }
+  if (!sc) return;
   sc.innerHTML = '';
 
-  _stack2DebugLine('buildStack2: assetKey=' + assetKey + ' total=' + total + ' visible=' + visible + ' tfs=' + JSON.stringify(cfg.tfs));
-
   for (let i = 0; i < total; i++) {
-    const rawTf  = (cfg.tfs && cfg.tfs[i]) || '';
-    const tfMin  = parseTfStr(rawTf) || 1440;
-    const label  = rawTf || tfMinToLabel(tfMin);
+    const label = (cfg.tfs && cfg.tfs[i]) || (STACK_LETTERS[i] || (i+1));
     const cellObj = {
-      asset: S.asset, tf: tfMin, chart: null, series: null, el: null, vLine: null,
+      asset: S.asset, tf: 1440, chart: null, series: null, el: null, vLine: null,
       _stack2: true,   // marker so buildCellChart2 is used instead
-      _loadToken: 0,   // bumped on every rebuild so a stale async fetch can't write into a reused cell
     };
     STACK2_CELLS.push(cellObj);
 
@@ -3997,7 +3558,7 @@ function buildStack2() {
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
     overlay.innerHTML =
-      '<span class="co-sym">'+_cellAssetShort(S.asset)+'</span>'+
+      '<span class="co-sym">📋</span>'+
       '<span class="co-tf"> · ' + label + '</span>'+
       '<span class="co-price up">--</span>'+
       '<span class="co-chg" style="color:#555">--</span>'+
@@ -4076,7 +3637,7 @@ function _buildStack2CellChart(idx) {
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
     timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
     localization: {
-      timeFormatter: (t) => fmtChartTime(t, c.tf),
+      timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
     },
     handleScroll: { mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:true },
@@ -4084,12 +3645,14 @@ function _buildStack2CellChart(idx) {
     kineticScroll: { mouse:true, touch:true },
   });
 
+  // Empty candlestick series — no data set (Stack View 2 = blank chart)
   c.series = c.chart.addCandlestickSeries({
     upColor: S.upColor, downColor: S.dnColor,
     borderUpColor: S.upColor, borderDownColor: S.dnColor,
     wickUpColor: S.upColor, wickDownColor: S.dnColor,
     priceLineVisible: false,
   });
+  // No data loaded — intentionally empty
 
   // Drawing tools support (same as grid cells — uses existing _DT system)
   if (typeof _dtRegisterChart === 'function') {
@@ -4099,83 +3662,6 @@ function _buildStack2CellChart(idx) {
   if (typeof attachMobileTouchUX === 'function') {
     try { attachMobileTouchUX(el, c.chart, () => c.series); } catch(_) {}
   }
-
-  // ── Load this cell's data: symbol's full 5m .gz history, resampled to
-  // this cell's own fixed timeframe. Token guard means if buildStack2()
-  // runs again (asset switch / settings change / re-toggle) before this
-  // fetch resolves, the stale response is silently dropped instead of
-  // drawing onto a chart instance that's already been replaced.
-  const myToken = ++c._loadToken;
-  const myAsset = c.asset;
-  const myTf    = c.tf;
-  _stack2DebugLine('cell[' + idx + ']: requesting asset=' + myAsset + ' tf=' + myTf + 'm');
-  _stack2DataFor(myAsset, myTf).then(data => {
-    if (c._loadToken !== myToken) { _stack2DebugLine('cell[' + idx + ']: stale response ignored (token mismatch)', 'warn'); return; }
-    if (!c.series) { _stack2DebugLine('cell[' + idx + ']: chart destroyed before data arrived — skipping setData', 'warn'); return; }
-    if (data && data.length) {
-      c.series.setData(data);
-      // Set visible range: show last N bars based on timeframe so chart isn't
-      // stuck showing only the last ~50 candles (scrollToRealTime + barSpacing:6
-      // on a narrow mobile cell = only 40-50 bars visible by default).
-      // We use setVisibleLogicalRange with from=-(barsToShow-1) so the last bar
-      // sits at the right edge and the chart shows a meaningful history window.
-      try {
-        const ts = c.chart.timeScale();
-        // How many bars to show per timeframe (tuned for ~300px wide mobile cell)
-        const tfMin = myTf;
-        let barsToShow;
-        if      (tfMin <= 5)    barsToShow = 390;  // 5m  → ~2 trading days
-        else if (tfMin <= 15)   barsToShow = 260;  // 15m → ~1 week
-        else if (tfMin <= 45)   barsToShow = 180;  // 45m → ~1 month
-        else if (tfMin <= 135)  barsToShow = 120;  // 135m→ ~2 months
-        else if (tfMin <= 1440) barsToShow = 120;  // 1D  → ~6 months
-        else if (tfMin <= 4320) barsToShow = 90;   // 3D  → ~9 months
-        else                    barsToShow = 60;   // 9D+ → ~1-2 years
-        barsToShow = Math.min(barsToShow, data.length);
-        ts.setVisibleLogicalRange({ from: data.length - barsToShow - 2, to: data.length + 3 });
-        _stack2DebugLine('cell[' + idx + ']: visibleRange set — showing last ' + barsToShow + ' of ' + data.length + ' bars', 'ok');
-      } catch(e) {
-        try { c.chart.timeScale().fitContent(); } catch(_) {}
-      }
-      _stack2UpdateCellHeader(idx, data[data.length - 1], data.length > 1 ? data[data.length - 2] : null);
-      _stack2DebugLine('cell[' + idx + ']: setData OK — ' + data.length + ' bars rendered', 'ok');
-    } else {
-      _stack2UpdateCellHeader(idx, null, null, true);
-      _stack2DebugLine('cell[' + idx + ']: 0 bars returned — chart left blank', 'warn');
-    }
-  }).catch(err => {
-    console.error('[Stack2] cell', idx, 'data load failed', err);
-    _stack2DebugLine('cell[' + idx + ']: EXCEPTION — ' + (err && err.message ? err.message : err), 'err');
-    if (c._loadToken === myToken) _stack2UpdateCellHeader(idx, null, null, true);
-  });
-}
-
-// Push latest close / change / OHLC into a Stack View 2 cell's overlay text,
-// or show a small error/empty marker if data couldn't be loaded.
-function _stack2UpdateCellHeader(idx, lastBar, prevBar, failed) {
-  const cell = document.querySelector('.stack2-cell[data-idx2="' + idx + '"]');
-  if (!cell) return;
-  const priceEl = cell.querySelector('.co-price');
-  const chgEl   = cell.querySelector('.co-chg');
-  const ov = cell.querySelector('.co-ov'), hv = cell.querySelector('.co-hv'),
-        lv = cell.querySelector('.co-lv'), cv = cell.querySelector('.co-cv');
-  if (failed || !lastBar) {
-    if (priceEl) priceEl.textContent = failed ? 'no data' : '--';
-    return;
-  }
-  if (priceEl) priceEl.textContent = lastBar.close.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if (chgEl && prevBar) {
-    const chg = lastBar.close - prevBar.close;
-    const pct = prevBar.close ? (chg / prevBar.close * 100) : 0;
-    const up = chg >= 0;
-    chgEl.textContent = (up?'+':'') + chg.toFixed(2) + ' (' + (up?'+':'') + pct.toFixed(2) + '%)';
-    chgEl.className = 'co-chg ' + (up ? 'up' : 'dn');
-    if (priceEl) priceEl.className = 'co-price ' + (up ? 'up' : 'dn');
-  }
-  if (ov) ov.textContent = lastBar.open.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if (hv) hv.textContent = lastBar.high.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if (lv) lv.textContent = lastBar.low.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  if (cv) cv.textContent = lastBar.close.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
 
 function _openStack2CellSettings(idx, anchorEl) {
