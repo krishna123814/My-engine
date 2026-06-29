@@ -7151,6 +7151,15 @@ function switchAsset(name) {
     if (name === BTC_ASSET) {
       if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     }
+  } else if (S.layout === 'stack2') {
+    // Stack View 2: symbol change → different cell count (BTC:6, BN:8)
+    // Rebuild entire stack2 so correct total/visible/tfs config is applied.
+    buildStack2();
+    setTimeout(_startCellTimers, 200);
+    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+    if (name === BTC_ASSET) {
+      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
+    }
   } else {
     CELLS.forEach(c => c.asset = name);
     CELLS.forEach((_, i) => buildCellChart(i));
