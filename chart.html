@@ -3482,23 +3482,53 @@ function _stack2DebugFmtTime(epochSec) {
 // Fetch + gunzip + parse a .gz JSON file using the browser's native
 // DecompressionStream (Chrome/Edge/Android WebView — no extra CDN library
 // needed). Returns the parsed JSON value (array, or {meta,data} object).
+//
+// IMPORTANT: GitHub raw CDN sets Content-Encoding:gzip on .gz files which
+// causes browser fetch() to auto-decompress the body before we see it.
+// If we then pipe that plain JSON through DecompressionStream it crashes/hangs.
+// Fix: read raw ArrayBuffer first, check magic bytes 0x1F 0x8B.
+// If gzip magic found → decompress manually.
+// If not found → browser already decompressed, decode as UTF-8 directly.
 async function _stack2FetchGz(url) {
   _stack2DebugLine('fetch start: ' + url);
   const t0 = performance.now();
   const resp = await fetch(url, { cache: 'no-cache' });
-  _stack2DebugLine('fetch HTTP ' + resp.status + ' (' + Math.round(performance.now()-t0) + 'ms) — content-length=' + (resp.headers.get('content-length')||'?'));
+  const contentEncoding = resp.headers.get('content-encoding') || '';
+  const contentLength   = resp.headers.get('content-length') || '?';
+  _stack2DebugLine('fetch HTTP ' + resp.status + ' (' + Math.round(performance.now()-t0) + 'ms)' +
+    ' — content-length=' + contentLength +
+    ' content-encoding=[' + contentEncoding + ']');
   if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
-  if (typeof DecompressionStream === 'undefined') {
-    throw new Error('DecompressionStream not supported in this browser — cannot gunzip ' + url);
-  }
-  const ds = new DecompressionStream('gzip');
-  const decompressedStream = resp.body.pipeThrough(ds);
+
   const t1 = performance.now();
-  const text = await new Response(decompressedStream).text();
-  _stack2DebugLine('gunzip+read done (' + Math.round(performance.now()-t1) + 'ms) — ' + text.length + ' chars');
+  const arrayBuf = await resp.arrayBuffer();
+  const bytes = new Uint8Array(arrayBuf);
+  const isGzip = bytes.length >= 2 && bytes[0] === 0x1F && bytes[1] === 0x8B;
+  _stack2DebugLine('raw read (' + Math.round(performance.now()-t1) + 'ms)' +
+    ' size=' + bytes.length +
+    ' magic=0x' + bytes[0].toString(16).padStart(2,'0') + bytes[1].toString(16).padStart(2,'0') +
+    ' isGzip=' + isGzip);
+
+  let text;
   const t2 = performance.now();
+  if (isGzip) {
+    if (typeof DecompressionStream === 'undefined') {
+      throw new Error('DecompressionStream not supported — cannot gunzip ' + url);
+    }
+    const ds = new DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    text = await new Response(ds.readable).text();
+    _stack2DebugLine('gunzip done (' + Math.round(performance.now()-t2) + 'ms) — ' + text.length + ' chars');
+  } else {
+    text = new TextDecoder('utf-8').decode(bytes);
+    _stack2DebugLine('already decompressed by browser (' + Math.round(performance.now()-t2) + 'ms) — ' + text.length + ' chars');
+  }
+
+  const t3 = performance.now();
   const parsed = JSON.parse(text);
-  _stack2DebugLine('JSON.parse done (' + Math.round(performance.now()-t2) + 'ms)');
+  _stack2DebugLine('JSON.parse done (' + Math.round(performance.now()-t3) + 'ms)');
   return parsed;
 }
 
