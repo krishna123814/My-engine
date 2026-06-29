@@ -503,15 +503,20 @@ def _sv2_load_btc_gz() -> list:
     return rows
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
-    """BN 5m data ko intraday TF mein resample karo. No session filter — as-is data."""
+    """BN 5m data ko intraday TF mein resample karo.
+    Anchored to Indian market open 9:15 AM IST = 03:45 UTC = 13500 sec UTC offset."""
     if tf_min <= 5:
         return [{"time": r["t"], "open": r["o"], "high": r["h"],
                  "low": r["l"], "close": r["c"]} for r in rows]
 
     sec = tf_min * 60
+    # 9:15 IST = 3:45 UTC → 3*3600 + 45*60 = 13500 seconds from UTC midnight
+    IST_MARKET_OPEN_OFFSET = 13500  # seconds
     buckets: dict = {}
     for r in rows:
-        key = (r["t"] // sec) * sec
+        # Shift timestamp so that 9:15 IST aligns to bucket boundary
+        shifted = r["t"] - IST_MARKET_OPEN_OFFSET
+        key = (shifted // sec) * sec + IST_MARKET_OPEN_OFFSET
         if key not in buckets:
             buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
                             "low": r["l"], "close": r["c"]}
@@ -523,12 +528,17 @@ def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
     return sorted(buckets.values(), key=lambda x: x["time"])
 
 def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
-    """BN 5m data ko daily / multi-day candles mein resample karo. No session filter."""
-    # Ek din = midnight to midnight (86400 sec bucket)
+    """BN 5m data ko daily / multi-day candles mein resample karo.
+    Ek trading day = 9:15 AM IST to 9:14:59 AM IST next day (anchored to market open).
+    9:15 IST = 03:45 UTC = 13500 seconds from UTC midnight."""
     DAY = 86400
+    # Anchor: 9:15 IST = 3:45 UTC offset
+    IST_MARKET_OPEN_OFFSET = 13500
     day_buckets: dict = {}
     for r in rows:
-        key = (r["t"] // DAY) * DAY
+        # Shift so 9:15 IST = start of each day bucket
+        shifted = r["t"] - IST_MARKET_OPEN_OFFSET
+        key = (shifted // DAY) * DAY + IST_MARKET_OPEN_OFFSET
         if key not in day_buckets:
             day_buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
                                 "low": r["l"], "close": r["c"]}
