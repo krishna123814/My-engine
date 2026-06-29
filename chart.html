@@ -8439,6 +8439,96 @@ function _startBNPolling() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 🐛 DEBUG OVERLAY — chart screen khulte hi dikhta hai
+// Shows: layout restored, data counts, API port, token status
+// Close: tap anywhere or X button
+// ════════════════════════════════════════════════════════════════════════════
+(function() {
+  function _dbgShow() {
+    try {
+      // Data counts
+      const bnLen  = (window.ALLDATA && window.ALLDATA['📊 BANKNIFTY']) ? window.ALLDATA['📊 BANKNIFTY'].length : (typeof __BN_CANDLES__ !== 'undefined' ? __BN_CANDLES__.length : '?');
+      const btcLen = (window.ALLDATA && window.ALLDATA['₿ BTC/USDT'])  ? window.ALLDATA['₿ BTC/USDT'].length  : (typeof __BTC_CANDLES__ !== 'undefined' ? __BTC_CANDLES__.length : '?');
+
+      // localStorage saved layout
+      let savedLayout = '?', savedTf = '?', savedStack2OnOff = '?';
+      try { const st = JSON.parse(localStorage.getItem('btcDashState2') || '{}'); savedLayout = st.layout || '1x1'; savedTf = st.tf || '?'; } catch(_) {}
+      try { savedStack2OnOff = localStorage.getItem('_stack2OnOff') || 'false'; } catch(_) {}
+
+      // API port
+      const apiPort = (typeof __API_PORT__ !== 'undefined') ? __API_PORT__ : '?';
+      const fyersStatus = (typeof __FYERS_STATUS__ !== 'undefined') ? __FYERS_STATUS__ : '?';
+
+      // Stack2 blank bug check
+      const blankRisk = (savedLayout === 'stack2') ? '⚠️ stack2 saved — bug fix applied' : '✅ layout ok';
+
+      const lines = [
+        `🐛 DEBUG INFO`,
+        `─────────────────────────`,
+        `Layout saved  : ${savedLayout}`,
+        `TF saved      : ${savedTf}m`,
+        `Stack2 OnOff  : ${savedStack2OnOff}`,
+        `─────────────────────────`,
+        `BN candles    : ${bnLen}`,
+        `BTC candles   : ${btcLen}`,
+        `─────────────────────────`,
+        `Fyers status  : ${fyersStatus}`,
+        `API port      : ${apiPort}`,
+        `─────────────────────────`,
+        blankRisk,
+        `─────────────────────────`,
+        `Tap anywhere to close`,
+      ];
+
+      const overlay = document.createElement('div');
+      overlay.id = '_debug_overlay';
+      overlay.style.cssText = [
+        'position:fixed','top:0','left:0','width:100vw','height:100vh',
+        'background:rgba(0,0,0,0.88)','z-index:99999',
+        'display:flex','align-items:flex-start','justify-content:center',
+        'padding-top:60px','box-sizing:border-box',
+        'font-family:monospace','touch-action:none',
+      ].join(';');
+
+      const box = document.createElement('div');
+      box.style.cssText = [
+        'background:#1e222d','border:1.5px solid #2962ff',
+        'border-radius:10px','padding:14px 18px',
+        'color:#d1d4dc','font-size:12px','line-height:1.7',
+        'max-width:90vw','min-width:260px','position:relative',
+      ].join(';');
+
+      // Close button
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = '✕';
+      closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:4px 6px;';
+      closeBtn.onclick = function(e) { e.stopPropagation(); if (overlay.parentNode) overlay.parentNode.removeChild(overlay); };
+      box.appendChild(closeBtn);
+
+      box.appendChild(document.createTextNode(lines.join('\n')));
+      box.style.whiteSpace = 'pre';
+
+      overlay.appendChild(box);
+      overlay.addEventListener('click', function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); });
+      box.addEventListener('click', function(e) { e.stopPropagation(); });
+
+      document.body.appendChild(overlay);
+
+      // Auto-close after 15s
+      setTimeout(function() { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); }, 15000);
+
+    } catch(e) {
+      console.error('[DEBUG OVERLAY ERROR]', e);
+    }
+  }
+
+  // DOMContentLoaded ke baad thoda wait karo taaki ALLDATA populate ho jaaye
+  document.addEventListener('DOMContentLoaded', function() {
+    setTimeout(_dbgShow, 800);
+  });
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
@@ -8499,7 +8589,18 @@ document.addEventListener('DOMContentLoaded', () => {
         layout = slotLayout;
       }
 
-      if (_stackOnOff) {
+      if (layout === 'stack2') {
+        // ── BUG FIX: Stack View 2 active tha aur exit kiya to blank aati thi ──
+        // Reason: saveState() 'stack2' save karta hai lekin restore mein sirf
+        // _stackOnOff check tha — 'stack2' ka koi handler nahi tha.
+        // Fix: layout === 'stack2' detect kar ke _activateStack2() call karo.
+        if (typeof _activateStack2 === 'function') {
+          _activateStack2();
+        } else {
+          // Fallback: stack2 activate nahi hua — 1x1 pe girenge
+          setLayout('1x1', null);
+        }
+      } else if (_stackOnOff) {
         selectStackView();
         const sc=st.selCell||0;
         requestAnimationFrame(()=>requestAnimationFrame(()=>selectCell(sc)));
