@@ -3490,28 +3490,68 @@ function _deactivateStack2() {
   if (d) d.style.display = 'none';
 }
 
-// ── Stack View 2 Debug overlay — shows on chart cell when data fails ─────────
+// ── Stack View 2 Debug overlay — sirf idx=0 cell pe ek compact overlay ──────
+let _sv2DbgLog = [];   // sabhi cells ka log ek jagah collect karo
 function _sv2DebugShow(idx, reason, lines) {
   try {
-    const el = document.getElementById('stack2-chart-' + idx);
+    console.warn('[SV2 idx='+idx+'] '+reason, lines);
+    // Collect all logs
+    _sv2DbgLog.push('── Cell ' + idx + ' [' + reason + '] ──');
+    lines.forEach(l => _sv2DbgLog.push(l));
+
+    // Sirf idx=0 pe overlay dikhao (ek hi screen)
+    if (idx !== 0) return;
+
+    // Remove all existing overlays from all stack2 cells
+    document.querySelectorAll('._sv2dbg').forEach(el => el.remove());
+
+    const el = document.getElementById('stack2-chart-0');
     if (!el) return;
-    // Remove old debug overlay if any
-    const old = el.querySelector('._sv2dbg');
-    if (old) old.remove();
+    el.style.position = 'relative';
+
     const box = document.createElement('div');
     box.className = '_sv2dbg';
     box.style.cssText = [
-      'position:absolute','top:4px','left:4px','right:4px',
-      'background:rgba(30,10,10,0.92)','color:#ff6b6b',
+      'position:absolute','top:4px','left:4px','right:68px',
+      'background:rgba(20,5,5,0.95)','color:#ff6b6b',
       'font-size:10px','font-family:monospace','padding:6px 8px',
-      'border-radius:6px','z-index:9999','overflow-y:auto','max-height:90%',
-      'white-space:pre-wrap','pointer-events:none',
+      'border-radius:6px','z-index:9999','overflow-y:auto',
+      'max-height:180px','white-space:pre-wrap',
     ].join(';');
-    box.textContent = '[SV2 DEBUG idx=' + idx + '] REASON: ' + reason + '\n' + lines.join('\n');
-    el.style.position = 'relative';
+
+    // Copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.style.cssText = [
+      'position:absolute','top:4px','right:4px',
+      'background:#2962ff','color:#fff','border:none',
+      'border-radius:5px','padding:4px 8px','font-size:11px',
+      'cursor:pointer','z-index:10000',
+    ].join(';');
+    copyBtn.onclick = function(e) {
+      e.stopPropagation();
+      // Collect fresh full log at copy time
+      const full = _sv2DbgLog.join('\n');
+      navigator.clipboard.writeText(full).then(function() {
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+      }).catch(function() {
+        // Fallback: select text
+        const ta = document.createElement('textarea');
+        ta.value = full;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
+      });
+    };
+
+    const fullText = _sv2DbgLog.join('\n');
+    box.textContent = fullText;
     el.appendChild(box);
-    // Also log to console
-    console.warn('[SV2 idx='+idx+'] '+reason, lines);
+    el.appendChild(copyBtn);
   } catch(_) {}
 }
 
@@ -3669,6 +3709,17 @@ function buildStack2() {
     });
   });
   _stack2ResizeObs.observe(sc);
+
+  // After all cells built, refresh idx=0 overlay with complete log (all cells info)
+  setTimeout(function() {
+    if (_sv2DbgLog.length > 0) {
+      const el0 = document.getElementById('stack2-chart-0');
+      if (el0) {
+        const box = el0.querySelector('._sv2dbg');
+        if (box) box.textContent = _sv2DbgLog.join('\n');
+      }
+    }
+  }, 500);
 }
 
 function _buildStack2CellChart(idx) {

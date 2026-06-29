@@ -463,15 +463,27 @@ import gzip as _gzip
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
 
 def _sv2_find_gz(filename: str) -> str:
-    """Gz file ka path dhundho — multiple locations check karo."""
+    """Gz file ka path dhundho — Streamlit ke sab possible locations check karo."""
+    import glob as _glob
     candidates = [
-        filename,                                                        # cwd
+        filename,                                                         # bare name (cwd)
+        os.path.join(os.getcwd(), filename),                              # explicit cwd
         os.path.join(os.path.dirname(os.path.abspath(__file__)), filename),  # script dir
-        os.path.join(os.getcwd(), filename),                            # explicit cwd
     ]
+    # Glob fallback: poore filesystem mein dhundho (Streamlit Cloud /mount structure)
+    try:
+        hits = _glob.glob(f"**/{filename}", recursive=True)
+        candidates += hits
+        hits2 = _glob.glob(f"/mount/**/{filename}", recursive=True)
+        candidates += hits2
+    except Exception:
+        pass
     for p in candidates:
-        if os.path.exists(p):
-            return p
+        try:
+            if os.path.exists(p):
+                return os.path.abspath(p)
+        except Exception:
+            pass
     return ""
 
 def _sv2_load_bn_gz() -> list:
