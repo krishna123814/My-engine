@@ -4114,7 +4114,29 @@ function _buildStack2CellChart(idx) {
     if (!c.series) { _stack2DebugLine('cell[' + idx + ']: chart destroyed before data arrived — skipping setData', 'warn'); return; }
     if (data && data.length) {
       c.series.setData(data);
-      try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+      // Set visible range: show last N bars based on timeframe so chart isn't
+      // stuck showing only the last ~50 candles (scrollToRealTime + barSpacing:6
+      // on a narrow mobile cell = only 40-50 bars visible by default).
+      // We use setVisibleLogicalRange with from=-(barsToShow-1) so the last bar
+      // sits at the right edge and the chart shows a meaningful history window.
+      try {
+        const ts = c.chart.timeScale();
+        // How many bars to show per timeframe (tuned for ~300px wide mobile cell)
+        const tfMin = myTf;
+        let barsToShow;
+        if      (tfMin <= 5)    barsToShow = 390;  // 5m  → ~2 trading days
+        else if (tfMin <= 15)   barsToShow = 260;  // 15m → ~1 week
+        else if (tfMin <= 45)   barsToShow = 180;  // 45m → ~1 month
+        else if (tfMin <= 135)  barsToShow = 120;  // 135m→ ~2 months
+        else if (tfMin <= 1440) barsToShow = 120;  // 1D  → ~6 months
+        else if (tfMin <= 4320) barsToShow = 90;   // 3D  → ~9 months
+        else                    barsToShow = 60;   // 9D+ → ~1-2 years
+        barsToShow = Math.min(barsToShow, data.length);
+        ts.setVisibleLogicalRange({ from: data.length - barsToShow - 2, to: data.length + 3 });
+        _stack2DebugLine('cell[' + idx + ']: visibleRange set — showing last ' + barsToShow + ' of ' + data.length + ' bars', 'ok');
+      } catch(e) {
+        try { c.chart.timeScale().fitContent(); } catch(_) {}
+      }
       _stack2UpdateCellHeader(idx, data[data.length - 1], data.length > 1 ? data[data.length - 2] : null);
       _stack2DebugLine('cell[' + idx + ']: setData OK — ' + data.length + ' bars rendered', 'ok');
     } else {
