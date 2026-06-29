@@ -457,75 +457,50 @@ def is_session_active() -> bool:
     _sess_cache.update({"active": active, "ts": now})
     return active
 
-# ─── Stack View 2: .gz file se data load + resample ──────────────────────────
+# ─── Stack View 2: GitHub se .gz data load + resample ────────────────────────
 import gzip as _gzip
+import io as _io
 
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
 
-def _sv2_find_gz(filename: str) -> str:
-    """Gz file dhundho — Streamlit Cloud mein app ka cwd hi repo root hota hai."""
-    import glob as _glob
-    candidates = []
-    # 1. Streamlit Cloud: cwd = repo root (most common)
-    candidates.append(os.path.join(os.getcwd(), filename))
-    # 2. Same dir as main.py / app.py
+# GitHub raw URLs — repo: krishna123814/My-engine, branch: main
+_GH_BASE = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
+_GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv.json.gz"
+_GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m.json.gz"
+
+def _sv2_fetch_gz_from_url(url: str) -> list:
+    """GitHub raw URL se .gz file fetch karo aur JSON parse karo."""
     try:
-        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), filename))
-    except Exception:
-        pass
-    # 3. Bare filename (relative to cwd)
-    candidates.append(filename)
-    # 4. Recursive glob from cwd
-    try:
-        for hit in _glob.glob(os.path.join(os.getcwd(), "**", filename), recursive=True):
-            candidates.append(hit)
-    except Exception:
-        pass
-    for p in candidates:
-        try:
-            if p and os.path.isfile(p):
-                return os.path.abspath(p)
-        except Exception:
-            pass
-    return ""
+        resp = requests.get(url, timeout=60)
+        resp.raise_for_status()
+        with _gzip.open(_io.BytesIO(resp.content), "rb") as f:
+            data = json.load(f)
+        rows = data["data"] if isinstance(data, dict) else data
+        return rows
+    except Exception as e:
+        return []
 
 def _sv2_load_bn_gz() -> list:
-    """banknifty_5m_csv_json.gz se raw 5m candles load karo."""
+    """BankNifty 5m candles — GitHub se fetch karo."""
     if "bn_raw" in _SV2_CACHE:
         return _SV2_CACHE["bn_raw"]
-    path = _sv2_find_gz("banknifty_5m_csv_json.gz")
-    _SV2_CACHE["bn_path"] = path   # debug ke liye
-    if not path:
-        _SV2_CACHE["bn_err"] = "FILE_NOT_FOUND"
+    rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
+    if not rows:
+        _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
         return []
-    try:
-        with _gzip.open(path, "rb") as f:
-            data = json.load(f)
-        rows = data["data"] if isinstance(data, dict) else data
-        _SV2_CACHE["bn_raw"] = rows
-        return rows
-    except Exception as e:
-        _SV2_CACHE["bn_err"] = str(e)
-        return []
+    _SV2_CACHE["bn_raw"] = rows
+    return rows
 
 def _sv2_load_btc_gz() -> list:
-    """Bitcoin_BTCUSDT_IST_5m_json.gz se raw 5m candles load karo."""
+    """BTC 5m candles — GitHub se fetch karo."""
     if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
-    path = _sv2_find_gz("Bitcoin_BTCUSDT_IST_5m_json.gz")
-    _SV2_CACHE["btc_path"] = path  # debug ke liye
-    if not path:
-        _SV2_CACHE["btc_err"] = "FILE_NOT_FOUND"
+    rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
+    if not rows:
+        _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
         return []
-    try:
-        with _gzip.open(path, "rb") as f:
-            data = json.load(f)
-        rows = data["data"] if isinstance(data, dict) else data
-        _SV2_CACHE["btc_raw"] = rows
-        return rows
-    except Exception as e:
-        _SV2_CACHE["btc_err"] = str(e)
-        return []
+    _SV2_CACHE["btc_raw"] = rows
+    return rows
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
     """BN 5m data ko intraday TF mein resample karo (session-aware: 9:15–15:30 IST)."""
