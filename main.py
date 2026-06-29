@@ -502,26 +502,52 @@ def _sv2_load_btc_gz() -> list:
     _SV2_CACHE["btc_raw"] = rows
     return rows
 
+## ── IST-naive timestamp constants ───────────────────────────────────────────
+## .gz data mein timestamps IST-naive hain: 9:15 IST ko 09:15 UTC ki tarah
+## store kiya gaya hai. LightweightCharts real UTC chahta hai (IST timezone ke
+## sath display karta hai: UTC + 5:30). Fix: har output time se 19800 subtract karo.
+_IST_NAIVE_OFFSET = 19800   # 5.5 * 3600 — IST-naive → real UTC conversion
+_SESSION_START    = 33300   # 9:15 IST = 9*3600 + 15*60 seconds from midnight
+_SESSION_END      = 55800   # 15:30 IST = 15*3600 + 30*60 seconds from midnight
+
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
     """BN 5m data ko intraday TF mein resample karo.
-    Anchored to Indian market open 9:15 AM IST = 03:45 UTC = 13500 sec UTC offset."""
-    if tf_min <= 5:
-        return [{"time": r["t"], "open": r["o"], "high": r["h"],
-                 "low": r["l"], "close": r["c"]} for r in rows]
 
+    .gz timestamps IST-naive hain (9:15 IST stored as 09:15 UTC epoch).
+    Per-day anchor: har din 9:15 IST se bucket 0 start hota hai.
+    Output timestamps real UTC mein (LightweightCharts + IST timezone ke liye).
+    Session filter: sirf 9:15–15:30 IST ke candles.
+    """
     sec = tf_min * 60
-    # 9:15 IST = 3:45 UTC → 3*3600 + 45*60 = 13500 seconds from UTC midnight
-    IST_MARKET_OPEN_OFFSET = 13500  # seconds
+    if tf_min <= 5:
+        out = []
+        for r in rows:
+            mod = r["t"] % 86400
+            if mod < _SESSION_START or mod >= _SESSION_END:
+                continue
+            out.append({"time": r["t"] - _IST_NAIVE_OFFSET,
+                        "open": r["o"], "high": r["h"],
+                        "low":  r["l"], "close": r["c"]})
+        return out
+
     buckets: dict = {}
     for r in rows:
-        # Shift timestamp so that 9:15 IST aligns to bucket boundary
-        shifted = r["t"] - IST_MARKET_OPEN_OFFSET
-        key = (shifted // sec) * sec + IST_MARKET_OPEN_OFFSET
-        if key not in buckets:
-            buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
-                            "low": r["l"], "close": r["c"]}
+        t       = r["t"]
+        mod     = t % 86400                        # seconds since IST midnight
+        if mod < _SESSION_START or mod >= _SESSION_END:
+            continue
+        day_start   = t - mod                      # IST-naive midnight of this day
+        since_open  = mod - _SESSION_START         # seconds elapsed since 9:15 IST
+        bucket_idx  = since_open // sec            # which bucket (0-based per day)
+        bucket_sec  = _SESSION_START + bucket_idx * sec  # seconds from midnight
+        key_utc     = (day_start + bucket_sec) - _IST_NAIVE_OFFSET  # real UTC
+
+        if key_utc not in buckets:
+            buckets[key_utc] = {"time": key_utc,
+                                "open": r["o"], "high": r["h"],
+                                "low":  r["l"], "close": r["c"]}
         else:
-            b = buckets[key]
+            b = buckets[key_utc]
             b["high"]  = max(b["high"],  r["h"])
             b["low"]   = min(b["low"],   r["l"])
             b["close"] = r["c"]
@@ -529,27 +555,33 @@ def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
 
 def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
     """BN 5m data ko daily / multi-day candles mein resample karo.
-    Ek trading day = 9:15 AM IST to 9:14:59 AM IST next day (anchored to market open).
-    9:15 IST = 03:45 UTC = 13500 seconds from UTC midnight."""
-    DAY = 86400
-    # Anchor: 9:15 IST = 3:45 UTC offset
-    IST_MARKET_OPEN_OFFSET = 13500
+
+    Har trading day ka open = 9:15 IST (real UTC: 3:45 AM = 13500s from UTC midnight).
+    .gz timestamps IST-naive hain — 19800 subtract karo real UTC ke liye.
+    """
     day_buckets: dict = {}
     for r in rows:
-        # Shift so 9:15 IST = start of each day bucket
-        shifted = r["t"] - IST_MARKET_OPEN_OFFSET
-        key = (shifted // DAY) * DAY + IST_MARKET_OPEN_OFFSET
-        if key not in day_buckets:
-            day_buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
-                                "low": r["l"], "close": r["c"]}
+        t   = r["t"]
+        mod = t % 86400
+        if mod < _SESSION_START or mod >= _SESSION_END:
+            continue
+        day_start = t - mod                              # IST-naive midnight
+        key_utc   = (day_start + _SESSION_START) - _IST_NAIVE_OFFSET  # 3:45 UTC
+
+        if key_utc not in day_buckets:
+            day_buckets[key_utc] = {"time": key_utc,
+                                    "open": r["o"], "high": r["h"],
+                                    "low":  r["l"], "close": r["c"]}
         else:
-            b = day_buckets[key]
+            b = day_buckets[key_utc]
             b["high"]  = max(b["high"],  r["h"])
             b["low"]   = min(b["low"],   r["l"])
             b["close"] = r["c"]
+
     days = sorted(day_buckets.values(), key=lambda x: x["time"])
     if n_days <= 1:
         return days
+
     out = []
     for i in range(0, len(days), n_days):
         chunk = days[i:i + n_days]
