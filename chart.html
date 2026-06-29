@@ -2420,14 +2420,21 @@ const TZ_MAP = {
 
 // Format: DD/MM/YYYY  HH:MM  or  DD/MM/YYYY  hh:MM AM/PM
 // For daily+ TFs — only show date, no time
-function fmtChartTime(t) {
+// forcedTf: optional explicit timeframe (minutes) to use instead of
+// guessing from the global CELLS[SELECTED_CELL]. Stack View 2 cells pass
+// their own fixed tf here, since they live in STACK2_CELLS — not CELLS —
+// so the global guess would silently fall back to a wrong/stale TF (this
+// was the cause of "Invalid Date" showing on Stack View 2 charts).
+function fmtChartTime(t, forcedTf) {
   const d = new Date(t * 1000);
   const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
   const use12h = S.hour12 === true;
 
   // Current active TF (minutes)
-  const activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
-    ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
+  const activeTf = (typeof forcedTf === 'number')
+    ? forcedTf
+    : (CELLS.length > 0 && CELLS[SELECTED_CELL])
+      ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
 
   // Daily or higher → only date, no time
   if (activeTf >= 1440) {
@@ -3406,35 +3413,57 @@ function _stack2NormalizeRow(r) {
 // DecompressionStream (Chrome/Edge/Android WebView — no extra CDN library
 // needed). Returns the parsed JSON value (array, or {meta,data} object).
 async function _stack2FetchGz(url) {
+  _stack2DebugLine('fetch start: ' + url);
+  const t0 = performance.now();
   const resp = await fetch(url, { cache: 'force-cache' });
+  _stack2DebugLine('fetch HTTP ' + resp.status + ' (' + Math.round(performance.now()-t0) + 'ms) — content-length=' + (resp.headers.get('content-length')||'?'));
   if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('DecompressionStream not supported in this browser — cannot gunzip ' + url);
   }
   const ds = new DecompressionStream('gzip');
   const decompressedStream = resp.body.pipeThrough(ds);
+  const t1 = performance.now();
   const text = await new Response(decompressedStream).text();
-  return JSON.parse(text);
+  _stack2DebugLine('gunzip+read done (' + Math.round(performance.now()-t1) + 'ms) — ' + text.length + ' chars');
+  const t2 = performance.now();
+  const parsed = JSON.parse(text);
+  _stack2DebugLine('JSON.parse done (' + Math.round(performance.now()-t2) + 'ms)');
+  return parsed;
 }
 
 // Load (and cache) the full 5m base series for one asset key. Safe to call
 // from multiple cells at once — they all await the same in-flight fetch.
 async function _stack2LoadBase(assetKey) {
-  if (_stack2Base[assetKey]) return _stack2Base[assetKey];
-  if (_stack2BaseLoading[assetKey]) return _stack2BaseLoading[assetKey];
+  if (_stack2Base[assetKey]) {
+    _stack2DebugLine('base[' + assetKey + ']: using cache (' + _stack2Base[assetKey].length + ' rows)');
+    return _stack2Base[assetKey];
+  }
+  if (_stack2BaseLoading[assetKey]) {
+    _stack2DebugLine('base[' + assetKey + ']: awaiting in-flight fetch from another cell');
+    return _stack2BaseLoading[assetKey];
+  }
 
   const url = STACK2_GZ_FILES[assetKey];
-  if (!url) return [];
+  if (!url) { _stack2DebugLine('base[' + assetKey + ']: no URL configured for this asset key', 'err'); return []; }
 
   _stack2BaseLoading[assetKey] = (async () => {
     try {
       const raw = await _stack2FetchGz(url);
       // BankNifty file is {meta, data:[...]}; BTC file is a plain [...] array.
-      const rows = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.data) ? raw.data : []);
+      const isArr = Array.isArray(raw);
+      const rows = isArr ? raw : (raw && Array.isArray(raw.data) ? raw.data : []);
+      _stack2DebugLine('base[' + assetKey + ']: parsed shape=' + (isArr ? 'plain array' : 'object{meta,data}') + ' rawRows=' + rows.length);
+      if (!rows.length) {
+        _stack2DebugLine('base[' + assetKey + ']: 0 rows after shape-detection — check JSON structure matches expected {t,o,h,l,c} or {data:[...]}', 'warn');
+      }
       const norm = rows.map(_stack2NormalizeRow).sort((a, b) => a.time - b.time);
       _stack2Base[assetKey] = norm;
+      _stack2DebugLine('base[' + assetKey + ']: normalized ' + norm.length + ' rows, range ' +
+        (norm.length ? (new Date(norm[0].time*1000).toISOString() + ' \u2192 ' + new Date(norm[norm.length-1].time*1000).toISOString()) : 'n/a'), 'ok');
       return norm;
     } catch (err) {
+      _stack2DebugLine('base[' + assetKey + ']: LOAD FAILED — ' + (err && err.message ? err.message : err), 'err');
       console.error('[Stack2] gz load failed for', assetKey, err);
       _stack2Base[assetKey] = [];   // cache the failure as empty so we don't retry-loop forever
       return [];
@@ -3448,11 +3477,41 @@ async function _stack2LoadBase(assetKey) {
 // Get this symbol's 5m base data resampled to one cell's fixed tfMin.
 // asset param is the real S.asset-style name (e.g. BTC_ASSET / BN_ASSET);
 // we map it to 'btc'/'bn' via the existing _stackKeyForAsset() helper.
+//
+// IMPORTANT: resampleForTF()'s >1440min branch calls resampleWorkingDays(),
+// which assumes its input is ALREADY one-row-per-trading-day (that's true
+// for Stack View 1 / the main chart, which feed it BN_DAILY — daily bars
+// supplied by the server). Stack View 2's base data is raw 5-MINUTE bars,
+// so calling resampleWorkingDays() directly on it groups every nDays
+// worth of 5-minute ROWS together (a few minutes) instead of nDays worth
+// of TRADING DAYS — producing thousands of near-instant micro-bars all
+// squashed at the same effective time, which is what rendered as a single
+// visible candle with "Invalid Date" on the time axis.
+// Fix: for NSE-style multi-day TFs, explicitly collapse 5m → 1D first
+// (resample(rows, 1440, asset)), THEN hand those true daily bars to
+// resampleWorkingDays(). Crypto (BTC) is unaffected — it already uses
+// the calendar-anchor resample() path, never resampleWorkingDays().
+function _stack2ResampleForTF(rows, tfMin, asset) {
+  if (tfMin > 1440 && !isCryptoSymbol(asset)) {
+    const nDays = Math.round(tfMin / 1440);
+    const daily = resample(rows, 1440, asset);
+    return resampleWorkingDays(daily, nDays);
+  }
+  return resampleForTF(rows, tfMin, asset);
+}
+
 async function _stack2DataFor(asset, tfMin) {
   const assetKey = _stackKeyForAsset(asset);
   const base = await _stack2LoadBase(assetKey === 'bn' ? 'bn' : 'btc');
-  if (!base.length) return [];
-  return resampleForTF(base, tfMin, asset);
+  if (!base.length) {
+    _stack2DebugLine('_stack2DataFor: base empty for assetKey=' + assetKey + ' tf=' + tfMin + 'm — returning []', 'warn');
+    return [];
+  }
+  const out = _stack2ResampleForTF(base, tfMin, asset);
+  _stack2DebugLine('_stack2DataFor: assetKey=' + assetKey + ' tf=' + tfMin + 'm \u2192 ' + out.length + ' bars' +
+    (out.length ? (' (last=' + new Date(out[out.length-1].time*1000).toISOString() + ' close=' + out[out.length-1].close + ')') : ''),
+    out.length > 1 ? 'ok' : 'warn');
+  return out;
 }
 
 const STACK2_CELLS = [];      // independent CELLS array for Stack View 2
@@ -3553,6 +3612,7 @@ function _deactivateStack2() {
   const d = document.getElementById('stack2-down-btn');
   if (u) u.style.display = 'none';
   if (d) d.style.display = 'none';
+  if (_stack2DebugPanelEl) _stack2DebugPanelEl.style.display = 'none';
 }
 
 function destroyStack2Cells() {
@@ -3563,7 +3623,74 @@ function destroyStack2Cells() {
   if (sc) sc.innerHTML = '';
 }
 
+// ── Stack View 2 debug panel ────────────────────────────────────────────────
+// Visible step-by-step log of the .gz fetch → gunzip → parse → resample
+// pipeline for each cell, so problems (wrong URL, HTTP error, bad gzip,
+// bad JSON shape, resample producing 0/1 bars) are visible directly in
+// the UI instead of only in the browser console (which isn't reachable
+// on most mobile setups).
+const _stack2DebugLog = [];
+let _stack2DebugPanelEl = null;
+
+function _stack2DebugClear() {
+  _stack2DebugLog.length = 0;
+  _stack2DebugRender();
+}
+
+function _stack2DebugLine(text, level) {
+  const ts = new Date().toLocaleTimeString('en-GB', { hour12:false });
+  _stack2DebugLog.push({ ts, text, level: level || 'info' });
+  if (_stack2DebugLog.length > 200) _stack2DebugLog.shift();
+  _stack2DebugRender();
+}
+
+function _stack2DebugEnsurePanel() {
+  if (_stack2DebugPanelEl) return _stack2DebugPanelEl;
+  const panel = document.createElement('div');
+  panel.id = 'stack2-debug-panel';
+  panel.style.cssText =
+    'position:fixed;left:0;right:0;bottom:0;max-height:42vh;overflow-y:auto;' +
+    'background:#0d0f14;color:#d1d4dc;font:10px/1.4 monospace;z-index:99999;' +
+    'border-top:2px solid #2962ff;padding:6px 8px 8px;box-shadow:0 -4px 16px #000a;';
+  panel.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+      '<b style="color:#2962ff;">Stack View 2 — Debug Log</b>' +
+      '<span>' +
+        '<button id="s2dbg-clear" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;margin-right:6px;font:10px monospace;">Clear</button>' +
+        '<button id="s2dbg-close" style="background:#1e222d;color:#d1d4dc;border:1px solid #363c4e;border-radius:4px;padding:2px 8px;font:10px monospace;">✕</button>' +
+      '</span>' +
+    '</div>' +
+    '<div id="s2dbg-body"></div>';
+  document.body.appendChild(panel);
+  panel.querySelector('#s2dbg-clear').onclick = _stack2DebugClear;
+  panel.querySelector('#s2dbg-close').onclick = () => { panel.style.display = 'none'; };
+  _stack2DebugPanelEl = panel;
+  return panel;
+}
+
+function _stack2DebugRender() {
+  const panel = _stack2DebugPanelEl;
+  if (!panel) return;
+  panel.style.display = '';
+  const body = panel.querySelector('#s2dbg-body');
+  const colors = { info:'#d1d4dc', ok:'#26a69a', warn:'#f0b429', err:'#f23645' };
+  body.innerHTML = _stack2DebugLog.map(l =>
+    '<div style="color:' + (colors[l.level]||colors.info) + ';white-space:pre-wrap;word-break:break-all;">' +
+    '[' + l.ts + '] ' + l.text.replace(/</g,'&lt;') + '</div>'
+  ).join('');
+  body.scrollTop = body.scrollHeight;
+}
+
+function _stack2DebugShow() {
+  _stack2DebugEnsurePanel();
+  _stack2DebugRender();
+}
+
 function selectStack2View() {
+  _stack2DebugClear();
+  _stack2DebugShow();
+  _stack2DebugLine('selectStack2View() called — asset=' + S.asset);
+
   // Deactivate Stack View 1 if active
   if (_stackActive) {
     _stackActive = false;
@@ -3628,8 +3755,10 @@ function buildStack2() {
   const total   = Math.max(1, cfg.total   || 6);
   const visible = Math.max(1, cfg.visible || 4);
   const sc = document.getElementById('stack-container-2');
-  if (!sc) return;
+  if (!sc) { _stack2DebugLine('buildStack2: #stack-container-2 not found in DOM — aborting', 'err'); return; }
   sc.innerHTML = '';
+
+  _stack2DebugLine('buildStack2: assetKey=' + assetKey + ' total=' + total + ' visible=' + visible + ' tfs=' + JSON.stringify(cfg.tfs));
 
   for (let i = 0; i < total; i++) {
     const rawTf  = (cfg.tfs && cfg.tfs[i]) || '';
@@ -3729,7 +3858,7 @@ function _buildStack2CellChart(idx) {
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
     timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
     localization: {
-      timeFormatter: (t) => fmtChartTime(t),
+      timeFormatter: (t) => fmtChartTime(t, c.tf),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
     },
     handleScroll: { mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:true },
@@ -3761,18 +3890,22 @@ function _buildStack2CellChart(idx) {
   const myToken = ++c._loadToken;
   const myAsset = c.asset;
   const myTf    = c.tf;
+  _stack2DebugLine('cell[' + idx + ']: requesting asset=' + myAsset + ' tf=' + myTf + 'm');
   _stack2DataFor(myAsset, myTf).then(data => {
-    if (c._loadToken !== myToken) return;     // cell was rebuilt/reassigned meanwhile
-    if (!c.series) return;                    // chart was destroyed meanwhile
+    if (c._loadToken !== myToken) { _stack2DebugLine('cell[' + idx + ']: stale response ignored (token mismatch)', 'warn'); return; }
+    if (!c.series) { _stack2DebugLine('cell[' + idx + ']: chart destroyed before data arrived — skipping setData', 'warn'); return; }
     if (data && data.length) {
       c.series.setData(data);
       try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
       _stack2UpdateCellHeader(idx, data[data.length - 1], data.length > 1 ? data[data.length - 2] : null);
+      _stack2DebugLine('cell[' + idx + ']: setData OK — ' + data.length + ' bars rendered', 'ok');
     } else {
       _stack2UpdateCellHeader(idx, null, null, true);
+      _stack2DebugLine('cell[' + idx + ']: 0 bars returned — chart left blank', 'warn');
     }
   }).catch(err => {
     console.error('[Stack2] cell', idx, 'data load failed', err);
+    _stack2DebugLine('cell[' + idx + ']: EXCEPTION — ' + (err && err.message ? err.message : err), 'err');
     if (c._loadToken === myToken) _stack2UpdateCellHeader(idx, null, null, true);
   });
 }
