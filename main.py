@@ -504,45 +504,19 @@ def _sv2_load_btc_gz() -> list:
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
     """BN 5m data ko intraday TF mein resample karo.
-
-    chart.html ke resample() se exactly match karta hai:
-    - Har candle ko uske din ke IST minutes-since-9:15 se bucket kiya jaata hai
-      (global epoch-grid NAHI — isliye koi bhi tf_min kaam karta hai: 45m, 135m, etc.)
-    - SESSION filter: 9:15 (555 min) se 15:30 (930 min) ke bahar candles drop hoti hain
-    - Bucket key = UTC timestamp of bucket's 9:15-anchored start time
-    """
-    IST_OFFSET_SEC = 5 * 3600 + 30 * 60   # +5:30 = 19800 sec
-    SESSION_START  = 9 * 60 + 15           # 555 min
-    SESSION_END    = 15 * 60 + 30          # 930 min
-
+    Anchored to Indian market open 9:15 AM IST = 03:45 UTC = 13500 sec UTC offset."""
     if tf_min <= 5:
-        # 5m ya 1m: sirf session-filter lagao, passthrough
-        out = []
-        for r in rows:
-            ist_sec   = r["t"] + IST_OFFSET_SEC
-            min_of_day = (ist_sec % 86400) // 60
-            if SESSION_START <= min_of_day < SESSION_END:
-                out.append({"time": r["t"], "open": r["o"], "high": r["h"],
-                             "low": r["l"], "close": r["c"]})
-        return out
+        return [{"time": r["t"], "open": r["o"], "high": r["h"],
+                 "low": r["l"], "close": r["c"]} for r in rows]
 
+    sec = tf_min * 60
+    # 9:15 IST = 3:45 UTC → 3*3600 + 45*60 = 13500 seconds from UTC midnight
+    IST_MARKET_OPEN_OFFSET = 13500  # seconds
     buckets: dict = {}
     for r in rows:
-        ist_sec    = r["t"] + IST_OFFSET_SEC
-        day_start  = ist_sec - (ist_sec % 86400)   # midnight IST (in IST-shifted seconds)
-        min_of_day = (ist_sec % 86400) // 60
-
-        # Session filter: pre/post-market candles drop karo
-        if not (SESSION_START <= min_of_day < SESSION_END):
-            continue
-
-        min_since_open   = min_of_day - SESSION_START
-        bucket_idx       = min_since_open // tf_min
-        bucket_start_min = SESSION_START + bucket_idx * tf_min
-
-        # UTC key: day_start (IST) - IST_OFFSET_SEC + bucket_start_min * 60
-        key = (day_start - IST_OFFSET_SEC) + bucket_start_min * 60
-
+        # Shift timestamp so that 9:15 IST aligns to bucket boundary
+        shifted = r["t"] - IST_MARKET_OPEN_OFFSET
+        key = (shifted // sec) * sec + IST_MARKET_OPEN_OFFSET
         if key not in buckets:
             buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
                             "low": r["l"], "close": r["c"]}
@@ -553,112 +527,29 @@ def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
             b["close"] = r["c"]
     return sorted(buckets.values(), key=lambda x: x["time"])
 
-
-# ─── NSE official trading holidays 2017-2026 (YYYY-MM-DD UTC) ────────────────
-# Source: NSE India holiday circulars. chart.html ke NSE_HOLIDAYS se exactly match.
-_NSE_HOLIDAYS = {
-  # 2017
-  '2017-01-26','2017-02-24','2017-03-13','2017-04-04','2017-04-14',
-  '2017-06-26','2017-08-15','2017-08-25','2017-10-02','2017-10-19',
-  '2017-10-20','2017-11-01','2017-12-25',
-  # 2018
-  '2018-01-26','2018-03-02','2018-03-29','2018-03-30','2018-05-01',
-  '2018-08-15','2018-08-22','2018-09-13','2018-09-20','2018-10-02',
-  '2018-11-07','2018-11-08','2018-11-21','2018-12-25',
-  # 2019
-  '2019-03-04','2019-03-21','2019-04-17','2019-04-19','2019-05-01',
-  '2019-06-05','2019-08-12','2019-08-15','2019-09-02','2019-10-02',
-  '2019-10-07','2019-10-08','2019-10-28','2019-11-12','2019-12-25',
-  # 2020
-  '2020-02-21','2020-03-10','2020-04-02','2020-04-06','2020-04-10',
-  '2020-04-14','2020-05-01','2020-05-25','2020-07-31','2020-08-15',
-  '2020-10-02','2020-11-16','2020-11-30','2020-12-25',
-  # 2021
-  '2021-01-26','2021-03-11','2021-03-29','2021-04-02','2021-04-14',
-  '2021-04-21','2021-05-13','2021-07-21','2021-08-15','2021-09-10',
-  '2021-10-02','2021-10-15','2021-11-04','2021-11-05','2021-11-19',
-  '2021-12-25',
-  # 2022
-  '2022-01-26','2022-03-01','2022-03-18','2022-04-14','2022-04-15',
-  '2022-05-03','2022-08-09','2022-08-15','2022-10-02','2022-10-05',
-  '2022-10-26','2022-10-27','2022-11-08','2022-12-25',
-  # 2023
-  '2023-01-26','2023-03-07','2023-03-30','2023-04-04','2023-04-07',
-  '2023-04-14','2023-04-22','2023-05-01','2023-06-29','2023-08-15',
-  '2023-09-19','2023-10-02','2023-10-24','2023-11-14','2023-11-27',
-  '2023-12-25',
-  # 2024
-  '2024-01-22','2024-01-26','2024-03-25','2024-04-01','2024-04-09',
-  '2024-04-11','2024-04-14','2024-04-17','2024-06-17','2024-07-17',
-  '2024-08-15','2024-10-02','2024-11-01','2024-11-15','2024-12-25',
-  # 2025
-  '2025-02-26','2025-03-14','2025-03-31','2025-04-10','2025-04-14',
-  '2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02',
-  '2025-10-21','2025-10-22','2025-11-05','2025-12-25',
-  # 2026 (provisional)
-  '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01',
-  '2026-08-15','2026-10-02','2026-11-25','2026-12-25',
-}
-
-def _utc_date_str(t_sec: int) -> str:
-    """UTC timestamp (seconds) → 'YYYY-MM-DD' string."""
-    import datetime as _dt
-    d = _dt.datetime.utcfromtimestamp(t_sec)
-    return d.strftime('%Y-%m-%d')
-
 def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
     """BN 5m data ko daily / multi-day candles mein resample karo.
-
-    chart.html ke resampleWorkingDays() se exactly match karta hai:
-    - Pehle 1D candles banao: session candles (9:15-15:30 IST) ko din ke hisaab se group karo
-    - Weekend (Sat/Sun) aur NSE_HOLIDAYS drop karo (chart.html jaisi hi holiday list)
-    - Multi-day ke liye: holiday-filtered trading-day candles ko N ke chunks mein group karo
-      (list-index se — same as resampleWorkingDays — kyunki .gz mein koi holiday gap nahi hoga)
-    """
-    IST_OFFSET_SEC = 19800   # +5:30
-    SESSION_START  = 9 * 60 + 15   # 555
-    SESSION_END    = 15 * 60 + 30  # 930
-
-    # Step 1: 5m rows → per-trading-day 1D candles (session-filtered + weekend/holiday filtered)
+    Ek trading day = 9:15 AM IST to 9:14:59 AM IST next day (anchored to market open).
+    9:15 IST = 03:45 UTC = 13500 seconds from UTC midnight."""
+    DAY = 86400
+    # Anchor: 9:15 IST = 3:45 UTC offset
+    IST_MARKET_OPEN_OFFSET = 13500
     day_buckets: dict = {}
     for r in rows:
-        ist_sec    = r["t"] + IST_OFFSET_SEC
-        min_of_day = (ist_sec % 86400) // 60
-
-        # Session filter
-        if not (SESSION_START <= min_of_day < SESSION_END):
-            continue
-
-        # UTC date key for this candle's day
-        date_str = _utc_date_str(r["t"])
-        import datetime as _dt
-        d = _dt.datetime.utcfromtimestamp(r["t"])
-        dow = d.weekday()   # 0=Mon … 6=Sun
-
-        # Weekend filter
-        if dow >= 5:
-            continue
-        # NSE holiday filter
-        if date_str in _NSE_HOLIDAYS:
-            continue
-
-        # Day bucket key = UTC midnight of that day
-        day_key = r["t"] - (r["t"] % 86400)
-        if day_key not in day_buckets:
-            day_buckets[day_key] = {"time": day_key, "open": r["o"],
-                                    "high": r["h"], "low": r["l"], "close": r["c"]}
+        # Shift so 9:15 IST = start of each day bucket
+        shifted = r["t"] - IST_MARKET_OPEN_OFFSET
+        key = (shifted // DAY) * DAY + IST_MARKET_OPEN_OFFSET
+        if key not in day_buckets:
+            day_buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
+                                "low": r["l"], "close": r["c"]}
         else:
-            b = day_buckets[day_key]
+            b = day_buckets[key]
             b["high"]  = max(b["high"],  r["h"])
             b["low"]   = min(b["low"],   r["l"])
             b["close"] = r["c"]
-
     days = sorted(day_buckets.values(), key=lambda x: x["time"])
-
     if n_days <= 1:
         return days
-
-    # Step 2: N trading-day chunks (same as chart.html resampleWorkingDays)
     out = []
     for i in range(0, len(days), n_days):
         chunk = days[i:i + n_days]
