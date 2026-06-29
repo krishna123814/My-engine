@@ -5207,6 +5207,9 @@ function _updateSingleChartLegendTf() {
 }
 function rebuildChart() {
   if (S.layout !== '1x1') return;
+  // Remove no-data overlay if it was shown before
+  const _oldNoData = document.getElementById('_no_data_msg');
+  if (_oldNoData && _oldNoData.parentNode) _oldNoData.parentNode.removeChild(_oldNoData);
   destroyCharts();
 
   const rawData = _baseDataFor(S.asset, S.tf);
@@ -5245,6 +5248,35 @@ function rebuildChart() {
     else
       mainSeries.setData(data);
     _applyZoom(chart.timeScale(), S.asset, S.tf);
+  } else {
+    // ── No-data overlay — blank chart ke bajaye helpful message ──────────
+    // Remove old overlay if exists
+    const _oldMsg = document.getElementById('_no_data_msg');
+    if (_oldMsg) _oldMsg.parentNode.removeChild(_oldMsg);
+    const mainEl2 = document.getElementById('main-chart');
+    if (mainEl2) {
+      const _msg = document.createElement('div');
+      _msg.id = '_no_data_msg';
+      _msg.style.cssText = [
+        'position:absolute','top:50%','left:50%',
+        'transform:translate(-50%,-50%)',
+        'background:#1e222d','border:1px solid #363c4e',
+        'border-radius:10px','padding:18px 20px',
+        'color:#787b86','font-size:13px','text-align:center',
+        'line-height:1.8','pointer-events:none','z-index:10',
+      ].join(';');
+      const _isMarketClosed = new Date().getDay() === 0 || new Date().getDay() === 6
+        || new Date().getHours() < 9 || (new Date().getHours() === 9 && new Date().getMinutes() < 15)
+        || new Date().getHours() >= 15 && new Date().getMinutes() > 30;
+      _msg.innerHTML = (S.asset && S.asset.indexOf('BANKNIFTY') !== -1)
+        ? '📊 BANKNIFTY data nahi mila<br>'
+          + '<span style="color:#f23645;font-size:11px;">Fyers login nahi hai ya market band hai</span><br><br>'
+          + '<span style="color:#26a69a;font-size:11px;">👉 Sidebar se login karo<br>ya BTC chart dekho</span>'
+        : '₿ BTC data load nahi hua<br>'
+          + '<span style="color:#f23645;font-size:11px;">Internet check karo (Binance API)</span>';
+      mainEl2.style.position = 'relative';
+      mainEl2.appendChild(_msg);
+    }
   }
 
   // ── Save zoom level whenever user scrolls/zooms (debounced 600ms) ────────
@@ -8446,9 +8478,15 @@ function _startBNPolling() {
 (function() {
   function _dbgShow() {
     try {
-      // Data counts
-      const bnLen  = (window.ALLDATA && window.ALLDATA['📊 BANKNIFTY']) ? window.ALLDATA['📊 BANKNIFTY'].length : (typeof __BN_CANDLES__ !== 'undefined' ? __BN_CANDLES__.length : '?');
-      const btcLen = (window.ALLDATA && window.ALLDATA['₿ BTC/USDT'])  ? window.ALLDATA['₿ BTC/USDT'].length  : (typeof __BTC_CANDLES__ !== 'undefined' ? __BTC_CANDLES__.length : '?');
+      // Data counts — BN_ASSET/BTC_ASSET constants use karo (unicode-safe)
+      const _bnKey  = (typeof BN_ASSET  !== 'undefined') ? BN_ASSET  : '\ud83d\udcca BANKNIFTY';
+      const _btcKey = (typeof BTC_ASSET !== 'undefined') ? BTC_ASSET : '\u20bf BTC/USDT';
+      const bnRaw   = (window.ALLDATA && Array.isArray(window.ALLDATA[_bnKey]))  ? window.ALLDATA[_bnKey].length  : 0;
+      const btcRaw  = (window.ALLDATA && Array.isArray(window.ALLDATA[_btcKey])) ? window.ALLDATA[_btcKey].length : 0;
+      const bnDaily = (typeof BN_DAILY !== 'undefined' && Array.isArray(BN_DAILY))   ? BN_DAILY.length   : 0;
+      const bn45m   = (typeof BN_45M   !== 'undefined' && Array.isArray(BN_45M))     ? BN_45M.length     : 0;
+      const bn15m   = (typeof BN_15M   !== 'undefined' && Array.isArray(BN_15M))     ? BN_15M.length     : 0;
+      const btcDay  = (typeof BTC_DAILY !== 'undefined' && Array.isArray(BTC_DAILY)) ? BTC_DAILY.length  : 0;
 
       // localStorage saved layout
       let savedLayout = '?', savedTf = '?', savedStack2OnOff = '?';
@@ -8459,25 +8497,33 @@ function _startBNPolling() {
       const apiPort = (typeof __API_PORT__ !== 'undefined') ? __API_PORT__ : '?';
       const fyersStatus = (typeof __FYERS_STATUS__ !== 'undefined') ? __FYERS_STATUS__ : '?';
 
-      // Stack2 blank bug check
-      const blankRisk = (savedLayout === 'stack2') ? '⚠️ stack2 saved — bug fix applied' : '✅ layout ok';
+      // Blank chart risk detection
+      const bnTotalData = bnRaw + bnDaily + bn45m + bn15m;
+      const blankRisk = (bnTotalData === 0)
+        ? '🔴 BN DATA ZERO — chart blank rahega!\n   Fyers se login karo'
+        : (savedLayout === 'stack2')
+          ? '⚠️  stack2 saved — bug fix applied'
+          : '✅ data + layout ok';
 
       const lines = [
-        `🐛 DEBUG INFO`,
-        `─────────────────────────`,
+        '🐛 DEBUG INFO',
+        '─────────────────────────',
         `Layout saved  : ${savedLayout}`,
         `TF saved      : ${savedTf}m`,
         `Stack2 OnOff  : ${savedStack2OnOff}`,
-        `─────────────────────────`,
-        `BN candles    : ${bnLen}`,
-        `BTC candles   : ${btcLen}`,
-        `─────────────────────────`,
         `Fyers status  : ${fyersStatus}`,
         `API port      : ${apiPort}`,
-        `─────────────────────────`,
+        '─────────────────────────',
+        `BN 1m  candles: ${bnRaw}`,
+        `BN 15m candles: ${bn15m}`,
+        `BN 45m candles: ${bn45m}`,
+        `BN daily      : ${bnDaily}`,
+        `BTC 1m candles: ${btcRaw}`,
+        `BTC daily     : ${btcDay}`,
+        '─────────────────────────',
         blankRisk,
-        `─────────────────────────`,
-        `Tap anywhere to close`,
+        '─────────────────────────',
+        'Tap anywhere to close (15s)',
       ];
 
       const overlay = document.createElement('div');
