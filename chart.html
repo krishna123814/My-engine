@@ -2086,12 +2086,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <span>📋 Stack View 2 Settings</span>
     <button onclick="closeStack2Settings()" style="background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
   </div>
-  <div style="font-size:11px;color:#787b86;margin-bottom:10px;">Asset ke hisab se alag cells — BTC (6 cells) / BankNifty (8 cells)</div>
+  <div style="font-size:11px;color:#787b86;margin-bottom:10px;">Asset ke hisab se alag cells — BTC (6 cells) / BankNifty (8 cells) — .gz data se resampled</div>
   <!-- Asset Tabs -->
   <div style="display:flex;gap:8px;margin-bottom:12px;">
-    <button id="ss2-tab-btc" class="ss-asset-tab active" onclick="ss2SwitchAssetTab('btc')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #2962ff;background:#2962ff22;color:#2962ff;font-size:12px;font-weight:600;cursor:pointer;">₿ BTC</button>
-    <button id="ss2-tab-bn" class="ss-asset-tab" onclick="ss2SwitchAssetTab('bn')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">📊 BankNifty</button>
-    <button id="ss2-tab-3" class="ss-asset-tab" onclick="ss2SwitchAssetTab('third')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">+ 3rd</button>
+    <button id="ss2-tab-btc" class="ss-asset-tab" onclick="ss2SwitchAssetTab('btc')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #2962ff;background:#2962ff22;color:#2962ff;font-size:12px;font-weight:600;cursor:pointer;">₿ BTC</button>
+    <button id="ss2-tab-bn"  class="ss-asset-tab" onclick="ss2SwitchAssetTab('bn')"  style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">📊 BankNifty</button>
+    <button id="ss2-tab-3"   class="ss-asset-tab" onclick="ss2SwitchAssetTab('third')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">+ 3rd</button>
   </div>
   <div class="ss-section">
     <div class="ss-section-title">SCREENS</div>
@@ -3401,7 +3401,7 @@ function _stack2DefaultCfg() {
       total:   0,
       visible: 4,
       step:    1,
-      tfs: [],
+      tfs:     [],
       symbolName: '',
     },
   };
@@ -3412,9 +3412,8 @@ function _loadStack2Cfg() {
     const raw = _LS.getItem(_STACK2_CFG_KEY);
     if (!raw) return _stack2DefaultCfg();
     const parsed = JSON.parse(raw);
-    // If old format (flat: total/visible/step/labels), migrate to new asset-wise format
+    // Migrate old flat format (total/visible/step/labels) → new asset-wise format
     if (parsed && typeof parsed.btc === 'undefined') {
-      // legacy flat format — ignore and use defaults
       return _stack2DefaultCfg();
     }
     const def = _stack2DefaultCfg();
@@ -3544,8 +3543,9 @@ function buildStack2() {
 
   for (let i = 0; i < total; i++) {
     const label = (cfg.tfs && cfg.tfs[i]) || (STACK_LETTERS[i] || (i+1));
+    const tfMin = parseTfStr(label) || 1440;
     const cellObj = {
-      asset: S.asset, tf: 1440, chart: null, series: null, el: null, vLine: null,
+      asset: S.asset, tf: tfMin, chart: null, series: null, el: null, vLine: null,
       _stack2: true,   // marker so buildCellChart2 is used instead
     };
     STACK2_CELLS.push(cellObj);
@@ -3620,6 +3620,9 @@ function buildStack2() {
     });
   });
   _stack2ResizeObs.observe(sc);
+
+  // Load .gz data and fill all cells with resampled candles
+  setTimeout(_gz2FillAllCells, 100);
 }
 
 function _buildStack2CellChart(idx) {
@@ -3711,13 +3714,13 @@ function _stack2StepJump(dir) {
   _stack2AnimateScrollTo(containerEl, Math.max(0, Math.min(max, target)), 280);
 }
 
+// Stack View 2 Settings
 // Stack View 2 Settings — asset tab currently being edited
 let _ss2Tab = 'btc';
 
 function ss2SwitchAssetTab(tab) {
   _ss2Tab = tab;
   document.querySelectorAll('#stack2-settings-panel .ss-asset-tab').forEach(el => {
-    el.classList.remove('active');
     el.style.borderColor = '#363c4e';
     el.style.background  = 'transparent';
     el.style.color       = '#787b86';
@@ -3725,7 +3728,6 @@ function ss2SwitchAssetTab(tab) {
   const map = { btc: 'ss2-tab-btc', bn: 'ss2-tab-bn', third: 'ss2-tab-3' };
   const el = document.getElementById(map[tab]);
   if (el) {
-    el.classList.add('active');
     el.style.borderColor = '#2962ff';
     el.style.background  = '#2962ff22';
     el.style.color       = '#2962ff';
@@ -3776,13 +3778,11 @@ function _ss2ReadTfInputs() {
   return tfs;
 }
 
-// Stack View 2 Settings
 function openStack2Settings() {
   _stack2Cfg = _loadStack2Cfg();
-  _ss2Tab = _stackKeyForAsset(S.asset);  // open on current asset tab
-  // Reset tab styles then activate current
+  _ss2Tab = _stackKeyForAsset(S.asset);
+  // Reset all tab styles
   document.querySelectorAll('#stack2-settings-panel .ss-asset-tab').forEach(el => {
-    el.classList.remove('active');
     el.style.borderColor = '#363c4e';
     el.style.background  = 'transparent';
     el.style.color       = '#787b86';
@@ -3790,7 +3790,6 @@ function openStack2Settings() {
   const tabMap = { btc: 'ss2-tab-btc', bn: 'ss2-tab-bn', third: 'ss2-tab-3' };
   const activeTab = document.getElementById(tabMap[_ss2Tab] || 'ss2-tab-btc');
   if (activeTab) {
-    activeTab.classList.add('active');
     activeTab.style.borderColor = '#2962ff';
     activeTab.style.background  = '#2962ff22';
     activeTab.style.color       = '#2962ff';
@@ -3811,7 +3810,7 @@ function ss2ApplyAndClose() {
   const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 6));
   const visible = Math.max(1, Math.min(total, parseInt(document.getElementById('ss2-visible-count').value, 10) || 4));
   const step    = Math.max(1, Math.min(4,     parseInt(document.getElementById('ss2-step-count').value, 10)  || 1));
-  const tfs = _ss2ReadTfInputs();
+  const tfs     = _ss2ReadTfInputs();
   _stack2Cfg[_ss2Tab] = Object.assign({}, _stack2Cfg[_ss2Tab] || {}, { total, visible, step, tfs });
   _saveStack2Cfg(_stack2Cfg);
   closeStack2Settings();
@@ -3821,6 +3820,157 @@ function ss2ApplyAndClose() {
     setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
   }
 }
+// ════════════════════════════════════════════════════════════════════════════
+// STACK VIEW 2 — .gz DATA LOADER (GitHub raw, browser DecompressionStream)
+// ════════════════════════════════════════════════════════════════════════════
+
+// GitHub raw URLs for .gz files (krishna123814/My-engine repo)
+const _GZ_URLS = {
+  bn:  'https://raw.githubusercontent.com/krishna123814/My-engine/main/banknifty_5m_csv_json.gz',
+  btc: 'https://raw.githubusercontent.com/krishna123814/My-engine/main/Bitcoin_BTCUSDT_IST_5m_json.gz',
+};
+
+// In-memory cache: { bn: [{t,o,h,l,c},...] | null, btc: [...] | null }
+const _GZ_DATA  = { bn: null, btc: null };
+const _GZ_LOADING = { bn: false, btc: false };
+const _GZ_CBACKS  = { bn: [], btc: [] }; // callbacks waiting for data
+
+// Fetch + decompress a .gz file → returns array of {t,o,h,l,c} 5m candles
+async function _fetchGzCandles(key) {
+  const url = _GZ_URLS[key];
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
+
+  // Decompress using browser native DecompressionStream (gzip)
+  const ds = new DecompressionStream('gzip');
+  const decompressed = resp.body.pipeThrough(ds);
+  const reader = decompressed.getReader();
+  const chunks = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const blob = new Blob(chunks);
+  const text = await blob.text();
+  const parsed = JSON.parse(text);
+
+  // Both files use {t,o,h,l,c} format; BN wraps in {meta,data}, BTC is plain array
+  const arr = Array.isArray(parsed) ? parsed : (parsed.data || []);
+  return arr;
+}
+
+// Load gz data for a key ('bn' or 'btc'), call cb(candles) when ready
+function _loadGzData(key, cb) {
+  if (_GZ_DATA[key]) { cb(_GZ_DATA[key]); return; }
+  if (cb) _GZ_CBACKS[key].push(cb);
+  if (_GZ_LOADING[key]) return;
+  _GZ_LOADING[key] = true;
+
+  _fetchGzCandles(key).then(arr => {
+    _GZ_DATA[key] = arr;
+    _GZ_LOADING[key] = false;
+    const cbs = _GZ_CBACKS[key].splice(0);
+    cbs.forEach(fn => { try { fn(arr); } catch(_) {} });
+  }).catch(err => {
+    console.warn('[Stack2 gz] load failed for', key, err);
+    _GZ_LOADING[key] = false;
+    // Retry callbacks with empty — don't leave them hanging forever
+    const cbs = _GZ_CBACKS[key].splice(0);
+    cbs.forEach(fn => { try { fn([]); } catch(_) {} });
+  });
+}
+
+// Resample 5m {t,o,h,l,c} candles into a target TF (tfMin) for LWC
+// Uses existing resampleForTF() if available, else local fallback
+function _gz2Resample(candles5m, tfMinutes, asset) {
+  if (!candles5m || !candles5m.length) return [];
+  const tfMin = Math.max(1, tfMinutes);
+
+  // Convert {t,o,h,l,c} → [epochMs, o, h, l, c, 0] format that resampleForTF expects
+  const asRows = candles5m.map(c => [c.t * 1000, c.o, c.h, c.l, c.c, 0]);
+
+  let resampled;
+  if (typeof resampleForTF === 'function') {
+    resampled = resampleForTF(asRows, tfMin, asset);
+  } else {
+    // Fallback: simple bucket resample
+    resampled = [];
+    const bucket = tfMin * 60;
+    let cur = null;
+    for (const r of asRows) {
+      const sec = Math.floor(r[0] / 1000);
+      const bkt = Math.floor(sec / bucket) * bucket;
+      if (!cur || cur.time !== bkt) {
+        if (cur) resampled.push(cur);
+        cur = { time: bkt, open: r[1], high: r[2], low: r[3], close: r[4] };
+      } else {
+        if (r[2] > cur.high) cur.high = r[2];
+        if (r[3] < cur.low)  cur.low  = r[3];
+        cur.close = r[4];
+      }
+    }
+    if (cur) resampled.push(cur);
+    return resampled;
+  }
+
+  // resampleForTF returns [{time, open, high, low, close, volume}] or [[t, o, h, l, c, v]]
+  if (!resampled || !resampled.length) return [];
+  if (Array.isArray(resampled[0])) {
+    return resampled.map(r => ({ time: Math.floor(r[0] / 1000), open: r[1], high: r[2], low: r[3], close: r[4] }));
+  }
+  // Already in LWC object form — ensure seconds
+  return resampled.map(r => ({
+    time: r.time > 1e10 ? Math.floor(r.time / 1000) : r.time,
+    open: r.open, high: r.high, low: r.low, close: r.close,
+  }));
+}
+
+// Set gz-resampled data on a single Stack2 cell (idx) given raw 5m candles
+function _gz2SetCellData(idx, candles5m, tfMin, asset) {
+  const c = STACK2_CELLS[idx];
+  if (!c || !c.series) return;
+  try {
+    const data = _gz2Resample(candles5m, tfMin, asset);
+    if (data.length) {
+      c.series.setData(data);
+      c.chart.timeScale().scrollToRealTime();
+    }
+    // Update overlay TF label
+    const cell = document.querySelector('.stack2-cell[data-idx2="' + idx + '"]');
+    if (cell) {
+      const tfLbl = cell.querySelector('.co-tf');
+      if (tfLbl) tfLbl.textContent = ' · ' + tfMinToLabel(tfMin);
+      const sym = cell.querySelector('.co-sym');
+      if (sym) sym.textContent = (asset === BN_ASSET) ? '📊' : '₿';
+      // Show last close price
+      const lastBar = data[data.length - 1];
+      if (lastBar) {
+        const priceEl = cell.querySelector('.co-price');
+        if (priceEl) {
+          priceEl.textContent = lastBar.close.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+      }
+    }
+  } catch(e) { console.warn('[Stack2 gz] setData error cell', idx, e); }
+}
+
+// Load gz data then fill all Stack2 cells for current asset
+function _gz2FillAllCells() {
+  if (!_stack2Active || !STACK2_CELLS.length) return;
+  const assetKey = _stackKeyForAsset(S.asset);
+  const cfg = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+  const asset = S.asset;
+
+  _loadGzData(assetKey, function(candles5m) {
+    STACK2_CELLS.forEach((c, i) => {
+      const tfStr = (cfg.tfs && cfg.tfs[i]) || '1D';
+      const tfMin = parseTfStr(tfStr) || 1440;
+      _gz2SetCellData(i, candles5m, tfMin, asset);
+    });
+  });
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // END STACK VIEW 2
 // ════════════════════════════════════════════════════════════════════════════
@@ -7151,15 +7301,12 @@ function switchAsset(name) {
     if (name === BTC_ASSET) {
       if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     }
+  } else if (S.layout === 'stack2') {
+    // Stack View 2: rebuild with new asset's cells + TFs, then load gz data
+    buildStack2();
+    setTimeout(_startCellTimers, 200);
+    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
   } else {
-    CELLS.forEach(c => c.asset = name);
-    CELLS.forEach((_, i) => buildCellChart(i));
-    refreshCellHeaders(); wireSync();
-    // Grid mode mein bhi BTC WS ensure karo
-    if (name === BTC_ASSET) {
-      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
-    }
-  }
   // ── Asset-specific live feed control ──────────────────────────────────────
   if (name === BN_ASSET) {
     // BN mode: BTC REST polling band karo (WS band mat karo — reconnect costly)
