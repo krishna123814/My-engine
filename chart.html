@@ -3397,23 +3397,42 @@ const STACK2_GZ_FILES = {
 const _stack2Base = { btc: null, bn: null };
 const _stack2BaseLoading = { btc: null, bn: null };   // in-flight Promise, so simultaneous cells share one fetch
 
-// Normalize one raw record {t,o,h,l,c} (or {time,open,high,low,close,volume})
-// into the {time,open,high,low,close,volume} shape resample()/resampleForTF() expect.
+// Normalize one raw record into the {time,open,high,low,close,volume} shape
+// resample()/resampleForTF() expect. Handles multiple possible source shapes
+// since the exact .gz export format isn't something this code controls:
+//   • object with short keys:  {t,o,h,l,c,v?}
+//   • object with long keys:   {time,open,high,low,close,volume?}
+//   • array form:               [t,o,h,l,c] or [t,o,h,l,c,v]
 // Returns null for a row that can't be normalized to a finite time/OHLC set,
 // so one bad row degrades gracefully instead of corrupting/crashing the
 // whole load (every numeric field is validated, not just coerced blindly).
 function _stack2NormalizeRow(r) {
-  if (!r || typeof r !== 'object') return null;
-  const tRaw = r.t !== undefined ? r.t : r.time;
-  const oRaw = r.o !== undefined ? r.o : r.open;
-  const hRaw = r.h !== undefined ? r.h : r.high;
-  const lRaw = r.l !== undefined ? r.l : r.low;
-  const cRaw = r.c !== undefined ? r.c : r.close;
-  const vRaw = r.v !== undefined ? r.v : r.volume;
+  if (!r) return null;
 
-  const t = Math.round(Number(tRaw));
+  let tRaw, oRaw, hRaw, lRaw, cRaw, vRaw;
+  if (Array.isArray(r)) {
+    // [t, o, h, l, c] or [t, o, h, l, c, v]
+    tRaw = r[0]; oRaw = r[1]; hRaw = r[2]; lRaw = r[3]; cRaw = r[4]; vRaw = r[5];
+  } else if (typeof r === 'object') {
+    tRaw = r.t  !== undefined ? r.t  : (r.time !== undefined ? r.time : r.timestamp);
+    oRaw = r.o  !== undefined ? r.o  : r.open;
+    hRaw = r.h  !== undefined ? r.h  : r.high;
+    lRaw = r.l  !== undefined ? r.l  : r.low;
+    cRaw = r.c  !== undefined ? r.c  : r.close;
+    vRaw = r.v  !== undefined ? r.v  : r.volume;
+  } else {
+    return null;
+  }
+
+  let t = Number(tRaw);
   const o = Number(oRaw), h = Number(hRaw), l = Number(lRaw), c = Number(cRaw);
   const v = Number(vRaw) || 0;
+
+  // If the timestamp looks like milliseconds (13 digits, > year-2001 in ms
+  // terms) rather than seconds, convert it — a common source-format mismatch
+  // that would otherwise silently shift every candle by a factor of 1000.
+  if (Number.isFinite(t) && Math.abs(t) > 1e12) t = t / 1000;
+  t = Math.round(t);
 
   if (!Number.isFinite(t) || !Number.isFinite(o) || !Number.isFinite(h) ||
       !Number.isFinite(l) || !Number.isFinite(c)) {
@@ -3481,13 +3500,20 @@ async function _stack2LoadBase(assetKey) {
       const isArr = Array.isArray(raw);
       const rows = isArr ? raw : (raw && Array.isArray(raw.data) ? raw.data : []);
       _stack2DebugLine('base[' + assetKey + ']: parsed shape=' + (isArr ? 'plain array' : 'object{meta,data}') + ' rawRows=' + rows.length);
-      if (!rows.length) {
+      if (!isArr && raw && raw.meta) {
+        _stack2DebugLine('base[' + assetKey + ']: meta=' + JSON.stringify(raw.meta));
+      }
+      if (rows.length) {
+        _stack2DebugLine('base[' + assetKey + ']: sample row[0]=' + JSON.stringify(rows[0]) +
+          ' | row[' + (rows.length-1) + ']=' + JSON.stringify(rows[rows.length-1]));
+      } else {
         _stack2DebugLine('base[' + assetKey + ']: 0 rows after shape-detection — check JSON structure matches expected {t,o,h,l,c} or {data:[...]}', 'warn');
       }
       const normAll = rows.map(_stack2NormalizeRow);
       const droppedCount = normAll.length - normAll.filter(Boolean).length;
       if (droppedCount > 0) {
-        _stack2DebugLine('base[' + assetKey + ']: dropped ' + droppedCount + ' row(s) with non-finite time/OHLC values', 'warn');
+        _stack2DebugLine('base[' + assetKey + ']: dropped ' + droppedCount + ' row(s) with non-finite time/OHLC values — sample dropped raw row: ' +
+          JSON.stringify(rows.find((r,i) => !normAll[i])), 'warn');
       }
       const norm = normAll.filter(Boolean).sort((a, b) => a.time - b.time);
       _stack2Base[assetKey] = norm;
