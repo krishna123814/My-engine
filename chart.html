@@ -10273,8 +10273,13 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null,
       });
+      // isInfinite (swing/colour SR) lines: ab ek BAHUT door future time tak
+      // extend hoti hain (~50,000 periods) — taaki practically hamesha
+      // "infinite" lagein, replay/pan/zoom mein bhi kabhi end na pahunche.
+      // Candle H/L lines (isInfinite:false) bilkul untouched — wahi purana
+      // ln.endTime logic chalta rahega.
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 50000) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
