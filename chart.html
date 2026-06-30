@@ -2754,10 +2754,33 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
     document.body.appendChild(btn);
   }
 
+  function removeButton(){
+    const btn = document.getElementById('__gapDbgBtn');
+    if (btn) btn.remove();
+    const modal = document.getElementById('__gapDbgModal');
+    if (modal) modal.remove();
+  }
+
+  // ── Sirf Stack View 2 active hone par hi button dikhao ───────────────────
+  // #stack-view-2 par 'active' class lagti/hatati hai jab Stack View 2
+  // on/off hoti hai (selectStack2View / _deactivateStack2). Usi ko observe
+  // karke button ko sync rakhte hain — koi extra hook lagane ki zaroorat nahi.
+  function syncWithStack2(){
+    const sv2 = document.getElementById('stack-view-2');
+    if (!sv2) { setTimeout(syncWithStack2, 400); return; }
+    const apply = ()=>{
+      if (sv2.classList.contains('active')) addButton();
+      else removeButton();
+    };
+    apply();
+    const obs = new MutationObserver(apply);
+    obs.observe(sv2, { attributes: true, attributeFilter: ['class'] });
+  }
+
   if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', addButton);
+    document.addEventListener('DOMContentLoaded', syncWithStack2);
   } else {
-    addButton();
+    syncWithStack2();
   }
 })();
 
