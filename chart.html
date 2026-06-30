@@ -2641,6 +2641,127 @@ const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
 // ════════════════════════════════════════════════════════════════════════════
+// 🐞 GAP DEBUG TOOL — scans SV2_BN['5m'] for missing trading days/candles
+// and shows a copy-able report. Floating button, bottom-right corner.
+// ════════════════════════════════════════════════════════════════════════════
+(function(){
+  const NSE_HOLIDAYS_DBG = new Set([
+    '2017-01-26','2017-02-24','2017-03-13','2017-04-04','2017-04-14','2017-06-26','2017-08-15','2017-08-25','2017-10-02','2017-10-19','2017-10-20','2017-11-01','2017-12-25',
+    '2018-01-26','2018-03-02','2018-03-29','2018-03-30','2018-05-01','2018-08-15','2018-08-22','2018-09-13','2018-09-20','2018-10-02','2018-11-07','2018-11-08','2018-11-21','2018-12-25',
+    '2019-03-04','2019-03-21','2019-04-17','2019-04-19','2019-05-01','2019-06-05','2019-08-12','2019-08-15','2019-09-02','2019-10-02','2019-10-07','2019-10-08','2019-10-28','2019-11-12','2019-12-25',
+    '2020-02-21','2020-03-10','2020-04-02','2020-04-06','2020-04-10','2020-04-14','2020-05-01','2020-05-25','2020-07-31','2020-08-15','2020-10-02','2020-11-16','2020-11-30','2020-12-25',
+    '2021-01-26','2021-03-11','2021-03-29','2021-04-02','2021-04-14','2021-04-21','2021-05-13','2021-07-21','2021-08-15','2021-09-10','2021-10-02','2021-10-15','2021-11-04','2021-11-05','2021-11-19','2021-12-25',
+    '2022-01-26','2022-03-01','2022-03-18','2022-04-14','2022-04-15','2022-05-03','2022-08-09','2022-08-15','2022-10-02','2022-10-05','2022-10-26','2022-10-27','2022-11-08','2022-12-25',
+    '2023-01-26','2023-03-07','2023-03-30','2023-04-04','2023-04-07','2023-04-14','2023-04-22','2023-05-01','2023-06-29','2023-08-15','2023-09-19','2023-10-02','2023-10-24','2023-11-14','2023-11-27','2023-12-25',
+    '2024-01-22','2024-01-26','2024-03-25','2024-04-01','2024-04-09','2024-04-11','2024-04-14','2024-04-17','2024-06-17','2024-07-17','2024-08-15','2024-10-02','2024-11-01','2024-11-15','2024-12-25',
+    '2025-02-26','2025-03-14','2025-03-31','2025-04-10','2025-04-14','2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02','2025-10-21','2025-10-22','2025-11-05','2025-12-25',
+    '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01','2026-08-15','2026-10-02','2026-11-25','2026-12-25',
+  ]);
+
+  function _dateStr(tSec){
+    const d = new Date(tSec*1000);
+    return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
+  }
+  function _dayName(tSec){
+    return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(tSec*1000).getUTCDay()];
+  }
+
+  function scanGaps(){
+    const rows = (SV2_BN && SV2_BN['5m']) ? SV2_BN['5m'].slice().sort((a,b)=>a.time-b.time) : [];
+    const report = { generated: new Date().toISOString(), totalCandles: rows.length, gaps: [], missingWeekdays: [] };
+    if (!rows.length) { report.error = 'SV2_BN["5m"] empty — data load fail hua hai, debug log incomplete hoga.'; return report; }
+
+    // 1) Raw consecutive-candle gaps > 5 min
+    for (let i=1;i<rows.length;i++){
+      const diff = rows[i].time - rows[i-1].time;
+      if (diff > 300){
+        report.gaps.push({
+          prev_time: _dateStr(rows[i-1].time)+' '+new Date(rows[i-1].time*1000).toISOString().substr(11,5)+' ('+_dayName(rows[i-1].time)+')',
+          next_time: _dateStr(rows[i].time)+' '+new Date(rows[i].time*1000).toISOString().substr(11,5)+' ('+_dayName(rows[i].time)+')',
+          diff_sec: diff, diff_days: +(diff/86400).toFixed(2)
+        });
+      }
+    }
+
+    // 2) Which trading weekdays (Mon-Fri, non-NSE-holiday) have ZERO candles
+    const datesWithData = new Set(rows.map(r=>_dateStr(r.time)));
+    if (rows.length){
+      let cur = new Date(rows[0].time*1000); cur.setUTCHours(0,0,0,0);
+      const end = new Date(rows[rows.length-1].time*1000); end.setUTCHours(0,0,0,0);
+      while (cur <= end){
+        const dow = cur.getUTCDay(); // 0=Sun,6=Sat
+        const ds = cur.getUTCFullYear()+'-'+String(cur.getUTCMonth()+1).padStart(2,'0')+'-'+String(cur.getUTCDate()).padStart(2,'0');
+        if (dow!==0 && dow!==6 && !NSE_HOLIDAYS_DBG.has(ds) && !datesWithData.has(ds)){
+          report.missingWeekdays.push(ds+' ('+_dayName(cur.getTime()/1000)+')');
+        }
+        cur.setUTCDate(cur.getUTCDate()+1);
+      }
+    }
+    return report;
+  }
+
+  function buildLogText(r){
+    let out = 'BANKNIFTY 5m — Live Gap Debug Log\nGenerated: '+r.generated+'\nTotal 5m candles loaded: '+r.totalCandles+'\n\n';
+    if (r.error){ out += 'ERROR: '+r.error+'\n'; return out; }
+    out += '=== Gaps > 5 min between consecutive candles ('+r.gaps.length+' found) ===\n';
+    r.gaps.forEach(g=>{
+      out += g.prev_time+'  →  '+g.next_time+'   | '+g.diff_sec+'s ('+g.diff_days+'d)\n';
+    });
+    out += '\n=== Trading weekdays with ZERO candles (not Sat/Sun, not NSE holiday) ('+r.missingWeekdays.length+' found) ===\n';
+    if (!r.missingWeekdays.length) out += '(none found in loaded range)\n';
+    r.missingWeekdays.forEach(d=>{ out += d+'  → MISSING, likely data-fetch failure for this day\n'; });
+    out += '\nVerdict: Saturday/Sunday gaps are normal (market closed). Any date listed under\n"missing weekdays" above is a genuine data bug — that trading day was never fetched/stored.\n';
+    return out;
+  }
+
+  function openPanel(){
+    const r = scanGaps();
+    const txt = buildLogText(r);
+    let modal = document.getElementById('__gapDbgModal');
+    if (modal) modal.remove();
+    modal = document.createElement('div');
+    modal.id = '__gapDbgModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    modal.innerHTML = `
+      <div style="background:#0d1117;color:#c9d1d9;width:100%;max-width:640px;max-height:85vh;border-radius:10px;border:1px solid #262d38;display:flex;flex-direction:column;font-family:ui-monospace,Menlo,Consolas,monospace;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #262d38;">
+          <strong style="font-size:13px;color:#58a6ff;">🐞 Gap Debug Log</strong>
+          <div style="display:flex;gap:8px;">
+            <button id="__gapDbgCopy" style="background:#1f6feb;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">📋 Copy</button>
+            <button id="__gapDbgClose" style="background:#30363d;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">✕</button>
+          </div>
+        </div>
+        <pre id="__gapDbgText" style="margin:0;padding:14px 16px;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;">${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById('__gapDbgClose').onclick = ()=>modal.remove();
+    modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
+    document.getElementById('__gapDbgCopy').onclick = ()=>{
+      navigator.clipboard.writeText(txt).then(()=>{
+        const b = document.getElementById('__gapDbgCopy');
+        b.textContent = '✅ Copied!'; setTimeout(()=>{ b.textContent='📋 Copy'; }, 1800);
+      });
+    };
+  }
+
+  function addButton(){
+    if (document.getElementById('__gapDbgBtn')) return;
+    const btn = document.createElement('button');
+    btn.id = '__gapDbgBtn';
+    btn.textContent = '🐞 Gap Debug';
+    btn.style.cssText = 'position:fixed;bottom:14px;right:14px;z-index:9998;background:#1f6feb;color:#fff;border:none;padding:8px 14px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);';
+    btn.onclick = openPanel;
+    document.body.appendChild(btn);
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', addButton);
+  } else {
+    addButton();
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════════════════════
 const S = {
