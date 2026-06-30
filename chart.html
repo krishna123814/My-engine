@@ -10624,14 +10624,16 @@ function _sv2ApplyCellSR(cellIdx, lines) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
+    // Range PEHLE save karo — clear karne se pehle, warna chart series
+    // hatne ke baad getVisibleLogicalRange() null de sakta hai aur
+    // scrollToRealTime() fire ho jaata hai (right-shift bug).
+    let _preRange = null;
+    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
     // Purani series hata do
     if (_sv2SrSeries[cellIdx] && _sv2SrSeries[cellIdx].length) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
-    // Range pehle save karo taaki auto-scroll na ho
-    let _preRange = null;
-    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
     _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
   } catch(_) {}
 }
