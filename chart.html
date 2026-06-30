@@ -10536,7 +10536,7 @@ function swingAfterRebuildBtc2() {
 const _sv2SrSeries = [];
 
 // ── SV2 store se ek TF ka data lo, optional cutoff ke saath ─────────────────
-function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
+function _sv2DataForTF(assetKey, tfLabel, cutoffTime, tfMin) {
   try {
     const store  = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
     const keyLow = (tfLabel || '').toLowerCase();
@@ -10545,9 +10545,12 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    return (typeof cutoffTime === 'number')
-      ? data.filter(b => b.time < cutoffTime)
-      : data;
+    if (typeof cutoffTime !== 'number') return data;
+    // Sirf woh candles lo jo fully CLOSE ho chuki hain (open + duration <= cutoff).
+    // Sirf open-time check karne se abhi-forming (incomplete) candle bhi
+    // SR me shaamil ho jaati thi — isi se SR time se pehle draw ho raha tha.
+    const durSec = (typeof tfMin === 'number' && tfMin > 0) ? tfMin * 60 : 0;
+    return data.filter(b => (b.time + durSec) <= cutoffTime);
   } catch(_) { return []; }
 }
 
@@ -10580,7 +10583,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const allLines  = [];
 
     // Step 1: Cell ka apna TF
-    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
+    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime, cellTFMin);
     if (dataCur.length >= 3) {
       swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
@@ -10594,7 +10597,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     for (const tf of enabledHTFs) {
       const label = _sv2FindTFLabel(assetKey, tf.min, tf.label);
       if (!label) continue;
-      const data = _sv2DataForTF(assetKey, label, cutoffTime);
+      const data = _sv2DataForTF(assetKey, label, cutoffTime, tf.min);
       if (data.length >= 3) {
         swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
