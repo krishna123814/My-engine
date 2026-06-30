@@ -767,6 +767,41 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   box-shadow:0 8px 32px #0009;
 }
 
+/* ── SV2 Step / Replay Button ────────────────────────────────────────── */
+#sv2-step-btn{
+  display:none;                          /* sirf active-range mein dikhega */
+  position:fixed;
+  z-index:8499;                          /* FAB ke theek neeche */
+  width:48px;height:48px;
+  border-radius:50%;
+  background:#1e222d;
+  border:2px solid #26a69a;
+  box-shadow:0 4px 16px #0007;
+  font-size:20px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, opacity .2s;
+  color:#26a69a;
+}
+#sv2-step-btn.visible{
+  display:flex;
+}
+#sv2-step-btn.animating{
+  opacity:.45;
+  border-color:#555;
+  color:#555;
+  cursor:not-allowed;
+}
+#sv2-step-btn.done{
+  opacity:.3;
+  border-color:#555;
+  color:#555;
+  cursor:not-allowed;
+}
+
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
   display:none;
@@ -2161,6 +2196,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
+
+<!-- ═══ SV2 STEP / REPLAY BUTTON (FAB ke neeche, sirf active-range mein) ══ -->
+<button id="sv2-step-btn" title="Step: Next Candle Replay" onclick="_sv2StepForward()">⏭</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -4624,6 +4662,330 @@ function ss2ApplyAndClose() {
 
 })();
 
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 STEP / REPLAY BUTTON
+// ────────────────────────────────────────────────────────────────────────────
+// Sirf tab dikhta hai jab _SV2_DATE_RANGE active ho (date range select hua ho)
+// Ek tap = 1 candle forward replay (BN=5m, BTC=160m)
+// Animation: 1 second mein gradually build (open→H/L extend→close move)
+// Sabhi STACK2_CELLS simultaneously update honge (Option A: partial candle)
+// Next tap block jab tak animation complete na ho
+// Range end (_rng.to) pe button disabled
+// ════════════════════════════════════════════════════════════════════════════
+(function(){
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  var _stepBtn        = null;   // #sv2-step-btn element
+  var _replayIdx      = 0;      // next candle index to replay (into hidden range)
+  var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
+  var _animating      = false;  // tap blocked jab true
+  var _animRaf        = null;   // requestAnimationFrame handle
+  var _ANIM_MS        = 1000;   // 1 second animation
+
+  // ── BN base TF for step: always 5m ────────────────────────────────────────
+  var BN_STEP_TF  = '5m';
+  // ── BTC base TF for step: always 160m ─────────────────────────────────────
+  var BTC_STEP_TF = '160m';
+
+  // ── Sync step button position directly below the FAB ──────────────────────
+  function _syncStepBtnPos() {
+    if (!_stepBtn) return;
+    var fab = document.getElementById('sv2-drng-fab');
+    if (!fab) return;
+    var r = fab.getBoundingClientRect();
+    _stepBtn.style.left = r.left + 'px';
+    _stepBtn.style.top  = (r.bottom + 8) + 'px';
+  }
+
+  // ── Show / hide step button ────────────────────────────────────────────────
+  function _syncStepBtn() {
+    if (!_stepBtn) return;
+    var rangeActive = !!(window._SV2_DATE_RANGE &&
+                         typeof window._SV2_DATE_RANGE.from === 'number');
+    var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
+    if (rangeActive && stack2On) {
+      _stepBtn.classList.add('visible');
+      _syncStepBtnPos();
+    } else {
+      _stepBtn.classList.remove('visible');
+      _replayIdx     = 0;
+      _replayCandles = null;
+      _animating     = false;
+      if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    }
+  }
+
+  // ── Build sorted candle list for replay ───────────────────────────────────
+  // Returns array of candles from SV2 raw data that fall inside [rng.from, rng.to)
+  // for the correct base TF (BN=5m, BTC=160m)
+  function _buildReplayCandles() {
+    var rng = window._SV2_DATE_RANGE;
+    if (!rng) return [];
+    var assetKey = (typeof _stackKeyForAsset === 'function')
+                    ? _stackKeyForAsset(S.asset) : 'bn';
+    var isBN = (assetKey === 'bn');
+    var tfKey = isBN ? BN_STEP_TF : BTC_STEP_TF;
+
+    // Get base data from SV2 store
+    var store = null;
+    try {
+      store = isBN ? SV2_BN : SV2_BTC;
+    } catch(_) { return []; }
+    if (!store) return [];
+
+    var baseData = null;
+    var keyLow = tfKey.toLowerCase();
+    for (var k in store) {
+      if (k.toLowerCase() === keyLow) { baseData = store[k]; break; }
+    }
+    if (!Array.isArray(baseData) || !baseData.length) return [];
+
+    // Filter to hidden range [from, to)
+    return baseData.filter(function(b){
+      return b.time >= rng.from && b.time < rng.to;
+    });
+  }
+
+  // ── Get all STACK2_CELLS data arrays (raw, unfiltered) ────────────────────
+  // Each cell has its own TF. We need to feed the partial candle contribution
+  // of the base-TF candle into each cell's higher-TF forming candle.
+  function _getCellRawData(idx) {
+    // Try _SV2_RAW_DATA first (set by _buildStack2CellChart)
+    if (window._SV2_RAW_DATA && window._SV2_RAW_DATA[idx]) {
+      return window._SV2_RAW_DATA[idx];
+    }
+    // Fallback: read from SV2 store
+    try {
+      var c = STACK2_CELLS[idx];
+      if (!c) return null;
+      var assetKey = (typeof _stackKeyForAsset === 'function')
+                      ? _stackKeyForAsset(S.asset) : 'bn';
+      var cfg2 = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+      var tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
+      if (!tfLabel) return null;
+      var store = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
+      var keyLow = tfLabel.toLowerCase();
+      for (var k in store) {
+        if (k.toLowerCase() === keyLow) return store[k];
+      }
+    } catch(_) {}
+    return null;
+  }
+
+  // ── Compute cell-level partial candle for given replayed base candles ──────
+  // baseBars: array of base-TF candles seen so far (up to current step)
+  // cellTFMin: cell's TF in minutes
+  // isBN: true = NSE session-aware buckets, false = UTC buckets
+  function _computePartialCandle(baseBars, cellTFMin, isBN) {
+    if (!baseBars || !baseBars.length) return null;
+    // Find the bucket that the LAST base bar belongs to
+    var last = baseBars[baseBars.length - 1];
+    var bucketTime = _getBucketTime(last.time, cellTFMin, isBN);
+
+    // Accumulate all base bars in the same bucket
+    var o = null, h = -Infinity, l = Infinity, c2 = null;
+    for (var i = 0; i < baseBars.length; i++) {
+      var bar = baseBars[i];
+      var bt  = _getBucketTime(bar.time, cellTFMin, isBN);
+      if (bt !== bucketTime) continue;
+      if (o === null) o = bar.open;
+      if (bar.high > h) h = bar.high;
+      if (bar.low  < l) l = bar.low;
+      c2 = bar.close;
+    }
+    if (o === null) return null;
+    return { time: bucketTime, open: o, high: h, low: l, close: c2 };
+  }
+
+  // ── Session-aware bucket time for NSE intraday ────────────────────────────
+  function _getBucketTime(tSec, tfMin, isBN) {
+    if (tfMin >= 1440) {
+      // Daily: UTC midnight
+      return Math.floor(tSec / 86400) * 86400;
+    }
+    if (isBN && tfMin < 1440) {
+      // NSE: 9:15 IST anchor
+      var IST = 5.5 * 3600;
+      var istSec   = tSec + IST;
+      var dayStart = istSec - (istSec % 86400);
+      var minOfDay = Math.floor((istSec % 86400) / 60);
+      var SESSION_START = 9 * 60 + 15;   // 555
+      var minSinceOpen  = minOfDay - SESSION_START;
+      if (minSinceOpen < 0) minSinceOpen = 0;
+      var bucketIdx     = Math.floor(minSinceOpen / tfMin);
+      var bucketStartMin = SESSION_START + bucketIdx * tfMin;
+      return (dayStart - IST) + bucketStartMin * 60;
+    }
+    // UTC anchor (BTC / crypto)
+    var sec = tfMin * 60;
+    return Math.floor(tSec / sec) * sec;
+  }
+
+  // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
+  // For each STACK2_CELL, find its current bucket bar from already-loaded data,
+  // then animate the partial candle contribution on top.
+  function _animateStep(stepBar) {
+    var rng    = window._SV2_DATE_RANGE;
+    var assetKey = (typeof _stackKeyForAsset === 'function')
+                    ? _stackKeyForAsset(S.asset) : 'bn';
+    var isBN   = (assetKey === 'bn');
+    var startMs = performance.now();
+
+    // Collect all base bars replayed SO FAR (including this one)
+    var allReplayed = _replayCandles.slice(0, _replayIdx);
+
+    function frame(now) {
+      var t = Math.min(1, (now - startMs) / _ANIM_MS);
+      // Easing: ease-out cubic
+      var e = 1 - Math.pow(1 - t, 3);
+
+      // For each STACK2_CELL: compute partial candle and animate
+      if (typeof STACK2_CELLS !== 'undefined') {
+        for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+          var cell = STACK2_CELLS[ci];
+          if (!cell || !cell.chart || !cell.series) continue;
+
+          // Cell TF in minutes
+          var cellTFMin = cell.tf || 5;
+
+          // baseBars for this cell = replayed bars that belong to same bucket
+          var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
+          if (!partial) continue;
+
+          // Get cell's existing last bar from raw data (before range)
+          var rawData = _getCellRawData(ci);
+          var existingBar = null;
+          if (Array.isArray(rawData)) {
+            for (var ri = rawData.length - 1; ri >= 0; ri--) {
+              if (rawData[ri].time < rng.from && rawData[ri].time === partial.time) {
+                existingBar = rawData[ri]; break;
+              }
+            }
+          }
+
+          // Interpolate: at t=0 only open visible, at t=1 full OHLC
+          var animO = partial.open;
+          var animH = existingBar
+                      ? Math.max(existingBar.high, partial.open + (partial.high - partial.open) * e)
+                      : partial.open + (partial.high - partial.open) * e;
+          var animL = existingBar
+                      ? Math.min(existingBar.low, partial.open - (partial.open - partial.low) * e)
+                      : partial.open - (partial.open - partial.low) * e;
+          var animC = partial.open + (partial.close - partial.open) * e;
+
+          var animBar = {
+            time:  partial.time,
+            open:  animO,
+            high:  animH,
+            low:   animL,
+            close: animC,
+          };
+          try { cell.series.update(animBar); } catch(_) {}
+        }
+      }
+
+      if (t < 1) {
+        _animRaf = requestAnimationFrame(frame);
+      } else {
+        // Animation complete — finalize
+        _animating = false;
+        _stepBtn.classList.remove('animating');
+
+        // Check if replay is complete
+        if (_replayIdx >= _replayCandles.length) {
+          _stepBtn.classList.add('done');
+        }
+      }
+    }
+
+    _animRaf = requestAnimationFrame(frame);
+  }
+
+  // ── Main step function ─────────────────────────────────────────────────────
+  window._sv2StepForward = function() {
+    if (_animating) return;                         // tap blocked
+    if (!window._SV2_DATE_RANGE) return;
+    if (!_stepBtn) return;
+    if (_stepBtn.classList.contains('done')) return; // replay complete
+
+    // Build candle list on first tap (or after range change)
+    if (!_replayCandles) {
+      _replayCandles = _buildReplayCandles();
+      _replayIdx     = 0;
+    }
+    if (!_replayCandles.length) return;
+    if (_replayIdx >= _replayCandles.length) {
+      _stepBtn.classList.add('done');
+      return;
+    }
+
+    // Advance index
+    _replayIdx++;
+
+    // Block next tap
+    _animating = true;
+    _stepBtn.classList.add('animating');
+
+    // Animate
+    var stepBar = _replayCandles[_replayIdx - 1];
+    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    _animateStep(stepBar);
+  };
+
+  // ── React to FAB position changes (drag) — keep step btn aligned ──────────
+  function _onFabMove() {
+    if (_stepBtn && _stepBtn.classList.contains('visible')) _syncStepBtnPos();
+  }
+
+  // ── Listen for date range events ───────────────────────────────────────────
+  document.addEventListener('sv2DateRangeApplied', function() {
+    _replayCandles = null;   // force rebuild on next tap
+    _replayIdx     = 0;
+    _animating     = false;
+    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    if (_stepBtn) {
+      _stepBtn.classList.remove('done', 'animating');
+    }
+    _syncStepBtn();
+    _syncStepBtnPos();
+  });
+
+  document.addEventListener('sv2DateRangeCleared', function() {
+    _replayCandles = null;
+    _replayIdx     = 0;
+    _animating     = false;
+    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    _syncStepBtn();
+  });
+
+  // ── FAB drag: reposition step btn ─────────────────────────────────────────
+  // Watch FAB position changes via MutationObserver on its style attribute
+  function _watchFabPos() {
+    var fab = document.getElementById('sv2-drng-fab');
+    if (!fab) return;
+    var obs = new MutationObserver(_onFabMove);
+    obs.observe(fab, { attributes: true, attributeFilter: ['style'] });
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  function _stepInit() {
+    _stepBtn = document.getElementById('sv2-step-btn');
+    if (!_stepBtn) return;
+    _syncStepBtn();
+    _watchFabPos();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _stepInit);
+  } else {
+    _stepInit();
+  }
+
+  // ── Expose sync for external callers (selectStack2View/_deactivateStack2) ──
+  window._sv2StepSyncBtn = _syncStepBtn;
+
+})();
+
 // ── Patch selectStack2View and _deactivateStack2 to sync FAB ──────────────
 // (Run after both functions are defined — appended at end of SV2 block)
 (function(){
@@ -4633,6 +4995,7 @@ function ss2ApplyAndClose() {
   window.selectStack2View = function(){
     if (typeof _origActivate === 'function') _origActivate.apply(this, arguments);
     try { if (typeof window._sv2DrngOnActivate === 'function') window._sv2DrngOnActivate(); } catch(_){}
+    try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
   };
 
   // _deactivateStack2 is a local function so we re-assign the global reference
@@ -4643,6 +5006,7 @@ function ss2ApplyAndClose() {
       window._deactivateStack2 = function(){
         _orig2.apply(this, arguments);
         try { if (typeof window._sv2DrngOnDeactivate === 'function') window._sv2DrngOnDeactivate(); } catch(_){}
+        try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
       };
     }
   });
