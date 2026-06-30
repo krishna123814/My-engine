@@ -2655,7 +2655,7 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
     '2023-01-26','2023-03-07','2023-03-30','2023-04-04','2023-04-07','2023-04-14','2023-04-22','2023-05-01','2023-06-29','2023-08-15','2023-09-19','2023-10-02','2023-10-24','2023-11-14','2023-11-27','2023-12-25',
     '2024-01-22','2024-01-26','2024-03-25','2024-04-01','2024-04-09','2024-04-11','2024-04-14','2024-04-17','2024-06-17','2024-07-17','2024-08-15','2024-10-02','2024-11-01','2024-11-15','2024-12-25',
     '2025-02-26','2025-03-14','2025-03-31','2025-04-10','2025-04-14','2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02','2025-10-21','2025-10-22','2025-11-05','2025-12-25',
-    '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01','2026-08-15','2026-10-02','2026-11-25','2026-12-25',
+    '2026-01-26','2026-03-03','2026-03-26','2026-03-31','2026-04-03','2026-04-14','2026-05-01','2026-05-28','2026-06-26','2026-08-15','2026-10-02','2026-11-25','2026-12-25',
   ]);
 
   function _dateStr(tSec){
@@ -4195,6 +4195,11 @@ function _buildStack2CellChart(idx) {
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
         dataToShow = data.filter(bar => bar.time < rng.from);
         _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        // Replay mode: koi reserved blank space na rakho last historical candle
+        // ke baad, warna pehla replayed candle ek "gap" ke baad bana hua lagta hai.
+        try { c.chart.timeScale().applyOptions({ rightOffset: 0 }); } catch(_) {}
+      } else {
+        try { c.chart.timeScale().applyOptions({ rightOffset: 5 }); } catch(_) {}
       }
 
       const CHUNK = 500;
@@ -4218,6 +4223,7 @@ function _buildStack2CellChart(idx) {
         else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
+
     } catch(e) {
       _dbg.push('EXCEPTION: '+e.message);
       _sv2DebugShow(idx,'EXCEPTION',_dbg);
@@ -6035,8 +6041,8 @@ const NSE_HOLIDAYS = new Set([
   '2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02',
   '2025-10-21','2025-10-22','2025-11-05','2025-12-25',
   // 2026 (provisional — verify from NSE circular in Jan 2026)
-  '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01',
-  '2026-08-15','2026-10-02','2026-11-25','2026-12-25',
+  '2026-01-26','2026-03-03','2026-03-26','2026-03-31','2026-04-03','2026-04-14','2026-05-01',
+  '2026-05-28','2026-06-26','2026-08-15','2026-10-02','2026-11-25','2026-12-25',
 ]);
 
 // Helper: "YYYY-MM-DD" from a UTC timestamp (seconds)
