@@ -4746,6 +4746,24 @@ function ss2ApplyAndClose() {
     });
   }
 
+  // ── Resolve a STACK2 cell's REAL timeframe in minutes ──────────────────────
+  // BUG FIX: cellObj.tf is hardcoded to 1440 in buildStack2() (it's unused —
+  // the actual per-cell TF lives only as a LABEL string in cfg.tfs[idx], e.g.
+  // "45m", "135m", "1D"). Using cell.tf directly made every cell resolve to
+  // the same 1440-min (1-day) bucket, so every step collapsed onto the same
+  // candle instead of advancing. Parse the real label here instead.
+  function _getCellTFMin(idx) {
+    try {
+      var assetKey = (typeof _stackKeyForAsset === 'function')
+                      ? _stackKeyForAsset(S.asset) : 'bn';
+      var cfg2 = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+      var tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
+      var min = _parseTFMin(tfLabel);
+      if (min && min > 0) return min;
+    } catch(_) {}
+    return 5; // safe fallback — base TF
+  }
+
   // ── Get all STACK2_CELLS data arrays (raw, unfiltered) ────────────────────
   // Each cell has its own TF. We need to feed the partial candle contribution
   // of the base-TF candle into each cell's higher-TF forming candle.
@@ -4845,8 +4863,9 @@ function ss2ApplyAndClose() {
           var cell = STACK2_CELLS[ci];
           if (!cell || !cell.chart || !cell.series) continue;
 
-          // Cell TF in minutes
-          var cellTFMin = cell.tf || 5;
+          // Cell TF in minutes — resolved from the real label, NOT cell.tf
+          // (cell.tf is always hardcoded 1440 — see _getCellTFMin comment)
+          var cellTFMin = _getCellTFMin(ci);
 
           // baseBars for this cell = replayed bars that belong to same bucket
           var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
