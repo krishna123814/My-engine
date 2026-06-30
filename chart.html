@@ -2641,158 +2641,6 @@ const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
 // ════════════════════════════════════════════════════════════════════════════
-// 🐞 GAP DEBUG TOOL — scans SV2_BN['5m'] for missing trading days/candles
-// and shows a copy-able report. Floating button, bottom-right corner.
-// ════════════════════════════════════════════════════════════════════════════
-(function(){
-  const NSE_HOLIDAYS_DBG = new Set([
-    '2017-01-26','2017-02-24','2017-03-13','2017-04-04','2017-04-14','2017-06-26','2017-08-15','2017-08-25','2017-10-02','2017-10-19','2017-10-20','2017-11-01','2017-12-25',
-    '2018-01-26','2018-03-02','2018-03-29','2018-03-30','2018-05-01','2018-08-15','2018-08-22','2018-09-13','2018-09-20','2018-10-02','2018-11-07','2018-11-08','2018-11-21','2018-12-25',
-    '2019-03-04','2019-03-21','2019-04-17','2019-04-19','2019-05-01','2019-06-05','2019-08-12','2019-08-15','2019-09-02','2019-10-02','2019-10-07','2019-10-08','2019-10-28','2019-11-12','2019-12-25',
-    '2020-02-21','2020-03-10','2020-04-02','2020-04-06','2020-04-10','2020-04-14','2020-05-01','2020-05-25','2020-07-31','2020-08-15','2020-10-02','2020-11-16','2020-11-30','2020-12-25',
-    '2021-01-26','2021-03-11','2021-03-29','2021-04-02','2021-04-14','2021-04-21','2021-05-13','2021-07-21','2021-08-15','2021-09-10','2021-10-02','2021-10-15','2021-11-04','2021-11-05','2021-11-19','2021-12-25',
-    '2022-01-26','2022-03-01','2022-03-18','2022-04-14','2022-04-15','2022-05-03','2022-08-09','2022-08-15','2022-10-02','2022-10-05','2022-10-26','2022-10-27','2022-11-08','2022-12-25',
-    '2023-01-26','2023-03-07','2023-03-30','2023-04-04','2023-04-07','2023-04-14','2023-04-22','2023-05-01','2023-06-29','2023-08-15','2023-09-19','2023-10-02','2023-10-24','2023-11-14','2023-11-27','2023-12-25',
-    '2024-01-22','2024-01-26','2024-03-25','2024-04-01','2024-04-09','2024-04-11','2024-04-14','2024-04-17','2024-06-17','2024-07-17','2024-08-15','2024-10-02','2024-11-01','2024-11-15','2024-12-25',
-    '2025-02-26','2025-03-14','2025-03-31','2025-04-10','2025-04-14','2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02','2025-10-21','2025-10-22','2025-11-05','2025-12-25',
-    '2026-01-26','2026-03-03','2026-03-26','2026-03-31','2026-04-03','2026-04-14','2026-05-01','2026-05-28','2026-06-26','2026-08-15','2026-10-02','2026-11-25','2026-12-25',
-  ]);
-
-  function _dateStr(tSec){
-    const d = new Date(tSec*1000);
-    return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
-  }
-  function _dayName(tSec){
-    return ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(tSec*1000).getUTCDay()];
-  }
-
-  function scanGaps(){
-    const rows = (SV2_BN && SV2_BN['5m']) ? SV2_BN['5m'].slice().sort((a,b)=>a.time-b.time) : [];
-    const report = { generated: new Date().toISOString(), totalCandles: rows.length, gaps: [], missingWeekdays: [] };
-    if (!rows.length) { report.error = 'SV2_BN["5m"] empty — data load fail hua hai, debug log incomplete hoga.'; return report; }
-
-    // 1) Raw consecutive-candle gaps > 5 min
-    for (let i=1;i<rows.length;i++){
-      const diff = rows[i].time - rows[i-1].time;
-      if (diff > 300){
-        report.gaps.push({
-          prev_time: _dateStr(rows[i-1].time)+' '+new Date(rows[i-1].time*1000).toISOString().substr(11,5)+' ('+_dayName(rows[i-1].time)+')',
-          next_time: _dateStr(rows[i].time)+' '+new Date(rows[i].time*1000).toISOString().substr(11,5)+' ('+_dayName(rows[i].time)+')',
-          diff_sec: diff, diff_days: +(diff/86400).toFixed(2)
-        });
-      }
-    }
-
-    // 2) Which trading weekdays (Mon-Fri, non-NSE-holiday) have ZERO candles
-    const datesWithData = new Set(rows.map(r=>_dateStr(r.time)));
-    if (rows.length){
-      let cur = new Date(rows[0].time*1000); cur.setUTCHours(0,0,0,0);
-      const end = new Date(rows[rows.length-1].time*1000); end.setUTCHours(0,0,0,0);
-      while (cur <= end){
-        const dow = cur.getUTCDay(); // 0=Sun,6=Sat
-        const ds = cur.getUTCFullYear()+'-'+String(cur.getUTCMonth()+1).padStart(2,'0')+'-'+String(cur.getUTCDate()).padStart(2,'0');
-        if (dow!==0 && dow!==6 && !NSE_HOLIDAYS_DBG.has(ds) && !datesWithData.has(ds)){
-          report.missingWeekdays.push(ds+' ('+_dayName(cur.getTime()/1000)+')');
-        }
-        cur.setUTCDate(cur.getUTCDate()+1);
-      }
-    }
-    return report;
-  }
-
-  function buildLogText(r){
-    let out = 'BANKNIFTY 5m — Live Gap Debug Log\nGenerated: '+r.generated+'\nTotal 5m candles loaded: '+r.totalCandles+'\n\n';
-    if (r.error){ out += 'ERROR: '+r.error+'\n'; return out; }
-    out += '=== Gaps > 5 min between consecutive candles ('+r.gaps.length+' found) ===\n';
-    r.gaps.forEach(g=>{
-      out += g.prev_time+'  →  '+g.next_time+'   | '+g.diff_sec+'s ('+g.diff_days+'d)\n';
-    });
-    out += '\n=== Trading weekdays with ZERO candles (not Sat/Sun, not NSE holiday) ('+r.missingWeekdays.length+' found) ===\n';
-    if (!r.missingWeekdays.length) out += '(none found in loaded range)\n';
-    r.missingWeekdays.forEach(d=>{ out += d+'  → MISSING, likely data-fetch failure for this day\n'; });
-    out += '\nVerdict: Saturday/Sunday gaps are normal (market closed). Any date listed under\n"missing weekdays" above is a genuine data bug — that trading day was never fetched/stored.\n';
-    return out;
-  }
-
-  function openPanel(){
-    const r = scanGaps();
-    let txt = '';
-    if (window._SV2_LAST_STEP_DEBUG) {
-      txt += window._SV2_LAST_STEP_DEBUG;
-      txt += '\n════════════════════════════════════════\n';
-      txt += '(Neeche full-dataset weekday/gap scan bhi hai, reference ke liye)\n\n';
-    }
-    txt += buildLogText(r);
-    let modal = document.getElementById('__gapDbgModal');
-    if (modal) modal.remove();
-    modal = document.createElement('div');
-    modal.id = '__gapDbgModal';
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px;';
-    modal.innerHTML = `
-      <div style="background:#0d1117;color:#c9d1d9;width:100%;max-width:640px;max-height:85vh;border-radius:10px;border:1px solid #262d38;display:flex;flex-direction:column;font-family:ui-monospace,Menlo,Consolas,monospace;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #262d38;">
-          <strong style="font-size:13px;color:#58a6ff;">🐞 Gap Debug Log</strong>
-          <div style="display:flex;gap:8px;">
-            <button id="__gapDbgCopy" style="background:#1f6feb;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">📋 Copy</button>
-            <button id="__gapDbgClose" style="background:#30363d;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">✕</button>
-          </div>
-        </div>
-        <pre id="__gapDbgText" style="margin:0;padding:14px 16px;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;">${txt.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</pre>
-      </div>`;
-    document.body.appendChild(modal);
-    document.getElementById('__gapDbgClose').onclick = ()=>modal.remove();
-    modal.onclick = (e)=>{ if(e.target===modal) modal.remove(); };
-    document.getElementById('__gapDbgCopy').onclick = ()=>{
-      navigator.clipboard.writeText(txt).then(()=>{
-        const b = document.getElementById('__gapDbgCopy');
-        b.textContent = '✅ Copied!'; setTimeout(()=>{ b.textContent='📋 Copy'; }, 1800);
-      });
-    };
-  }
-
-  window._openGapDebugPanel = openPanel;
-
-  function addButton(){
-    if (document.getElementById('__gapDbgBtn')) return;
-    const btn = document.createElement('button');
-    btn.id = '__gapDbgBtn';
-    btn.textContent = '🐞 Gap Debug';
-    btn.style.cssText = 'position:fixed;bottom:14px;right:14px;z-index:9998;background:#1f6feb;color:#fff;border:none;padding:8px 14px;border-radius:20px;font-size:12px;font-family:inherit;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4);';
-    btn.onclick = openPanel;
-    document.body.appendChild(btn);
-  }
-
-  function removeButton(){
-    const btn = document.getElementById('__gapDbgBtn');
-    if (btn) btn.remove();
-    const modal = document.getElementById('__gapDbgModal');
-    if (modal) modal.remove();
-  }
-
-  // ── Sirf Stack View 2 active hone par hi button dikhao ───────────────────
-  // #stack-view-2 par 'active' class lagti/hatati hai jab Stack View 2
-  // on/off hoti hai (selectStack2View / _deactivateStack2). Usi ko observe
-  // karke button ko sync rakhte hain — koi extra hook lagane ki zaroorat nahi.
-  function syncWithStack2(){
-    const sv2 = document.getElementById('stack-view-2');
-    if (!sv2) { setTimeout(syncWithStack2, 400); return; }
-    const apply = ()=>{
-      if (sv2.classList.contains('active')) addButton();
-      else removeButton();
-    };
-    apply();
-    const obs = new MutationObserver(apply);
-    obs.observe(sv2, { attributes: true, attributeFilter: ['class'] });
-  }
-
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', syncWithStack2);
-  } else {
-    syncWithStack2();
-  }
-})();
-
-// ════════════════════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════════════════════
 const S = {
@@ -4203,11 +4051,6 @@ function _buildStack2CellChart(idx) {
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
         dataToShow = data.filter(bar => bar.time < rng.from);
         _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
-        // Replay mode: koi reserved blank space na rakho last historical candle
-        // ke baad, warna pehla replayed candle ek "gap" ke baad bana hua lagta hai.
-        try { c.chart.timeScale().applyOptions({ rightOffset: 0 }); } catch(_) {}
-      } else {
-        try { c.chart.timeScale().applyOptions({ rightOffset: 5 }); } catch(_) {}
       }
 
       const CHUNK = 500;
@@ -4231,7 +4074,6 @@ function _buildStack2CellChart(idx) {
         else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
-
     } catch(e) {
       _dbg.push('EXCEPTION: '+e.message);
       _sv2DebugShow(idx,'EXCEPTION',_dbg);
@@ -5039,19 +4881,14 @@ function ss2ApplyAndClose() {
           var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
           if (!partial) continue;
 
-          // Get cell's existing bucket bar from raw data, if this partial
-          // candle's bucket already has data (e.g. range hidden mid-bucket).
-          // NOTE: previously this required rawData[ri].time < rng.from, which
-          // is impossible since partial.time is always built from bars with
-          // time >= rng.from — that made existingBar always null. Fixed.
+          // Get cell's existing last bar from raw data (before range)
           var rawData = _getCellRawData(ci);
           var existingBar = null;
           if (Array.isArray(rawData)) {
             for (var ri = rawData.length - 1; ri >= 0; ri--) {
-              if (rawData[ri].time === partial.time) {
+              if (rawData[ri].time < rng.from && rawData[ri].time === partial.time) {
                 existingBar = rawData[ri]; break;
               }
-              if (rawData[ri].time < partial.time) break; // sorted, no match possible
             }
           }
 
@@ -5096,91 +4933,6 @@ function ss2ApplyAndClose() {
     _animRaf = requestAnimationFrame(frame);
   }
 
-  // ── 🐞 STEP GAP DEBUG — runs on every step tap, explains WHY a gap appears ──
-  // Compares each cell's last real bar BEFORE the hidden range vs the new
-  // bucket time the step just produced. If the difference is bigger than the
-  // cell's own TF, that's the visible "gap" — this tells you exactly which
-  // cell, which bucket times, and whether an existingBar (continuation) was
-  // found or not (the #1 cause of a fresh/incomplete first candle).
-  function _logStepDebug(stepBar, allReplayedSoFar, rng, isBN) {
-    var lines = [];
-    var fmt = function(t){
-      if (t === null || t === undefined) return 'n/a';
-      var d = new Date(t * 1000);
-      return d.toISOString().replace('T',' ').substr(0,16) + 'Z';
-    };
-    lines.push('🐞 STEP GAP DEBUG — tap #' + _replayIdx + ' / ' + (_replayCandles ? _replayCandles.length : 0));
-    lines.push('Range hidden: ' + fmt(rng.from) + '  →  ' + fmt(rng.to));
-    lines.push('Step base candle (' + (isBN ? '5m BN' : '160m BTC') + '): ' + fmt(stepBar.time));
-    lines.push('');
-
-    if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) {
-      lines.push('(STACK2_CELLS not ready yet)');
-      window._SV2_LAST_STEP_DEBUG = lines.join('\n');
-      return;
-    }
-
-    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
-      var cell = STACK2_CELLS[ci];
-      if (!cell) continue;
-      var cellTFMin = _getCellTFMin(ci);
-      var partial   = _computePartialCandle(allReplayedSoFar, cellTFMin, isBN);
-      if (!partial) continue;
-
-      var rawData = _getCellRawData(ci);
-      var lastBarBeforeRange = null;
-      var existingBar        = null;
-      if (Array.isArray(rawData)) {
-        // Pass 1: last bar strictly before the hidden range (for gap display only)
-        for (var ri = rawData.length - 1; ri >= 0; ri--) {
-          if (rawData[ri].time < rng.from) { lastBarBeforeRange = rawData[ri]; break; }
-        }
-        // Pass 2: actual bucket match — FIXED. Previously required
-        // time < rng.from, which is impossible since partial.time is always
-        // built from bars with time >= rng.from, so existingBar was always
-        // null even when this cell's bucket genuinely already had data.
-        for (var rj = rawData.length - 1; rj >= 0; rj--) {
-          if (rawData[rj].time === partial.time) { existingBar = rawData[rj]; break; }
-          if (rawData[rj].time < partial.time) break; // sorted, no match possible
-        }
-      }
-
-      var expectedSec = cellTFMin * 60;
-      var gapSec   = lastBarBeforeRange ? (partial.time - lastBarBeforeRange.time) : null;
-      // Intraday cells (5m..135m) always have a big "gap" between previous
-      // session close (~15:25 IST) and next session open (~09:15 IST) — that
-      // is NORMAL (market closed overnight), not a data bug. Flagging it
-      // against expectedSec*1.5 gave false alarms even on consecutive trading
-      // days. Use a 4-day cap instead (covers overnight/weekend/long-weekend
-      // holidays); only a genuinely missing trading day would exceed that.
-      var NORMAL_SESSION_CAP_SEC = 4 * 86400;
-      var isGap;
-      if (cellTFMin < 1440) {
-        isGap = gapSec !== null && gapSec > NORMAL_SESSION_CAP_SEC;
-      } else {
-        isGap = gapSec !== null && gapSec > expectedSec * 1.5;
-      }
-
-      lines.push('── Cell ' + ci + ' (' + cellTFMin + 'm) ──');
-      lines.push('  new bucket time      : ' + fmt(partial.time));
-      lines.push('  last real bar before : ' + (lastBarBeforeRange ? fmt(lastBarBeforeRange.time) : 'NONE FOUND'));
-      lines.push('  existingBar continuation found : ' + (existingBar ? 'YES (' + fmt(existingBar.time) + ')' : 'NO — fresh candle, no merge'));
-      if (gapSec !== null) {
-        var note = isGap ? '  ⚠️ GAP' : (cellTFMin < 1440 ? '  (ok — normal overnight/weekend session gap)' : '  (ok)');
-        lines.push('  gap vs expected TF   : ' + gapSec + 's actual vs ' + expectedSec + 's expected' + note);
-      } else {
-        lines.push('  gap vs expected TF   : could not compute (no prior bar in rawData)');
-      }
-      if (isGap && !existingBar) {
-        lines.push('  → LIKELY CAUSE: is cell ke liye bucket boundary hidden-range se pehle start hota hai,');
-        lines.push('    lekin rawData me uska continuation bar nahi mila — isliye partial candle khaali se ban rahi');
-        lines.push('    hai aur open/high/low purane real data se match nahi karte → yahi visible gap hai.');
-      }
-      lines.push('');
-    }
-    window._SV2_LAST_STEP_DEBUG = lines.join('\n');
-  }
-
   // ── Main step function ─────────────────────────────────────────────────────
   window._sv2StepForward = function() {
     if (_animating) return;                         // tap blocked
@@ -5208,18 +4960,6 @@ function ss2ApplyAndClose() {
 
     // Animate
     var stepBar = _replayCandles[_replayIdx - 1];
-
-    // 🐞 Capture step-level gap diagnostics BEFORE animating, so the
-    // Gap Debug panel can immediately explain this exact tap.
-    try {
-      var _dbgAssetKey = (typeof _stackKeyForAsset === 'function')
-                          ? _stackKeyForAsset(S.asset) : 'bn';
-      var _dbgIsBN     = (_dbgAssetKey === 'bn');
-      _logStepDebug(stepBar, _replayCandles.slice(0, _replayIdx), window._SV2_DATE_RANGE, _dbgIsBN);
-      // Khud-ba-khud panel kholo taaki step click karte hi gap ka reason dikhe
-      if (typeof window._openGapDebugPanel === 'function') window._openGapDebugPanel();
-    } catch(e) { window._SV2_LAST_STEP_DEBUG = 'Step debug error: ' + (e && e.message); }
-
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     _animateStep(stepBar);
   };
@@ -5234,7 +4974,6 @@ function ss2ApplyAndClose() {
     _replayCandles = null;   // force rebuild on next tap
     _replayIdx     = 0;
     _animating     = false;
-    window._SV2_LAST_STEP_DEBUG = null;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
@@ -6152,8 +5891,8 @@ const NSE_HOLIDAYS = new Set([
   '2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02',
   '2025-10-21','2025-10-22','2025-11-05','2025-12-25',
   // 2026 (provisional — verify from NSE circular in Jan 2026)
-  '2026-01-26','2026-03-03','2026-03-26','2026-03-31','2026-04-03','2026-04-14','2026-05-01',
-  '2026-05-28','2026-06-26','2026-08-15','2026-10-02','2026-11-25','2026-12-25',
+  '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01',
+  '2026-08-15','2026-10-02','2026-11-25','2026-12-25',
 ]);
 
 // Helper: "YYYY-MM-DD" from a UTC timestamp (seconds)
@@ -10797,21 +10536,9 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    let out = (typeof cutoffTime === 'number')
+    return (typeof cutoffTime === 'number')
       ? data.filter(b => b.time < cutoffTime)
       : data;
-    // 🐞 FIX: SR/swing lines were being computed from RAW (unfiltered) data,
-    // which still includes bars that fall INSIDE the hidden date-range used
-    // for replay. The candle series itself excludes those bars, but SR line
-    // endpoints (start/end time) could land inside that hidden gap — forcing
-    // the chart's time-axis to reserve space for that empty zone, which is
-    // exactly the visual "gap" that appears whenever SR is turned ON.
-    // So we must also exclude hidden-range bars here, same as the candle data.
-    const rng = window._SV2_DATE_RANGE;
-    if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-      out = out.filter(b => b.time < rng.from || b.time >= rng.to);
-    }
-    return out;
   } catch(_) { return []; }
 }
 
@@ -10884,8 +10611,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 }
 
 // ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
-// cutoffTime: sv2SwingInit se pass hota hai — actual data cutoff epoch second
-function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
+function _sv2ApplyCellSR(cellIdx, lines) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
@@ -10894,51 +10620,10 @@ function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
-
-    // ── BUG FIX: SR line endpoints ko last actual bar time par clamp karo ──
-    // Problem: Jab replay date-range active hoti hai, SR lines ka endTime (ya
-    // infinite lines ka endT = startTime + period*100) hidden gap zone mein
-    // fall karta hai. lightweight-charts us timestamp ke liye ek nayi empty
-    // slot banata hai → pehli candle se pehle gap dikh jaata hai.
-    //
-    // Galat fix (pehla try): rng.from - 1 use karna — yeh ek fake timestamp
-    // tha jo kisi real candle ka time nahi tha → isse bhi nayi slot banti thi.
-    //
-    // Sahi fix: Cell ke actual filtered candle data ka LAST BAR TIME dhundho.
-    // Kyunki yeh time pehle se chart mein exist karta hai, koi nayi slot nahi
-    // banti → koi gap nahi.
-    const _rng = window._SV2_DATE_RANGE;
-    let safeLines = lines;
-    if (_rng && typeof _rng.from === 'number') {
-      // Cell ke TF ke filtered data ka last bar time nikalo
-      let maxEndTime = null;
-      try {
-        const _ak = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-        const _cfg2 = (_stack2Cfg[_ak] || _stack2Cfg.btc);
-        const _tfLbl = (_cfg2.tfs && _cfg2.tfs[cellIdx]) || '';
-        // cutoffTime = closedCandleTime+1 (step) ya rng.from (range) ya null
-        const _ct = (typeof cutoffTime === 'number') ? cutoffTime : _rng.from;
-        const _cellData = _sv2DataForTF(_ak, _tfLbl, _ct);
-        if (_cellData && _cellData.length) maxEndTime = _cellData[_cellData.length - 1].time;
-      } catch(_) {}
-      // Fallback agar data empty ho: rng.from se ek candle-period pehle
-      if (maxEndTime === null) maxEndTime = _rng.from - 300;
-
-      safeLines = [];
-      for (const ln of lines) {
-        const pSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-        const rawEndT = ln.isInfinite ? (ln.startTime + pSec * 100) : ln.endTime;
-        const clampedEndT = Math.min(rawEndT, maxEndTime);
-        if (clampedEndT <= ln.startTime) continue; // line itni short ho gayi ke dikhana bekaar
-        // Har line ko non-infinite bana do with clamped endTime
-        safeLines.push(Object.assign({}, ln, { isInfinite: false, endTime: clampedEndT, periodSec: pSec }));
-      }
-    }
-
     // Range pehle save karo taaki auto-scroll na ho
     let _preRange = null;
     try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, safeLines, _preRange);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
   } catch(_) {}
 }
 
@@ -10953,7 +10638,7 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines, cutoffTime);
+    _sv2ApplyCellSR(i, lines);
   }
 }
 

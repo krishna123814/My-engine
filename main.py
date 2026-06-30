@@ -462,11 +462,6 @@ import gzip as _gzip
 import io as _io
 
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
-_SV2_CACHE_TTL = 300     # 5 min — isse zyada purana cache hua to GitHub se re-fetch karo
-
-def _sv2_cache_expired(key: str) -> bool:
-    ts = _SV2_CACHE.get(key + "_ts", 0)
-    return (time.time() - ts) > _SV2_CACHE_TTL
 
 # GitHub raw URLs — repo: krishna123814/My-engine, branch: main
 _GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
@@ -486,32 +481,25 @@ def _sv2_fetch_gz_from_url(url: str) -> list:
         return []
 
 def _sv2_load_bn_gz() -> list:
-    """BankNifty 5m candles — GitHub se fetch karo (cached, TTL=5min)."""
-    if "bn_raw" in _SV2_CACHE and not _sv2_cache_expired("bn_raw"):
+    """BankNifty 5m candles — GitHub se fetch karo (cached)."""
+    if "bn_raw" in _SV2_CACHE:
         return _SV2_CACHE["bn_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
     if not rows:
         _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
-        # Stale data better than no data — agar purana cache maujood hai to wahi return karo
-        if "bn_raw" in _SV2_CACHE:
-            return _SV2_CACHE["bn_raw"]
         return []
     _SV2_CACHE["bn_raw"] = rows
-    _SV2_CACHE["bn_raw_ts"] = time.time()
     return rows
 
 def _sv2_load_btc_gz() -> list:
-    """BTC 5m candles — GitHub se fetch karo (cached, TTL=5min)."""
-    if "btc_raw" in _SV2_CACHE and not _sv2_cache_expired("btc_raw"):
+    """BTC 5m candles — GitHub se fetch karo (cached)."""
+    if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
     if not rows:
         _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
-        if "btc_raw" in _SV2_CACHE:
-            return _SV2_CACHE["btc_raw"]
         return []
     _SV2_CACHE["btc_raw"] = rows
-    _SV2_CACHE["btc_raw_ts"] = time.time()
     return rows
 
 ## ── IST-naive timestamp constants ───────────────────────────────────────────
