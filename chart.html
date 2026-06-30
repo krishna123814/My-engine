@@ -3953,6 +3953,16 @@ function buildStack2() {
       }
     }
   }, 500);
+
+  // SV2 Swing S&R — cells settle hone ke baad SR lagao
+  // Date range active hai to sirf historical (< rng.from), warna full .gz data
+  setTimeout(function() {
+    try {
+      const _rng2 = window._SV2_DATE_RANGE;
+      const _co   = (_rng2 && typeof _rng2.from === 'number') ? _rng2.from : null;
+      sv2SwingInit(_co);
+    } catch(_) {}
+  }, 650);
 }
 
 function _buildStack2CellChart(idx) {
@@ -4909,6 +4919,9 @@ function ss2ApplyAndClose() {
         // Animation complete — finalize
         _animating = false;
         _stepBtn.classList.remove('animating');
+
+        // SV2 Swing S&R: closed candle ke baad SR update karo
+        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
@@ -9979,6 +9992,8 @@ function _swingRefresh() {
   if (!SWING_STATE.visible) return;
   if (S.layout === '1x1') { swingAfterRebuild(); }
   else { CELLS.forEach((_, i) => buildCellSwing(i)); }
+  // SV2 cells bhi refresh karo
+  try { sv2SwingRefresh(); } catch(_) {}
 }
 
 // Default palette: Pine Script TF → color
@@ -10492,6 +10507,181 @@ function swingAfterRebuildBtc2() {
   btc2RemoveCanvas();
   setTimeout(() => { initBtc2Indicator(); }, 0);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 SWING S&R INDICATOR
+// ────────────────────────────────────────────────────────────────────────────
+// Stack View 2 ke har cell par wahi Swing S&R lagata hai jo SV1 mein lagta hai.
+// Data source: SV2_BN / SV2_BTC (.gz pre-resampled) — Fyers API nahi.
+//
+// 3 modes:
+//   A) .gz full data:   sv2SwingInit(null)          — SV2 load/asset change par
+//   B) Date range set:  sv2SwingInit(rng.from)       — sirf historical candles
+//   C) Replay step ⏭:  sv2SwingOnStep(closedTime)   — har closed candle par
+//
+// Reused (zero change): swingCompute(), _bnBuildSRNative(), _bnClearSRNative(),
+//   SWING_TF_LIST, SWING_PRESETS, _TF_COLORS, SWING_LINE_WIDTH, SWING_STATE
+// ════════════════════════════════════════════════════════════════════════════
+
+// Per-cell SR series store — parallel index to STACK2_CELLS
+const _sv2SrSeries = [];
+
+// ── SV2 store se ek TF ka data lo, optional cutoff ke saath ─────────────────
+function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
+  try {
+    const store  = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
+    const keyLow = (tfLabel || '').toLowerCase();
+    let data = null;
+    for (const k in store) {
+      if (k.toLowerCase() === keyLow) { data = store[k]; break; }
+    }
+    if (!Array.isArray(data) || !data.length) return [];
+    return (typeof cutoffTime === 'number')
+      ? data.filter(b => b.time < cutoffTime)
+      : data;
+  } catch(_) { return []; }
+}
+
+// ── tf.min → SV2 store label map (e.g. 480 → '8H', 1440 → '1D') ──────────
+function _sv2FindTFLabel(assetKey, tfMin, hintLabel) {
+  try {
+    const store = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
+    // 1. SWING_TF_LIST chip ka hint label try karo first
+    if (hintLabel) {
+      const h = hintLabel.toLowerCase();
+      for (const k in store) { if (k.toLowerCase() === h) return k; }
+    }
+    // 2. Minutes → canonical label convert karo
+    let lbl;
+    if      (tfMin >= 1440 && tfMin % 1440 === 0) lbl = (tfMin / 1440) + 'D';
+    else if (tfMin >= 60   && tfMin % 60   === 0) lbl = (tfMin / 60)   + 'H';
+    else                                           lbl = tfMin + 'm';
+    const low = lbl.toLowerCase();
+    for (const k in store) { if (k.toLowerCase() === low) return k; }
+  } catch(_) {}
+  return null;
+}
+
+// ── Ek SV2 cell ke liye Multi-TF SR compute karo ──────────────────────────
+function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
+  try {
+    const cfg2      = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+    const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
+    const cellTFMin = _parseTFMin(tfLabel) || 5;
+    const allLines  = [];
+
+    // Step 1: Cell ka apna TF
+    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
+    if (dataCur.length >= 3) {
+      swingCompute(dataCur, cellTFMin)
+        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+    }
+
+    // Step 2: SWING_TF_LIST se enabled higher TFs
+    const enabledHTFs = (SWING_TF_LIST || [])
+      .filter(t => t.enabled && t.min > cellTFMin)
+      .sort((a, b) => a.min - b.min);
+
+    for (const tf of enabledHTFs) {
+      const label = _sv2FindTFLabel(assetKey, tf.min, tf.label);
+      if (!label) continue;
+      const data = _sv2DataForTF(assetKey, label, cutoffTime);
+      if (data.length >= 3) {
+        swingCompute(data, tf.min)
+          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+      }
+    }
+
+    // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
+    // swing se upar priority do (SV1 swingComputeMultiTF ke saath identical)
+    const _swingByPrice  = new Map();
+    const _candleByPrice = new Map();
+    for (const line of allLines) {
+      if (line.isInfinite) {
+        const ex = _swingByPrice.get(line.price);
+        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
+      } else {
+        const ex = _candleByPrice.get(line.price);
+        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
+      }
+    }
+    for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
+    return [..._swingByPrice.values(), ..._candleByPrice.values()];
+  } catch(_) { return []; }
+}
+
+// ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
+function _sv2ApplyCellSR(cellIdx, lines) {
+  try {
+    const c = STACK2_CELLS[cellIdx];
+    if (!c || !c.chart) return;
+    // Purani series hata do
+    if (_sv2SrSeries[cellIdx] && _sv2SrSeries[cellIdx].length) {
+      _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
+    }
+    if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
+    // Range pehle save karo taaki auto-scroll na ho
+    let _preRange = null;
+    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
+  } catch(_) {}
+}
+
+// ── Sab SV2 cells initialize/refresh karo ──────────────────────────────────
+// cutoffTime = null → poora .gz data
+// cutoffTime = number → sirf bar.time < cutoffTime wale candles
+function sv2SwingInit(cutoffTime) {
+  if (!SWING_STATE.visible) return;
+  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+  if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  const assetKey = (typeof _stackKeyForAsset === 'function')
+                    ? _stackKeyForAsset(S.asset) : 'bn';
+  for (let i = 0; i < STACK2_CELLS.length; i++) {
+    const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
+    _sv2ApplyCellSR(i, lines);
+  }
+}
+
+// ── Refresh — chip/preset/line-width/toggle change par ──────────────────────
+function sv2SwingRefresh() {
+  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+  const rng    = window._SV2_DATE_RANGE;
+  const cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
+  sv2SwingInit(cutoff);
+}
+
+// ── Replay step: jab ek candle fully close ho tab SR update karo ─────────────
+function sv2SwingOnStep(closedCandleTime) {
+  if (!SWING_STATE.visible) return;
+  // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
+  sv2SwingInit(closedCandleTime + 1);
+}
+
+// ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
+function sv2SwingClear() {
+  if (typeof STACK2_CELLS === 'undefined') return;
+  for (let i = 0; i < STACK2_CELLS.length; i++) {
+    try {
+      const c = STACK2_CELLS[i];
+      if (!c || !c.chart) continue;
+      if (_sv2SrSeries[i] && _sv2SrSeries[i].length) {
+        _sv2SrSeries[i] = _bnClearSRNative(c.chart, _sv2SrSeries[i]);
+      }
+    } catch(_) {}
+  }
+}
+
+// ── Date Range events sunna ─────────────────────────────────────────────────
+document.addEventListener('sv2DateRangeApplied', function(e) {
+  const rng = e && e.detail;
+  if (rng && typeof rng.from === 'number') {
+    // buildStack2 ke baad settle hone ka time do (500ms)
+    setTimeout(() => sv2SwingInit(rng.from), 550);
+  }
+});
+document.addEventListener('sv2DateRangeCleared', function() {
+  setTimeout(() => sv2SwingInit(null), 550);
+});
 
 // ════════════════════════════════════════════════════════════════════════════
 // PARENT DOT SYSTEM  — 3× rule marker
@@ -11073,6 +11263,8 @@ function onSwingToggle(cb) {
     } else {
       CELLS.forEach((_, i) => buildCellSwing(i));
     }
+    // SV2 cells par bhi SR dikhao
+    try { sv2SwingRefresh(); } catch(_) {}
   } else {
     swingRemoveCanvas();
     _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
@@ -11080,6 +11272,8 @@ function onSwingToggle(cb) {
       if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} c.swing = null; }
       c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
     });
+    // SV2 cells se bhi SR hatao
+    try { sv2SwingClear(); } catch(_) {}
   }
 }
 
