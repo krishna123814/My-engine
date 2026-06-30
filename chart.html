@@ -10797,9 +10797,21 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    return (typeof cutoffTime === 'number')
+    let out = (typeof cutoffTime === 'number')
       ? data.filter(b => b.time < cutoffTime)
       : data;
+    // 🐞 FIX: SR/swing lines were being computed from RAW (unfiltered) data,
+    // which still includes bars that fall INSIDE the hidden date-range used
+    // for replay. The candle series itself excludes those bars, but SR line
+    // endpoints (start/end time) could land inside that hidden gap — forcing
+    // the chart's time-axis to reserve space for that empty zone, which is
+    // exactly the visual "gap" that appears whenever SR is turned ON.
+    // So we must also exclude hidden-range bars here, same as the candle data.
+    const rng = window._SV2_DATE_RANGE;
+    if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
+      out = out.filter(b => b.time < rng.from || b.time >= rng.to);
+    }
+    return out;
   } catch(_) { return []; }
 }
 
