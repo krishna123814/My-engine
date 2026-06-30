@@ -5039,14 +5039,19 @@ function ss2ApplyAndClose() {
           var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
           if (!partial) continue;
 
-          // Get cell's existing last bar from raw data (before range)
+          // Get cell's existing bucket bar from raw data, if this partial
+          // candle's bucket already has data (e.g. range hidden mid-bucket).
+          // NOTE: previously this required rawData[ri].time < rng.from, which
+          // is impossible since partial.time is always built from bars with
+          // time >= rng.from — that made existingBar always null. Fixed.
           var rawData = _getCellRawData(ci);
           var existingBar = null;
           if (Array.isArray(rawData)) {
             for (var ri = rawData.length - 1; ri >= 0; ri--) {
-              if (rawData[ri].time < rng.from && rawData[ri].time === partial.time) {
+              if (rawData[ri].time === partial.time) {
                 existingBar = rawData[ri]; break;
               }
+              if (rawData[ri].time < partial.time) break; // sorted, no match possible
             }
           }
 
@@ -5126,12 +5131,17 @@ function ss2ApplyAndClose() {
       var lastBarBeforeRange = null;
       var existingBar        = null;
       if (Array.isArray(rawData)) {
+        // Pass 1: last bar strictly before the hidden range (for gap display only)
         for (var ri = rawData.length - 1; ri >= 0; ri--) {
-          if (rawData[ri].time < rng.from) {
-            if (!lastBarBeforeRange) lastBarBeforeRange = rawData[ri];
-            if (rawData[ri].time === partial.time) { existingBar = rawData[ri]; break; }
-            if (lastBarBeforeRange) break;
-          }
+          if (rawData[ri].time < rng.from) { lastBarBeforeRange = rawData[ri]; break; }
+        }
+        // Pass 2: actual bucket match — FIXED. Previously required
+        // time < rng.from, which is impossible since partial.time is always
+        // built from bars with time >= rng.from, so existingBar was always
+        // null even when this cell's bucket genuinely already had data.
+        for (var rj = rawData.length - 1; rj >= 0; rj--) {
+          if (rawData[rj].time === partial.time) { existingBar = rawData[rj]; break; }
+          if (rawData[rj].time < partial.time) break; // sorted, no match possible
         }
       }
 
