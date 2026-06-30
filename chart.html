@@ -2716,7 +2716,13 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
   function openPanel(){
     const r = scanGaps();
-    const txt = buildLogText(r);
+    let txt = '';
+    if (window._SV2_LAST_STEP_DEBUG) {
+      txt += window._SV2_LAST_STEP_DEBUG;
+      txt += '\n════════════════════════════════════════\n';
+      txt += '(Neeche full-dataset weekday/gap scan bhi hai, reference ke liye)\n\n';
+    }
+    txt += buildLogText(r);
     let modal = document.getElementById('__gapDbgModal');
     if (modal) modal.remove();
     modal = document.createElement('div');
@@ -2743,6 +2749,8 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
       });
     };
   }
+
+  window._openGapDebugPanel = openPanel;
 
   function addButton(){
     if (document.getElementById('__gapDbgBtn')) return;
@@ -5083,6 +5091,73 @@ function ss2ApplyAndClose() {
     _animRaf = requestAnimationFrame(frame);
   }
 
+  // ── 🐞 STEP GAP DEBUG — runs on every step tap, explains WHY a gap appears ──
+  // Compares each cell's last real bar BEFORE the hidden range vs the new
+  // bucket time the step just produced. If the difference is bigger than the
+  // cell's own TF, that's the visible "gap" — this tells you exactly which
+  // cell, which bucket times, and whether an existingBar (continuation) was
+  // found or not (the #1 cause of a fresh/incomplete first candle).
+  function _logStepDebug(stepBar, allReplayedSoFar, rng, isBN) {
+    var lines = [];
+    var fmt = function(t){
+      if (t === null || t === undefined) return 'n/a';
+      var d = new Date(t * 1000);
+      return d.toISOString().replace('T',' ').substr(0,16) + 'Z';
+    };
+    lines.push('🐞 STEP GAP DEBUG — tap #' + _replayIdx + ' / ' + (_replayCandles ? _replayCandles.length : 0));
+    lines.push('Range hidden: ' + fmt(rng.from) + '  →  ' + fmt(rng.to));
+    lines.push('Step base candle (' + (isBN ? '5m BN' : '160m BTC') + '): ' + fmt(stepBar.time));
+    lines.push('');
+
+    if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) {
+      lines.push('(STACK2_CELLS not ready yet)');
+      window._SV2_LAST_STEP_DEBUG = lines.join('\n');
+      return;
+    }
+
+    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+      var cell = STACK2_CELLS[ci];
+      if (!cell) continue;
+      var cellTFMin = _getCellTFMin(ci);
+      var partial   = _computePartialCandle(allReplayedSoFar, cellTFMin, isBN);
+      if (!partial) continue;
+
+      var rawData = _getCellRawData(ci);
+      var lastBarBeforeRange = null;
+      var existingBar        = null;
+      if (Array.isArray(rawData)) {
+        for (var ri = rawData.length - 1; ri >= 0; ri--) {
+          if (rawData[ri].time < rng.from) {
+            if (!lastBarBeforeRange) lastBarBeforeRange = rawData[ri];
+            if (rawData[ri].time === partial.time) { existingBar = rawData[ri]; break; }
+            if (lastBarBeforeRange) break;
+          }
+        }
+      }
+
+      var expectedSec = cellTFMin * 60;
+      var gapSec   = lastBarBeforeRange ? (partial.time - lastBarBeforeRange.time) : null;
+      var isGap    = gapSec !== null && gapSec > expectedSec * 1.5;
+
+      lines.push('── Cell ' + ci + ' (' + cellTFMin + 'm) ──');
+      lines.push('  new bucket time      : ' + fmt(partial.time));
+      lines.push('  last real bar before : ' + (lastBarBeforeRange ? fmt(lastBarBeforeRange.time) : 'NONE FOUND'));
+      lines.push('  existingBar continuation found : ' + (existingBar ? 'YES (' + fmt(existingBar.time) + ')' : 'NO — fresh candle, no merge'));
+      if (gapSec !== null) {
+        lines.push('  gap vs expected TF   : ' + gapSec + 's actual vs ' + expectedSec + 's expected' + (isGap ? '  ⚠️ GAP' : '  (ok)'));
+      } else {
+        lines.push('  gap vs expected TF   : could not compute (no prior bar in rawData)');
+      }
+      if (isGap && !existingBar) {
+        lines.push('  → LIKELY CAUSE: is cell ke liye bucket boundary hidden-range se pehle start hota hai,');
+        lines.push('    lekin rawData me uska continuation bar nahi mila — isliye partial candle khaali se ban rahi');
+        lines.push('    hai aur open/high/low purane real data se match nahi karte → yahi visible gap hai.');
+      }
+      lines.push('');
+    }
+    window._SV2_LAST_STEP_DEBUG = lines.join('\n');
+  }
+
   // ── Main step function ─────────────────────────────────────────────────────
   window._sv2StepForward = function() {
     if (_animating) return;                         // tap blocked
@@ -5110,6 +5185,18 @@ function ss2ApplyAndClose() {
 
     // Animate
     var stepBar = _replayCandles[_replayIdx - 1];
+
+    // 🐞 Capture step-level gap diagnostics BEFORE animating, so the
+    // Gap Debug panel can immediately explain this exact tap.
+    try {
+      var _dbgAssetKey = (typeof _stackKeyForAsset === 'function')
+                          ? _stackKeyForAsset(S.asset) : 'bn';
+      var _dbgIsBN     = (_dbgAssetKey === 'bn');
+      _logStepDebug(stepBar, _replayCandles.slice(0, _replayIdx), window._SV2_DATE_RANGE, _dbgIsBN);
+      // Khud-ba-khud panel kholo taaki step click karte hi gap ka reason dikhe
+      if (typeof window._openGapDebugPanel === 'function') window._openGapDebugPanel();
+    } catch(e) { window._SV2_LAST_STEP_DEBUG = 'Step debug error: ' + (e && e.message); }
+
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     _animateStep(stepBar);
   };
@@ -5124,6 +5211,7 @@ function ss2ApplyAndClose() {
     _replayCandles = null;   // force rebuild on next tap
     _replayIdx     = 0;
     _animating     = false;
+    window._SV2_LAST_STEP_DEBUG = null;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
