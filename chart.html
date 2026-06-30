@@ -10884,7 +10884,8 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 }
 
 // ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
-function _sv2ApplyCellSR(cellIdx, lines) {
+// cutoffTime: sv2SwingInit se pass hota hai — actual data cutoff epoch second
+function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
@@ -10893,10 +10894,51 @@ function _sv2ApplyCellSR(cellIdx, lines) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
+
+    // ── BUG FIX: SR line endpoints ko last actual bar time par clamp karo ──
+    // Problem: Jab replay date-range active hoti hai, SR lines ka endTime (ya
+    // infinite lines ka endT = startTime + period*100) hidden gap zone mein
+    // fall karta hai. lightweight-charts us timestamp ke liye ek nayi empty
+    // slot banata hai → pehli candle se pehle gap dikh jaata hai.
+    //
+    // Galat fix (pehla try): rng.from - 1 use karna — yeh ek fake timestamp
+    // tha jo kisi real candle ka time nahi tha → isse bhi nayi slot banti thi.
+    //
+    // Sahi fix: Cell ke actual filtered candle data ka LAST BAR TIME dhundho.
+    // Kyunki yeh time pehle se chart mein exist karta hai, koi nayi slot nahi
+    // banti → koi gap nahi.
+    const _rng = window._SV2_DATE_RANGE;
+    let safeLines = lines;
+    if (_rng && typeof _rng.from === 'number') {
+      // Cell ke TF ke filtered data ka last bar time nikalo
+      let maxEndTime = null;
+      try {
+        const _ak = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+        const _cfg2 = (_stack2Cfg[_ak] || _stack2Cfg.btc);
+        const _tfLbl = (_cfg2.tfs && _cfg2.tfs[cellIdx]) || '';
+        // cutoffTime = closedCandleTime+1 (step) ya rng.from (range) ya null
+        const _ct = (typeof cutoffTime === 'number') ? cutoffTime : _rng.from;
+        const _cellData = _sv2DataForTF(_ak, _tfLbl, _ct);
+        if (_cellData && _cellData.length) maxEndTime = _cellData[_cellData.length - 1].time;
+      } catch(_) {}
+      // Fallback agar data empty ho: rng.from se ek candle-period pehle
+      if (maxEndTime === null) maxEndTime = _rng.from - 300;
+
+      safeLines = [];
+      for (const ln of lines) {
+        const pSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
+        const rawEndT = ln.isInfinite ? (ln.startTime + pSec * 100) : ln.endTime;
+        const clampedEndT = Math.min(rawEndT, maxEndTime);
+        if (clampedEndT <= ln.startTime) continue; // line itni short ho gayi ke dikhana bekaar
+        // Har line ko non-infinite bana do with clamped endTime
+        safeLines.push(Object.assign({}, ln, { isInfinite: false, endTime: clampedEndT, periodSec: pSec }));
+      }
+    }
+
     // Range pehle save karo taaki auto-scroll na ho
     let _preRange = null;
     try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, safeLines, _preRange);
   } catch(_) {}
 }
 
@@ -10911,7 +10953,7 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines);
+    _sv2ApplyCellSR(i, lines, cutoffTime);
   }
 }
 
