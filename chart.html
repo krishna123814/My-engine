@@ -5147,14 +5147,27 @@ function ss2ApplyAndClose() {
 
       var expectedSec = cellTFMin * 60;
       var gapSec   = lastBarBeforeRange ? (partial.time - lastBarBeforeRange.time) : null;
-      var isGap    = gapSec !== null && gapSec > expectedSec * 1.5;
+      // Intraday cells (5m..135m) always have a big "gap" between previous
+      // session close (~15:25 IST) and next session open (~09:15 IST) — that
+      // is NORMAL (market closed overnight), not a data bug. Flagging it
+      // against expectedSec*1.5 gave false alarms even on consecutive trading
+      // days. Use a 4-day cap instead (covers overnight/weekend/long-weekend
+      // holidays); only a genuinely missing trading day would exceed that.
+      var NORMAL_SESSION_CAP_SEC = 4 * 86400;
+      var isGap;
+      if (cellTFMin < 1440) {
+        isGap = gapSec !== null && gapSec > NORMAL_SESSION_CAP_SEC;
+      } else {
+        isGap = gapSec !== null && gapSec > expectedSec * 1.5;
+      }
 
       lines.push('── Cell ' + ci + ' (' + cellTFMin + 'm) ──');
       lines.push('  new bucket time      : ' + fmt(partial.time));
       lines.push('  last real bar before : ' + (lastBarBeforeRange ? fmt(lastBarBeforeRange.time) : 'NONE FOUND'));
       lines.push('  existingBar continuation found : ' + (existingBar ? 'YES (' + fmt(existingBar.time) + ')' : 'NO — fresh candle, no merge'));
       if (gapSec !== null) {
-        lines.push('  gap vs expected TF   : ' + gapSec + 's actual vs ' + expectedSec + 's expected' + (isGap ? '  ⚠️ GAP' : '  (ok)'));
+        var note = isGap ? '  ⚠️ GAP' : (cellTFMin < 1440 ? '  (ok — normal overnight/weekend session gap)' : '  (ok)');
+        lines.push('  gap vs expected TF   : ' + gapSec + 's actual vs ' + expectedSec + 's expected' + note);
       } else {
         lines.push('  gap vs expected TF   : could not compute (no prior bar in rawData)');
       }
