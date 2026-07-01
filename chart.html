@@ -10147,8 +10147,8 @@ function swingCompute(bars, tfMin, alreadyClosed) {
         let isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         
         if (isTouched) {
-          // TOUCHED — re-extend 1 candle ahead from the current bar
-          ln.endTime = cur.time + 2 * periodSec;
+          // TOUCHED — re-extend 2 candles ahead from the current bar
+          ln.endTime = cur.time + 3 * periodSec;
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
@@ -10189,12 +10189,12 @@ function swingCompute(bars, tfMin, alreadyClosed) {
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
+                     endTime: cur.time + 3 * periodSec,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
+                     endTime: cur.time + 3 * periodSec,
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
@@ -11075,7 +11075,7 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
       for(let j=arr.length-1;j>=0;j--){
         const ln=arr[j];
         if(ln.creationIndex>=i) continue;
-        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+2*periodSec;}
+        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+3*periodSec;}
         else{arr.splice(j,1);}
       }
     };
@@ -11094,8 +11094,8 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
     }
     // Agar candle high/low price kisi active swing H/L se match kare → push mat karo
     const _btcSwingPrices=new Set([...aRes.map(l=>l.price),...aSup.map(l=>l.price)]);
-    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'ch',periodSec});}
-    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'cl',periodSec});}
+    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+3*periodSec,creationIndex:i,kind:'ch',periodSec});}
+    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+3*periodSec,creationIndex:i,kind:'cl',periodSec});}
     pGreen=curGreen; pRed=curRed; pHigh=cur.high; pLow=cur.low;
   }
   const out=[];
