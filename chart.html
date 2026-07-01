@@ -2712,6 +2712,38 @@ function fmtChartTime(t) {
   return g('day')+'/'+g('month')+'/'+g('year')+' '+time;
 }
 
+// Stack View 2 ke axis tick-marks ke liye — same IST zone jo fmtChartTime
+// crosshair label ke liye use karta h. Isके bina LightweightCharts apne
+// default (non-IST) formatter se tick labels banata h, jo crosshair ke
+// floating time-label se mismatch kar deta h (jaise tick "04:55" aur
+// crosshair "11:00 AM" — dono ek hi candle ke liye, alag zone).
+function fmtStack2TickMark(time, tickMarkType, _locale) {
+  const d = new Date(time * 1000);
+  const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
+  const use12h = S.hour12 === true;
+
+  // TickMarkType: 0=Year, 1=Month, 2=DayOfMonth, 3=Time, 4=TimeWithSeconds
+  if (tickMarkType === 0) {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, year: 'numeric' }).format(d);
+  }
+  if (tickMarkType === 1) {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, month: 'short' }).format(d);
+  }
+  if (tickMarkType === 2) {
+    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, day: '2-digit', month: 'short' }).format(d);
+  }
+  // Time / TimeWithSeconds
+  const opts = { timeZone: cfg.zone, hour: '2-digit', minute: '2-digit', hour12: use12h };
+  const parts = new Intl.DateTimeFormat('en-GB', opts).formatToParts(d);
+  const g = ty => (parts.find(p => p.type === ty) || {}).value || '';
+  let time_s = g('hour') + ':' + g('minute');
+  if (use12h) {
+    const dayp = (parts.find(p => p.type === 'dayPeriod') || {}).value || '';
+    time_s += ' ' + dayp.toUpperCase();
+  }
+  return time_s;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // SAVE / RESTORE STATE  (localStorage)
 // ════════════════════════════════════════════════════════════════════════════
@@ -3978,7 +4010,7 @@ function _buildStack2CellChart(idx) {
     grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
     crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2, shiftVisibleRangeOnNewBar: false },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2, tickMarkFormatter: fmtStack2TickMark },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -4909,11 +4941,7 @@ function ss2ApplyAndClose() {
             low:   animL,
             close: animC,
           };
-          try {
-            var _savedLR = cell.chart.timeScale().getVisibleLogicalRange();
-            cell.series.update(animBar);
-            if (_savedLR) cell.chart.timeScale().setVisibleLogicalRange(_savedLR);
-          } catch(_) {}
+          try { cell.series.update(animBar); } catch(_) {}
         }
       }
 
@@ -4925,18 +4953,7 @@ function ss2ApplyAndClose() {
         _stepBtn.classList.remove('animating');
 
         // SV2 Swing S&R: closed candle ke baad SR update karo
-        // FIX: stepBar.time candle ka OPEN time hai, close time nahi.
-        // sv2SwingOnStep cutoff = closedCandleTime+1 bana ke filter karta hai
-        // (b.time + durSec) <= cutoff — jab open time bheja jaata tha, khud
-        // stepBar apne hi filter se reject ho jaati thi (kyunki open+durSec
-        // hamesha open+1 se bada hota hai), aur agle step par hi shamil hoti
-        // thi. Ab actual CLOSE time (open + base-TF duration) bhej rahe hain
-        // taaki abhi-abhi complete hui candle turant SR mein shaamil ho.
-        try {
-          var _baseTFKey  = isBN ? BN_STEP_TF : BTC_STEP_TF;
-          var _baseDurSec = (_parseTFMin(_baseTFKey) || 5) * 60;
-          sv2SwingOnStep(stepBar.time + _baseDurSec);
-        } catch(_) {}
+        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
@@ -10057,7 +10074,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, alreadyClosed) {
+function swingCompute(bars, tfMin) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10086,11 +10103,6 @@ function swingCompute(bars, tfMin, alreadyClosed) {
   // resampleWorkingDays mein chunk[0].time = bar ki start date hoti hai.
   // Agar current IST time uss window ke andar hai → still forming → exclude.
   const _isLastBarForming = (() => {
-    // SV2 replay/step path already filters to fully-closed candles via
-    // cutoffTime (see _sv2DataForTF) — using LIVE _isMarketOpen() here would
-    // wrongly treat the newest replayed (but already closed) candle as
-    // still-forming and strip it, delaying its H/L line by one step.
-    if (alreadyClosed) return false;
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
@@ -10147,8 +10159,8 @@ function swingCompute(bars, tfMin, alreadyClosed) {
         let isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         
         if (isTouched) {
-          // TOUCHED — re-extend 2 candles ahead from the current bar
-          ln.endTime = cur.time + 4 * periodSec;
+          // TOUCHED — re-extend 1 candle ahead from the current bar
+          ln.endTime = cur.time + 2 * periodSec;
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
@@ -10189,12 +10201,12 @@ function swingCompute(bars, tfMin, alreadyClosed) {
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + 4 * periodSec,
+                     endTime: cur.time + 2 * periodSec,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + 4 * periodSec,
+                     endTime: cur.time + 2 * periodSec,
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
@@ -10293,19 +10305,8 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null,
       });
-      // isInfinite (swing/colour SR) lines: ek FIXED far-future timestamp use
-      // karo — year 2100 (4102444800). TF-based multiplier (x50000) se bade
-      // TFs (3D/9D/27D) ka endT century/millennium me pahunch jaata tha jis se
-      // LWC ka internal logical-coordinate distort hota tha aur gap/jump aata.
-      // 4102444800 sabhi practical TFs ke liye infinity hai (~74 years ahead).
-      // Candle H/L lines (isInfinite:false) bilkul untouched — wahi ln.endTime.
-      // isInfinite lines: TF group ke hisaab se duration
-      // 1D/3D/9D/27D (levelTf >= 1440) -> 15 saal | 5m/15m/45m/135m -> 5 saal
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const _ext = ln.isInfinite
-        ? ((ln.levelTf || 1) >= 1440 ? 473364000 : 157788000)
-        : 0;
-      const endT = ln.isInfinite ? (ln.startTime + _ext) : ln.endTime;
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -10314,14 +10315,11 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
     } catch (_) {}
   }
 
-  // TimeScale range wapas restore karo.
-  // IMPORTANT: agar _savedRange null hai toh kuch mat karo — scrollToRealTime()
-  // bilkul mat bulao, warna replay ke beech chart right shift ho jaata hai
-  // aur gap dikh jaata hai (yahi woh bug tha jahan har step click par chart
-  // reset hota tha). null range ka matlab hai chart theek jagah par hai,
-  // shift ki zaroorat nahi.
+  // TimeScale range wapas restore karo
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
     try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
+  } else {
+    try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
 
   return created;
@@ -10561,7 +10559,7 @@ function swingAfterRebuildBtc2() {
 const _sv2SrSeries = [];
 
 // ── SV2 store se ek TF ka data lo, optional cutoff ke saath ─────────────────
-function _sv2DataForTF(assetKey, tfLabel, cutoffTime, tfMin) {
+function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
   try {
     const store  = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
     const keyLow = (tfLabel || '').toLowerCase();
@@ -10570,12 +10568,9 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime, tfMin) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    if (typeof cutoffTime !== 'number') return data;
-    // Sirf woh candles lo jo fully CLOSE ho chuki hain (open + duration <= cutoff).
-    // Sirf open-time check karne se abhi-forming (incomplete) candle bhi
-    // SR me shaamil ho jaati thi — isi se SR time se pehle draw ho raha tha.
-    const durSec = (typeof tfMin === 'number' && tfMin > 0) ? tfMin * 60 : 0;
-    return data.filter(b => (b.time + durSec) <= cutoffTime);
+    return (typeof cutoffTime === 'number')
+      ? data.filter(b => b.time < cutoffTime)
+      : data;
   } catch(_) { return []; }
 }
 
@@ -10608,9 +10603,9 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const allLines  = [];
 
     // Step 1: Cell ka apna TF
-    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime, cellTFMin);
+    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin, true)
+      swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10622,9 +10617,9 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     for (const tf of enabledHTFs) {
       const label = _sv2FindTFLabel(assetKey, tf.min, tf.label);
       if (!label) continue;
-      const data = _sv2DataForTF(assetKey, label, cutoffTime, tf.min);
+      const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min, true)
+        swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
@@ -10652,16 +10647,14 @@ function _sv2ApplyCellSR(cellIdx, lines) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
-    // Range PEHLE save karo — clear karne se pehle, warna chart series
-    // hatne ke baad getVisibleLogicalRange() null de sakta hai aur
-    // scrollToRealTime() fire ho jaata hai (right-shift bug).
-    let _preRange = null;
-    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
     // Purani series hata do
     if (_sv2SrSeries[cellIdx] && _sv2SrSeries[cellIdx].length) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
+    // Range pehle save karo taaki auto-scroll na ho
+    let _preRange = null;
+    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
     _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
   } catch(_) {}
 }
@@ -11075,7 +11068,7 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
       for(let j=arr.length-1;j>=0;j--){
         const ln=arr[j];
         if(ln.creationIndex>=i) continue;
-        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+4*periodSec;}
+        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+2*periodSec;}
         else{arr.splice(j,1);}
       }
     };
@@ -11094,8 +11087,8 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
     }
     // Agar candle high/low price kisi active swing H/L se match kare → push mat karo
     const _btcSwingPrices=new Set([...aRes.map(l=>l.price),...aSup.map(l=>l.price)]);
-    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+4*periodSec,creationIndex:i,kind:'ch',periodSec});}
-    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+4*periodSec,creationIndex:i,kind:'cl',periodSec});}
+    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'ch',periodSec});}
+    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'cl',periodSec});}
     pGreen=curGreen; pRed=curRed; pHigh=cur.high; pLow=cur.low;
   }
   const out=[];
