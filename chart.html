@@ -4039,16 +4039,18 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA = window._SV2_RAW_DATA || {};
       window._SV2_RAW_DATA[idx] = data;
 
-      // ── Date-range active ho toh data ko REMOVE nahi karte — sirf HIDE ───
-      // Poora data series me (setData) jaata hai; sirf timeScale ka visible
-      // range restrict karke range.from ke aage wala hissa nazar se hide
-      // kar dete hain (see scrollToRealTime replacement below). Series me
-      // data maujood rehta hai, isliye replay step sirf visible range aage
-      // badha ke already-loaded candles ko reveal karta hai — data loss nahi.
+      // ── Apply date-range filter if a range is currently active ──────────
+      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
+      // (not just hidden visually) so that timeScale shows a genuine gap —
+      // this is the empty space future Bar Replay will fill in one at a time.
+      // Candles BEFORE the range stay untouched (S&R indicator needs that
+      // history). Candles AFTER the range are also dropped for now, since
+      // they'd represent "the future" relative to the replay starting point.
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        _dbg.push('rangeActive from='+rng.fromStr+' to='+rng.toStr+' totalBars='+data.length+' (hidden only, not removed)');
+        dataToShow = data.filter(bar => bar.time < rng.from);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
 
       const CHUNK = 500;
@@ -4069,20 +4071,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else {
-          const rngNow = window._SV2_DATE_RANGE;
-          if (rngNow && typeof rngNow.from === 'number' && dataToShow.length) {
-            // Range active: sirf visible range ko range.from tak restrict karo.
-            // Data series me pura hi rehta hai (hidden, removed nahi).
-            c._sv2HiddenFrom = dataToShow[0].time;
-            c._sv2VisibleTo  = rngNow.from;
-            try { c.chart.timeScale().setVisibleRange({ from: c._sv2HiddenFrom, to: c._sv2VisibleTo }); }
-            catch(_) { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
-          } else {
-            c._sv2HiddenFrom = null; c._sv2VisibleTo = null;
-            try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          }
-        }
+        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -4891,17 +4880,6 @@ function ss2ApplyAndClose() {
           // baseBars for this cell = replayed bars that belong to same bucket
           var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
           if (!partial) continue;
-
-          // Data ab series se remove nahi hota — sirf visible range se hidden
-          // hai. Jaise-jaise replay aage badhta hai, us bucket tak visible
-          // range ko expand karo taaki forming candle dikhna shuru ho jaye.
-          var revealTo = partial.time + cellTFMin * 60;
-          if (typeof cell._sv2VisibleTo === 'number' && revealTo > cell._sv2VisibleTo) {
-            cell._sv2VisibleTo = revealTo;
-            try {
-              cell.chart.timeScale().setVisibleRange({ from: cell._sv2HiddenFrom, to: revealTo });
-            } catch(_) {}
-          }
 
           // Get cell's existing last bar from raw data (before range)
           var rawData = _getCellRawData(ci);
