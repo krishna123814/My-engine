@@ -4050,6 +4050,37 @@ function _buildStack2CellChart(idx) {
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
         dataToShow = data.filter(bar => bar.time < rng.from);
+
+        // ── Whitespace pre-fill for the ENTIRE hidden replay window ─────────
+        // Sirf candles hata dene se time-scale mein ek genuine khaali stretch
+        // ban jaata hai — kyunki isi chart par baithi Swing S&R line-series
+        // ab bhi UNFILTERED _SV2_RAW_DATA se poore range ke time-points
+        // carry karti hai (SR ko history/context ke liye jaanboojh kar
+        // unfiltered rakha gaya hai). Candle-series ke paas un exact
+        // time-slots par kuch nahi hota, isliye wahin gap dikhta hai —
+        // replay ke step se jitna bhara jaata hai, gap chhota hota jaata hai.
+        // Fix: candle-series mein bhi wahi slots "whitespace" (sirf time,
+        // OHLC nahi) ke roop mein pehle se daal do, taaki dono series ka
+        // index-space match kare aur gap kabhi visible hi na ho.
+        try {
+          const cellTFMin = _parseTFMin(tfLabel) || 5;
+          const isBN2     = (assetKey2 === 'bn');
+          const getBucket = window._sv2GetBucketTime;
+          if (typeof getBucket === 'function' && cellTFMin > 0) {
+            const stepSec = cellTFMin * 60;
+            const whitespace = [];
+            let bt = getBucket(rng.from, cellTFMin, isBN2);
+            if (bt < rng.from) bt += stepSec;   // pehla slot boundary >= rng.from
+            const SAFETY_CAP = 5000;             // runaway loop se bachao
+            let guard = 0;
+            while (bt < rng.to && guard++ < SAFETY_CAP) {
+              whitespace.push({ time: bt });
+              bt += stepSec;
+            }
+            if (whitespace.length) dataToShow = dataToShow.concat(whitespace);
+          }
+        } catch(_) {}
+
         _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
 
@@ -4848,6 +4879,11 @@ function ss2ApplyAndClose() {
     var sec = tfMin * 60;
     return Math.floor(tSec / sec) * sec;
   }
+
+  // Expose globally — _buildStack2CellChart (whitespace pre-fill) reuses this
+  // same session-aware bucket math, taaki replay ke bucket boundaries aur
+  // whitespace slot boundaries EXACTLY match karein.
+  window._sv2GetBucketTime = _getBucketTime;
 
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
   // For each STACK2_CELL, find its current bucket bar from already-loaded data,
