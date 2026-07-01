@@ -4072,17 +4072,28 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
-      // (not just hidden visually) so that timeScale shows a genuine gap —
-      // this is the empty space future Bar Replay will fill in one at a time.
+      // Bar-Replay prep: candles INSIDE [from, to] are removed (OHLC hidden)
+      // so that timeScale shows a genuine gap — this is the empty space
+      // future Bar Replay will fill in one at a time.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Candles AFTER the range are also dropped for now, since
-      // they'd represent "the future" relative to the replay starting point.
+      // history). Candles AFTER the range have their OHLC dropped too, since
+      // they'd represent "the future" relative to the replay starting point —
+      // BUT we keep them as *whitespace* points (time only, no OHLC) instead
+      // of removing them completely. LightweightCharts needs these real
+      // time-anchors on the time scale; without them it interpolates the
+      // crosshair's time inside the gap using uniform bar-spacing, which
+      // drifts away from the real calendar/session time the further into
+      // the gap you move. Whitespace points cost nothing visually (no
+      // candle is drawn) but keep the crosshair's time-under-cursor correct.
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        dataToShow = data.filter(bar => bar.time < rng.from);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        const before = data.filter(bar => bar.time < rng.from);
+        const whitespace = data
+          .filter(bar => bar.time >= rng.from)
+          .map(bar => ({ time: bar.time }));   // no open/high/low/close → renders as empty gap
+        dataToShow = before.concat(whitespace);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+before.length+'/'+data.length+' whitespace='+whitespace.length);
       }
 
       const CHUNK = 500;
