@@ -10277,13 +10277,19 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null,
       });
-      // isInfinite (swing/colour SR) lines: ab ek BAHUT door future time tak
-      // extend hoti hain (~50,000 periods) — taaki practically hamesha
-      // "infinite" lagein, replay/pan/zoom mein bhi kabhi end na pahunche.
-      // Candle H/L lines (isInfinite:false) bilkul untouched — wahi purana
-      // ln.endTime logic chalta rahega.
+      // isInfinite (swing/colour SR) lines: ek FIXED far-future timestamp use
+      // karo — year 2100 (4102444800). TF-based multiplier (x50000) se bade
+      // TFs (3D/9D/27D) ka endT century/millennium me pahunch jaata tha jis se
+      // LWC ka internal logical-coordinate distort hota tha aur gap/jump aata.
+      // 4102444800 sabhi practical TFs ke liye infinity hai (~74 years ahead).
+      // Candle H/L lines (isInfinite:false) bilkul untouched — wahi ln.endTime.
+      // isInfinite lines: TF group ke hisaab se duration
+      // 1D/3D/9D/27D (levelTf >= 1440) -> 15 saal | 5m/15m/45m/135m -> 5 saal
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 50000) : ln.endTime;
+      const _ext = ln.isInfinite
+        ? ((ln.levelTf || 1) >= 1440 ? 473364000 : 157788000)
+        : 0;
+      const endT = ln.isInfinite ? (ln.startTime + _ext) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
