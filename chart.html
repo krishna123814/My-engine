@@ -4925,7 +4925,18 @@ function ss2ApplyAndClose() {
         _stepBtn.classList.remove('animating');
 
         // SV2 Swing S&R: closed candle ke baad SR update karo
-        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
+        // FIX: stepBar.time candle ka OPEN time hai, close time nahi.
+        // sv2SwingOnStep cutoff = closedCandleTime+1 bana ke filter karta hai
+        // (b.time + durSec) <= cutoff — jab open time bheja jaata tha, khud
+        // stepBar apne hi filter se reject ho jaati thi (kyunki open+durSec
+        // hamesha open+1 se bada hota hai), aur agle step par hi shamil hoti
+        // thi. Ab actual CLOSE time (open + base-TF duration) bhej rahe hain
+        // taaki abhi-abhi complete hui candle turant SR mein shaamil ho.
+        try {
+          var _baseTFKey  = isBN ? BN_STEP_TF : BTC_STEP_TF;
+          var _baseDurSec = (_parseTFMin(_baseTFKey) || 5) * 60;
+          sv2SwingOnStep(stepBar.time + _baseDurSec);
+        } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
