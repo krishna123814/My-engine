@@ -10057,7 +10057,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, alreadyClosed) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10086,6 +10086,11 @@ function swingCompute(bars, tfMin) {
   // resampleWorkingDays mein chunk[0].time = bar ki start date hoti hai.
   // Agar current IST time uss window ke andar hai → still forming → exclude.
   const _isLastBarForming = (() => {
+    // SV2 replay/step path already filters to fully-closed candles via
+    // cutoffTime (see _sv2DataForTF) — using LIVE _isMarketOpen() here would
+    // wrongly treat the newest replayed (but already closed) candle as
+    // still-forming and strip it, delaying its H/L line by one step.
+    if (alreadyClosed) return false;
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
@@ -10605,7 +10610,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime, cellTFMin);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      swingCompute(dataCur, cellTFMin, true)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10619,7 +10624,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime, tf.min);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, true)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
