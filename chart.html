@@ -2712,38 +2712,6 @@ function fmtChartTime(t) {
   return g('day')+'/'+g('month')+'/'+g('year')+' '+time;
 }
 
-// Stack View 2 ke axis tick-marks ke liye — same IST zone jo fmtChartTime
-// crosshair label ke liye use karta h. Isके bina LightweightCharts apne
-// default (non-IST) formatter se tick labels banata h, jo crosshair ke
-// floating time-label se mismatch kar deta h (jaise tick "04:55" aur
-// crosshair "11:00 AM" — dono ek hi candle ke liye, alag zone).
-function fmtStack2TickMark(time, tickMarkType, _locale) {
-  const d = new Date(time * 1000);
-  const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
-  const use12h = S.hour12 === true;
-
-  // TickMarkType: 0=Year, 1=Month, 2=DayOfMonth, 3=Time, 4=TimeWithSeconds
-  if (tickMarkType === 0) {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, year: 'numeric' }).format(d);
-  }
-  if (tickMarkType === 1) {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, month: 'short' }).format(d);
-  }
-  if (tickMarkType === 2) {
-    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, day: '2-digit', month: 'short' }).format(d);
-  }
-  // Time / TimeWithSeconds
-  const opts = { timeZone: cfg.zone, hour: '2-digit', minute: '2-digit', hour12: use12h };
-  const parts = new Intl.DateTimeFormat('en-GB', opts).formatToParts(d);
-  const g = ty => (parts.find(p => p.type === ty) || {}).value || '';
-  let time_s = g('hour') + ':' + g('minute');
-  if (use12h) {
-    const dayp = (parts.find(p => p.type === 'dayPeriod') || {}).value || '';
-    time_s += ' ' + dayp.toUpperCase();
-  }
-  return time_s;
-}
-
 // ════════════════════════════════════════════════════════════════════════════
 // SAVE / RESTORE STATE  (localStorage)
 // ════════════════════════════════════════════════════════════════════════════
@@ -4010,7 +3978,7 @@ function _buildStack2CellChart(idx) {
     grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
     crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2, tickMarkFormatter: fmtStack2TickMark },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -4072,28 +4040,17 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to] are removed (OHLC hidden)
-      // so that timeScale shows a genuine gap — this is the empty space
-      // future Bar Replay will fill in one at a time.
+      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
+      // (not just hidden visually) so that timeScale shows a genuine gap —
+      // this is the empty space future Bar Replay will fill in one at a time.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Candles AFTER the range have their OHLC dropped too, since
-      // they'd represent "the future" relative to the replay starting point —
-      // BUT we keep them as *whitespace* points (time only, no OHLC) instead
-      // of removing them completely. LightweightCharts needs these real
-      // time-anchors on the time scale; without them it interpolates the
-      // crosshair's time inside the gap using uniform bar-spacing, which
-      // drifts away from the real calendar/session time the further into
-      // the gap you move. Whitespace points cost nothing visually (no
-      // candle is drawn) but keep the crosshair's time-under-cursor correct.
+      // history). Candles AFTER the range are also dropped for now, since
+      // they'd represent "the future" relative to the replay starting point.
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        const before = data.filter(bar => bar.time < rng.from);
-        const whitespace = data
-          .filter(bar => bar.time >= rng.from)
-          .map(bar => ({ time: bar.time }));   // no open/high/low/close → renders as empty gap
-        dataToShow = before.concat(whitespace);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+before.length+'/'+data.length+' whitespace='+whitespace.length);
+        dataToShow = data.filter(bar => bar.time < rng.from);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
 
       const CHUNK = 500;
