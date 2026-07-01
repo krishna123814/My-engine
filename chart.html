@@ -3945,6 +3945,70 @@ function buildStack2() {
   }, 650);
 }
 
+// ── Per-TF "go to date" cutoff — working-day aligned ─────────────────────────
+// PROBLEM: rng.from is one raw calendar-date epoch, applied as-is to EVERY
+// timeframe's data ("bar.time < rng.from"). But 3D/9D/27D candles are built
+// by grouping the .gz file's trading days sequentially from its OWN first
+// date (see _sv2_resample_bn_daily in main.py: day-index // N). A candle's
+// stored "time" is the date of the FIRST day in its N-day group — it does
+// NOT line up with a randomly chosen calendar date. So filtering all TFs
+// with the same raw epoch made 3D/9D/27D cut at the wrong group boundary,
+// which visually looked like "same start date for every timeframe".
+// FIX: for a chosen date, first find which trading-day INDEX it falls on
+// inside the asset's own 1D array (index 0 = .gz file's first date). Then
+// for a TF with bucket size N (3D→3, 9D→9, 27D→27), the group that contains
+// that trading day is simply Math.floor(dayIndex / N) — this is the exact
+// same math main.py used to build the candle in the first place. Looking up
+// that group's candle in the TF's own resampled array gives the correct,
+// TF-native cutoff time.
+function _sv2TFBucketSize(tfLabel) {
+  var m = /^(\d+)D$/i.exec(tfLabel || '');
+  return m ? parseInt(m[1], 10) : 1;   // 1D/intraday TFs → bucket size 1 (no adjustment needed)
+}
+
+function _sv2FindDayIndex(oneDayArr, selEpoch) {
+  // oneDayArr = asset's own "1D" array, ascending by time (index 0 = .gz's
+  // first date). Find the first trading day whose calendar date >= selected
+  // date — this naturally snaps weekends/holidays (absent from .gz) forward
+  // to the next real trading day, same as main.py's working-day counting.
+  if (!Array.isArray(oneDayArr) || !oneDayArr.length) return -1;
+  var selDay = Math.floor(selEpoch / 86400);
+  for (var i = 0; i < oneDayArr.length; i++) {
+    if (Math.floor(oneDayArr[i].time / 86400) >= selDay) return i;
+  }
+  return oneDayArr.length - 1;   // selected date beyond all loaded data → last known day
+}
+
+// Returns the correct cutoff epoch for STACK2_CELLS[idx], given the active
+// _SV2_DATE_RANGE. Falls back to rng.from untouched for 1D/intraday cells.
+function _sv2CellCutoffEpoch(idx, rng) {
+  if (!rng || typeof rng.from !== 'number') return null;
+  try {
+    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    var cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+    var tfLabel  = (cfg2.tfs && cfg2.tfs[idx]) || '';
+    var n = _sv2TFBucketSize(tfLabel);
+    if (n <= 1) return rng.from;   // 1D / intraday — raw date filter already correct
+
+    var store = (assetKey === 'bn') ? window.SV2_BN : window.SV2_BTC;
+    if (!store) return rng.from;
+
+    var oneDay = null;
+    for (var k in store) { if (k.toUpperCase() === '1D') { oneDay = store[k]; break; } }
+    if (!Array.isArray(oneDay) || !oneDay.length) return rng.from;
+
+    var dayIdx = _sv2FindDayIndex(oneDay, rng.from);
+    if (dayIdx < 0) return rng.from;
+
+    var bucketIdx = Math.floor(dayIdx / n);   // same grouping math as main.py
+    var tfArr = null;
+    for (var k2 in store) { if (k2.toLowerCase() === tfLabel.toLowerCase()) { tfArr = store[k2]; break; } }
+    if (Array.isArray(tfArr) && tfArr[bucketIdx]) return tfArr[bucketIdx].time;
+    return rng.from;
+  } catch(_) { return rng.from; }
+}
+window._sv2CellCutoffEpoch = _sv2CellCutoffEpoch;
+
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
   const el = document.getElementById('stack2-chart-' + idx);
@@ -4029,8 +4093,15 @@ function _buildStack2CellChart(idx) {
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        dataToShow = data.filter(bar => bar.time < rng.from);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        // Per-cell cutoff: 3D/9D/27D snap to their OWN working-day bucket
+        // boundary (see _sv2CellCutoffEpoch above) instead of the raw
+        // calendar-date epoch, so every timeframe lines up on the same
+        // underlying trading-day count from the .gz file's first date.
+        const cutoff = (typeof _sv2CellCutoffEpoch === 'function')
+                        ? (_sv2CellCutoffEpoch(idx, rng) ?? rng.from)
+                        : rng.from;
+        dataToShow = data.filter(bar => bar.time < cutoff);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' kept='+dataToShow.length+'/'+data.length);
       }
 
       const CHUNK = 500;
@@ -4793,6 +4864,24 @@ function ss2ApplyAndClose() {
     return Math.floor(tSec / sec) * sec;
   }
 
+  // ── Day-boundary detector: replay ke do consecutive base candles agar
+  // alag trading-day mein padte hain toh true — sirf naye din ke pehle
+  // replayed candle par hi true hota hai, baaki sab intraday steps par
+  // false rehta hai. BN ke liye IST 9:15 session-anchor use hota hai,
+  // BTC/daily ke liye UTC calendar-day.
+  function _sv2IsNewTradingDayBoundary(prevTSec, curTSec, isBN) {
+    if (prevTSec == null || curTSec == null) return false;
+    if (isBN) {
+      var IST = 5.5 * 3600;
+      var prevDay = Math.floor((prevTSec + IST) / 86400);
+      var curDay  = Math.floor((curTSec  + IST) / 86400);
+      return curDay !== prevDay;
+    }
+    var prevDay2 = Math.floor(prevTSec / 86400);
+    var curDay2  = Math.floor(curTSec  / 86400);
+    return curDay2 !== prevDay2;
+  }
+
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
   // For each STACK2_CELL, find its current bucket bar from already-loaded data,
   // then animate the partial candle contribution on top.
@@ -4805,6 +4894,14 @@ function ss2ApplyAndClose() {
 
     // Collect all base bars replayed SO FAR (including this one)
     var allReplayed = _replayCandles.slice(0, _replayIdx);
+
+    // Day-boundary check: is step ka stepBar pichhle replayed base-candle
+    // se alag trading-day mein hai kya? Sirf naye din ke pehle step par
+    // true hoga — baaki intraday steps is flag ko touch hi nahi karenge.
+    var _prevStepBar = (_replayIdx >= 2) ? _replayCandles[_replayIdx - 2] : null;
+    var _isDayBoundaryStep = _prevStepBar
+      ? _sv2IsNewTradingDayBoundary(_prevStepBar.time, stepBar.time, isBN)
+      : false;
 
     function frame(now) {
       var t = Math.min(1, (now - startMs) / _ANIM_MS);
@@ -4825,12 +4922,18 @@ function ss2ApplyAndClose() {
           var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
           if (!partial) continue;
 
-          // Get cell's existing last bar from raw data (before range)
+          // Get cell's existing last bar from raw data (before range) —
+          // use this cell's own working-day-aligned cutoff (same one used
+          // to build its chart data), not the raw rng.from, so replay stays
+          // consistent with what's actually shown for 3D/9D/27D cells.
+          var cellCutoff = (typeof _sv2CellCutoffEpoch === 'function')
+                            ? (_sv2CellCutoffEpoch(ci, rng) ?? rng.from)
+                            : rng.from;
           var rawData = _getCellRawData(ci);
           var existingBar = null;
           if (Array.isArray(rawData)) {
             for (var ri = rawData.length - 1; ri >= 0; ri--) {
-              if (rawData[ri].time < rng.from && rawData[ri].time === partial.time) {
+              if (rawData[ri].time < cellCutoff && rawData[ri].time === partial.time) {
                 existingBar = rawData[ri]; break;
               }
             }
@@ -4863,6 +4966,29 @@ function ss2ApplyAndClose() {
         // Animation complete — finalize
         _animating = false;
         _stepBtn.classList.remove('animating');
+
+        // ── Day-transition fix ────────────────────────────────────────────
+        // Naye trading-day ka pehla replayed candle jab update() se add
+        // hota hai, uska time-anchor purane din ke last candle se genuinely
+        // door hota hai. update() sirf incremental patch karta hai jo
+        // chart ki pehle-se-cached visible-range assumptions par based
+        // rehta hai — isi wajah se sirf is transition step par gap dikhta
+        // hai. Fix: is specific step ke liye stale range restore karne ke
+        // bajaye chart ko naya bar include karke apna layout fresh se
+        // recompute karne do (scrollToRealTime, fitContent fallback ke
+        // saath). Yeh sv2SwingOnStep se PEHLE chalta hai taaki SR redraw
+        // wala range-save/restore bhi is corrected range ko hi pakde.
+        if (_isDayBoundaryStep && typeof STACK2_CELLS !== 'undefined') {
+          for (var _dj = 0; _dj < STACK2_CELLS.length; _dj++) {
+            var _dCell = STACK2_CELLS[_dj];
+            if (!_dCell || !_dCell.chart) continue;
+            try {
+              _dCell.chart.timeScale().scrollToRealTime();
+            } catch(_eScroll) {
+              try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
+            }
+          }
+        }
 
         // SV2 Swing S&R: closed candle ke baad SR update karo
         try { sv2SwingOnStep(stepBar.time); } catch(_) {}
