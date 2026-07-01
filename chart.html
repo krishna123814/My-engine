@@ -10292,11 +10292,14 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
     } catch (_) {}
   }
 
-  // TimeScale range wapas restore karo
+  // TimeScale range wapas restore karo.
+  // IMPORTANT: agar _savedRange null hai toh kuch mat karo — scrollToRealTime()
+  // bilkul mat bulao, warna replay ke beech chart right shift ho jaata hai
+  // aur gap dikh jaata hai (yahi woh bug tha jahan har step click par chart
+  // reset hota tha). null range ka matlab hai chart theek jagah par hai,
+  // shift ki zaroorat nahi.
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
     try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
-  } else {
-    try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
 
   return created;
