@@ -910,9 +910,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-cal-day.in-range {background:#2962ff22;color:#d1d4dc;border-radius:0}
 .sv2-cal-day.disabled {color:#333;pointer-events:none}
 
+/* Start-point-only hint */
+#sv2-drng-sp-hint{
+  margin:6px 16px 0;padding:8px 10px;border-radius:8px;
+  background:#f0b42918;border:1px solid #f0b42944;
+  color:#f0b429;font-size:10.5px;line-height:1.4;
+}
+
+/* Start Point Only button (go-to-date, open-ended hide) */
+#sv2-drng-start-only{
+  display:block;width:calc(100% - 32px);margin:8px 16px 4px;
+  height:44px;border-radius:8px;
+  background:#f0b429;border:none;color:#131722;
+  font-size:14px;font-weight:700;cursor:pointer;
+}
+#sv2-drng-start-only:active{background:#d19b20}
+#sv2-drng-start-only:disabled{background:#2a2e39;color:#555;cursor:not-allowed}
+
 /* Apply button */
 #sv2-drng-apply{
-  display:block;width:calc(100% - 32px);margin:8px 16px 4px;
+  display:block;width:calc(100% - 32px);margin:4px 16px 8px;
   height:44px;border-radius:8px;
   background:#26a69a;border:none;color:#fff;
   font-size:14px;font-weight:700;cursor:pointer;
@@ -2235,8 +2252,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <!-- Calendar grid (days-of-week header + date cells, built by JS) -->
     <div id="sv2-cal-grid"></div>
 
+    <!-- Start-point-only hint -->
+    <div id="sv2-drng-sp-hint">🎯 Sirf START DATE chuno aur "Go to Date" dabao — us date se aage ke saare candles hide ho jayenge (jaise TradingView Bar Replay)</div>
+
     <!-- Apply -->
-    <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply Range</button>
+    <button id="sv2-drng-start-only" onclick="_sv2DrngApplyStartOnly()" disabled>🎯 Go to Date — Hide From Here</button>
+    <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply Range (Start + End)</button>
   </div>
 </div>
 
@@ -4597,9 +4618,13 @@ function ss2ApplyAndClose() {
   // ── Apply button ──────────────────────────────────────────────────────────
   function _updateApplyBtn() {
     var btn = document.getElementById('sv2-drng-apply');
-    if (!btn) return;
-    var valid = _selStart && _selEnd && _selEnd >= _selStart;
-    btn.disabled = !valid;
+    if (btn) {
+      var valid = _selStart && _selEnd && _selEnd >= _selStart;
+      btn.disabled = !valid;
+    }
+    // Start-Point-Only button: needs ONLY a start date, end date is optional
+    var spBtn = document.getElementById('sv2-drng-start-only');
+    if (spBtn) spBtn.disabled = !_selStart;
   }
 
   function _sv2DrngApply() {
@@ -4639,6 +4664,61 @@ function ss2ApplyAndClose() {
     }
   }
   window._sv2DrngApply = _sv2DrngApply;
+
+  // ── Find the last available candle time across BOTH SV2 stores ────────────
+  // Used as the "to" boundary for start-point-only (open-ended) mode, so the
+  // hidden range genuinely covers "everything from the start date to the end
+  // of currently loaded data" — same spirit as TradingView's "select starting
+  // point, everything after is hidden until you step through it all".
+  function _sv2MaxAvailableTime() {
+    var maxT = 0;
+    try {
+      [window.SV2_BN, window.SV2_BTC].forEach(function(store){
+        if (!store) return;
+        for (var k in store) {
+          var arr = store[k];
+          if (Array.isArray(arr) && arr.length) {
+            var last = arr[arr.length - 1];
+            if (last && typeof last.time === 'number' && last.time > maxT) maxT = last.time;
+          }
+        }
+      });
+    } catch(_) {}
+    // Small safety buffer (1 day) so the very last candle is included too.
+    return maxT > 0 ? (maxT + 86400) : (Math.floor(Date.now() / 1000) + 86400);
+  }
+
+  // ── Start Point Only: "Go to Date" — hides everything from that date
+  //    onward (open-ended, no end date needed), exactly like TradingView's
+  //    Bar Replay starting-point selection. ──────────────────────────────────
+  function _sv2DrngApplyStartOnly() {
+    if (!_selStart) return;
+    var fromEpoch = _dateToEpoch(_selStart);
+    var toEpoch   = _sv2MaxAvailableTime();   // open-ended → end of loaded data
+    window._SV2_DATE_RANGE = {
+      from:      fromEpoch,
+      to:        toEpoch,
+      fromStr:   _fmtDate(_selStart),
+      toStr:     'Open-ended',
+      openEnded: true,
+    };
+    if (_fab) _fab.classList.add('active-range');
+    _sv2DrngClose();
+    try {
+      document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', {
+        detail: window._SV2_DATE_RANGE
+      }));
+    } catch(_){}
+    console.log('[SV2 DateRange] Start-point-only applied:', window._SV2_DATE_RANGE);
+    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
+      try {
+        buildStack2();
+        setTimeout(_startCellTimers, 200);
+        setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+      } catch(_){}
+    }
+  }
+  window._sv2DrngApplyStartOnly = _sv2DrngApplyStartOnly;
 
   // ── Init (runs after DOM ready) ───────────────────────────────────────────
   function _init() {
