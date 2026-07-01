@@ -3978,7 +3978,7 @@ function _buildStack2CellChart(idx) {
     grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
     crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2, shiftVisibleRangeOnNewBar: false },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -4909,7 +4909,11 @@ function ss2ApplyAndClose() {
             low:   animL,
             close: animC,
           };
-          try { cell.series.update(animBar); } catch(_) {}
+          try {
+            var _savedLR = cell.chart.timeScale().getVisibleLogicalRange();
+            cell.series.update(animBar);
+            if (_savedLR) cell.chart.timeScale().setVisibleLogicalRange(_savedLR);
+          } catch(_) {}
         }
       }
 
@@ -10273,8 +10277,13 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         crosshairMarkerVisible: false,
         autoscaleInfoProvider: () => null,
       });
+      // isInfinite (swing/colour SR) lines: ab ek BAHUT door future time tak
+      // extend hoti hain (~50,000 periods) — taaki practically hamesha
+      // "infinite" lagein, replay/pan/zoom mein bhi kabhi end na pahunche.
+      // Candle H/L lines (isInfinite:false) bilkul untouched — wahi purana
+      // ln.endTime logic chalta rahega.
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 50000) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
