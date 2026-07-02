@@ -4249,6 +4249,28 @@ function _sv2FindDayIndex(oneDayArr, selEpoch) {
 
 // Returns the correct cutoff epoch for STACK2_CELLS[idx], given the active
 // _SV2_DATE_RANGE. Falls back to rng.from untouched for 1D/intraday cells.
+// ── Scroll a SV2 cell to the "replay edge" (last real/revealed candle) ────
+// With the whitespace-suppress approach, a cell's series data now extends
+// all the way through the future as {time}-only whitespace points, so a
+// plain scrollToRealTime() would land on the far-future LAST whitespace
+// point instead of where the user is actually replaying from. This counts
+// the trailing whitespace run currently in the series and scrolls back by
+// that many bars, landing exactly on the true edge — same visual result
+// the old delete-based approach gave "for free".
+function _sv2ScrollCellToReplayEdge(cellChart, cellSeries) {
+  if (!cellChart || !cellSeries) return;
+  try {
+    const d = cellSeries.data();
+    let futureCount = 0;
+    for (let i = d.length - 1; i >= 0; i--) {
+      if (d[i] && d[i].open === undefined) futureCount++;
+      else break;
+    }
+    if (futureCount > 0) { cellChart.timeScale().scrollToPosition(-futureCount, false); }
+    else { cellChart.timeScale().scrollToRealTime(); }
+  } catch(_) {}
+}
+
 function _sv2CellCutoffEpoch(idx, rng) {
   if (!rng || typeof rng.from !== 'number') return null;
   try {
@@ -4352,12 +4374,19 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
-      // (not just hidden visually) so that timeScale shows a genuine gap —
-      // this is the empty space future Bar Replay will fill in one at a time.
+      // Bar-Replay prep: candles AT/AFTER cutoff are NOT deleted from the
+      // array anymore — they're converted into "whitespace" points (only
+      // {time}, no OHLC). Lightweight Charts treats whitespace points as
+      // real time-axis slots with nothing rendered on them, so:
+      //   - Candle body/wick stays invisible until Replay reveals it
+      //     (OHLC still hidden pre-replay, exactly like before).
+      //   - The time-axis itself keeps knowing about every future slot,
+      //     so any indicator (e.g. SR's "infinite line" future endpoint)
+      //     lands on an already-existing slot instead of manufacturing a
+      //     brand-new orphan slot — this is what caused the unused
+      //     3:45/3:50-style phantom times after the last historical candle.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Candles AFTER the range are also dropped for now, since
-      // they'd represent "the future" relative to the replay starting point.
+      // history).
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
@@ -4368,8 +4397,8 @@ function _buildStack2CellChart(idx) {
         const cutoff = (typeof _sv2CellCutoffEpoch === 'function')
                         ? (_sv2CellCutoffEpoch(idx, rng) ?? rng.from)
                         : rng.from;
-        dataToShow = data.filter(bar => bar.time < cutoff);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' kept='+dataToShow.length+'/'+data.length);
+        dataToShow = data.map(bar => (bar.time < cutoff) ? bar : { time: bar.time });
+        _dbg.push('rangeFilter(whitespace) from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' total='+dataToShow.length);
       }
 
       const CHUNK = 500;
@@ -4378,7 +4407,7 @@ function _buildStack2CellChart(idx) {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
         if (!slice.length) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          _sv2ScrollCellToReplayEdge(c.chart, c.series);
           return;
         }
         try {
@@ -4390,7 +4419,9 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
+        else {
+          _sv2ScrollCellToReplayEdge(c.chart, c.series);
+        }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -5286,7 +5317,16 @@ function ss2ApplyAndClose() {
             var _dCell = STACK2_CELLS[_dj];
             if (!_dCell || !_dCell.chart) continue;
             try {
-              _dCell.chart.timeScale().scrollToRealTime();
+              // whitespace-suppress data ke saath scrollToRealTime() ab
+              // far-future last whitespace point tak scroll kar dega —
+              // isliye replay-edge-aware helper use karo (see definition
+              // near _sv2CellCutoffEpoch), jo current revealed candle tak
+              // hi scroll karta hai.
+              if (typeof _sv2ScrollCellToReplayEdge === 'function') {
+                _sv2ScrollCellToReplayEdge(_dCell.chart, _dCell.series);
+              } else {
+                _dCell.chart.timeScale().scrollToRealTime();
+              }
             } catch(_eScroll) {
               try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
             }
