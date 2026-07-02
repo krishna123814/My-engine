@@ -4601,6 +4601,54 @@ function ss2ApplyAndClose() {
   var _animating      = false;  // tap blocked jab true
   var _animRaf        = null;   // requestAnimationFrame handle
   var _ANIM_MS        = 1000;   // 1 second animation
+  var _activeLocks    = null;   // range-locks currently held (see _lockCellRanges)
+
+  // ── Range-lock: chart ko FORCEFULLY static rakhne ka tareeka ──────────────
+  // Sirf ek baar setVisibleLogicalRange() call karke revert karna kaafi nahi
+  // tha — lightweight-charts library kabhi range ko update() ke baad turant
+  // sync nahi, balki apne internal render-cycle mein (agla frame) autoscroll
+  // karti hai, jo humare single revert ke BAAD lagta hai aur usse override
+  // kar deta hai. Isliye ab hum `subscribeVisibleLogicalRangeChange` se sun
+  // rahe hain — jab bhi range apne-aap target se hatti hai (chahe sync ho
+  // ya library ke agle internal frame mein), turant wapas target par pin
+  // kar dete hain. Reentrancy-guard (`restoring` flag) infinite loop rokta
+  // hai kyunki setVisibleLogicalRange khud bhi yehi event fire karta hai.
+  function _lockCellRanges() {
+    var locks = [];
+    if (typeof STACK2_CELLS === 'undefined') return locks;
+    for (var i = 0; i < STACK2_CELLS.length; i++) {
+      var cell = STACK2_CELLS[i];
+      if (!cell || !cell.chart) continue;
+      (function(cellChart){
+        var ts = null;
+        try { ts = cellChart.timeScale(); } catch(_) { return; }
+        if (!ts) return;
+        var target = null;
+        try { target = ts.getVisibleLogicalRange(); } catch(_) {}
+        if (!target || typeof target.from !== 'number' || typeof target.to !== 'number') return;
+        var restoring = false;
+        var handler = function(newRange) {
+          if (restoring || !newRange) return;
+          if (newRange.from !== target.from || newRange.to !== target.to) {
+            restoring = true;
+            try { ts.setVisibleLogicalRange(target); } catch(_) {}
+            restoring = false;
+          }
+        };
+        try {
+          ts.subscribeVisibleLogicalRangeChange(handler);
+          locks.push({ ts: ts, handler: handler });
+        } catch(_) {}
+      })(cell.chart);
+    }
+    return locks;
+  }
+  function _unlockCellRanges(locks) {
+    if (!locks || !locks.length) return;
+    for (var i = 0; i < locks.length; i++) {
+      try { locks[i].ts.unsubscribeVisibleLogicalRangeChange(locks[i].handler); } catch(_) {}
+    }
+  }
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -4632,6 +4680,7 @@ function ss2ApplyAndClose() {
       _replayCandles = null;
       _animating     = false;
       if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+      if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
     }
   }
 
@@ -4787,24 +4836,6 @@ function ss2ApplyAndClose() {
     var isBN   = (assetKey === 'bn');
     var startMs = performance.now();
 
-    // ── FIX: chart ko static rakhne ke liye — har cell ka visible logical
-    // range STEP SHURU HONE SE PEHLE capture karo. series.update() (candle
-    // grow karte waqt) lightweight-charts internally "sticky right edge"
-    // behavior follow karta hai — agar view already rightmost bar par tha,
-    // toh naya/growing bar aane par khud-ba-khud right shift kar deta hai.
-    // Yehi wo shift hai jo user ko dikhta hai (chart right ki taraf jaata
-    // hai, fir SR draw hoti hai). Fix: har frame ke baad range ko wapas
-    // isi saved position par pin kar do, taaki chart bilkul static rahe
-    // aur sirf candle apni jagah par hi grow/close ho.
-    var _preStepRanges = {};
-    if (typeof STACK2_CELLS !== 'undefined') {
-      for (var _pi = 0; _pi < STACK2_CELLS.length; _pi++) {
-        var _pCell = STACK2_CELLS[_pi];
-        if (!_pCell || !_pCell.chart) continue;
-        try { _preStepRanges[_pi] = _pCell.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-      }
-    }
-
     // Collect all base bars replayed SO FAR (including this one)
     var allReplayed = _replayCandles.slice(0, _replayIdx);
 
@@ -4815,6 +4846,14 @@ function ss2ApplyAndClose() {
     var _isDayBoundaryStep = _prevStepBar
       ? _sv2IsNewTradingDayBoundary(_prevStepBar.time, stepBar.time, isBN)
       : false;
+
+    // ── Chart ko is step ke duration bhar static pin karo ──────────────────
+    // Day-boundary step ke liye lock NAHI lagate — us case mein purana
+    // explicit scrollToRealTime/fitContent fix jaan-boojh kar chalna chahiye
+    // (naya trading-day ka gap-fix), baaki har normal step (sabhi TF/cells)
+    // ke liye chart bilkul static rahega jab tak candle grow ho ya SR redraw ho.
+    if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
+    if (!_isDayBoundaryStep) _activeLocks = _lockCellRanges();
 
     function frame(now) {
       var t = Math.min(1, (now - startMs) / _ANIM_MS);
@@ -4870,13 +4909,6 @@ function ss2ApplyAndClose() {
             close: animC,
           };
           try { cell.series.update(animBar); } catch(_) {}
-
-          // Update ke turant baad chart ko static rakhne ke liye range wapas
-          // pin karo — is se auto-scroll/right-shift cancel ho jaata hai aur
-          // sirf candle apni jagah par grow hoti dikhti hai.
-          if (_preStepRanges[ci]) {
-            try { cell.chart.timeScale().setVisibleLogicalRange(_preStepRanges[ci]); } catch(_) {}
-          }
         }
       }
 
@@ -4921,6 +4953,24 @@ function ss2ApplyAndClose() {
           var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
           sv2SwingOnStep(stepBar.time + _srBasePeriod);
         } catch(_) {}
+
+        // Step (candle-grow + SR redraw) poora ho gaya — ab range-lock
+        // release karo taaki user aage pan/zoom kar sake. Agla step tap
+        // apna naya lock khud le lega. Do extra rAF frames ke baad release
+        // karte hain (turant nahi) — SR line-series add hone ke baad chart
+        // engine kabhi apna layout ek DELAYED paint cycle mein khud
+        // recompute karta hai; lock ko thodi der aur zinda rakhne se wo
+        // deferred shift bhi turant wapas pin ho jaata hai, unlock hone se
+        // pehle.
+        (function(locksToRelease){
+          if (!locksToRelease) return;
+          requestAnimationFrame(function(){
+            requestAnimationFrame(function(){
+              _unlockCellRanges(locksToRelease);
+            });
+          });
+        })(_activeLocks);
+        _activeLocks = null;
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
@@ -4974,6 +5024,7 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
     }
@@ -4986,6 +5037,7 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
     _syncStepBtn();
   });
 
@@ -10113,11 +10165,27 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
     } catch (_) {}
   }
 
-  // TimeScale range wapas restore karo
-  if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
-    try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
-  } else {
-    try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
+  // TimeScale range wapas restore karo — ek baar synchronously turant,
+  // fir do extra baar agle animation-frames par bhi (kyunki naye line-series
+  // add hone ke baad chart engine kabhi apna time-scale layout ek later
+  // paint cycle mein khud recompute karta hai, jo humare turant-wale
+  // restore ko silently override kar deta hai — is wajah se view "SR add
+  // hone ke turant baad" right shift hoti dikhti thi. Do extra rAF-restore
+  // is deferred internal recompute ke BAAD chalte hain, isliye final word
+  // hamesha humara hi rehta hai).
+  function _restoreRange() {
+    if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
+      try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
+    } else {
+      try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
+    }
+  }
+  _restoreRange();
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(function(){
+      _restoreRange();
+      requestAnimationFrame(_restoreRange);
+    });
   }
 
   return created;
