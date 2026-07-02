@@ -2655,13 +2655,80 @@ const _SV2_MAX = {
 let _SV2_RAW_CACHE    = { bn: null, btc: null };  // raw 5m rows, once fetched
 let _SV2_LOAD_PROMISE = null;                     // in-flight fetch/resample promise
 
-async function _sv2FetchGzJson(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
+const _SV2_STALL_TIMEOUT_MS = 20000;   // agar 20s tak ek bhi naya byte na aaye → stalled/error
+
+// Fetches + decompresses a .gz JSON file, reporting live progress via onProgress:
+//   onProgress({ received, total, kbps })   — total may be 0 if server doesn't send Content-Length
+// Aborts (throws) if no new bytes arrive for _SV2_STALL_TIMEOUT_MS.
+async function _sv2FetchGzJson(url, onProgress) {
+  const controller = new AbortController();
+  let stallTimer = null;
+  const armStall = () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      controller.abort();
+    }, _SV2_STALL_TIMEOUT_MS);
+  };
+
+  let resp;
+  armStall();
+  try {
+    resp = await fetch(url, { signal: controller.signal });
+  } catch (e) {
+    clearTimeout(stallTimer);
+    if (e && e.name === 'AbortError') throw new Error('Timeout — server se response nahi aaya (' + url.split('/').pop() + ')');
+    throw new Error('Network error: ' + (e && e.message || e));
+  }
+  if (!resp.ok) { clearTimeout(stallTimer); throw new Error('HTTP ' + resp.status + ' — ' + url.split('/').pop()); }
+  if (!resp.body || !resp.body.getReader) {
+    clearTimeout(stallTimer);
+    // Fallback: no streaming support, just await full response
+    if (typeof DecompressionStream === 'undefined') throw new Error('DecompressionStream not supported in this browser');
+    const buf = await resp.arrayBuffer();
+    const ds  = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const text = await new Response(ds).text();
+    const data = JSON.parse(text);
+    return Array.isArray(data) ? data : (data.data || []);
+  }
+
+  const total  = parseInt(resp.headers.get('Content-Length') || '0', 10);
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received  = 0;
+  let lastTs    = performance.now();
+  let lastBytes = 0;
+
+  while (true) {
+    let result;
+    try {
+      result = await reader.read();
+    } catch (e) {
+      clearTimeout(stallTimer);
+      if (e && e.name === 'AbortError') throw new Error('Timeout — data aana ruk gaya (' + url.split('/').pop() + ')');
+      throw new Error('Download interrupted: ' + (e && e.message || e));
+    }
+    armStall();   // reset stall timer — naya data aaya
+    if (result.done) break;
+
+    chunks.push(result.value);
+    received += result.value.length;
+
+    const now = performance.now();
+    if (onProgress && (now - lastTs) >= 200) {
+      const kbps = ((received - lastBytes) / 1024) / ((now - lastTs) / 1000);
+      onProgress({ received, total, kbps });
+      lastTs = now;
+      lastBytes = received;
+    }
+  }
+  clearTimeout(stallTimer);
+  if (onProgress) onProgress({ received, total, kbps: 0, done: true });
+
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('DecompressionStream not supported in this browser');
   }
-  const ds   = resp.body.pipeThrough(new DecompressionStream('gzip'));
+  const blob = new Blob(chunks);
+  const ds   = blob.stream().pipeThrough(new DecompressionStream('gzip'));
   const text = await new Response(ds).text();
   const data = JSON.parse(text);
   return Array.isArray(data) ? data : (data.data || []);
@@ -2780,28 +2847,39 @@ function _sv2ApplyResampled(bnRaw, btcRaw) {
 // Ensures BN + BTC raw .gz data is fetched + cached + resampled into
 // SV2_BN / SV2_BTC. Safe to call multiple times — network call sirf pehli
 // baar hoti hai, uske baad cached raw rows se hi kaam chalta hai.
-function _sv2EnsureDataLoaded() {
+//   onProgress({ receivedKB, totalKB, kbps })  — combined across both files
+// Returns { ok: true } or { ok: false, error: 'message' }.
+function _sv2EnsureDataLoaded(onProgress) {
   if (_SV2_RAW_CACHE.bn && _SV2_RAW_CACHE.btc) {
-    return Promise.resolve(true);   // already cached — no re-fetch
+    return Promise.resolve({ ok: true });   // already cached — no re-fetch
   }
   if (_SV2_LOAD_PROMISE) return _SV2_LOAD_PROMISE;   // fetch already in-flight
 
   _SV2_LOAD_PROMISE = (async () => {
+    const prog = { bn: { received: 0, total: 0 }, btc: { received: 0, total: 0 } };
+    const emit = () => {
+      if (!onProgress) return;
+      const receivedKB = (prog.bn.received + prog.btc.received) / 1024;
+      const totalKB     = (prog.bn.total    + prog.btc.total)    / 1024;
+      const kbps         = (prog.bn.kbps || 0) + (prog.btc.kbps || 0);
+      onProgress({ receivedKB, totalKB, kbps });
+    };
     try {
       const [bnRaw, btcRaw] = await Promise.all([
-        _sv2FetchGzJson(_SV2_GH_BN_URL),
-        _sv2FetchGzJson(_SV2_GH_BTC_URL),
+        _sv2FetchGzJson(_SV2_GH_BN_URL, (p) => { prog.bn = p; emit(); }),
+        _sv2FetchGzJson(_SV2_GH_BTC_URL, (p) => { prog.btc = p; emit(); }),
       ]);
       _SV2_RAW_CACHE.bn  = bnRaw;
       _SV2_RAW_CACHE.btc = btcRaw;
       _sv2ApplyResampled(bnRaw, btcRaw);
       window.__SV2_DEBUG = 'SV2 lazy load OK: bn=' + bnRaw.length + ' btc=' + btcRaw.length;
-      return true;
+      return { ok: true };
     } catch (err) {
+      const msg = (err && err.message) ? err.message : String(err);
       console.error('[SV2] gz load failed:', err);
-      window.__SV2_DEBUG = 'SV2 lazy load FAILED: ' + err;
+      window.__SV2_DEBUG = 'SV2 lazy load FAILED: ' + msg;
       _SV2_RAW_CACHE = { bn: null, btc: null };   // allow retry next time
-      return false;
+      return { ok: false, error: msg };
     } finally {
       _SV2_LOAD_PROMISE = null;
     }
@@ -4822,17 +4900,28 @@ function ss2ApplyAndClose() {
 
     var spBtn = document.getElementById('sv2-drng-start-only');
     var _origLabel = spBtn ? spBtn.textContent : '';
-    if (spBtn) { spBtn.disabled = true; spBtn.textContent = '⏳ Data load ho raha hai…'; }
+    if (spBtn) {
+      spBtn.disabled = true;
+      spBtn.textContent = '⏳ Data load ho raha hai…';
+    }
 
-    var ok = true;
+    var result = { ok: false, error: 'Unknown error' };
     try {
-      ok = await _sv2EnsureDataLoaded();
-    } catch (_) { ok = false; }
+      result = await _sv2EnsureDataLoaded(function(p){
+        if (!spBtn) return;
+        var recv  = p.receivedKB >= 1024 ? (p.receivedKB/1024).toFixed(2)+' MB' : Math.round(p.receivedKB)+' KB';
+        var tot   = p.totalKB > 0 ? (p.totalKB >= 1024 ? (p.totalKB/1024).toFixed(2)+' MB' : Math.round(p.totalKB)+' KB') : '?';
+        var speed = Math.round(p.kbps) + ' KB/s';
+        spBtn.textContent = '⏳ ' + recv + ' / ' + tot + ' (' + speed + ')';
+      });
+    } catch (e) {
+      result = { ok: false, error: (e && e.message) ? e.message : String(e) };
+    }
 
     if (spBtn) { spBtn.textContent = _origLabel; spBtn.disabled = !_selStart; }
 
-    if (!ok) {
-      alert('Data load nahi ho paya — internet connection check karke phir try karo.');
+    if (!result.ok) {
+      alert('⚠ Data load nahi ho paya:\n' + result.error + '\n\nInternet connection check karke phir try karo.');
       return;
     }
 
