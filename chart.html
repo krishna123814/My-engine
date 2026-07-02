@@ -4870,6 +4870,17 @@ function ss2ApplyAndClose() {
       : false;
 
     // ── Har cell ka final closed candle ek hi update() call mein daalo ──────
+    // NOTE: lightweight-charts ka apna EK built-in behavior hai — agar view
+    // abhi "real-time edge" par hai (jo humne pehli baar load ke time
+    // scrollToRealTime() se set kiya tha), to koi bhi naya-time bar
+    // series.update() se add hote hi library KHUD view ko right-shift kar
+    // deti hai taaki naya bar apne rightOffset margin ke saath visible rahe
+    // — bilkul live-chart jaisa "follow latest" behavior. Live mode mein ye
+    // sahi hai (naya candle dikhna chahiye), lekin replay mein view bilkul
+    // STATIC rehna chahiye. Isliye update() se pehle-baad ek halka one-shot
+    // save/restore karte hain (persistent event-lock NAHI — bas ek turant
+    // aur ek rAF-delayed restore, kyunki library kabhi apna layout ek
+    // DEFERRED paint-cycle mein bhi recompute karti hai).
     if (typeof STACK2_CELLS !== 'undefined') {
       for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
         var cell = STACK2_CELLS[ci];
@@ -4883,7 +4894,21 @@ function ss2ApplyAndClose() {
         var finalBar = _computePartialCandle(allReplayed, cellTFMin, isBN);
         if (!finalBar) continue;
 
+        var _cTS = null, _preRange = null;
+        if (!_isDayBoundaryStep) {
+          try { _cTS = cell.chart.timeScale(); _preRange = _cTS.getVisibleRange(); } catch(_) {}
+        }
+
         try { cell.series.update(finalBar); } catch(_) {}
+
+        if (_cTS && _preRange && _preRange.from != null && _preRange.to != null) {
+          try { _cTS.setVisibleRange(_preRange); } catch(_) {}
+          (function(tsInst, savedRange){
+            requestAnimationFrame(function(){
+              try { tsInst.setVisibleRange(savedRange); } catch(_) {}
+            });
+          })(_cTS, _preRange);
+        }
       }
     }
 
