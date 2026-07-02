@@ -5005,6 +5005,8 @@ function ss2ApplyAndClose() {
   var _isPlaying      = false;  // auto-play (continuous replay) ON/OFF
   var _playTimer      = null;   // setTimeout handle between auto-play steps
   var _PLAY_GAP_MS    = 250;    // chhota gap agla candle shuru hone se pehle
+  var _srDelayTimer   = null;   // pending "show SR 5s after candle arrives" timer
+  var _SR_DELAY_MS    = 5000;   // candle N ka H/L, candle N+1 arrive hone ke 5s baad dikhega
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -5036,6 +5038,7 @@ function ss2ApplyAndClose() {
       _replayCandles = null;
       _animating     = false;
       if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+      if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
       _sv2StopPlay();
     }
   }
@@ -5294,12 +5297,22 @@ function ss2ApplyAndClose() {
         // stepBar.time sirf candle ka START hai — replay-clock ke liye
         // uska ASLI close time chahiye (start + base-TF ka poora period),
         // warna higher-TF candles time se pehle "closed" maan li jaati thi.
+        // ── 5-second delay: jab agli candle (N+1) "arrive" hoti hai, pichli
+        // candle (N) ka High/Low line turant nahi, 5 second baad dikhta hai.
+        // Debounced: agar isse pehle koi purana pending redraw baaki hai
+        // (jaise fast manual taps ya auto-play), usse cancel karke sirf
+        // sabse latest step ke liye naya 5s timer lagta hai.
         try {
           var _srAssetKey    = (typeof _stackKeyForAsset === 'function')
                                 ? _stackKeyForAsset(S.asset) : 'bn';
           var _srBaseTfKey   = (_srAssetKey === 'bn') ? BN_STEP_TF : BTC_STEP_TF;
           var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
-          sv2SwingOnStep(stepBar.time + _srBasePeriod);
+          var _srCutoff      = stepBar.time + _srBasePeriod;
+          if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
+          _srDelayTimer = setTimeout(function(){
+            _srDelayTimer = null;
+            try { sv2SwingOnStep(_srCutoff); } catch(_) {}
+          }, _SR_DELAY_MS);
         } catch(_) {}
 
         // Check if replay is complete
@@ -5397,6 +5410,7 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
     _sv2StopPlay();
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
@@ -5410,6 +5424,7 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
     _sv2StopPlay();
     _syncStepBtn();
   });
