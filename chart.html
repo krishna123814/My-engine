@@ -2633,6 +2633,184 @@ const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
 // ════════════════════════════════════════════════════════════════════════════
+// SV2 LAZY GZ LOADER — GitHub se .gz sirf "Go to Date" apply hone par fetch
+// hota hai (page load par nahi). Ek baar fetch/decompress hone ke baad raw
+// rows browser memory mein cache rehte hain (_SV2_RAW_CACHE) taaki dobara
+// "Go to Date" use karne par phir se network call na ho — sirf cached raw
+// rows se dobara resample hota hai.
+// ════════════════════════════════════════════════════════════════════════════
+const _SV2_GH_BASE    = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
+const _SV2_GH_BN_URL  = _SV2_GH_BASE + '/banknifty_5m_csv_json.gz';
+const _SV2_GH_BTC_URL = _SV2_GH_BASE + '/Bitcoin_BTCUSDT_IST_5m_json.gz';
+
+const _SV2_IST_NAIVE_OFFSET = 19800;   // 5.5h — IST-naive → real UTC
+const _SV2_SESSION_START    = 33300;   // 9:15 IST
+const _SV2_SESSION_END      = 55800;   // 15:30 IST
+const _SV2_MAX = {
+  '5m': 6000, '15m': 3000, '45m': 2000, '135m': 2000,
+  '160m': 2000, '8H': 2000,
+  '1D': 2000, '3D': 1500, '9D': 800, '27D': 400,
+};
+
+let _SV2_RAW_CACHE    = { bn: null, btc: null };  // raw 5m rows, once fetched
+let _SV2_LOAD_PROMISE = null;                     // in-flight fetch/resample promise
+
+async function _sv2FetchGzJson(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('DecompressionStream not supported in this browser');
+  }
+  const ds   = resp.body.pipeThrough(new DecompressionStream('gzip'));
+  const text = await new Response(ds).text();
+  const data = JSON.parse(text);
+  return Array.isArray(data) ? data : (data.data || []);
+}
+
+function _sv2TrimArr(arr, label) {
+  const n = _SV2_MAX[label] || 2000;
+  return arr.length > n ? arr.slice(-n) : arr;
+}
+
+function _sv2ResampleBnIntraday(rows, tfMin) {
+  const sec = tfMin * 60;
+  if (tfMin <= 5) {
+    const out = [];
+    for (const r of rows) {
+      const mod = r.t % 86400;
+      if (mod < _SV2_SESSION_START || mod >= _SV2_SESSION_END) continue;
+      out.push({ time: r.t - _SV2_IST_NAIVE_OFFSET, open: r.o, high: r.h, low: r.l, close: r.c });
+    }
+    return out;
+  }
+  const buckets = {};
+  for (const r of rows) {
+    const t   = r.t;
+    const mod = t % 86400;
+    if (mod < _SV2_SESSION_START || mod >= _SV2_SESSION_END) continue;
+    const dayStart  = t - mod;
+    const sinceOpen = mod - _SV2_SESSION_START;
+    const bucketIdx = Math.floor(sinceOpen / sec);
+    const bucketSec = _SV2_SESSION_START + bucketIdx * sec;
+    const keyUtc    = (dayStart + bucketSec) - _SV2_IST_NAIVE_OFFSET;
+    if (!(keyUtc in buckets)) {
+      buckets[keyUtc] = { time: keyUtc, open: r.o, high: r.h, low: r.l, close: r.c };
+    } else {
+      const b = buckets[keyUtc];
+      b.high  = Math.max(b.high, r.h);
+      b.low   = Math.min(b.low,  r.l);
+      b.close = r.c;
+    }
+  }
+  return Object.values(buckets).sort((a, b) => a.time - b.time);
+}
+
+function _sv2ResampleBnDaily(rows, nDays) {
+  const dayBuckets = {};
+  for (const r of rows) {
+    const t   = r.t;
+    const mod = t % 86400;
+    if (mod < _SV2_SESSION_START || mod >= _SV2_SESSION_END) continue;
+    const dayStart = t - mod;
+    const keyUtc   = (dayStart + _SV2_SESSION_START) - _SV2_IST_NAIVE_OFFSET;
+    if (!(keyUtc in dayBuckets)) {
+      dayBuckets[keyUtc] = { time: keyUtc, open: r.o, high: r.h, low: r.l, close: r.c };
+    } else {
+      const b = dayBuckets[keyUtc];
+      b.high  = Math.max(b.high, r.h);
+      b.low   = Math.min(b.low,  r.l);
+      b.close = r.c;
+    }
+  }
+  const days = Object.values(dayBuckets).sort((a, b) => a.time - b.time);
+  if (nDays <= 1) return days;
+  const out = [];
+  for (let i = 0; i < days.length; i += nDays) {
+    const chunk = days.slice(i, i + nDays);
+    if (!chunk.length) break;
+    out.push({
+      time:  chunk[0].time,
+      open:  chunk[0].open,
+      high:  Math.max(...chunk.map(c => c.high)),
+      low:   Math.min(...chunk.map(c => c.low)),
+      close: chunk[chunk.length - 1].close,
+    });
+  }
+  return out;
+}
+
+function _sv2ResampleBtc(rows, tfMin) {
+  if (tfMin <= 5) {
+    return rows.map(r => ({ time: r.t, open: r.o, high: r.h, low: r.l, close: r.c }));
+  }
+  const sec = tfMin * 60;
+  const buckets = {};
+  for (const r of rows) {
+    const key = Math.floor(r.t / sec) * sec;
+    if (!(key in buckets)) {
+      buckets[key] = { time: key, open: r.o, high: r.h, low: r.l, close: r.c };
+    } else {
+      const b = buckets[key];
+      b.high  = Math.max(b.high, r.h);
+      b.low   = Math.min(b.low,  r.l);
+      b.close = r.c;
+    }
+  }
+  return Object.values(buckets).sort((a, b) => a.time - b.time);
+}
+
+function _sv2ApplyResampled(bnRaw, btcRaw) {
+  SV2_BN['5m']   = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 5),   '5m');
+  SV2_BN['15m']  = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 15),  '15m');
+  SV2_BN['45m']  = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 45),  '45m');
+  SV2_BN['135m'] = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 135), '135m');
+  SV2_BN['1D']   = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 1),  '1D');
+  SV2_BN['3D']   = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 3),  '3D');
+  SV2_BN['9D']   = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 9),  '9D');
+  SV2_BN['27D']  = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 27), '27D');
+
+  SV2_BTC['160m'] = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 160),        '160m');
+  SV2_BTC['8H']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 480),        '8H');
+  SV2_BTC['1D']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440),       '1D');
+  SV2_BTC['3D']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440 * 3),   '3D');
+  SV2_BTC['9D']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440 * 9),   '9D');
+  SV2_BTC['27D']  = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440 * 27),  '27D');
+}
+
+// Ensures BN + BTC raw .gz data is fetched + cached + resampled into
+// SV2_BN / SV2_BTC. Safe to call multiple times — network call sirf pehli
+// baar hoti hai, uske baad cached raw rows se hi kaam chalta hai.
+function _sv2EnsureDataLoaded() {
+  if (_SV2_RAW_CACHE.bn && _SV2_RAW_CACHE.btc) {
+    return Promise.resolve(true);   // already cached — no re-fetch
+  }
+  if (_SV2_LOAD_PROMISE) return _SV2_LOAD_PROMISE;   // fetch already in-flight
+
+  _SV2_LOAD_PROMISE = (async () => {
+    try {
+      const [bnRaw, btcRaw] = await Promise.all([
+        _sv2FetchGzJson(_SV2_GH_BN_URL),
+        _sv2FetchGzJson(_SV2_GH_BTC_URL),
+      ]);
+      _SV2_RAW_CACHE.bn  = bnRaw;
+      _SV2_RAW_CACHE.btc = btcRaw;
+      _sv2ApplyResampled(bnRaw, btcRaw);
+      window.__SV2_DEBUG = 'SV2 lazy load OK: bn=' + bnRaw.length + ' btc=' + btcRaw.length;
+      return true;
+    } catch (err) {
+      console.error('[SV2] gz load failed:', err);
+      window.__SV2_DEBUG = 'SV2 lazy load FAILED: ' + err;
+      _SV2_RAW_CACHE = { bn: null, btc: null };   // allow retry next time
+      return false;
+    } finally {
+      _SV2_LOAD_PROMISE = null;
+    }
+  })();
+  return _SV2_LOAD_PROMISE;
+}
+window._sv2EnsureDataLoaded = _sv2EnsureDataLoaded;
+
+// ════════════════════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════════════════════
 const S = {
@@ -4638,9 +4816,26 @@ function ss2ApplyAndClose() {
   // ── Start Point Only: "Go to Date" — hides everything from that date
   //    onward (open-ended, no end date needed), exactly like TradingView's
   //    Bar Replay starting-point selection. ──────────────────────────────────
-  function _sv2DrngApplyStartOnly() {
+  async function _sv2DrngApplyStartOnly() {
     if (!_selStart) return;
     var fromEpoch = _dateToEpoch(_selStart);
+
+    var spBtn = document.getElementById('sv2-drng-start-only');
+    var _origLabel = spBtn ? spBtn.textContent : '';
+    if (spBtn) { spBtn.disabled = true; spBtn.textContent = '⏳ Data load ho raha hai…'; }
+
+    var ok = true;
+    try {
+      ok = await _sv2EnsureDataLoaded();
+    } catch (_) { ok = false; }
+
+    if (spBtn) { spBtn.textContent = _origLabel; spBtn.disabled = !_selStart; }
+
+    if (!ok) {
+      alert('Data load nahi ho paya — internet connection check karke phir try karo.');
+      return;
+    }
+
     var toEpoch   = _sv2MaxAvailableTime();   // open-ended → end of loaded data
     window._SV2_DATE_RANGE = {
       from:      fromEpoch,
