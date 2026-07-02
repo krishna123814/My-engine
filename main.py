@@ -464,24 +464,17 @@ import io as _io
 _SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
 
 # GitHub raw URLs — repo: krishna123814/My-engine, branch: main
-# NOTE: filename mein ".json.gz" hai ("dot json"), "_json.gz" nahi.
 _GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
-_GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv.json.gz"
-_GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m.json.gz"
+_GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv_json.gz"
+_GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
 
 def _sv2_fetch_gz_from_url(url: str) -> list:
-    """GitHub raw URL se fetch karo, decompress karo, JSON parse karo.
-    Gzip decompress try karta hai; agar server ne plain JSON serve kiya
-    (gzip nahi), toh seedha JSON parse pe fallback ho jata hai."""
+    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo."""
     try:
         resp = requests.get(url, timeout=90)
         resp.raise_for_status()
-        raw = resp.content
-        try:
-            with _gzip.open(_io.BytesIO(raw), "rb") as f:
-                data = json.load(f)
-        except OSError:
-            data = json.loads(raw)
+        with _gzip.open(_io.BytesIO(resp.content), "rb") as f:
+            data = json.load(f)
         # Both formats supported: {"meta":..,"data":[..]} or plain list
         return data["data"] if isinstance(data, dict) else data
     except Exception:
@@ -491,10 +484,9 @@ def _sv2_load_bn_gz() -> list:
     """BankNifty 5m candles — GitHub se fetch karo (cached)."""
     if "bn_raw" in _SV2_CACHE:
         return _SV2_CACHE["bn_raw"]
-    _SV2_CACHE["bn_path"] = _GH_BN_URL
     rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
     if not rows:
-        _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED: " + _GH_BN_URL
+        _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
         return []
     _SV2_CACHE["bn_raw"] = rows
     return rows
@@ -503,10 +495,9 @@ def _sv2_load_btc_gz() -> list:
     """BTC 5m candles — GitHub se fetch karo (cached)."""
     if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
-    _SV2_CACHE["btc_path"] = _GH_BTC_URL
     rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
     if not rows:
-        _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED: " + _GH_BTC_URL
+        _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
         return []
     _SV2_CACHE["btc_raw"] = rows
     return rows
