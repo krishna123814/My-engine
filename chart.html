@@ -4942,7 +4942,10 @@ function ss2ApplyAndClose() {
         var _srAssetKey    = (typeof _stackKeyForAsset === 'function')
                               ? _stackKeyForAsset(S.asset) : 'bn';
         var _srBaseTfKey   = (_srAssetKey === 'bn') ? BN_STEP_TF : BTC_STEP_TF;
-        var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
+        // Candle "puri" (fully closed) maanne ke liye base-TF period ke
+        // upar 1 extra minute add karte hain — BankNifty 5m ho ya BTC
+        // 160m, dono mein +60s buffer.
+        var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60 + 60;
         sv2SwingOnStep(stepBar.time + _srBasePeriod);
       } catch(_) {}
     }, 200);
