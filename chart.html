@@ -4673,15 +4673,24 @@ function ss2ApplyAndClose() {
   }
 
   // ── Range-lock: chart ko FORCEFULLY static rakhne ka tareeka ──────────────
-  // Sirf ek baar setVisibleLogicalRange() call karke revert karna kaafi nahi
+  // Sirf ek baar setVisibleRange() call karke revert karna kaafi nahi
   // tha — lightweight-charts library kabhi range ko update() ke baad turant
   // sync nahi, balki apne internal render-cycle mein (agla frame) autoscroll
   // karti hai, jo humare single revert ke BAAD lagta hai aur usse override
-  // kar deta hai. Isliye ab hum `subscribeVisibleLogicalRangeChange` se sun
+  // kar deta hai. Isliye ab hum `subscribeVisibleTimeRangeChange` se sun
   // rahe hain — jab bhi range apne-aap target se hatti hai (chahe sync ho
   // ya library ke agle internal frame mein), turant wapas target par pin
   // kar dete hain. Reentrancy-guard (`restoring` flag) infinite loop rokta
-  // hai kyunki setVisibleLogicalRange khud bhi yehi event fire karta hai.
+  // hai kyunki setVisibleRange khud bhi yehi event fire karta hai.
+  //
+  // TIME-based (logical/index-based NAHI) — kyunki SR lines ke synthetic
+  // startTime/endTime points shared time-axis mein naye indices insert kar
+  // dete hain jab step ke andar SR redraw hoti hai. Agar lock logical-index
+  // par based hota (jaisa pehle tha), toh SR insertion ke baad "target"
+  // index ka matlab hi badal jaata — lock wapas usi purane number par pin
+  // karta lekin ab woh number kisi aur (galat) candle ko point kar raha
+  // hota, isliye chart phir bhi shift dikhta tha. Time-values kabhi shift
+  // nahi hote, isliye time-based lock is insertion se immune hai.
   function _lockCellRanges() {
     var locks = [];
     if (typeof STACK2_CELLS === 'undefined') return locks;
@@ -4693,19 +4702,19 @@ function ss2ApplyAndClose() {
         try { ts = cellChart.timeScale(); } catch(_) { return; }
         if (!ts) return;
         var target = null;
-        try { target = ts.getVisibleLogicalRange(); } catch(_) {}
-        if (!target || typeof target.from !== 'number' || typeof target.to !== 'number') return;
+        try { target = ts.getVisibleRange(); } catch(_) {}
+        if (!target || target.from == null || target.to == null) return;
         var restoring = false;
         var handler = function(newRange) {
           if (restoring || !newRange) return;
           if (newRange.from !== target.from || newRange.to !== target.to) {
             restoring = true;
-            try { ts.setVisibleLogicalRange(target); } catch(_) {}
+            try { ts.setVisibleRange(target); } catch(_) {}
             restoring = false;
           }
         };
         try {
-          ts.subscribeVisibleLogicalRangeChange(handler);
+          ts.subscribeVisibleTimeRangeChange(handler);
           locks.push({ ts: ts, handler: handler });
         } catch(_) {}
       })(cell.chart);
@@ -4715,7 +4724,7 @@ function ss2ApplyAndClose() {
   function _unlockCellRanges(locks) {
     if (!locks || !locks.length) return;
     for (var i = 0; i < locks.length; i++) {
-      try { locks[i].ts.unsubscribeVisibleLogicalRangeChange(locks[i].handler); } catch(_) {}
+      try { locks[i].ts.unsubscribeVisibleTimeRangeChange(locks[i].handler); } catch(_) {}
     }
   }
 
@@ -4917,12 +4926,16 @@ function ss2ApplyAndClose() {
       : false;
 
     // ── Chart ko is step ke duration bhar static pin karo ──────────────────
-    // Day-boundary step ke liye lock NAHI lagate — us case mein purana
-    // explicit scrollToRealTime/fitContent fix jaan-boojh kar chalna chahiye
-    // (naya trading-day ka gap-fix), baaki har normal step (sabhi TF/cells)
-    // ke liye chart bilkul static rahega jab tak candle grow ho ya SR redraw ho.
+    // Ab day-boundary step ko bhi lock karte hain (pehle isko skip kiya
+    // jaata tha taaki purana scrollToRealTime/fitContent gap-fix free chal
+    // sake) — lekin lock ke bina candle-grow animation ke dauraan chart free
+    // auto-scroll karta tha, jisse "candle banne se pehle gap" dikhta tha.
+    // Ab poore step (grow-animation samet) purani position par pin rehta
+    // hai; scrollToRealTime/fitContent fix niche animation complete hone ke
+    // BAAD, ek clean single snap ke roop mein apply hota hai (fir turant
+    // re-lock ho jaata hai taaki SR-rebuild usse disturb na kare).
     if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
-    if (!_isDayBoundaryStep) _activeLocks = _lockCellRanges();
+    _activeLocks = _lockCellRanges();
 
     function frame(now) {
       var t = Math.min(1, (now - startMs) / _ANIM_MS);
@@ -4999,7 +5012,14 @@ function ss2ApplyAndClose() {
         // recompute karne do (scrollToRealTime, fitContent fallback ke
         // saath). Yeh sv2SwingOnStep se PEHLE chalta hai taaki SR redraw
         // wala range-save/restore bhi is corrected range ko hi pakde.
+        //
+        // Is fix ko apply karne se pehle purani-position wala lock hatate
+        // hain (warna lock khud fix ko turant wapas revert kar dega), aur
+        // fix ke baad turant NAYI (corrected) position par re-lock karte
+        // hain — taaki agla SR rebuild (sv2SwingOnStep) is sahi position ko
+        // disturb na kar paaye.
         if (_isDayBoundaryStep && typeof STACK2_CELLS !== 'undefined') {
+          if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
           for (var _dj = 0; _dj < STACK2_CELLS.length; _dj++) {
             var _dCell = STACK2_CELLS[_dj];
             if (!_dCell || !_dCell.chart) continue;
@@ -5009,6 +5029,7 @@ function ss2ApplyAndClose() {
               try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
             }
           }
+          _activeLocks = _lockCellRanges();
         }
 
         // SV2 Swing S&R: closed candle ke baad SR update karo
