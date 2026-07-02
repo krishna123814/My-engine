@@ -457,208 +457,6 @@ def is_session_active() -> bool:
     _sess_cache.update({"active": active, "ts": now})
     return active
 
-# ─── Stack View 2: GitHub se .gz data load + resample ────────────────────────
-import gzip as _gzip
-import io as _io
-
-_SV2_CACHE: dict = {}   # in-memory cache taaki har rerun pe re-read na ho
-
-# GitHub raw URLs — repo: krishna123814/My-engine, branch: main
-_GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
-_GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv_json.gz"
-_GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
-
-def _sv2_fetch_gz_from_url(url: str) -> list:
-    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo."""
-    try:
-        resp = requests.get(url, timeout=90)
-        resp.raise_for_status()
-        with _gzip.open(_io.BytesIO(resp.content), "rb") as f:
-            data = json.load(f)
-        # Both formats supported: {"meta":..,"data":[..]} or plain list
-        return data["data"] if isinstance(data, dict) else data
-    except Exception:
-        return []
-
-def _sv2_load_bn_gz() -> list:
-    """BankNifty 5m candles — GitHub se fetch karo (cached)."""
-    if "bn_raw" in _SV2_CACHE:
-        return _SV2_CACHE["bn_raw"]
-    rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
-    if not rows:
-        _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
-        return []
-    _SV2_CACHE["bn_raw"] = rows
-    return rows
-
-def _sv2_load_btc_gz() -> list:
-    """BTC 5m candles — GitHub se fetch karo (cached)."""
-    if "btc_raw" in _SV2_CACHE:
-        return _SV2_CACHE["btc_raw"]
-    rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
-    if not rows:
-        _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
-        return []
-    _SV2_CACHE["btc_raw"] = rows
-    return rows
-
-## ── IST-naive timestamp constants ───────────────────────────────────────────
-## .gz data mein timestamps IST-naive hain: 9:15 IST ko 09:15 UTC ki tarah
-## store kiya gaya hai. LightweightCharts real UTC chahta hai (IST timezone ke
-## sath display karta hai: UTC + 5:30). Fix: har output time se 19800 subtract karo.
-_IST_NAIVE_OFFSET = 19800   # 5.5 * 3600 — IST-naive → real UTC conversion
-_SESSION_START    = 33300   # 9:15 IST = 9*3600 + 15*60 seconds from midnight
-_SESSION_END      = 55800   # 15:30 IST = 15*3600 + 30*60 seconds from midnight
-
-def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
-    """BN 5m data ko intraday TF mein resample karo.
-
-    .gz timestamps IST-naive hain (9:15 IST stored as 09:15 UTC epoch).
-    Per-day anchor: har din 9:15 IST se bucket 0 start hota hai.
-    Output timestamps real UTC mein (LightweightCharts + IST timezone ke liye).
-    Session filter: sirf 9:15–15:30 IST ke candles.
-    """
-    sec = tf_min * 60
-    if tf_min <= 5:
-        out = []
-        for r in rows:
-            mod = r["t"] % 86400
-            if mod < _SESSION_START or mod >= _SESSION_END:
-                continue
-            out.append({"time": r["t"] - _IST_NAIVE_OFFSET,
-                        "open": r["o"], "high": r["h"],
-                        "low":  r["l"], "close": r["c"]})
-        return out
-
-    buckets: dict = {}
-    for r in rows:
-        t       = r["t"]
-        mod     = t % 86400                        # seconds since IST midnight
-        if mod < _SESSION_START or mod >= _SESSION_END:
-            continue
-        day_start   = t - mod                      # IST-naive midnight of this day
-        since_open  = mod - _SESSION_START         # seconds elapsed since 9:15 IST
-        bucket_idx  = since_open // sec            # which bucket (0-based per day)
-        bucket_sec  = _SESSION_START + bucket_idx * sec  # seconds from midnight
-        key_utc     = (day_start + bucket_sec) - _IST_NAIVE_OFFSET  # real UTC
-
-        if key_utc not in buckets:
-            buckets[key_utc] = {"time": key_utc,
-                                "open": r["o"], "high": r["h"],
-                                "low":  r["l"], "close": r["c"]}
-        else:
-            b = buckets[key_utc]
-            b["high"]  = max(b["high"],  r["h"])
-            b["low"]   = min(b["low"],   r["l"])
-            b["close"] = r["c"]
-    return sorted(buckets.values(), key=lambda x: x["time"])
-
-def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
-    """BN 5m data ko daily / multi-day candles mein resample karo.
-
-    Har trading day ka open = 9:15 IST (real UTC: 3:45 AM = 13500s from UTC midnight).
-    .gz timestamps IST-naive hain — 19800 subtract karo real UTC ke liye.
-    """
-    day_buckets: dict = {}
-    for r in rows:
-        t   = r["t"]
-        mod = t % 86400
-        if mod < _SESSION_START or mod >= _SESSION_END:
-            continue
-        day_start = t - mod                              # IST-naive midnight
-        key_utc   = (day_start + _SESSION_START) - _IST_NAIVE_OFFSET  # 3:45 UTC
-
-        if key_utc not in day_buckets:
-            day_buckets[key_utc] = {"time": key_utc,
-                                    "open": r["o"], "high": r["h"],
-                                    "low":  r["l"], "close": r["c"]}
-        else:
-            b = day_buckets[key_utc]
-            b["high"]  = max(b["high"],  r["h"])
-            b["low"]   = min(b["low"],   r["l"])
-            b["close"] = r["c"]
-
-    days = sorted(day_buckets.values(), key=lambda x: x["time"])
-    if n_days <= 1:
-        return days
-
-    out = []
-    for i in range(0, len(days), n_days):
-        chunk = days[i:i + n_days]
-        if not chunk:
-            break
-        out.append({
-            "time":  chunk[0]["time"],
-            "open":  chunk[0]["open"],
-            "high":  max(c["high"] for c in chunk),
-            "low":   min(c["low"]  for c in chunk),
-            "close": chunk[-1]["close"],
-        })
-    return out
-
-def _sv2_resample_btc(rows: list, tf_min: int) -> list:
-    """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto)."""
-    if tf_min <= 5:
-        return [{"time": r["t"], "open": r["o"], "high": r["h"],
-                 "low": r["l"], "close": r["c"]} for r in rows]
-    sec = tf_min * 60
-    buckets: dict = {}
-    for r in rows:
-        key = (r["t"] // sec) * sec
-        if key not in buckets:
-            buckets[key] = {"time": key, "open": r["o"], "high": r["h"],
-                            "low": r["l"], "close": r["c"]}
-        else:
-            b = buckets[key]
-            b["high"]  = max(b["high"],  r["h"])
-            b["low"]   = min(b["low"],   r["l"])
-            b["close"] = r["c"]
-    return sorted(buckets.values(), key=lambda x: x["time"])
-
-# Mobile ke liye max candles per TF (chunked inject)
-_SV2_MAX = {
-    "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
-    "160m": 2000, "8H": 2000,
-    "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
-}
-
-def _sv2_trim(data: list, label: str) -> list:
-    """Last N candles rakh, baaki drop karo (mobile hang prevention)."""
-    n = _SV2_MAX.get(label, 2000)
-    return data[-n:] if len(data) > n else data
-
-def _sv2_to_js(data: list) -> str:
-    """List of dicts → compact JSON string for inline JS."""
-    return json.dumps(data, separators=(",", ":"))
-
-def _build_sv2_data() -> dict:
-    """Dono .gz files se sab TFs ka resampled data build karo."""
-    bn_raw  = _sv2_load_bn_gz()
-    btc_raw = _sv2_load_btc_gz()
-
-    bn_tfs = {
-        "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
-        "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
-        "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
-        "135m": _sv2_resample_bn_intraday(bn_raw,  135),
-        "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
-        "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
-        "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
-        "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
-    }
-    btc_tfs = {
-        "160m": _sv2_resample_btc(btc_raw, 160),
-        "8H":   _sv2_resample_btc(btc_raw, 480),
-        "1D":   _sv2_resample_btc(btc_raw, 1440),
-        "3D":   _sv2_resample_btc(btc_raw, 1440 * 3),
-        "9D":   _sv2_resample_btc(btc_raw, 1440 * 9),
-        "27D":  _sv2_resample_btc(btc_raw, 1440 * 27),
-    }
-    return {
-        "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
-        "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
-    }
-
 # ─── Fyers historical data ─────────────────────────────────────────────────────
 def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
     creds = load_creds()
@@ -836,6 +634,23 @@ def load_btc_daily() -> list:
         except Exception:
             pass
     return all_candles
+
+# ─── OHLC converter ───────────────────────────────────────────────────────────
+def to_ohlc(bars: list) -> list:
+    out = []
+    for b in bars:
+        try:
+            out.append({
+                "time":   int(b[0]) // 1000,
+                "open":   round(float(b[1]), 2),
+                "high":   round(float(b[2]), 2),
+                "low":    round(float(b[3]), 2),
+                "close":  round(float(b[4]), 2),
+                "volume": round(float(b[5]), 2) if len(b) > 5 else 0,
+            })
+        except Exception:
+            continue
+    return out
 
 # ─── Fyers WebSocket (DataSocket) — live BankNifty ticks ─────────────────────
 _ws_thread_started = False
@@ -1216,6 +1031,91 @@ if _qp.get("cs_save") == "1":
             pass
     st.rerun()
 
+# Handler 3: Google Drive OAuth callback — ?gd_cb=1#access_token=...
+# Popup yahan redirect hota hai — poora Streamlit UI hide karo, sirf callback JS chalao
+if _qp.get("gd_cb") == "1":
+    st.markdown("""
+<style>
+  /* Streamlit poora hide karo */
+  #root > div, .stApp, header, footer,
+  [data-testid="stAppViewContainer"],
+  [data-testid="stHeader"],
+  [data-testid="stToolbar"],
+  [data-testid="stSidebar"],
+  .main, .block-container { display: none !important; }
+  body { background: #131722 !important; margin: 0 !important; }
+</style>
+<div id="gd-cb-box" style="
+  position:fixed;top:0;left:0;width:100vw;height:100vh;
+  background:#131722;display:flex;align-items:center;
+  justify-content:center;font-family:sans-serif;color:#d1d4dc;
+  flex-direction:column;gap:16px;z-index:999999;">
+  <div id="gd-spinner" style="font-size:2.5rem;">☁</div>
+  <div id="gd-msg" style="font-size:1rem;">Google sign-in complete ho raha hai…</div>
+</div>
+<script>
+(function() {
+  // Google OAuth2 implicit flow: token URL fragment mein aata hai
+  // Fragment Streamlit tak nahi pahunchta — isliye hum sessionStorage trick use karte hain
+
+  var STORAGE_KEY = '_gd_oauth_pending';
+  var TS_KEY      = '_gd_oauth_ts';
+
+  function setMsg(txt, ok) {
+    var el = document.getElementById('gd-msg');
+    var sp = document.getElementById('gd-spinner');
+    if (el) el.textContent = txt;
+    if (sp) sp.textContent = ok ? '✅' : '❌';
+  }
+
+  function parseHash(str) {
+    var p = {};
+    (str || '').replace(/^[#?]/, '').split('&').forEach(function(pair) {
+      var kv = pair.split('=');
+      if (kv.length >= 2) p[decodeURIComponent(kv[0])] = decodeURIComponent(kv.slice(1).join('='));
+    });
+    return p;
+  }
+
+  function sendToken(token, exp) {
+    var msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
+
+    // Method 1: window.opener (popup ka parent)
+    try { if (window.opener && !window.opener.closed) { window.opener.postMessage(msg, '*'); } } catch(_) {}
+
+    // Method 2: localStorage (chart poll karta hai)
+    try {
+      localStorage.setItem(STORAGE_KEY, msg);
+      localStorage.setItem(TS_KEY, Date.now().toString());
+    } catch(_) {}
+
+    setMsg('✅ Sign-in ho gaya! Yeh window band ho rahi hai…', true);
+    setTimeout(function() {
+      try { window.close(); } catch(_) {}
+      // Agar window band nahi hui toh blank page dikhao
+      setTimeout(function() { document.body.innerHTML = '<p style="color:#26a69a;text-align:center;padding:40px;font-family:sans-serif">✅ Sign-in complete. Yeh tab band kar sakte ho.</p>'; }, 1500);
+    }, 1000);
+  }
+
+  // Hash directly milta hai toh seedha use karo
+  var hash = window.location.hash || window.location.search || '';
+  var params = parseHash(hash);
+  var token = params['access_token'];
+  var exp   = parseInt(params['expires_in'] || '3600', 10);
+
+  if (token) {
+    sendToken(token, exp);
+    return;
+  }
+
+  // Hash nahi mila — URL mein fragment tha jo Streamlit ne strip kar diya
+  // Yeh normal hai — chart ka localStorage poller handle karega
+  setMsg('❌ Token nahi mila. Chart pe wapas jao aur dobara Sign in karo.', false);
+})();
+</script>
+""", unsafe_allow_html=True)
+    st.stop()
+
 
 creds      = load_creds()
 sess_active = is_session_active()
@@ -1443,57 +1343,7 @@ def _build_chart_html(
     html = html.replace("__BN_15M__",      _to_lwc(bn_15m))
     html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
-
-    # ── SV2 Bar-Replay: BankNifty 60-second (1m) base candles ───────────────
-    # .gz archive (GitHub) sirf 5m resolution mein hai, isliye asli 1-minute
-    # candle sirf Fyers ke live 1m intraday data (bn_1m, last ~10 din) se milta
-    # hai. Ye yahan SV2_BN store mein "1m" key ke roop mein inject hota hai —
-    # naya (recent) date-range replay 60-sec candles mein chalega; usse purani
-    # dates ke liye JS side automatically 5m base par fallback karta hai.
-    html = html.replace("__SV2_BN_1M__", _to_lwc(bn_1m))
-
-    # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
-    _sv2_err_msg = ""
-    try:
-        _sv2 = _build_sv2_data()
-        _bn  = _sv2["bn"]
-        _btc = _sv2["btc"]
-        # Debug info: paths + counts inject karo
-        _sv2_debug_info = {
-            "bn_path":  _SV2_CACHE.get("bn_path", "?"),
-            "btc_path": _SV2_CACHE.get("btc_path", "?"),
-            "bn_err":   _SV2_CACHE.get("bn_err", ""),
-            "btc_err":  _SV2_CACHE.get("btc_err", ""),
-            "bn_counts": {k: len(v) for k, v in _bn.items()},
-            "btc_counts": {k: len(v) for k, v in _btc.items()},
-        }
-        _sv2_err_msg = json.dumps(_sv2_debug_info)
-        html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
-        html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
-        html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
-        html = html.replace("__SV2_BN_135M__", _sv2_to_js(_bn["135m"]))
-        html = html.replace("__SV2_BN_1D__",   _sv2_to_js(_bn["1D"]))
-        html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
-        html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
-        html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
-        html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
-        html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
-        html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
-        html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))
-        html = html.replace("__SV2_BTC_9D__",   _sv2_to_js(_btc["9D"]))
-        html = html.replace("__SV2_BTC_27D__",  _sv2_to_js(_btc["27D"]))
-    except Exception as _sv2_ex:
-        _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
-        # Fallback: empty arrays agar gz file missing/corrupt ho
-        for _ph in ["__SV2_BN_1M__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
-                    "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
-                    "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
-                    "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
-            html = html.replace(_ph, "[]")
-    # Inject debug info as JS variable — visible via window.__SV2_DEBUG in browser console
-    _sv2_safe = _sv2_err_msg.replace("</", "<\/")
-    html = html.replace("</body>",
-        f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};</script>\n</body>", 1)
+    html = html.replace("__FYERS_STATUS__", status)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
@@ -1812,3 +1662,287 @@ else:
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Google Cloud Restore card (login screen pe bhi) ────────────────────────
+    _gd_card_html = """
+<style>
+.gd-card{
+  background:#1a1f2e;border:1px solid #2962ff44;border-radius:12px;
+  padding:16px 18px;max-width:620px;margin:24px auto 0;
+}
+.gd-card-title{color:#90caf9;font:700 13px sans-serif;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.gd-card-row{display:flex;align-items:center;gap:8px;margin-top:8px;}
+.gd-card-status{color:#787b86;font:600 11px sans-serif;flex:1;}
+.gd-card-btn{
+  background:#2962ff;color:#fff;border:none;border-radius:7px;
+  padding:9px 14px;font:700 12px sans-serif;cursor:pointer;
+  min-height:36px;white-space:nowrap;
+}
+.gd-card-btn:active{opacity:.8}
+.gd-card-inp{
+  flex:1;background:#131722;border:1px solid #363c4e;border-radius:6px;
+  color:#d1d4dc;font-size:11px;padding:7px 9px;outline:none;min-width:0;
+}
+.gd-card-ok{
+  background:#26a69a;color:#fff;border:none;border-radius:6px;
+  padding:7px 11px;font:700 11px sans-serif;cursor:pointer;white-space:nowrap;
+}
+</style>
+
+<div class="gd-card">
+  <div class="gd-card-title">☁ Google Cloud — Layout Restore</div>
+  <div class="gd-card-row">
+    <span class="gd-card-status" id="ls-gd-status">Checking…</span>
+    <button class="gd-card-btn" id="ls-gd-btn" onclick="lsGdSignIn()" style="display:none;">Sign in</button>
+  </div>
+  <div id="ls-gd-manual" style="display:none;margin-top:8px;">
+    <div style="color:#787b86;font:500 10px sans-serif;margin-bottom:5px;">Popup ka poora URL paste karo:</div>
+    <div style="display:flex;gap:6px;">
+      <input class="gd-card-inp" id="ls-gd-inp" placeholder="localhost:8501/?gd_cb=1#access_token=ya29…">
+      <button class="gd-card-ok" onclick="lsGdManualToken()">✓ OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
+  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE_NAME = 'banknifty-layout-sync.json';
+  const AUTH_FLAG  = 'gdAuthed';
+  const TOK_KEY    = '_gd_access_token';
+  const TOK_EXP_KEY= '_gd_token_exp';
+
+  let _accessToken = null, _tokenExp = 0, _fileId = null;
+
+  // Reload hone par bhi token yaad rahe — localStorage se purana token uthao
+  try{
+    const savedTok = localStorage.getItem(TOK_KEY);
+    const savedExp = parseInt(localStorage.getItem(TOK_EXP_KEY)||'0',10);
+    if(savedTok && savedExp > Date.now()){
+      _accessToken = savedTok;
+      _tokenExp    = savedExp;
+    }
+  }catch(_){}
+
+  function _hdr(){ return { Authorization: 'Bearer ' + _accessToken }; }
+  function _setStatus(t,c){ const s=document.getElementById('ls-gd-status'); if(s){s.textContent=t;s.style.color=c||'#787b86';} }
+  function _showBtn(show){ const b=document.getElementById('ls-gd-btn'); if(b) b.style.display=show?'':'none'; }
+  function _showManual(show){ const m=document.getElementById('ls-gd-manual'); if(m) m.style.display=show?'':'none'; }
+
+  function _getRedirectURI(){
+    try{
+      const origin = window.parent !== window
+        ? (document.referrer ? new URL(document.referrer).origin : window.location.origin)
+        : window.location.origin;
+      if(origin && origin!=='null') return origin+'/?gd_cb=1';
+    }catch(_){}
+    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
+  }
+
+  function _onToken(resp){
+    if(resp && resp.access_token){
+      _accessToken = resp.access_token;
+      _tokenExp = Date.now() + ((resp.expires_in||3600)*1000 - 60000);
+      try{
+        localStorage.setItem(AUTH_FLAG,'1');
+        localStorage.setItem(TOK_KEY,_accessToken);
+        localStorage.setItem(TOK_EXP_KEY,String(_tokenExp));
+      }catch(_){}
+      return true;
+    }
+    return false;
+  }
+
+  // Popup OAuth
+  let _popWin=null, _popTimer=null, _lsPoll=null;
+  window.addEventListener('message', function(e){
+    try{
+      const d = typeof e.data==='string' ? JSON.parse(e.data) : e.data;
+      if(d && d.type==='gd_oauth_token' && d.access_token){
+        clearInterval(_popTimer); clearInterval(_lsPoll);
+        try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
+        if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+          _showBtn(false); _showManual(false);
+          _doRestore();
+        }
+      }
+    }catch(_){}
+  });
+
+  function _startLSPoll(){
+    clearInterval(_lsPoll);
+    _lsPoll = setInterval(function(){
+      try{
+        const raw = localStorage.getItem('_gd_oauth_pending');
+        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts')||'0',10);
+        if(raw && (Date.now()-ts)<60000){
+          clearInterval(_lsPoll);
+          try{ localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); }catch(_){}
+          const d = JSON.parse(raw);
+          if(d && d.access_token){
+            clearInterval(_popTimer);
+            try{ if(_popWin && !_popWin.closed) _popWin.close(); }catch(_){}
+            if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+              _showBtn(false); _showManual(false);
+              _doRestore();
+            }
+          }
+        }
+      }catch(_){}
+    },1000);
+  }
+
+  window.lsGdSignIn = function(){
+    const REDIRECT_URI = _getRedirectURI();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'select_account',
+    });
+    _setStatus('☁ Opening Google…','#f0b429');
+    _showBtn(false); _showManual(true);
+    try{ _popWin = window.open(authUrl,'gdLoginPopup','width=480,height=620,top=80,left=80'); }catch(_){}
+    if(!_popWin || _popWin.closed){ _setStatus('☁ Popup blocked — URL paste karo','#f23645'); _showManual(true); return; }
+    clearInterval(_popTimer);
+    _popTimer = setInterval(function(){
+      try{
+        if(_popWin && _popWin.closed){ clearInterval(_popTimer); clearInterval(_lsPoll); _setStatus('☁ Sign in cancelled','#f23645'); _showBtn(true); return; }
+        try{
+          const href = _popWin.location.href;
+          const frag = _popWin.location.hash;
+          if(href && href.includes('gd_cb=1') && frag){
+            clearInterval(_popTimer); clearInterval(_lsPoll);
+            const p = new URLSearchParams(frag.substring(1));
+            const tok = p.get('access_token');
+            try{ _popWin.close(); }catch(_){}
+            if(tok && _onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
+              _showBtn(false); _showManual(false);
+              _doRestore();
+            }
+          }
+        }catch(_){}
+      }catch(_){}
+    },800);
+    _startLSPoll();
+  };
+
+  window.lsGdManualToken = function(){
+    const raw = (document.getElementById('ls-gd-inp')||{}).value||'';
+    const hashIdx = raw.indexOf('#');
+    const frag = hashIdx!==-1 ? raw.substring(hashIdx+1) : (raw.includes('access_token')?raw:'');
+    if(!frag){ _setStatus('☁ Token nahi mila','#f23645'); return; }
+    const p   = new URLSearchParams(frag);
+    const tok = p.get('access_token');
+    if(!tok){ _setStatus('☁ Token extract nahi hua','#f23645'); return; }
+    document.getElementById('ls-gd-inp').value='';
+    if(_onToken({access_token:tok,expires_in:parseInt(p.get('expires_in')||'3600',10)})){
+      _showBtn(false); _showManual(false);
+      _doRestore();
+    }
+  };
+
+  function _findFile(cb){
+    fetch('https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name%3D%22'+FILE_NAME+'%22&fields=files(id)',{headers:_hdr()})
+      .then(r=>r.json()).then(d=>{ const f=(d.files||[])[0]; cb(f?f.id:null); }).catch(()=>cb(null));
+  }
+
+  function _download(cb){
+    _findFile(function(id){
+      if(!id){ cb(null); return; }
+      _fileId=id;
+      fetch('https://www.googleapis.com/drive/v3/files/'+id+'?alt=media',{headers:_hdr()})
+        .then(r=>r.json()).then(d=>cb(d)).catch(()=>cb(null));
+    });
+  }
+
+  function _applyLS(data){
+    let changed=false;
+    try{
+      for(const k in data){
+        if(k==='gdAuthed') continue;
+        if(localStorage.getItem(k)!==data[k]){ localStorage.setItem(k,data[k]); changed=true; }
+      }
+    }catch(_){}
+    return changed;
+  }
+
+  function _doRestore(){
+    _setStatus('☁ Cloud: restoring…','#f0b429');
+    _download(function(obj){
+      if(obj && obj.data){
+        const changed = _applyLS(obj.data);
+        _setStatus('☁ Restored ✓ — app khul rahi hai…','#26a69a');
+        let alreadyReloaded = false;
+        try{ alreadyReloaded = sessionStorage.getItem('_gd_reloaded_once')==='1'; }catch(_){}
+        if(changed && !alreadyReloaded){
+          try{ sessionStorage.setItem('_gd_reloaded_once','1'); }catch(_){}
+          setTimeout(function(){ location.reload(); },800);
+        } else {
+          _setStatus('☁ Cloud: connected ✓','#26a69a');
+        }
+      } else {
+        _setStatus('☁ Cloud: koi data nahi','#f23645');
+        _showBtn(true);
+      }
+    });
+  }
+
+  // Auto-boot: agar pehle sign in hua tha toh silent token try karo
+  function _boot(){
+    if(localStorage.getItem(AUTH_FLAG)!=='1'){
+      _setStatus('☁ Cloud se restore karo — Sign in karo','#787b86');
+      _showBtn(true);
+      return;
+    }
+    // Cached token check
+    if(_accessToken && Date.now() < _tokenExp){
+      _doRestore(); return;
+    }
+    _setStatus('☁ Cloud: reconnecting…','#787b86');
+    _showBtn(false);
+    // Silent token refresh — popup ke bina (prompt:none)
+    const REDIRECT_URI = _getRedirectURI();
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:     CLIENT_ID,
+      redirect_uri:  REDIRECT_URI,
+      response_type: 'token',
+      scope:         SCOPE,
+      prompt:        'none',
+    });
+    const silentFrame = document.createElement('iframe');
+    silentFrame.style.cssText='display:none;width:0;height:0;';
+    silentFrame.src = authUrl;
+    document.body.appendChild(silentFrame);
+    let _silentDone = false;
+    window.addEventListener('message',function(e){
+      if(_silentDone) return;
+      try{
+        const d = typeof e.data==='string'?JSON.parse(e.data):e.data;
+        if(d && d.type==='gd_oauth_token' && d.access_token){
+          _silentDone=true;
+          if(_onToken({access_token:d.access_token,expires_in:d.expires_in||3600})){
+            _showBtn(false); _doRestore();
+          }
+        }
+      }catch(_){}
+    },{once:false});
+    // Timeout — silent fail
+    setTimeout(function(){
+      if(!_silentDone){
+        try{ document.body.removeChild(silentFrame); }catch(_){}
+        _setStatus('☁ Cloud: Sign in karo','#787b86');
+        _showBtn(true);
+      }
+    },5000);
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',_boot);
+  } else { _boot(); }
+})();
+</script>
+"""
+    components.html(_gd_card_html, height=160, scrolling=False)
