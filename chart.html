@@ -2573,6 +2573,7 @@ const BN_DAILY    = __BN_DAILY__;
 // Each value is an array of {time,open,high,low,close} objects (LWC format).
 // Chunks of last ~3000 candles per TF so mobile doesn't hang.
 const SV2_BN = {
+  '1m':   __SV2_BN_1M__,
   '5m':   __SV2_BN_5M__,
   '15m':  __SV2_BN_15M__,
   '45m':  __SV2_BN_45M__,
@@ -3229,8 +3230,9 @@ const GROUPS = [
   {count:16, ids:['16-4x4','16-8x2']},
 ];
 
-// Sync-in-layout flags (persisted). Crosshair on by default, like TradingView.
-let SYNC = {symbol:false, interval:false, crosshair:false, time:false, dateRange:false};
+// Sync-in-layout flags (persisted). Sabhi charts synchronous rahein isliye
+// sab flags default ON hain (user Settings > Sync in layout se off kar sakta hai).
+let SYNC = {symbol:true, interval:true, crosshair:true, time:true, dateRange:true};
 try { const _s=JSON.parse(_LS.getItem('tvSync')||'null'); if(_s) SYNC=Object.assign(SYNC,_s); } catch(_){}
 function saveSync(){ try{_LS.setItem('tvSync',JSON.stringify(SYNC));}catch(_){} }
 
@@ -4626,7 +4628,7 @@ function ss2ApplyAndClose() {
 // SV2 STEP / REPLAY BUTTON
 // ────────────────────────────────────────────────────────────────────────────
 // Sirf tab dikhta hai jab _SV2_DATE_RANGE active ho (date range select hua ho)
-// Ek tap = 1 candle forward replay (BN=5m, BTC=160m)
+// Ek tap = 1 candle forward replay (BN=1m/60-sec, older dates 5m fallback; BTC=160m)
 // Animation: 1 second mein gradually build (open→H/L extend→close move)
 // Sabhi STACK2_CELLS simultaneously update honge (Option A: partial candle)
 // Next tap block jab tak animation complete na ho
@@ -4670,8 +4672,14 @@ function ss2ApplyAndClose() {
     _syncAnimToggleUI();
   }
 
-  // ── BN base TF for step: always 5m ────────────────────────────────────────
-  var BN_STEP_TF  = '5m';
+  // ── BN base TF for step: 1m (60-second candle build) ───────────────────────
+  // .gz history archive sirf 5m resolution mein hai — Fyers live 1m data
+  // (SV2_BN['1m']) sirf last ~10 trading din cover karta hai. Isliye 1m
+  // primary hai; agar selected date-range 1m window ke bahar hai (purani
+  // date) to _buildReplayCandles() neeche automatically 5m par fallback
+  // karta hai taaki replay har date par kaam kare.
+  var BN_STEP_TF      = '1m';
+  var BN_STEP_TF_FALLBACK = '5m';
   // ── BTC base TF for step: always 160m ─────────────────────────────────────
   var BTC_STEP_TF = '160m';
 
@@ -4706,6 +4714,14 @@ function ss2ApplyAndClose() {
   // ── Build sorted candle list for replay ───────────────────────────────────
   // Returns array of candles from SV2 raw data that fall inside [rng.from, rng.to)
   // for the correct base TF (BN=5m, BTC=160m)
+  function _findTFData(store, tfKey) {
+    var keyLow = tfKey.toLowerCase();
+    for (var k in store) {
+      if (k.toLowerCase() === keyLow) return store[k];
+    }
+    return null;
+  }
+
   function _buildReplayCandles() {
     var rng = window._SV2_DATE_RANGE;
     if (!rng) return [];
@@ -4721,17 +4737,27 @@ function ss2ApplyAndClose() {
     } catch(_) { return []; }
     if (!store) return [];
 
-    var baseData = null;
-    var keyLow = tfKey.toLowerCase();
-    for (var k in store) {
-      if (k.toLowerCase() === keyLow) { baseData = store[k]; break; }
+    var baseData = _findTFData(store, tfKey);
+    var out = [];
+    if (Array.isArray(baseData) && baseData.length) {
+      out = baseData.filter(function(b){
+        return b.time >= rng.from && b.time < rng.to;
+      });
     }
-    if (!Array.isArray(baseData) || !baseData.length) return [];
 
-    // Filter to hidden range [from, to)
-    return baseData.filter(function(b){
-      return b.time >= rng.from && b.time < rng.to;
-    });
+    // Fallback: BN 1m data sirf recent ~10 din cover karta hai — agar
+    // selected date-range usse purani hai (out empty aaya) to 5m base par
+    // switch karo, taaki replay har historical date par kaam kare.
+    if (!out.length && isBN && BN_STEP_TF_FALLBACK && tfKey.toLowerCase() !== BN_STEP_TF_FALLBACK.toLowerCase()) {
+      var fbData = _findTFData(store, BN_STEP_TF_FALLBACK);
+      if (Array.isArray(fbData) && fbData.length) {
+        out = fbData.filter(function(b){
+          return b.time >= rng.from && b.time < rng.to;
+        });
+      }
+    }
+
+    return out;
   }
 
   // ── Resolve a STACK2 cell's REAL timeframe in minutes ──────────────────────

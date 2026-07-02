@@ -1444,6 +1444,14 @@ def _build_chart_html(
     html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
 
+    # ── SV2 Bar-Replay: BankNifty 60-second (1m) base candles ───────────────
+    # .gz archive (GitHub) sirf 5m resolution mein hai, isliye asli 1-minute
+    # candle sirf Fyers ke live 1m intraday data (bn_1m, last ~10 din) se milta
+    # hai. Ye yahan SV2_BN store mein "1m" key ke roop mein inject hota hai —
+    # naya (recent) date-range replay 60-sec candles mein chalega; usse purani
+    # dates ke liye JS side automatically 5m base par fallback karta hai.
+    html = html.replace("__SV2_BN_1M__", _to_lwc(bn_1m))
+
     # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
     _sv2_err_msg = ""
     try:
@@ -1477,7 +1485,7 @@ def _build_chart_html(
     except Exception as _sv2_ex:
         _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
         # Fallback: empty arrays agar gz file missing/corrupt ho
-        for _ph in ["__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
+        for _ph in ["__SV2_BN_1M__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
                     "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
                     "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
                     "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
