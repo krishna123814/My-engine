@@ -898,6 +898,27 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#f0b429;font-size:10.5px;line-height:1.4;
 }
 
+/* Candle-animation ON/OFF toggle (debug: replay step ke waqt candle grow
+   animation ko band karke test karne ke liye ki shift animation ki wajah
+   se hai ya kisi aur cheez ki) */
+#sv2-anim-toggle-row{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:8px 16px 0;padding:8px 10px;border-radius:8px;
+  background:#1e222d;border:1px solid #2a2e39;
+}
+#sv2-anim-toggle-row span{font-size:11.5px;color:#d1d4dc}
+#sv2-anim-toggle{
+  position:relative;width:40px;height:22px;border-radius:11px;
+  background:#363c4e;border:none;cursor:pointer;flex-shrink:0;
+  transition:background .15s;
+}
+#sv2-anim-toggle::after{
+  content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;
+  border-radius:50%;background:#787b86;transition:left .15s,background .15s;
+}
+#sv2-anim-toggle.on{background:#26a69a55}
+#sv2-anim-toggle.on::after{left:20px;background:#26a69a}
+
 /* Start Point Only button (go-to-date, open-ended hide) */
 #sv2-drng-start-only{
   display:block;width:calc(100% - 32px);margin:8px 16px 4px;
@@ -2156,6 +2177,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <!-- Hint -->
     <div id="sv2-drng-sp-hint">🎯 Date chuno aur "Go to Date" dabao — us date se aage ke saare candles hide ho jayenge, phir ⏭ Step se ek-ek candle replay karo (jaise TradingView Bar Replay)</div>
 
+    <!-- Candle animation ON/OFF (debug toggle) -->
+    <div id="sv2-anim-toggle-row">
+      <span>🎬 Candle Animation</span>
+      <button id="sv2-anim-toggle" class="on" onclick="_sv2ToggleAnim()" title="Step ke waqt candle grow animation on/off"></button>
+    </div>
+
     <!-- Apply -->
     <button id="sv2-drng-start-only" onclick="_sv2DrngApplyStartOnly()" disabled>🎯 Go to Date</button>
   </div>
@@ -2312,6 +2339,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           <span class="ind-name">Swing S/R Lines</span>
           <div class="ind-ctrl">
             <label class="toggle"><input type="checkbox" id="ck-swing" checked onchange="onSwingToggle(this)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">Apna (Self) TF S/R</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-swing-self" checked onchange="onSwingSelfToggle(this)"><span class="sl"></span></label>
           </div>
         </div>
         <div class="ind-row">
@@ -2702,6 +2735,7 @@ function _currentSnapshot(name) {
     cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
     drawings:    JSON.parse(JSON.stringify(_DT.drawings || [])),
     indSwing:    SWING_STATE.visible,
+    indSwingSelf: SWING_SELF_STATE.visible,
     indBTC2:     BTC2_SWING_STATE.visible,
     swingLineW:  SWING_LINE_WIDTH,
     swingTFList: JSON.parse(JSON.stringify(SWING_TF_LIST || [])),
@@ -2858,6 +2892,12 @@ function loadFromSlot(idx) {
     SWING_STATE.visible = slot.indSwing;
     const ckSwing = document.getElementById('ck-swing');
     if (ckSwing) ckSwing.checked = slot.indSwing;
+  }
+  if (typeof slot.indSwingSelf === 'boolean') {
+    SWING_SELF_STATE.visible = slot.indSwingSelf;
+    try { _LS.setItem(_SWING_SELF_KEY, slot.indSwingSelf ? '1' : '0'); } catch(_) {}
+    const ckSwingSelf = document.getElementById('ck-swing-self');
+    if (ckSwingSelf) ckSwingSelf.checked = slot.indSwingSelf;
   }
   if (typeof slot.indBTC2 === 'boolean') {
     BTC2_SWING_STATE.visible = slot.indBTC2;
@@ -4603,6 +4643,35 @@ function ss2ApplyAndClose() {
   var _ANIM_MS        = 1000;   // 1 second animation
   var _activeLocks    = null;   // range-locks currently held (see _lockCellRanges)
 
+  // ── Candle-animation ON/OFF (debug toggle) ─────────────────────────────────
+  // Off hone par step ka candle seedha final OHLC ke saath ek hi update()
+  // call mein complete ho jaata hai — koi 60fps grow-animation nahi chalti.
+  // Isse test ho sakta hai ki right-shift animation-loop ki wajah se hai ya
+  // kisi aur cheez (jaise SR line-series add hona) ki.
+  var _sv2AnimEnabled = true;
+  try {
+    var _savedAnimPref = localStorage.getItem('sv2AnimToggle');
+    if (_savedAnimPref === '0') _sv2AnimEnabled = false;
+  } catch(_) {}
+
+  window._sv2ToggleAnim = function() {
+    _sv2AnimEnabled = !_sv2AnimEnabled;
+    try { localStorage.setItem('sv2AnimToggle', _sv2AnimEnabled ? '1' : '0'); } catch(_) {}
+    var btn = document.getElementById('sv2-anim-toggle');
+    if (btn) btn.classList.toggle('on', _sv2AnimEnabled);
+  };
+
+  // Sheet open hone par toggle button ki state UI se sync karo
+  function _syncAnimToggleUI() {
+    var btn = document.getElementById('sv2-anim-toggle');
+    if (btn) btn.classList.toggle('on', _sv2AnimEnabled);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _syncAnimToggleUI);
+  } else {
+    _syncAnimToggleUI();
+  }
+
   // ── Range-lock: chart ko FORCEFULLY static rakhne ka tareeka ──────────────
   // Sirf ek baar setVisibleLogicalRange() call karke revert karna kaafi nahi
   // tha — lightweight-charts library kabhi range ko update() ke baad turant
@@ -4979,7 +5048,16 @@ function ss2ApplyAndClose() {
       }
     }
 
-    _animRaf = requestAnimationFrame(frame);
+    // ── Debug toggle: animation OFF ─────────────────────────────────────────
+    // Grow-loop bilkul skip karke seedha final (t=1) frame ek hi baar chala
+    // do — candle turant apne final OHLC ke saath aa jaata hai, koi 60fps
+    // update() loop nahi chalta. Isse test hota hai ki shift animation-loop
+    // (baar-baar series.update()) ki wajah se hai ya kisi aur cheez ki.
+    if (_sv2AnimEnabled) {
+      _animRaf = requestAnimationFrame(frame);
+    } else {
+      frame(startMs + _ANIM_MS + 1);
+    }
   }
 
   // ── Main step function ─────────────────────────────────────────────────────
@@ -9604,6 +9682,27 @@ let _swingLines = [];
 let _bnMainSrSeries = [];
 const SWING_STATE = { visible: true };
 
+// ── Self (own-TF) S/R ON/OFF — jab OFF hoga toh har chart ka apna khud ka
+// TF S/R nahi banega, sirf SWING_TF_LIST chips wale higher-TF S/R (jo
+// chote chart par bade TF ka SR dikhate hain) hi dikhenge.
+const _SWING_SELF_KEY = 'swingSelfSR1';
+const SWING_SELF_STATE = { visible: true };
+try {
+  const _selfSaved = _LS.getItem(_SWING_SELF_KEY);
+  if (_selfSaved !== null) SWING_SELF_STATE.visible = (_selfSaved === '1');
+} catch(_) {}
+(function _syncSwingSelfCk() {
+  function sync() {
+    const ck = document.getElementById('ck-swing-self');
+    if (ck) ck.checked = SWING_SELF_STATE.visible;
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', sync);
+  } else {
+    sync();
+  }
+})();
+
 // ── S/R line width (user-configurable, persisted) ────────────────────────
 const _SW_WIDTH_KEY = 'swingLineWidth';
 let SWING_LINE_WIDTH = +(_LS.getItem(_SW_WIDTH_KEY) || 1);
@@ -10286,14 +10385,17 @@ document.addEventListener('touchend',   _scheduleSwingRedraw, { passive: true })
 function swingComputeMultiTF(asset, currentTf) {
   const allLines = [];
 
-  // Step 1: Always compute for the current chart's own TF
-  const rawCur  = _baseDataFor(asset, currentTf);
-  const dataCur = resampleForTF(rawCur, currentTf, asset);
-  if (dataCur.length >= 3) {
-      const curLines = swingCompute(dataCur, currentTf);
-      // Strict rule check: Current_Chart_TF <= Level_TF
-      const validCurLines = curLines.filter(line => currentTf <= line.levelTf);
-      allLines.push(...validCurLines);
+  // Step 1: Always compute for the current chart's own TF —
+  // sirf tab jab SWING_SELF_STATE.visible ON ho (naya toggle).
+  if (SWING_SELF_STATE.visible) {
+    const rawCur  = _baseDataFor(asset, currentTf);
+    const dataCur = resampleForTF(rawCur, currentTf, asset);
+    if (dataCur.length >= 3) {
+        const curLines = swingCompute(dataCur, currentTf);
+        // Strict rule check: Current_Chart_TF <= Level_TF
+        const validCurLines = curLines.filter(line => currentTf <= line.levelTf);
+        allLines.push(...validCurLines);
+    }
   }
 
   // Step 2: Compute for user-added chip TFs that are HIGHER than current TF.
@@ -10465,11 +10567,13 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const cellTFMin = _parseTFMin(tfLabel) || 5;
     const allLines  = [];
 
-    // Step 1: Cell ka apna TF
-    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime, cellTFMin);
-    if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
-        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+    // Step 1: Cell ka apna TF — sirf jab SWING_SELF_STATE.visible ON ho
+    if (SWING_SELF_STATE.visible) {
+      const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime, cellTFMin);
+      if (dataCur.length >= 3) {
+        swingCompute(dataCur, cellTFMin)
+          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+      }
     }
 
     // Step 2: SWING_TF_LIST se enabled higher TFs
@@ -11118,6 +11222,15 @@ function _updateBtc2TfColorRow(){
     cnEl.onclick=(e)=>{e.stopPropagation();_openSettingsColor(cnEl,(hex)=>{if(!BTC2_TF_COLORS[activeTf])BTC2_TF_COLORS[activeTf]={};BTC2_TF_COLORS[activeTf].candle=hex;_btc2Refresh();_updateBtc2TfColorRow();});};}
 }
 
+// ── Self (own-TF) S/R ON/OFF — higher-TF chip S/R lines ko touch nahi karta,
+// sirf har chart ka apna khud ka TF S/R on/off karta hai.
+function onSwingSelfToggle(cb) {
+  SWING_SELF_STATE.visible = cb.checked;
+  try { _LS.setItem(_SWING_SELF_KEY, cb.checked ? '1' : '0'); } catch(_) {}
+  // Master toggle off ho to kuch bhi dikh hi nahi raha — refresh ki zaroorat nahi
+  if (!SWING_STATE.visible) return;
+  _swingRefresh();
+}
 function onSwingToggle(cb) {
   SWING_STATE.visible = cb.checked;
   if (cb.checked) {
