@@ -4639,9 +4639,7 @@ function ss2ApplyAndClose() {
   var _replayIdx      = 0;      // next candle index to replay (into hidden range)
   var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
   var _animating      = false;  // tap blocked jab true
-  var _animRaf        = null;   // requestAnimationFrame handle
-  var _ANIM_MS        = 1000;   // 1 second animation
-  var _activeLocks    = null;   // range-locks currently held (see _lockCellRanges)
+  var _sv2SrRebuildTimer = null; // debounce handle for live-tick-style SR rebuild
 
   // ── Candle-animation ON/OFF (debug toggle) ─────────────────────────────────
   // Off hone par step ka candle seedha final OHLC ke saath ek hi update()
@@ -4670,62 +4668,6 @@ function ss2ApplyAndClose() {
     document.addEventListener('DOMContentLoaded', _syncAnimToggleUI);
   } else {
     _syncAnimToggleUI();
-  }
-
-  // ── Range-lock: chart ko FORCEFULLY static rakhne ka tareeka ──────────────
-  // Sirf ek baar setVisibleRange() call karke revert karna kaafi nahi
-  // tha — lightweight-charts library kabhi range ko update() ke baad turant
-  // sync nahi, balki apne internal render-cycle mein (agla frame) autoscroll
-  // karti hai, jo humare single revert ke BAAD lagta hai aur usse override
-  // kar deta hai. Isliye ab hum `subscribeVisibleTimeRangeChange` se sun
-  // rahe hain — jab bhi range apne-aap target se hatti hai (chahe sync ho
-  // ya library ke agle internal frame mein), turant wapas target par pin
-  // kar dete hain. Reentrancy-guard (`restoring` flag) infinite loop rokta
-  // hai kyunki setVisibleRange khud bhi yehi event fire karta hai.
-  //
-  // TIME-based (logical/index-based NAHI) — kyunki SR lines ke synthetic
-  // startTime/endTime points shared time-axis mein naye indices insert kar
-  // dete hain jab step ke andar SR redraw hoti hai. Agar lock logical-index
-  // par based hota (jaisa pehle tha), toh SR insertion ke baad "target"
-  // index ka matlab hi badal jaata — lock wapas usi purane number par pin
-  // karta lekin ab woh number kisi aur (galat) candle ko point kar raha
-  // hota, isliye chart phir bhi shift dikhta tha. Time-values kabhi shift
-  // nahi hote, isliye time-based lock is insertion se immune hai.
-  function _lockCellRanges() {
-    var locks = [];
-    if (typeof STACK2_CELLS === 'undefined') return locks;
-    for (var i = 0; i < STACK2_CELLS.length; i++) {
-      var cell = STACK2_CELLS[i];
-      if (!cell || !cell.chart) continue;
-      (function(cellChart){
-        var ts = null;
-        try { ts = cellChart.timeScale(); } catch(_) { return; }
-        if (!ts) return;
-        var target = null;
-        try { target = ts.getVisibleRange(); } catch(_) {}
-        if (!target || target.from == null || target.to == null) return;
-        var restoring = false;
-        var handler = function(newRange) {
-          if (restoring || !newRange) return;
-          if (newRange.from !== target.from || newRange.to !== target.to) {
-            restoring = true;
-            try { ts.setVisibleRange(target); } catch(_) {}
-            restoring = false;
-          }
-        };
-        try {
-          ts.subscribeVisibleTimeRangeChange(handler);
-          locks.push({ ts: ts, handler: handler });
-        } catch(_) {}
-      })(cell.chart);
-    }
-    return locks;
-  }
-  function _unlockCellRanges(locks) {
-    if (!locks || !locks.length) return;
-    for (var i = 0; i < locks.length; i++) {
-      try { locks[i].ts.unsubscribeVisibleTimeRangeChange(locks[i].handler); } catch(_) {}
-    }
   }
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
@@ -4757,8 +4699,7 @@ function ss2ApplyAndClose() {
       _replayIdx     = 0;
       _replayCandles = null;
       _animating     = false;
-      if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-      if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
+      clearTimeout(_sv2SrRebuildTimer);
     }
   }
 
@@ -4904,15 +4845,18 @@ function ss2ApplyAndClose() {
     return curDay2 !== prevDay2;
   }
 
-  // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
-  // For each STACK2_CELL, find its current bucket bar from already-loaded data,
-  // then animate the partial candle contribution on top.
+  // ── Step ek candle: LIVE-TICK STYLE ────────────────────────────────────────
+  // Pehle ye 1-second, 60fps grow-animation + active range-lock system tha.
+  // Ab isse hata diya — bilkul _applyBNLiveTick() jaisa simple pattern use
+  // karte hain: candle apne FINAL closed OHLC ke saath ek hi seedhe update()
+  // call mein aata hai, aur SR rebuild turant nahi balki 200ms DEBOUNCED
+  // hota hai (jaise live tick mein hota hai). Koi manual range-lock nahi —
+  // library ko khud apna layout naturally settle karne do, jaise live mein
+  // hota hai.
   function _animateStep(stepBar) {
-    var rng    = window._SV2_DATE_RANGE;
     var assetKey = (typeof _stackKeyForAsset === 'function')
                     ? _stackKeyForAsset(S.asset) : 'bn';
     var isBN   = (assetKey === 'bn');
-    var startMs = performance.now();
 
     // Collect all base bars replayed SO FAR (including this one)
     var allReplayed = _replayCandles.slice(0, _replayIdx);
@@ -4925,159 +4869,66 @@ function ss2ApplyAndClose() {
       ? _sv2IsNewTradingDayBoundary(_prevStepBar.time, stepBar.time, isBN)
       : false;
 
-    // ── Chart ko is step ke duration bhar static pin karo ──────────────────
-    // Ab day-boundary step ko bhi lock karte hain (pehle isko skip kiya
-    // jaata tha taaki purana scrollToRealTime/fitContent gap-fix free chal
-    // sake) — lekin lock ke bina candle-grow animation ke dauraan chart free
-    // auto-scroll karta tha, jisse "candle banne se pehle gap" dikhta tha.
-    // Ab poore step (grow-animation samet) purani position par pin rehta
-    // hai; scrollToRealTime/fitContent fix niche animation complete hone ke
-    // BAAD, ek clean single snap ke roop mein apply hota hai (fir turant
-    // re-lock ho jaata hai taaki SR-rebuild usse disturb na kare).
-    if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
-    _activeLocks = _lockCellRanges();
+    // ── Har cell ka final closed candle ek hi update() call mein daalo ──────
+    if (typeof STACK2_CELLS !== 'undefined') {
+      for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+        var cell = STACK2_CELLS[ci];
+        if (!cell || !cell.chart || !cell.series) continue;
 
-    function frame(now) {
-      var t = Math.min(1, (now - startMs) / _ANIM_MS);
-      // Easing: ease-out cubic
-      var e = 1 - Math.pow(1 - t, 3);
+        // Cell TF in minutes — resolved from the real label, NOT cell.tf
+        // (cell.tf is always hardcoded 1440 — see _getCellTFMin comment)
+        var cellTFMin = _getCellTFMin(ci);
 
-      // For each STACK2_CELL: compute partial candle and animate
-      if (typeof STACK2_CELLS !== 'undefined') {
-        for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
-          var cell = STACK2_CELLS[ci];
-          if (!cell || !cell.chart || !cell.series) continue;
+        // Final candle = saare replayed base-bars is bucket ke andar aggregate
+        var finalBar = _computePartialCandle(allReplayed, cellTFMin, isBN);
+        if (!finalBar) continue;
 
-          // Cell TF in minutes — resolved from the real label, NOT cell.tf
-          // (cell.tf is always hardcoded 1440 — see _getCellTFMin comment)
-          var cellTFMin = _getCellTFMin(ci);
-
-          // baseBars for this cell = replayed bars that belong to same bucket
-          var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
-          if (!partial) continue;
-
-          // Get cell's existing last bar from raw data (before range) —
-          // use this cell's own working-day-aligned cutoff (same one used
-          // to build its chart data), not the raw rng.from, so replay stays
-          // consistent with what's actually shown for 3D/9D/27D cells.
-          var cellCutoff = (typeof _sv2CellCutoffEpoch === 'function')
-                            ? (_sv2CellCutoffEpoch(ci, rng) ?? rng.from)
-                            : rng.from;
-          var rawData = _getCellRawData(ci);
-          var existingBar = null;
-          if (Array.isArray(rawData)) {
-            for (var ri = rawData.length - 1; ri >= 0; ri--) {
-              if (rawData[ri].time < cellCutoff && rawData[ri].time === partial.time) {
-                existingBar = rawData[ri]; break;
-              }
-            }
-          }
-
-          // Interpolate: at t=0 only open visible, at t=1 full OHLC
-          var animO = partial.open;
-          var animH = existingBar
-                      ? Math.max(existingBar.high, partial.open + (partial.high - partial.open) * e)
-                      : partial.open + (partial.high - partial.open) * e;
-          var animL = existingBar
-                      ? Math.min(existingBar.low, partial.open - (partial.open - partial.low) * e)
-                      : partial.open - (partial.open - partial.low) * e;
-          var animC = partial.open + (partial.close - partial.open) * e;
-
-          var animBar = {
-            time:  partial.time,
-            open:  animO,
-            high:  animH,
-            low:   animL,
-            close: animC,
-          };
-          try { cell.series.update(animBar); } catch(_) {}
-        }
+        try { cell.series.update(finalBar); } catch(_) {}
       }
+    }
 
-      if (t < 1) {
-        _animRaf = requestAnimationFrame(frame);
-      } else {
-        // Animation complete — finalize
-        _animating = false;
-        _stepBtn.classList.remove('animating');
-
-        // ── Day-transition fix ────────────────────────────────────────────
-        // Naye trading-day ka pehla replayed candle jab update() se add
-        // hota hai, uska time-anchor purane din ke last candle se genuinely
-        // door hota hai. update() sirf incremental patch karta hai jo
-        // chart ki pehle-se-cached visible-range assumptions par based
-        // rehta hai — isi wajah se sirf is transition step par gap dikhta
-        // hai. Fix: is specific step ke liye stale range restore karne ke
-        // bajaye chart ko naya bar include karke apna layout fresh se
-        // recompute karne do (scrollToRealTime, fitContent fallback ke
-        // saath). Yeh sv2SwingOnStep se PEHLE chalta hai taaki SR redraw
-        // wala range-save/restore bhi is corrected range ko hi pakde.
-        //
-        // Is fix ko apply karne se pehle purani-position wala lock hatate
-        // hain (warna lock khud fix ko turant wapas revert kar dega), aur
-        // fix ke baad turant NAYI (corrected) position par re-lock karte
-        // hain — taaki agla SR rebuild (sv2SwingOnStep) is sahi position ko
-        // disturb na kar paaye.
-        if (_isDayBoundaryStep && typeof STACK2_CELLS !== 'undefined') {
-          if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
-          for (var _dj = 0; _dj < STACK2_CELLS.length; _dj++) {
-            var _dCell = STACK2_CELLS[_dj];
-            if (!_dCell || !_dCell.chart) continue;
-            try {
-              _dCell.chart.timeScale().scrollToRealTime();
-            } catch(_eScroll) {
-              try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
-            }
-          }
-          _activeLocks = _lockCellRanges();
-        }
-
-        // SV2 Swing S&R: closed candle ke baad SR update karo
-        // stepBar.time sirf candle ka START hai — replay-clock ke liye
-        // uska ASLI close time chahiye (start + base-TF ka poora period),
-        // warna higher-TF candles time se pehle "closed" maan li jaati thi.
+    // ── Day-transition fix ──────────────────────────────────────────────────
+    // Naye trading-day ka pehla replayed candle jab update() se add hota hai,
+    // uska time-anchor purane din ke last candle se genuinely door hota hai.
+    // Bilkul live tick ke "daily+ TF: scrollToRealTime" pattern jaisa (line
+    // ~9372) — chart ko naya bar include karke apna layout fresh recompute
+    // karne do.
+    if (_isDayBoundaryStep && typeof STACK2_CELLS !== 'undefined') {
+      for (var _dj = 0; _dj < STACK2_CELLS.length; _dj++) {
+        var _dCell = STACK2_CELLS[_dj];
+        if (!_dCell || !_dCell.chart) continue;
         try {
-          var _srAssetKey    = (typeof _stackKeyForAsset === 'function')
-                                ? _stackKeyForAsset(S.asset) : 'bn';
-          var _srBaseTfKey   = (_srAssetKey === 'bn') ? BN_STEP_TF : BTC_STEP_TF;
-          var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
-          sv2SwingOnStep(stepBar.time + _srBasePeriod);
-        } catch(_) {}
-
-        // Step (candle-grow + SR redraw) poora ho gaya — ab range-lock
-        // release karo taaki user aage pan/zoom kar sake. Agla step tap
-        // apna naya lock khud le lega. Do extra rAF frames ke baad release
-        // karte hain (turant nahi) — SR line-series add hone ke baad chart
-        // engine kabhi apna layout ek DELAYED paint cycle mein khud
-        // recompute karta hai; lock ko thodi der aur zinda rakhne se wo
-        // deferred shift bhi turant wapas pin ho jaata hai, unlock hone se
-        // pehle.
-        (function(locksToRelease){
-          if (!locksToRelease) return;
-          requestAnimationFrame(function(){
-            requestAnimationFrame(function(){
-              _unlockCellRanges(locksToRelease);
-            });
-          });
-        })(_activeLocks);
-        _activeLocks = null;
-
-        // Check if replay is complete
-        if (_replayIdx >= _replayCandles.length) {
-          _stepBtn.classList.add('done');
+          _dCell.chart.timeScale().scrollToRealTime();
+        } catch(_eScroll) {
+          try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
         }
       }
     }
 
-    // ── Debug toggle: animation OFF ─────────────────────────────────────────
-    // Grow-loop bilkul skip karke seedha final (t=1) frame ek hi baar chala
-    // do — candle turant apne final OHLC ke saath aa jaata hai, koi 60fps
-    // update() loop nahi chalta. Isse test hota hai ki shift animation-loop
-    // (baar-baar series.update()) ki wajah se hai ya kisi aur cheez ki.
-    if (_sv2AnimEnabled) {
-      _animRaf = requestAnimationFrame(frame);
-    } else {
-      frame(startMs + _ANIM_MS + 1);
+    // ── SV2 Swing S&R: DEBOUNCED rebuild, live jaisa ────────────────────────
+    // stepBar.time sirf candle ka START hai — replay-clock ke liye uska ASLI
+    // close time chahiye (start + base-TF ka poora period), warna higher-TF
+    // candles time se pehle "closed" maan li jaati thi. Turant rebuild nahi
+    // karte — 200ms baad (jaise _applyBNLiveTick karta hai), taaki candle
+    // pehle settle ho jaaye.
+    clearTimeout(_sv2SrRebuildTimer);
+    _sv2SrRebuildTimer = setTimeout(function() {
+      try {
+        var _srAssetKey    = (typeof _stackKeyForAsset === 'function')
+                              ? _stackKeyForAsset(S.asset) : 'bn';
+        var _srBaseTfKey   = (_srAssetKey === 'bn') ? BN_STEP_TF : BTC_STEP_TF;
+        var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
+        sv2SwingOnStep(stepBar.time + _srBasePeriod);
+      } catch(_) {}
+    }, 200);
+
+    // Koi animation loop nahi — step turant complete, agla tap turant allowed
+    _animating = false;
+    _stepBtn.classList.remove('animating');
+
+    // Check if replay is complete
+    if (_replayIdx >= _replayCandles.length) {
+      _stepBtn.classList.add('done');
     }
   }
 
@@ -5108,7 +4959,6 @@ function ss2ApplyAndClose() {
 
     // Animate
     var stepBar = _replayCandles[_replayIdx - 1];
-    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     _animateStep(stepBar);
   };
 
@@ -5122,8 +4972,7 @@ function ss2ApplyAndClose() {
     _replayCandles = null;   // force rebuild on next tap
     _replayIdx     = 0;
     _animating     = false;
-    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
+    clearTimeout(_sv2SrRebuildTimer);
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
     }
@@ -5135,8 +4984,7 @@ function ss2ApplyAndClose() {
     _replayCandles = null;
     _replayIdx     = 0;
     _animating     = false;
-    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    if (_activeLocks) { _unlockCellRanges(_activeLocks); _activeLocks = null; }
+    clearTimeout(_sv2SrRebuildTimer);
     _syncStepBtn();
   });
 
