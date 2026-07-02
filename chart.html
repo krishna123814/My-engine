@@ -4787,6 +4787,24 @@ function ss2ApplyAndClose() {
     var isBN   = (assetKey === 'bn');
     var startMs = performance.now();
 
+    // ── FIX: chart ko static rakhne ke liye — har cell ka visible logical
+    // range STEP SHURU HONE SE PEHLE capture karo. series.update() (candle
+    // grow karte waqt) lightweight-charts internally "sticky right edge"
+    // behavior follow karta hai — agar view already rightmost bar par tha,
+    // toh naya/growing bar aane par khud-ba-khud right shift kar deta hai.
+    // Yehi wo shift hai jo user ko dikhta hai (chart right ki taraf jaata
+    // hai, fir SR draw hoti hai). Fix: har frame ke baad range ko wapas
+    // isi saved position par pin kar do, taaki chart bilkul static rahe
+    // aur sirf candle apni jagah par hi grow/close ho.
+    var _preStepRanges = {};
+    if (typeof STACK2_CELLS !== 'undefined') {
+      for (var _pi = 0; _pi < STACK2_CELLS.length; _pi++) {
+        var _pCell = STACK2_CELLS[_pi];
+        if (!_pCell || !_pCell.chart) continue;
+        try { _preStepRanges[_pi] = _pCell.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
+      }
+    }
+
     // Collect all base bars replayed SO FAR (including this one)
     var allReplayed = _replayCandles.slice(0, _replayIdx);
 
@@ -4852,6 +4870,13 @@ function ss2ApplyAndClose() {
             close: animC,
           };
           try { cell.series.update(animBar); } catch(_) {}
+
+          // Update ke turant baad chart ko static rakhne ke liye range wapas
+          // pin karo — is se auto-scroll/right-shift cancel ho jaata hai aur
+          // sirf candle apni jagah par grow hoti dikhti hai.
+          if (_preStepRanges[ci]) {
+            try { cell.chart.timeScale().setVisibleLogicalRange(_preStepRanges[ci]); } catch(_) {}
+          }
         }
       }
 
