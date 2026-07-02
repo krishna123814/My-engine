@@ -2633,262 +2633,6 @@ const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 
 // ════════════════════════════════════════════════════════════════════════════
-// SV2 LAZY GZ LOADER — GitHub se .gz sirf "Go to Date" apply hone par fetch
-// hota hai (page load par nahi). Ek baar fetch/decompress hone ke baad raw
-// rows browser memory mein cache rehte hain (_SV2_RAW_CACHE) taaki dobara
-// "Go to Date" use karne par phir se network call na ho — sirf cached raw
-// rows se dobara resample hota hai.
-// ════════════════════════════════════════════════════════════════════════════
-const _SV2_GH_BASE    = 'https://raw.githubusercontent.com/krishna123814/My-engine/main';
-const _SV2_GH_BN_URL  = _SV2_GH_BASE + '/banknifty_5m_csv_json.gz';
-const _SV2_GH_BTC_URL = _SV2_GH_BASE + '/Bitcoin_BTCUSDT_IST_5m_json.gz';
-
-const _SV2_IST_NAIVE_OFFSET = 19800;   // 5.5h — IST-naive → real UTC
-const _SV2_SESSION_START    = 33300;   // 9:15 IST
-const _SV2_SESSION_END      = 55800;   // 15:30 IST
-const _SV2_MAX = {
-  '5m': 6000, '15m': 3000, '45m': 2000, '135m': 2000,
-  '160m': 2000, '8H': 2000,
-  '1D': 2000, '3D': 1500, '9D': 800, '27D': 400,
-};
-
-let _SV2_RAW_CACHE    = { bn: null, btc: null };  // raw 5m rows, once fetched
-let _SV2_LOAD_PROMISE = null;                     // in-flight fetch/resample promise
-
-const _SV2_STALL_TIMEOUT_MS = 20000;   // agar 20s tak ek bhi naya byte na aaye → stalled/error
-
-// Fetches + decompresses a .gz JSON file, reporting live progress via onProgress:
-//   onProgress({ received, total, kbps })   — total may be 0 if server doesn't send Content-Length
-// Aborts (throws) if no new bytes arrive for _SV2_STALL_TIMEOUT_MS.
-async function _sv2FetchGzJson(url, onProgress) {
-  const controller = new AbortController();
-  let stallTimer = null;
-  const armStall = () => {
-    if (stallTimer) clearTimeout(stallTimer);
-    stallTimer = setTimeout(() => {
-      controller.abort();
-    }, _SV2_STALL_TIMEOUT_MS);
-  };
-
-  let resp;
-  armStall();
-  try {
-    resp = await fetch(url, { signal: controller.signal });
-  } catch (e) {
-    clearTimeout(stallTimer);
-    if (e && e.name === 'AbortError') throw new Error('Timeout — server se response nahi aaya (' + url.split('/').pop() + ')');
-    throw new Error('Network error: ' + (e && e.message || e));
-  }
-  if (!resp.ok) { clearTimeout(stallTimer); throw new Error('HTTP ' + resp.status + ' — ' + url.split('/').pop()); }
-  if (!resp.body || !resp.body.getReader) {
-    clearTimeout(stallTimer);
-    // Fallback: no streaming support, just await full response
-    if (typeof DecompressionStream === 'undefined') throw new Error('DecompressionStream not supported in this browser');
-    const buf = await resp.arrayBuffer();
-    const ds  = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
-    const text = await new Response(ds).text();
-    const data = JSON.parse(text);
-    return Array.isArray(data) ? data : (data.data || []);
-  }
-
-  const total  = parseInt(resp.headers.get('Content-Length') || '0', 10);
-  const reader = resp.body.getReader();
-  const chunks = [];
-  let received  = 0;
-  let lastTs    = performance.now();
-  let lastBytes = 0;
-
-  while (true) {
-    let result;
-    try {
-      result = await reader.read();
-    } catch (e) {
-      clearTimeout(stallTimer);
-      if (e && e.name === 'AbortError') throw new Error('Timeout — data aana ruk gaya (' + url.split('/').pop() + ')');
-      throw new Error('Download interrupted: ' + (e && e.message || e));
-    }
-    armStall();   // reset stall timer — naya data aaya
-    if (result.done) break;
-
-    chunks.push(result.value);
-    received += result.value.length;
-
-    const now = performance.now();
-    if (onProgress && (now - lastTs) >= 200) {
-      const kbps = ((received - lastBytes) / 1024) / ((now - lastTs) / 1000);
-      onProgress({ received, total, kbps });
-      lastTs = now;
-      lastBytes = received;
-    }
-  }
-  clearTimeout(stallTimer);
-  if (onProgress) onProgress({ received, total, kbps: 0, done: true });
-
-  if (typeof DecompressionStream === 'undefined') {
-    throw new Error('DecompressionStream not supported in this browser');
-  }
-  const blob = new Blob(chunks);
-  const ds   = blob.stream().pipeThrough(new DecompressionStream('gzip'));
-  const text = await new Response(ds).text();
-  const data = JSON.parse(text);
-  return Array.isArray(data) ? data : (data.data || []);
-}
-
-function _sv2TrimArr(arr, label) {
-  const n = _SV2_MAX[label] || 2000;
-  return arr.length > n ? arr.slice(-n) : arr;
-}
-
-function _sv2ResampleBnIntraday(rows, tfMin) {
-  const sec = tfMin * 60;
-  if (tfMin <= 5) {
-    const out = [];
-    for (const r of rows) {
-      const mod = r.t % 86400;
-      if (mod < _SV2_SESSION_START || mod >= _SV2_SESSION_END) continue;
-      out.push({ time: r.t - _SV2_IST_NAIVE_OFFSET, open: r.o, high: r.h, low: r.l, close: r.c });
-    }
-    return out;
-  }
-  const buckets = {};
-  for (const r of rows) {
-    const t   = r.t;
-    const mod = t % 86400;
-    if (mod < _SV2_SESSION_START || mod >= _SV2_SESSION_END) continue;
-    const dayStart  = t - mod;
-    const sinceOpen = mod - _SV2_SESSION_START;
-    const bucketIdx = Math.floor(sinceOpen / sec);
-    const bucketSec = _SV2_SESSION_START + bucketIdx * sec;
-    const keyUtc    = (dayStart + bucketSec) - _SV2_IST_NAIVE_OFFSET;
-    if (!(keyUtc in buckets)) {
-      buckets[keyUtc] = { time: keyUtc, open: r.o, high: r.h, low: r.l, close: r.c };
-    } else {
-      const b = buckets[keyUtc];
-      b.high  = Math.max(b.high, r.h);
-      b.low   = Math.min(b.low,  r.l);
-      b.close = r.c;
-    }
-  }
-  return Object.values(buckets).sort((a, b) => a.time - b.time);
-}
-
-function _sv2ResampleBnDaily(rows, nDays) {
-  const dayBuckets = {};
-  for (const r of rows) {
-    const t   = r.t;
-    const mod = t % 86400;
-    if (mod < _SV2_SESSION_START || mod >= _SV2_SESSION_END) continue;
-    const dayStart = t - mod;
-    const keyUtc   = (dayStart + _SV2_SESSION_START) - _SV2_IST_NAIVE_OFFSET;
-    if (!(keyUtc in dayBuckets)) {
-      dayBuckets[keyUtc] = { time: keyUtc, open: r.o, high: r.h, low: r.l, close: r.c };
-    } else {
-      const b = dayBuckets[keyUtc];
-      b.high  = Math.max(b.high, r.h);
-      b.low   = Math.min(b.low,  r.l);
-      b.close = r.c;
-    }
-  }
-  const days = Object.values(dayBuckets).sort((a, b) => a.time - b.time);
-  if (nDays <= 1) return days;
-  const out = [];
-  for (let i = 0; i < days.length; i += nDays) {
-    const chunk = days.slice(i, i + nDays);
-    if (!chunk.length) break;
-    out.push({
-      time:  chunk[0].time,
-      open:  chunk[0].open,
-      high:  Math.max(...chunk.map(c => c.high)),
-      low:   Math.min(...chunk.map(c => c.low)),
-      close: chunk[chunk.length - 1].close,
-    });
-  }
-  return out;
-}
-
-function _sv2ResampleBtc(rows, tfMin) {
-  if (tfMin <= 5) {
-    return rows.map(r => ({ time: r.t, open: r.o, high: r.h, low: r.l, close: r.c }));
-  }
-  const sec = tfMin * 60;
-  const buckets = {};
-  for (const r of rows) {
-    const key = Math.floor(r.t / sec) * sec;
-    if (!(key in buckets)) {
-      buckets[key] = { time: key, open: r.o, high: r.h, low: r.l, close: r.c };
-    } else {
-      const b = buckets[key];
-      b.high  = Math.max(b.high, r.h);
-      b.low   = Math.min(b.low,  r.l);
-      b.close = r.c;
-    }
-  }
-  return Object.values(buckets).sort((a, b) => a.time - b.time);
-}
-
-function _sv2ApplyResampled(bnRaw, btcRaw) {
-  SV2_BN['5m']   = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 5),   '5m');
-  SV2_BN['15m']  = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 15),  '15m');
-  SV2_BN['45m']  = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 45),  '45m');
-  SV2_BN['135m'] = _sv2TrimArr(_sv2ResampleBnIntraday(bnRaw, 135), '135m');
-  SV2_BN['1D']   = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 1),  '1D');
-  SV2_BN['3D']   = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 3),  '3D');
-  SV2_BN['9D']   = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 9),  '9D');
-  SV2_BN['27D']  = _sv2TrimArr(_sv2ResampleBnDaily(bnRaw, 27), '27D');
-
-  SV2_BTC['160m'] = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 160),        '160m');
-  SV2_BTC['8H']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 480),        '8H');
-  SV2_BTC['1D']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440),       '1D');
-  SV2_BTC['3D']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440 * 3),   '3D');
-  SV2_BTC['9D']   = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440 * 9),   '9D');
-  SV2_BTC['27D']  = _sv2TrimArr(_sv2ResampleBtc(btcRaw, 1440 * 27),  '27D');
-}
-
-// Ensures BN + BTC raw .gz data is fetched + cached + resampled into
-// SV2_BN / SV2_BTC. Safe to call multiple times — network call sirf pehli
-// baar hoti hai, uske baad cached raw rows se hi kaam chalta hai.
-//   onProgress({ receivedKB, totalKB, kbps })  — combined across both files
-// Returns { ok: true } or { ok: false, error: 'message' }.
-function _sv2EnsureDataLoaded(onProgress) {
-  if (_SV2_RAW_CACHE.bn && _SV2_RAW_CACHE.btc) {
-    return Promise.resolve({ ok: true });   // already cached — no re-fetch
-  }
-  if (_SV2_LOAD_PROMISE) return _SV2_LOAD_PROMISE;   // fetch already in-flight
-
-  _SV2_LOAD_PROMISE = (async () => {
-    const prog = { bn: { received: 0, total: 0 }, btc: { received: 0, total: 0 } };
-    const emit = () => {
-      if (!onProgress) return;
-      const receivedKB = (prog.bn.received + prog.btc.received) / 1024;
-      const totalKB     = (prog.bn.total    + prog.btc.total)    / 1024;
-      const kbps         = (prog.bn.kbps || 0) + (prog.btc.kbps || 0);
-      onProgress({ receivedKB, totalKB, kbps });
-    };
-    try {
-      const [bnRaw, btcRaw] = await Promise.all([
-        _sv2FetchGzJson(_SV2_GH_BN_URL, (p) => { prog.bn = p; emit(); }),
-        _sv2FetchGzJson(_SV2_GH_BTC_URL, (p) => { prog.btc = p; emit(); }),
-      ]);
-      _SV2_RAW_CACHE.bn  = bnRaw;
-      _SV2_RAW_CACHE.btc = btcRaw;
-      _sv2ApplyResampled(bnRaw, btcRaw);
-      window.__SV2_DEBUG = 'SV2 lazy load OK: bn=' + bnRaw.length + ' btc=' + btcRaw.length;
-      return { ok: true };
-    } catch (err) {
-      const msg = (err && err.message) ? err.message : String(err);
-      console.error('[SV2] gz load failed:', err);
-      window.__SV2_DEBUG = 'SV2 lazy load FAILED: ' + msg;
-      _SV2_RAW_CACHE = { bn: null, btc: null };   // allow retry next time
-      return { ok: false, error: msg };
-    } finally {
-      _SV2_LOAD_PROMISE = null;
-    }
-  })();
-  return _SV2_LOAD_PROMISE;
-}
-window._sv2EnsureDataLoaded = _sv2EnsureDataLoaded;
-
-// ════════════════════════════════════════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════════════════════════════════════════
 const S = {
@@ -4249,28 +3993,6 @@ function _sv2FindDayIndex(oneDayArr, selEpoch) {
 
 // Returns the correct cutoff epoch for STACK2_CELLS[idx], given the active
 // _SV2_DATE_RANGE. Falls back to rng.from untouched for 1D/intraday cells.
-// ── Scroll a SV2 cell to the "replay edge" (last real/revealed candle) ────
-// With the whitespace-suppress approach, a cell's series data now extends
-// all the way through the future as {time}-only whitespace points, so a
-// plain scrollToRealTime() would land on the far-future LAST whitespace
-// point instead of where the user is actually replaying from. This counts
-// the trailing whitespace run currently in the series and scrolls back by
-// that many bars, landing exactly on the true edge — same visual result
-// the old delete-based approach gave "for free".
-function _sv2ScrollCellToReplayEdge(cellChart, cellSeries) {
-  if (!cellChart || !cellSeries) return;
-  try {
-    const d = cellSeries.data();
-    let futureCount = 0;
-    for (let i = d.length - 1; i >= 0; i--) {
-      if (d[i] && d[i].open === undefined) futureCount++;
-      else break;
-    }
-    if (futureCount > 0) { cellChart.timeScale().scrollToPosition(-futureCount, false); }
-    else { cellChart.timeScale().scrollToRealTime(); }
-  } catch(_) {}
-}
-
 function _sv2CellCutoffEpoch(idx, rng) {
   if (!rng || typeof rng.from !== 'number') return null;
   try {
@@ -4374,19 +4096,12 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles AT/AFTER cutoff are NOT deleted from the
-      // array anymore — they're converted into "whitespace" points (only
-      // {time}, no OHLC). Lightweight Charts treats whitespace points as
-      // real time-axis slots with nothing rendered on them, so:
-      //   - Candle body/wick stays invisible until Replay reveals it
-      //     (OHLC still hidden pre-replay, exactly like before).
-      //   - The time-axis itself keeps knowing about every future slot,
-      //     so any indicator (e.g. SR's "infinite line" future endpoint)
-      //     lands on an already-existing slot instead of manufacturing a
-      //     brand-new orphan slot — this is what caused the unused
-      //     3:45/3:50-style phantom times after the last historical candle.
+      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
+      // (not just hidden visually) so that timeScale shows a genuine gap —
+      // this is the empty space future Bar Replay will fill in one at a time.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history).
+      // history). Candles AFTER the range are also dropped for now, since
+      // they'd represent "the future" relative to the replay starting point.
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
@@ -4397,8 +4112,42 @@ function _buildStack2CellChart(idx) {
         const cutoff = (typeof _sv2CellCutoffEpoch === 'function')
                         ? (_sv2CellCutoffEpoch(idx, rng) ?? rng.from)
                         : rng.from;
-        dataToShow = data.map(bar => (bar.time < cutoff) ? bar : { time: bar.time });
-        _dbg.push('rangeFilter(whitespace) from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' total='+dataToShow.length);
+        dataToShow = data.filter(bar => bar.time < cutoff);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' kept='+dataToShow.length+'/'+data.length);
+
+        // ── Invisible real-time anchors for the hidden (future/replay) gap ──
+        // SR indicator's native far-future line-series drops a synthetic
+        // data-point deep into this now-empty gap. Because the chart has NO
+        // other data in that gap, it doesn't know the real trading-time
+        // spacing there and invents evenly-spaced fake times (e.g. 3:35pm,
+        // 3:50pm right after the 3:30pm market close) to fill it.
+        // Fix: seed the gap with a fully invisible line-series whose points
+        // sit at the REAL future trading-times (pulled straight from the
+        // unfiltered `data` array — these are the exact bars Bar Replay will
+        // reveal one-by-one later). This gives the chart correct time
+        // anchors to snap to, so it never has to invent fake ones.
+        // Purely cosmetic/time-anchoring: transparent color, excluded from
+        // autoscale, no price-line, no legend, no crosshair marker — it does
+        // not touch the SR indicator or candle data in any way.
+        try {
+          const futureBars = data.filter(bar => bar.time >= cutoff).slice(0, 300);
+          if (futureBars.length && dataToShow.length && c.chart) {
+            const anchorVal = dataToShow[dataToShow.length - 1].close;
+            const anchorSeries = c.chart.addLineSeries({
+              color: 'rgba(0,0,0,0)',
+              lineWidth: 1,
+              lastValueVisible: false,
+              priceLineVisible: false,
+              crosshairMarkerVisible: false,
+              autoscaleInfoProvider: () => null,
+            });
+            anchorSeries.setData(futureBars.map(b => ({ time: b.time, value: anchorVal })));
+            c._sv2AnchorSeries = anchorSeries;
+            _dbg.push('anchorSeries pts='+futureBars.length);
+          }
+        } catch(e) {
+          _dbg.push('anchorSeries ERR: '+e.message);
+        }
       }
 
       const CHUNK = 500;
@@ -4407,7 +4156,7 @@ function _buildStack2CellChart(idx) {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
         if (!slice.length) {
-          _sv2ScrollCellToReplayEdge(c.chart, c.series);
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
           return;
         }
         try {
@@ -4419,9 +4168,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else {
-          _sv2ScrollCellToReplayEdge(c.chart, c.series);
-        }
+        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -4925,37 +4672,9 @@ function ss2ApplyAndClose() {
   // ── Start Point Only: "Go to Date" — hides everything from that date
   //    onward (open-ended, no end date needed), exactly like TradingView's
   //    Bar Replay starting-point selection. ──────────────────────────────────
-  async function _sv2DrngApplyStartOnly() {
+  function _sv2DrngApplyStartOnly() {
     if (!_selStart) return;
     var fromEpoch = _dateToEpoch(_selStart);
-
-    var spBtn = document.getElementById('sv2-drng-start-only');
-    var _origLabel = spBtn ? spBtn.textContent : '';
-    if (spBtn) {
-      spBtn.disabled = true;
-      spBtn.textContent = '⏳ Data load ho raha hai…';
-    }
-
-    var result = { ok: false, error: 'Unknown error' };
-    try {
-      result = await _sv2EnsureDataLoaded(function(p){
-        if (!spBtn) return;
-        var recv  = p.receivedKB >= 1024 ? (p.receivedKB/1024).toFixed(2)+' MB' : Math.round(p.receivedKB)+' KB';
-        var tot   = p.totalKB > 0 ? (p.totalKB >= 1024 ? (p.totalKB/1024).toFixed(2)+' MB' : Math.round(p.totalKB)+' KB') : '?';
-        var speed = Math.round(p.kbps) + ' KB/s';
-        spBtn.textContent = '⏳ ' + recv + ' / ' + tot + ' (' + speed + ')';
-      });
-    } catch (e) {
-      result = { ok: false, error: (e && e.message) ? e.message : String(e) };
-    }
-
-    if (spBtn) { spBtn.textContent = _origLabel; spBtn.disabled = !_selStart; }
-
-    if (!result.ok) {
-      alert('⚠ Data load nahi ho paya:\n' + result.error + '\n\nInternet connection check karke phir try karo.');
-      return;
-    }
-
     var toEpoch   = _sv2MaxAvailableTime();   // open-ended → end of loaded data
     window._SV2_DATE_RANGE = {
       from:      fromEpoch,
@@ -5036,8 +4755,6 @@ function ss2ApplyAndClose() {
   var _isPlaying      = false;  // auto-play (continuous replay) ON/OFF
   var _playTimer      = null;   // setTimeout handle between auto-play steps
   var _PLAY_GAP_MS    = 250;    // chhota gap agla candle shuru hone se pehle
-  var _srDelayTimer   = null;   // pending "show SR 5s after candle arrives" timer
-  var _SR_DELAY_MS    = 5000;   // candle N ka H/L, candle N+1 arrive hone ke 5s baad dikhega
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -5069,7 +4786,6 @@ function ss2ApplyAndClose() {
       _replayCandles = null;
       _animating     = false;
       if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-      if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
       _sv2StopPlay();
     }
   }
@@ -5317,16 +5033,7 @@ function ss2ApplyAndClose() {
             var _dCell = STACK2_CELLS[_dj];
             if (!_dCell || !_dCell.chart) continue;
             try {
-              // whitespace-suppress data ke saath scrollToRealTime() ab
-              // far-future last whitespace point tak scroll kar dega —
-              // isliye replay-edge-aware helper use karo (see definition
-              // near _sv2CellCutoffEpoch), jo current revealed candle tak
-              // hi scroll karta hai.
-              if (typeof _sv2ScrollCellToReplayEdge === 'function') {
-                _sv2ScrollCellToReplayEdge(_dCell.chart, _dCell.series);
-              } else {
-                _dCell.chart.timeScale().scrollToRealTime();
-              }
+              _dCell.chart.timeScale().scrollToRealTime();
             } catch(_eScroll) {
               try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
             }
@@ -5337,22 +5044,12 @@ function ss2ApplyAndClose() {
         // stepBar.time sirf candle ka START hai — replay-clock ke liye
         // uska ASLI close time chahiye (start + base-TF ka poora period),
         // warna higher-TF candles time se pehle "closed" maan li jaati thi.
-        // ── 5-second delay: jab agli candle (N+1) "arrive" hoti hai, pichli
-        // candle (N) ka High/Low line turant nahi, 5 second baad dikhta hai.
-        // Debounced: agar isse pehle koi purana pending redraw baaki hai
-        // (jaise fast manual taps ya auto-play), usse cancel karke sirf
-        // sabse latest step ke liye naya 5s timer lagta hai.
         try {
           var _srAssetKey    = (typeof _stackKeyForAsset === 'function')
                                 ? _stackKeyForAsset(S.asset) : 'bn';
           var _srBaseTfKey   = (_srAssetKey === 'bn') ? BN_STEP_TF : BTC_STEP_TF;
           var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
-          var _srCutoff      = stepBar.time + _srBasePeriod;
-          if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
-          _srDelayTimer = setTimeout(function(){
-            _srDelayTimer = null;
-            try { sv2SwingOnStep(_srCutoff); } catch(_) {}
-          }, _SR_DELAY_MS);
+          sv2SwingOnStep(stepBar.time + _srBasePeriod);
         } catch(_) {}
 
         // Check if replay is complete
@@ -5450,7 +5147,6 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
     _sv2StopPlay();
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
@@ -5464,7 +5160,6 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    if (_srDelayTimer) { clearTimeout(_srDelayTimer); _srDelayTimer = null; }
     _sv2StopPlay();
     _syncStepBtn();
   });
