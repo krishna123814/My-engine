@@ -855,21 +855,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   display:flex;align-items:center;justify-content:center;
 }
 
-/* Start / End date selector tabs */
-#sv2-drng-tabs{
-  display:flex;gap:0;padding:10px 16px 0;
-}
-.sv2-drng-tab{
-  flex:1;padding:7px 4px;font-size:11px;font-weight:600;
-  background:#131722;border:1px solid #2a2e39;color:#787b86;
-  cursor:pointer;text-align:center;
-}
-.sv2-drng-tab:first-child{border-radius:6px 0 0 6px;border-right:none}
-.sv2-drng-tab:last-child{ border-radius:0 6px 6px 0}
-.sv2-drng-tab.active{background:#2962ff;border-color:#2962ff;color:#fff}
-.sv2-drng-tab-lbl{font-size:9px;opacity:.7;display:block}
-.sv2-drng-tab-val{font-size:12px;font-weight:700;margin-top:1px;display:block}
-
 /* Calendar nav */
 #sv2-cal-nav{
   display:flex;align-items:center;
@@ -904,21 +889,25 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-cal-day:active{background:#363c4e}
 .sv2-cal-day.other-month{color:#333;pointer-events:none}
 .sv2-cal-day.today{color:#f0b429;font-weight:700}
-.sv2-cal-day.sel-start{background:#2962ff;color:#fff;font-weight:700;border-radius:6px 0 0 6px}
-.sv2-cal-day.sel-end  {background:#2962ff;color:#fff;font-weight:700;border-radius:0 6px 6px 0}
-.sv2-cal-day.sel-start.sel-end{border-radius:6px}
-.sv2-cal-day.in-range {background:#2962ff22;color:#d1d4dc;border-radius:0}
+.sv2-cal-day.sel-start{background:#2962ff;color:#fff;font-weight:700;border-radius:6px}
 .sv2-cal-day.disabled {color:#333;pointer-events:none}
 
-/* Apply button */
-#sv2-drng-apply{
+/* Go-to-date hint */
+#sv2-drng-sp-hint{
+  margin:6px 16px 0;padding:8px 10px;border-radius:8px;
+  background:#f0b42918;border:1px solid #f0b42944;
+  color:#f0b429;font-size:10.5px;line-height:1.4;
+}
+
+/* Start Point Only button (go-to-date, open-ended hide) */
+#sv2-drng-start-only{
   display:block;width:calc(100% - 32px);margin:8px 16px 4px;
   height:44px;border-radius:8px;
-  background:#26a69a;border:none;color:#fff;
+  background:#f0b429;border:none;color:#131722;
   font-size:14px;font-weight:700;cursor:pointer;
 }
-#sv2-drng-apply:active{background:#1d8a80}
-#sv2-drng-apply:disabled{background:#2a2e39;color:#555;cursor:not-allowed}
+#sv2-drng-start-only:active{background:#d19b20}
+#sv2-drng-start-only:disabled{background:#2a2e39;color:#555;cursor:not-allowed}
 
 /* Sheet backdrop */
 #sv2-drng-backdrop{
@@ -2194,8 +2183,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 </div><!-- #app -->
 
-<!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
-<button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
+<!-- ═══ SV2 GO TO DATE — Floating Action Button ══════════════════════════ -->
+<button id="sv2-drng-fab" title="Go to date">📅</button>
 
 <!-- ═══ SV2 STEP / REPLAY BUTTON (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Step: Next Candle Replay" onclick="_sv2StepForward()">⏭</button>
@@ -2208,21 +2197,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="sv2-drng-sheet-inner">
     <div id="sv2-drng-handle"></div>
     <div id="sv2-drng-hdr">
-      <span id="sv2-drng-title">📅 Date Range</span>
+      <span id="sv2-drng-title">📅 Go to Date</span>
       <button id="sv2-drng-clear" onclick="_sv2DrngClear()">✕ Clear</button>
       <button id="sv2-drng-close" onclick="_sv2DrngClose()">✕</button>
-    </div>
-
-    <!-- Start / End tabs -->
-    <div id="sv2-drng-tabs">
-      <div class="sv2-drng-tab active" id="sv2-tab-start" onclick="_sv2DrngSwitchTab('start')">
-        <span class="sv2-drng-tab-lbl">START DATE</span>
-        <span class="sv2-drng-tab-val" id="sv2-tab-start-val">-- Select --</span>
-      </div>
-      <div class="sv2-drng-tab" id="sv2-tab-end" onclick="_sv2DrngSwitchTab('end')">
-        <span class="sv2-drng-tab-lbl">END DATE</span>
-        <span class="sv2-drng-tab-val" id="sv2-tab-end-val">-- Select --</span>
-      </div>
     </div>
 
     <!-- Calendar nav row -->
@@ -2235,8 +2212,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <!-- Calendar grid (days-of-week header + date cells, built by JS) -->
     <div id="sv2-cal-grid"></div>
 
+    <!-- Hint -->
+    <div id="sv2-drng-sp-hint">🎯 Date chuno aur "Go to Date" dabao — us date se aage ke saare candles hide ho jayenge, phir ⏭ Step se ek-ek candle replay karo (jaise TradingView Bar Replay)</div>
+
     <!-- Apply -->
-    <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply Range</button>
+    <button id="sv2-drng-start-only" onclick="_sv2DrngApplyStartOnly()" disabled>🎯 Go to Date</button>
   </div>
 </div>
 
@@ -3953,7 +3933,81 @@ function buildStack2() {
       }
     }
   }, 500);
+
+  // SV2 Swing S&R — cells settle hone ke baad SR lagao
+  // Date range active hai to sirf historical (< rng.from), warna full .gz data
+  setTimeout(function() {
+    try {
+      const _rng2 = window._SV2_DATE_RANGE;
+      const _co   = (_rng2 && typeof _rng2.from === 'number') ? _rng2.from : null;
+      sv2SwingInit(_co);
+    } catch(_) {}
+  }, 650);
 }
+
+// ── Per-TF "go to date" cutoff — working-day aligned ─────────────────────────
+// PROBLEM: rng.from is one raw calendar-date epoch, applied as-is to EVERY
+// timeframe's data ("bar.time < rng.from"). But 3D/9D/27D candles are built
+// by grouping the .gz file's trading days sequentially from its OWN first
+// date (see _sv2_resample_bn_daily in main.py: day-index // N). A candle's
+// stored "time" is the date of the FIRST day in its N-day group — it does
+// NOT line up with a randomly chosen calendar date. So filtering all TFs
+// with the same raw epoch made 3D/9D/27D cut at the wrong group boundary,
+// which visually looked like "same start date for every timeframe".
+// FIX: for a chosen date, first find which trading-day INDEX it falls on
+// inside the asset's own 1D array (index 0 = .gz file's first date). Then
+// for a TF with bucket size N (3D→3, 9D→9, 27D→27), the group that contains
+// that trading day is simply Math.floor(dayIndex / N) — this is the exact
+// same math main.py used to build the candle in the first place. Looking up
+// that group's candle in the TF's own resampled array gives the correct,
+// TF-native cutoff time.
+function _sv2TFBucketSize(tfLabel) {
+  var m = /^(\d+)D$/i.exec(tfLabel || '');
+  return m ? parseInt(m[1], 10) : 1;   // 1D/intraday TFs → bucket size 1 (no adjustment needed)
+}
+
+function _sv2FindDayIndex(oneDayArr, selEpoch) {
+  // oneDayArr = asset's own "1D" array, ascending by time (index 0 = .gz's
+  // first date). Find the first trading day whose calendar date >= selected
+  // date — this naturally snaps weekends/holidays (absent from .gz) forward
+  // to the next real trading day, same as main.py's working-day counting.
+  if (!Array.isArray(oneDayArr) || !oneDayArr.length) return -1;
+  var selDay = Math.floor(selEpoch / 86400);
+  for (var i = 0; i < oneDayArr.length; i++) {
+    if (Math.floor(oneDayArr[i].time / 86400) >= selDay) return i;
+  }
+  return oneDayArr.length - 1;   // selected date beyond all loaded data → last known day
+}
+
+// Returns the correct cutoff epoch for STACK2_CELLS[idx], given the active
+// _SV2_DATE_RANGE. Falls back to rng.from untouched for 1D/intraday cells.
+function _sv2CellCutoffEpoch(idx, rng) {
+  if (!rng || typeof rng.from !== 'number') return null;
+  try {
+    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    var cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+    var tfLabel  = (cfg2.tfs && cfg2.tfs[idx]) || '';
+    var n = _sv2TFBucketSize(tfLabel);
+    if (n <= 1) return rng.from;   // 1D / intraday — raw date filter already correct
+
+    var store = (assetKey === 'bn') ? window.SV2_BN : window.SV2_BTC;
+    if (!store) return rng.from;
+
+    var oneDay = null;
+    for (var k in store) { if (k.toUpperCase() === '1D') { oneDay = store[k]; break; } }
+    if (!Array.isArray(oneDay) || !oneDay.length) return rng.from;
+
+    var dayIdx = _sv2FindDayIndex(oneDay, rng.from);
+    if (dayIdx < 0) return rng.from;
+
+    var bucketIdx = Math.floor(dayIdx / n);   // same grouping math as main.py
+    var tfArr = null;
+    for (var k2 in store) { if (k2.toLowerCase() === tfLabel.toLowerCase()) { tfArr = store[k2]; break; } }
+    if (Array.isArray(tfArr) && tfArr[bucketIdx]) return tfArr[bucketIdx].time;
+    return rng.from;
+  } catch(_) { return rng.from; }
+}
+window._sv2CellCutoffEpoch = _sv2CellCutoffEpoch;
 
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
@@ -4039,8 +4093,15 @@ function _buildStack2CellChart(idx) {
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        dataToShow = data.filter(bar => bar.time < rng.from);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        // Per-cell cutoff: 3D/9D/27D snap to their OWN working-day bucket
+        // boundary (see _sv2CellCutoffEpoch above) instead of the raw
+        // calendar-date epoch, so every timeframe lines up on the same
+        // underlying trading-day count from the .gz file's first date.
+        const cutoff = (typeof _sv2CellCutoffEpoch === 'function')
+                        ? (_sv2CellCutoffEpoch(idx, rng) ?? rng.from)
+                        : rng.from;
+        dataToShow = data.filter(bar => bar.time < cutoff);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' kept='+dataToShow.length+'/'+data.length);
       }
 
       const CHUNK = 500;
@@ -4242,10 +4303,10 @@ function ss2ApplyAndClose() {
 // ════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════
-// SV2 DATE RANGE SELECTOR
+// SV2 GO TO DATE SELECTOR
 // — Floating 📅 icon (draggable, corner-snapping)
-// — Bottom-sheet calendar (month-grid, start+end date)
-// — Result: window._SV2_DATE_RANGE = {from, to, fromStr, toStr}
+// — Bottom-sheet calendar (month-grid, single date)
+// — Result: window._SV2_DATE_RANGE = {from, to, fromStr, toStr, openEnded:true}
 // ════════════════════════════════════════════════════════════════════════════
 ;(function(){
 
@@ -4254,9 +4315,7 @@ function ss2ApplyAndClose() {
   var _sheet     = null;   // bottom sheet element
   var _backdrop  = null;
 
-  var _activeTab = 'start';   // 'start' | 'end'
-  var _selStart  = null;      // Date object or null
-  var _selEnd    = null;      // Date object or null
+  var _selStart  = null;      // Date object or null (chosen "go to" date)
   var _calYear   = 0;
   var _calMonth  = 0;         // 0-indexed (0=Jan)
 
@@ -4390,8 +4449,6 @@ function ss2ApplyAndClose() {
     var today = new Date();
     _calYear  = today.getFullYear();
     _calMonth = today.getMonth();
-    _activeTab = 'start';
-    _renderTabs();
     _renderCal();
     _updateApplyBtn();
     _backdrop.classList.add('open');
@@ -4408,10 +4465,8 @@ function ss2ApplyAndClose() {
 
   function _sv2DrngClear() {
     _selStart = null;
-    _selEnd   = null;
     window._SV2_DATE_RANGE = null;
     if (_fab) _fab.classList.remove('active-range');
-    _renderTabs();
     _renderCal();
     _updateApplyBtn();
     // Dispatch event so future replay system can listen
@@ -4427,17 +4482,6 @@ function ss2ApplyAndClose() {
     }
   }
   window._sv2DrngClear = _sv2DrngClear;
-
-  // ── Tab switching ─────────────────────────────────────────────────────────
-  function _sv2DrngSwitchTab(tab) {
-    _activeTab = tab;
-    _renderTabs();
-    // Navigate cal to the already-selected date for this tab if set
-    var d = (tab === 'start') ? _selStart : _selEnd;
-    if (d) { _calYear = d.getFullYear(); _calMonth = d.getMonth(); }
-    _renderCal();
-  }
-  window._sv2DrngSwitchTab = _sv2DrngSwitchTab;
 
   // ── Calendar navigation ───────────────────────────────────────────────────
   function _sv2CalPrev() {
@@ -4467,19 +4511,6 @@ function ss2ApplyAndClose() {
   }
   function _dateObjOnly(y, m, d) {
     return new Date(y, m, d);
-  }
-
-  // ── Render tabs ───────────────────────────────────────────────────────────
-  function _renderTabs() {
-    var ts = document.getElementById('sv2-tab-start');
-    var te = document.getElementById('sv2-tab-end');
-    var tsv = document.getElementById('sv2-tab-start-val');
-    var tev = document.getElementById('sv2-tab-end-val');
-    if (!ts) return;
-    ts.classList.toggle('active', _activeTab === 'start');
-    te.classList.toggle('active', _activeTab === 'end');
-    if (tsv) tsv.textContent = _fmtDate(_selStart);
-    if (tev) tev.textContent = _fmtDate(_selEnd);
   }
 
   // ── Render calendar grid ──────────────────────────────────────────────────
@@ -4530,14 +4561,8 @@ function ss2ApplyAndClose() {
           el.classList.add('today');
         }
 
-        // Range highlight
-        var isStart = _isSameDay(thisDate, _selStart);
-        var isEnd   = _isSameDay(thisDate, _selEnd);
-        var inRange = _selStart && _selEnd && thisDate > _selStart && thisDate < _selEnd;
-
-        if (isStart) el.classList.add('sel-start');
-        if (isEnd)   el.classList.add('sel-end');
-        if (inRange) el.classList.add('in-range');
+        // Selected-date highlight
+        if (_isSameDay(thisDate, _selStart)) el.classList.add('sel-start');
 
         // Tap handler
         el.addEventListener('touchend', function(e){
@@ -4563,63 +4588,63 @@ function ss2ApplyAndClose() {
 
   // ── Day tap logic ─────────────────────────────────────────────────────────
   function _onDayTap(date) {
-    if (_activeTab === 'start') {
-      _selStart = date;
-      // If end is before start → clear end
-      if (_selEnd && _selEnd < _selStart) _selEnd = null;
-      // Auto-switch to end tab
-      _activeTab = 'end';
-    } else {
-      if (_selStart && date < _selStart) {
-        // Tapped before start → make it the new start, clear end
-        _selStart = date;
-        _activeTab = 'end';
-      } else {
-        _selEnd = date;
-        _activeTab = 'start';   // cycle back
-      }
-    }
-    _renderTabs();
+    _selStart = date;
     _renderCal();
     _updateApplyBtn();
   }
 
   // ── Apply button ──────────────────────────────────────────────────────────
   function _updateApplyBtn() {
-    var btn = document.getElementById('sv2-drng-apply');
-    if (!btn) return;
-    var valid = _selStart && _selEnd && _selEnd >= _selStart;
-    btn.disabled = !valid;
+    // Go-to-Date button: needs a date selected
+    var spBtn = document.getElementById('sv2-drng-start-only');
+    if (spBtn) spBtn.disabled = !_selStart;
   }
 
-  function _sv2DrngApply() {
-    if (!_selStart || !_selEnd || _selEnd < _selStart) return;
+  // ── Find the last available candle time across BOTH SV2 stores ────────────
+  // Used as the "to" boundary for start-point-only (open-ended) mode, so the
+  // hidden range genuinely covers "everything from the start date to the end
+  // of currently loaded data" — same spirit as TradingView's "select starting
+  // point, everything after is hidden until you step through it all".
+  function _sv2MaxAvailableTime() {
+    var maxT = 0;
+    try {
+      [window.SV2_BN, window.SV2_BTC].forEach(function(store){
+        if (!store) return;
+        for (var k in store) {
+          var arr = store[k];
+          if (Array.isArray(arr) && arr.length) {
+            var last = arr[arr.length - 1];
+            if (last && typeof last.time === 'number' && last.time > maxT) maxT = last.time;
+          }
+        }
+      });
+    } catch(_) {}
+    // Small safety buffer (1 day) so the very last candle is included too.
+    return maxT > 0 ? (maxT + 86400) : (Math.floor(Date.now() / 1000) + 86400);
+  }
+
+  // ── Start Point Only: "Go to Date" — hides everything from that date
+  //    onward (open-ended, no end date needed), exactly like TradingView's
+  //    Bar Replay starting-point selection. ──────────────────────────────────
+  function _sv2DrngApplyStartOnly() {
+    if (!_selStart) return;
     var fromEpoch = _dateToEpoch(_selStart);
-    // End date should cover the FULL day (up to but not including next day's
-    // start) — otherwise candles on the end date itself wouldn't get hidden,
-    // since their bar.time would be >= toEpoch (start of that day) and our
-    // filter only keeps bar.time < rng.from. We add +86400 here so the
-    // comparison logic in _buildStack2CellChart (bar.time < rng.from) can
-    // stay simple, and treat "to" as exclusive-end = start of day AFTER end date.
-    var toEpoch = _dateToEpoch(_selEnd) + 86400;
+    var toEpoch   = _sv2MaxAvailableTime();   // open-ended → end of loaded data
     window._SV2_DATE_RANGE = {
-      from:    fromEpoch,
-      to:      toEpoch,
-      fromStr: _fmtDate(_selStart),
-      toStr:   _fmtDate(_selEnd),
+      from:      fromEpoch,
+      to:        toEpoch,
+      fromStr:   _fmtDate(_selStart),
+      toStr:     'Open-ended',
+      openEnded: true,
     };
     if (_fab) _fab.classList.add('active-range');
     _sv2DrngClose();
-    // Dispatch event — future replay/SR indicator listens here
     try {
       document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', {
         detail: window._SV2_DATE_RANGE
       }));
     } catch(_){}
-    console.log('[SV2 DateRange] Applied:', window._SV2_DATE_RANGE);
-    // Rebuild Stack View 2 immediately — every cell re-filters its candles
-    // against the new range right away (per the confirmed requirement that
-    // ALL cells refresh together, since they all share this one calendar range).
+    console.log('[SV2 DateRange] Start-point-only applied:', window._SV2_DATE_RANGE);
     if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
       try {
         buildStack2();
@@ -4628,7 +4653,7 @@ function ss2ApplyAndClose() {
       } catch(_){}
     }
   }
-  window._sv2DrngApply = _sv2DrngApply;
+  window._sv2DrngApplyStartOnly = _sv2DrngApplyStartOnly;
 
   // ── Init (runs after DOM ready) ───────────────────────────────────────────
   function _init() {
@@ -4667,7 +4692,7 @@ function ss2ApplyAndClose() {
 // ────────────────────────────────────────────────────────────────────────────
 // Sirf tab dikhta hai jab _SV2_DATE_RANGE active ho (date range select hua ho)
 // Ek tap = 1 candle forward replay (BN=5m, BTC=160m)
-// Animation: 1 second mein gradually build (open→H/L extend→close move)
+// Animation: 30 second mein gradually build (open→H/L extend→close move)
 // Sabhi STACK2_CELLS simultaneously update honge (Option A: partial candle)
 // Next tap block jab tak animation complete na ho
 // Range end (_rng.to) pe button disabled
@@ -4680,7 +4705,7 @@ function ss2ApplyAndClose() {
   var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
   var _animating      = false;  // tap blocked jab true
   var _animRaf        = null;   // requestAnimationFrame handle
-  var _ANIM_MS        = 1000;   // 1 second animation
+  var _ANIM_MS        = 30000;   // 30 second animation
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -4839,6 +4864,24 @@ function ss2ApplyAndClose() {
     return Math.floor(tSec / sec) * sec;
   }
 
+  // ── Day-boundary detector: replay ke do consecutive base candles agar
+  // alag trading-day mein padte hain toh true — sirf naye din ke pehle
+  // replayed candle par hi true hota hai, baaki sab intraday steps par
+  // false rehta hai. BN ke liye IST 9:15 session-anchor use hota hai,
+  // BTC/daily ke liye UTC calendar-day.
+  function _sv2IsNewTradingDayBoundary(prevTSec, curTSec, isBN) {
+    if (prevTSec == null || curTSec == null) return false;
+    if (isBN) {
+      var IST = 5.5 * 3600;
+      var prevDay = Math.floor((prevTSec + IST) / 86400);
+      var curDay  = Math.floor((curTSec  + IST) / 86400);
+      return curDay !== prevDay;
+    }
+    var prevDay2 = Math.floor(prevTSec / 86400);
+    var curDay2  = Math.floor(curTSec  / 86400);
+    return curDay2 !== prevDay2;
+  }
+
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
   // For each STACK2_CELL, find its current bucket bar from already-loaded data,
   // then animate the partial candle contribution on top.
@@ -4851,6 +4894,14 @@ function ss2ApplyAndClose() {
 
     // Collect all base bars replayed SO FAR (including this one)
     var allReplayed = _replayCandles.slice(0, _replayIdx);
+
+    // Day-boundary check: is step ka stepBar pichhle replayed base-candle
+    // se alag trading-day mein hai kya? Sirf naye din ke pehle step par
+    // true hoga — baaki intraday steps is flag ko touch hi nahi karenge.
+    var _prevStepBar = (_replayIdx >= 2) ? _replayCandles[_replayIdx - 2] : null;
+    var _isDayBoundaryStep = _prevStepBar
+      ? _sv2IsNewTradingDayBoundary(_prevStepBar.time, stepBar.time, isBN)
+      : false;
 
     function frame(now) {
       var t = Math.min(1, (now - startMs) / _ANIM_MS);
@@ -4871,12 +4922,18 @@ function ss2ApplyAndClose() {
           var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
           if (!partial) continue;
 
-          // Get cell's existing last bar from raw data (before range)
+          // Get cell's existing last bar from raw data (before range) —
+          // use this cell's own working-day-aligned cutoff (same one used
+          // to build its chart data), not the raw rng.from, so replay stays
+          // consistent with what's actually shown for 3D/9D/27D cells.
+          var cellCutoff = (typeof _sv2CellCutoffEpoch === 'function')
+                            ? (_sv2CellCutoffEpoch(ci, rng) ?? rng.from)
+                            : rng.from;
           var rawData = _getCellRawData(ci);
           var existingBar = null;
           if (Array.isArray(rawData)) {
             for (var ri = rawData.length - 1; ri >= 0; ri--) {
-              if (rawData[ri].time < rng.from && rawData[ri].time === partial.time) {
+              if (rawData[ri].time < cellCutoff && rawData[ri].time === partial.time) {
                 existingBar = rawData[ri]; break;
               }
             }
@@ -4909,6 +4966,41 @@ function ss2ApplyAndClose() {
         // Animation complete — finalize
         _animating = false;
         _stepBtn.classList.remove('animating');
+
+        // ── Day-transition fix ────────────────────────────────────────────
+        // Naye trading-day ka pehla replayed candle jab update() se add
+        // hota hai, uska time-anchor purane din ke last candle se genuinely
+        // door hota hai. update() sirf incremental patch karta hai jo
+        // chart ki pehle-se-cached visible-range assumptions par based
+        // rehta hai — isi wajah se sirf is transition step par gap dikhta
+        // hai. Fix: is specific step ke liye stale range restore karne ke
+        // bajaye chart ko naya bar include karke apna layout fresh se
+        // recompute karne do (scrollToRealTime, fitContent fallback ke
+        // saath). Yeh sv2SwingOnStep se PEHLE chalta hai taaki SR redraw
+        // wala range-save/restore bhi is corrected range ko hi pakde.
+        if (_isDayBoundaryStep && typeof STACK2_CELLS !== 'undefined') {
+          for (var _dj = 0; _dj < STACK2_CELLS.length; _dj++) {
+            var _dCell = STACK2_CELLS[_dj];
+            if (!_dCell || !_dCell.chart) continue;
+            try {
+              _dCell.chart.timeScale().scrollToRealTime();
+            } catch(_eScroll) {
+              try { _dCell.chart.timeScale().fitContent(); } catch(_eFit) {}
+            }
+          }
+        }
+
+        // SV2 Swing S&R: closed candle ke baad SR update karo
+        // stepBar.time sirf candle ka START hai — replay-clock ke liye
+        // uska ASLI close time chahiye (start + base-TF ka poora period),
+        // warna higher-TF candles time se pehle "closed" maan li jaati thi.
+        try {
+          var _srAssetKey    = (typeof _stackKeyForAsset === 'function')
+                                ? _stackKeyForAsset(S.asset) : 'bn';
+          var _srBaseTfKey   = (_srAssetKey === 'bn') ? BN_STEP_TF : BTC_STEP_TF;
+          var _srBasePeriod  = (_parseTFMin(_srBaseTfKey) || 5) * 60;
+          sv2SwingOnStep(stepBar.time + _srBasePeriod);
+        } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
@@ -9979,6 +10071,8 @@ function _swingRefresh() {
   if (!SWING_STATE.visible) return;
   if (S.layout === '1x1') { swingAfterRebuild(); }
   else { CELLS.forEach((_, i) => buildCellSwing(i)); }
+  // SV2 cells bhi refresh karo
+  try { sv2SwingRefresh(); } catch(_) {}
 }
 
 // Default palette: Pine Script TF → color
@@ -10492,6 +10586,191 @@ function swingAfterRebuildBtc2() {
   btc2RemoveCanvas();
   setTimeout(() => { initBtc2Indicator(); }, 0);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 SWING S&R INDICATOR
+// ────────────────────────────────────────────────────────────────────────────
+// Stack View 2 ke har cell par wahi Swing S&R lagata hai jo SV1 mein lagta hai.
+// Data source: SV2_BN / SV2_BTC (.gz pre-resampled) — Fyers API nahi.
+//
+// 3 modes:
+//   A) .gz full data:   sv2SwingInit(null)          — SV2 load/asset change par
+//   B) Date range set:  sv2SwingInit(rng.from)       — sirf historical candles
+//   C) Replay step ⏭:  sv2SwingOnStep(closedTime)   — har closed candle par
+//
+// Reused (zero change): swingCompute(), _bnBuildSRNative(), _bnClearSRNative(),
+//   SWING_TF_LIST, SWING_PRESETS, _TF_COLORS, SWING_LINE_WIDTH, SWING_STATE
+// ════════════════════════════════════════════════════════════════════════════
+
+// Per-cell SR series store — parallel index to STACK2_CELLS
+const _sv2SrSeries = [];
+
+// ── SV2 store se ek TF ka data lo, optional cutoff ke saath ─────────────────
+// FIX: pehle sirf candle ke START time ko cutoff se compare karte the
+// (b.time < cutoffTime) — isse ek HTF candle (e.g. 15m) "closed" maan li
+// jaati thi sirf isliye ki uska start-time replay-clock se pehle hai, chahe
+// uske andar wale base-candles (5m/160m) abhi tak sab replay hi na hue hon.
+// Result: candle H/L validation lines time se pehle (candle ke asli close
+// se pehle hi) draw ho jaati thi. Ab hum candle ka POORA period (start+
+// duration) cutoff se pehle guzarne ki shart lagate hain — tabhi wo bar
+// "replayed/closed" mana jayega.
+function _sv2DataForTF(assetKey, tfLabel, cutoffTime, tfMin) {
+  try {
+    const store  = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
+    const keyLow = (tfLabel || '').toLowerCase();
+    let data = null;
+    for (const k in store) {
+      if (k.toLowerCase() === keyLow) { data = store[k]; break; }
+    }
+    if (!Array.isArray(data) || !data.length) return [];
+    if (typeof cutoffTime !== 'number') return data;
+    const periodSec = (tfMin || 1) * 60;
+    return data.filter(b => (b.time + periodSec) <= cutoffTime);
+  } catch(_) { return []; }
+}
+
+// ── tf.min → SV2 store label map (e.g. 480 → '8H', 1440 → '1D') ──────────
+function _sv2FindTFLabel(assetKey, tfMin, hintLabel) {
+  try {
+    const store = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
+    // 1. SWING_TF_LIST chip ka hint label try karo first
+    if (hintLabel) {
+      const h = hintLabel.toLowerCase();
+      for (const k in store) { if (k.toLowerCase() === h) return k; }
+    }
+    // 2. Minutes → canonical label convert karo
+    let lbl;
+    if      (tfMin >= 1440 && tfMin % 1440 === 0) lbl = (tfMin / 1440) + 'D';
+    else if (tfMin >= 60   && tfMin % 60   === 0) lbl = (tfMin / 60)   + 'H';
+    else                                           lbl = tfMin + 'm';
+    const low = lbl.toLowerCase();
+    for (const k in store) { if (k.toLowerCase() === low) return k; }
+  } catch(_) {}
+  return null;
+}
+
+// ── Ek SV2 cell ke liye Multi-TF SR compute karo ──────────────────────────
+function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
+  try {
+    const cfg2      = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+    const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
+    const cellTFMin = _parseTFMin(tfLabel) || 5;
+    const allLines  = [];
+
+    // Step 1: Cell ka apna TF
+    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime, cellTFMin);
+    if (dataCur.length >= 3) {
+      swingCompute(dataCur, cellTFMin)
+        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+    }
+
+    // Step 2: SWING_TF_LIST se enabled higher TFs
+    const enabledHTFs = (SWING_TF_LIST || [])
+      .filter(t => t.enabled && t.min > cellTFMin)
+      .sort((a, b) => a.min - b.min);
+
+    for (const tf of enabledHTFs) {
+      const label = _sv2FindTFLabel(assetKey, tf.min, tf.label);
+      if (!label) continue;
+      const data = _sv2DataForTF(assetKey, label, cutoffTime, tf.min);
+      if (data.length >= 3) {
+        swingCompute(data, tf.min)
+          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+      }
+    }
+
+    // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
+    // swing se upar priority do (SV1 swingComputeMultiTF ke saath identical)
+    const _swingByPrice  = new Map();
+    const _candleByPrice = new Map();
+    for (const line of allLines) {
+      if (line.isInfinite) {
+        const ex = _swingByPrice.get(line.price);
+        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
+      } else {
+        const ex = _candleByPrice.get(line.price);
+        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
+      }
+    }
+    for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
+    return [..._swingByPrice.values(), ..._candleByPrice.values()];
+  } catch(_) { return []; }
+}
+
+// ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
+function _sv2ApplyCellSR(cellIdx, lines) {
+  try {
+    const c = STACK2_CELLS[cellIdx];
+    if (!c || !c.chart) return;
+    // Purani series hata do
+    if (_sv2SrSeries[cellIdx] && _sv2SrSeries[cellIdx].length) {
+      _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
+    }
+    if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
+    // Range pehle save karo taaki auto-scroll na ho
+    let _preRange = null;
+    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
+  } catch(_) {}
+}
+
+// ── Sab SV2 cells initialize/refresh karo ──────────────────────────────────
+// cutoffTime = null → poora .gz data
+// cutoffTime = number → sirf bar.time < cutoffTime wale candles
+function sv2SwingInit(cutoffTime) {
+  if (!SWING_STATE.visible) return;
+  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+  if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  const assetKey = (typeof _stackKeyForAsset === 'function')
+                    ? _stackKeyForAsset(S.asset) : 'bn';
+  for (let i = 0; i < STACK2_CELLS.length; i++) {
+    const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
+    _sv2ApplyCellSR(i, lines);
+  }
+}
+
+// ── Refresh — chip/preset/line-width/toggle change par ──────────────────────
+function sv2SwingRefresh() {
+  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+  const rng    = window._SV2_DATE_RANGE;
+  const cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
+  sv2SwingInit(cutoff);
+}
+
+// ── Replay step: jab ek candle fully close ho tab SR update karo ─────────────
+// replayClockTime = base-step candle ka ASLI close time (start + base period),
+// na ki sirf uska start time — taaki _sv2DataForTF ke naye end-time-aware
+// filter se HTF candles sahi tarike se "abhi forming" vs "closed" judge ho sakein.
+function sv2SwingOnStep(replayClockTime) {
+  if (!SWING_STATE.visible) return;
+  sv2SwingInit(replayClockTime);
+}
+
+// ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
+function sv2SwingClear() {
+  if (typeof STACK2_CELLS === 'undefined') return;
+  for (let i = 0; i < STACK2_CELLS.length; i++) {
+    try {
+      const c = STACK2_CELLS[i];
+      if (!c || !c.chart) continue;
+      if (_sv2SrSeries[i] && _sv2SrSeries[i].length) {
+        _sv2SrSeries[i] = _bnClearSRNative(c.chart, _sv2SrSeries[i]);
+      }
+    } catch(_) {}
+  }
+}
+
+// ── Date Range events sunna ─────────────────────────────────────────────────
+document.addEventListener('sv2DateRangeApplied', function(e) {
+  const rng = e && e.detail;
+  if (rng && typeof rng.from === 'number') {
+    // buildStack2 ke baad settle hone ka time do (500ms)
+    setTimeout(() => sv2SwingInit(rng.from), 550);
+  }
+});
+document.addEventListener('sv2DateRangeCleared', function() {
+  setTimeout(() => sv2SwingInit(null), 550);
+});
 
 // ════════════════════════════════════════════════════════════════════════════
 // PARENT DOT SYSTEM  — 3× rule marker
@@ -11073,6 +11352,8 @@ function onSwingToggle(cb) {
     } else {
       CELLS.forEach((_, i) => buildCellSwing(i));
     }
+    // SV2 cells par bhi SR dikhao
+    try { sv2SwingRefresh(); } catch(_) {}
   } else {
     swingRemoveCanvas();
     _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
@@ -11080,6 +11361,8 @@ function onSwingToggle(cb) {
       if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} c.swing = null; }
       c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
     });
+    // SV2 cells se bhi SR hatao
+    try { sv2SwingClear(); } catch(_) {}
   }
 }
 
