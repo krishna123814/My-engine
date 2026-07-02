@@ -250,8 +250,7 @@
                 Tools: trendline, hline, vline, ray, extended, arrow, rect, text
                 _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
   Line 8540   TF Chips in Drawing Settings Modal
-  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
-                GD.init(), GD.push(), GD.pull(), GD.signIn()
+  Line 8727   (removed — Google Drive / GitHub cloud sync)
   Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1161,12 +1160,6 @@ select.s-select{
 }
 .swing-tf-input:focus{border-color:#2962ff}
 .swing-tf-hint{font-size:9px;color:#4a5568;margin-top:3px}
-.swing-gear-btn{
-  background:none;border:none;color:#787b86;cursor:pointer;
-  padding:2px 5px;font-size:13px;line-height:1;border-radius:3px;flex-shrink:0;
-}
-.swing-gear-btn:hover{color:#d1d4dc;background:#2a2e39}
-.swing-gear-btn.swg-open{color:#2962ff}
 
 /* ── Per-TF S/R color pickers on chips ──────────────────────────── */
 .sr-clr-inp{
@@ -1812,15 +1805,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
-    <button class="hdr-icon-btn" id="gh-save-btn" 
-      onclick="GH.push(true)" 
-      oncontextmenu="event.preventDefault(); GH.reset();"
-      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
-      ontouchend="clearTimeout(this._ghLong)"
-      title="Save to GitHub (Long-press to reset token)" 
-      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
-      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
-    </button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
@@ -1849,49 +1833,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
   
-  <!-- GitHub Sync Buttons (Moved to Top) -->
-  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
-    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
-    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
-      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
-      PULL (Restore)
-    </button>
-    <button onclick="GH.reset()" 
-      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
-      Reset
-    </button>
-  </div>
-
-  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
-    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
-    <!-- Auto-save toggle -->
-    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
-      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
-             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
-             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
-      title="Auto-save on/off">⚡ Auto</button>
-    <!-- Cloud on/off toggle -->
-    <button id="gd-toggle" onclick="gdToggle()"
-      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
-             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
-      title="Cloud sync on/off">🟢</button>
-    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
-  </div>
-
-  <!-- Manual token paste — popup URL copy karke yahan paste karo -->
-  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
-    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
-    <div style="display:flex;gap:6px;">
-      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
-        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
-               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
-      <button onclick="gdManualToken()"
-        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
-               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
-        ✓ OK
-      </button>
-    </div>
-  </div>
   <!-- ss-status hidden — sirf internal use -->
   <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
@@ -2822,40 +2763,10 @@ function _escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// Inline rename: replaces name span with an input field
-function _inlineRename(itemEl, idx) {
-  const nameSpan = itemEl.querySelector('.lm-item-name');
-  if (!nameSpan || itemEl.querySelector('.lm-item-name-inp')) return;
-  const cur = nameSpan.textContent;
-  const inp = document.createElement('input');
-  inp.className = 'lm-item-name-inp';
-  inp.value = cur;
-  nameSpan.replaceWith(inp);
-  inp.focus();
-  inp.select();
-
-  const _commit = () => {
-    const newName = inp.value.trim() || cur;
-    const arr = _loadAllSlots();
-    if (arr[idx]) { arr[idx].name = newName; _saveAllSlots(arr); }
-    _renderLayoutDropdown();
-  };
-  inp.addEventListener('keydown', e => {
-    if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
-    if (e.key === 'Escape') { inp.value = cur; inp.blur(); }
-  });
-  inp.addEventListener('blur', _commit);
-  inp.addEventListener('click', e => e.stopPropagation());
-}
 
 // _renderWsBar kept for backward-compat calls
 function _renderWsBar() { _renderLayoutDropdown(); }
 
-function _currentSnapshotName() {
-  const arr = _loadAllSlots();
-  const existing = arr[_activeSlot >= 0 ? _activeSlot : 0];
-  return existing ? existing.name : null;
-}
 
 function saveToSlot(idx) {
   const arr  = _loadAllSlots();
@@ -2880,8 +2791,6 @@ function saveToActiveLayout() {
   }
 }
 
-// Backward-compat alias
-function saveToActiveSlot() { saveToActiveLayout(); }
 
 function newLayout() {
   const arr = _loadAllSlots();
@@ -2985,11 +2894,6 @@ function _deleteLayout(idx) {
   _renderLayoutDropdown();
 }
 
-// Legacy (kept for any external calls)
-function clickSlot(idx) {
-  const arr = _loadAllSlots();
-  if (arr[idx]) { loadFromSlot(idx); } else { saveToSlot(idx); }
-}
 
 // Toggle layout dropdown visibility
 let _lmOutsideHandler = null;
@@ -3196,14 +3100,6 @@ function bkTotpLogin() {
 document.addEventListener('DOMContentLoaded', _bkInitStatus);
 // ─────────────────────────────────────────────────────────────────────────────
 
-function _flashBtn(id, msg) {
-  const btn = document.getElementById(id);
-  if (!btn) return;
-  const orig = btn.innerHTML;
-  btn.innerHTML = msg;
-  btn.style.color = '#26a69a';
-  setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; _renderLayoutDropdown(); }, 1200);
-}
 
 let chart=null, mainSeries=null;
 const CELLS = [];
@@ -4282,7 +4178,6 @@ function closeStack2Settings() {
   document.getElementById('stack2-settings-panel').style.display = 'none';
 }
 
-function _ss2RenderLabelGrid() { _ss2RenderForTab(); }  // backward compat shim
 
 function ss2ApplyAndClose() {
   const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 6));
@@ -5418,97 +5313,6 @@ function _stackStepJump(containerEl, dir) {
   _stackSnapTo(containerEl, target);
 }
 
-function _stackWireDragZone(zoneEl, containerEl) {
-  if (!zoneEl || !containerEl) return;
-  let startY = 0, startScroll = 0, dragging = false;
-  let lastY = 0, lastT = 0;
-  let _moveHistory = [];   // [{y, t}] — short rolling window for robust velocity/direction
-
-  const onStart = (y) => {
-    dragging = true;
-    startY = y; lastY = y; lastT = performance.now();
-    startScroll = containerEl.scrollTop;
-    _moveHistory = [{ y, t: lastT }];
-    containerEl.style.scrollBehavior = 'auto';   // direct 1:1 tracking while finger is down
-  };
-
-  const onMove = (y) => {
-    if (!dragging) return;
-    const now = performance.now();
-    lastY = y; lastT = now;
-    containerEl.scrollTop = startScroll - (y - startY);
-
-    // Keep only recent samples (last ~80ms) so a mid-gesture reversal
-    // (finger goes up, then immediately back down, same touch) is judged
-    // by its most recent direction, not the gesture's overall average.
-    _moveHistory.push({ y, t: now });
-    while (_moveHistory.length > 1 && now - _moveHistory[0].t > 80) _moveHistory.shift();
-  };
-
-  const onEnd = () => {
-    if (!dragging) return;
-    dragging = false;
-    containerEl.style.scrollBehavior = 'smooth';
-
-    const chartH = _stackChartHeight(containerEl);
-    if (!chartH) return;
-    const step = _stackCurrentStep(containerEl);
-
-    // Velocity from the recent window only (most recent ~80ms of motion),
-    // so the LAST direction the finger was actually moving wins — this is
-    // what makes "drag up then immediately reverse down, same gesture"
-    // settle in the down direction, not the up direction it started with.
-    let velocity = 0;
-    if (_moveHistory.length >= 2) {
-      const first = _moveHistory[0], last = _moveHistory[_moveHistory.length - 1];
-      const dt = last.t - first.t;
-      if (dt > 0) velocity = (last.y - first.y) / dt;   // px per ms, sign = direction
-    }
-
-    const isFlick = Math.abs(velocity) > _STACK_FLICK_VELOCITY;
-    const current = containerEl.scrollTop;
-
-    let target;
-    if (isFlick) {
-      // Flick: jump `step` charts in the flick direction, rounded from the
-      // nearest boundary so repeated flicks compound cleanly.
-      const nearest = Math.round(current / chartH);
-      const dir = velocity < 0 ? 1 : -1;   // finger moved up → content scrolls down → forward
-      target = (nearest + dir * step) * chartH;
-    } else {
-      // Slow drag: just settle on the single nearest chart boundary.
-      target = Math.round(current / chartH) * chartH;
-    }
-    _stackSnapTo(containerEl, target);
-  };
-
-  zoneEl.addEventListener('touchstart', (e) => {
-    if (!e.touches || !e.touches.length) return;
-    onStart(e.touches[0].clientY);
-  }, { passive: true });
-
-  zoneEl.addEventListener('touchmove', (e) => {
-    if (!e.touches || !e.touches.length) return;
-    onMove(e.touches[0].clientY);
-    e.preventDefault();   // stop page rubber-banding while actively dragging a zone
-  }, { passive: false });
-
-  zoneEl.addEventListener('touchend',    onEnd, { passive: true });
-  zoneEl.addEventListener('touchcancel', onEnd, { passive: true });
-
-  // Mouse fallback (desktop testing only — app is touch-first per file header).
-  zoneEl.addEventListener('mousedown', (e) => {
-    onStart(e.clientY);
-    const onMouseMove = (ev) => onMove(ev.clientY);
-    const onMouseUp = () => {
-      onEnd();
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  });
-}
 
 // The candle/grid area's own chart pan/zoom (dragging candles, pinch-zoom)
 // must keep working — so we do NOT intercept touchmove here with
@@ -6831,20 +6635,6 @@ function bindMainResize() {
   _mainResizeObs.observe(area); _mainResizeObs.observe(mainEl);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// TIME SCALE SYNC
-// ════════════════════════════════════════════════════════════════════════════
-function syncTimeScales(master, slave) {
-  let _s=false;
-  master.timeScale().subscribeVisibleLogicalRangeChange(r => {
-    if (_s||!r) return; _s=true;
-    try{slave.timeScale().setVisibleLogicalRange(r);}catch(_){} _s=false;
-  });
-  slave.timeScale().subscribeVisibleLogicalRangeChange(r => {
-    if (_s||!r) return; _s=true;
-    try{master.timeScale().setVisibleLogicalRange(r);}catch(_){} _s=false;
-  });
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // HEADER PRICE
@@ -7588,23 +7378,6 @@ function toggleIndPanel() {
 }
 function indPanelBg(e) { if(e.target===document.getElementById('ind-panel'))toggleIndPanel(); }
 
-// Brief toast shown when overlay blocks an action
-function _ovlToast(msg) {
-  let t=document.getElementById('_ovl-toast');
-  if(!t){
-    t=document.createElement('div');
-    t.id='_ovl-toast';
-    t.style.cssText='position:fixed;bottom:36px;left:50%;transform:translateX(-50%);'+
-      'background:#2a2e39;color:#d1d4dc;font-size:11px;padding:6px 14px;border-radius:6px;'+
-      'border:1px solid #363c4e;z-index:99999;pointer-events:none;opacity:0;'+
-      'transition:opacity .2s;white-space:nowrap;';
-    document.body.appendChild(t);
-  }
-  t.textContent=msg;
-  t.style.opacity='1';
-  clearTimeout(t._tid);
-  t._tid=setTimeout(()=>{ t.style.opacity='0'; }, 2200);
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // SETTINGS
@@ -7929,14 +7702,6 @@ function closeOverlaySetting() {
   const p=document.getElementById('ovl-setting-panel');
   if(p) p.style.display='none';
 }
-// Fix 13: drag overlay panels
-function _dragPanel(e, panel) {
-  e.preventDefault();
-  const ox=e.clientX-panel.offsetLeft, oy=e.clientY-panel.offsetTop;
-  const mm=(ev)=>{ panel.style.left=(ev.clientX-ox)+'px'; panel.style.top=(ev.clientY-oy)+'px'; };
-  const mu=()=>{ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); };
-  document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
-}
 
 // Fix 8: per-cell settings panel (opens near the ⚙ button of that cell)
 let _cellSettingsPanel=null;
@@ -8136,20 +7901,6 @@ function restoreFS() {
   document.getElementById('fs-btn').classList.add('active');
   try{_LS.setItem('tvFS','1');}catch(_){}
 }
-function _fsTapStart() {
-  const ov = document.getElementById('fs-start-overlay');
-  if (ov) ov.classList.remove('show');
-  const el = document.documentElement;
-  const rfs = el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen;
-  if (rfs) {
-    try {
-      rfs.call(el);
-      document.getElementById('fs-btn').textContent='⊡';
-      document.getElementById('fs-btn').classList.add('active');
-      try{_LS.setItem('tvFS','1');}catch(_){}
-    } catch(_) {}
-  }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // CANDLE COUNTDOWN TIMER
@@ -8163,14 +7914,6 @@ function _isTradingDay(istMs) {
   const day = d.getUTCDay();
   if (day === 0 || day === 6) return false;
   return !NSE_HOLIDAYS.has(_utcDateStr(Math.floor(istMs / 1000)));
-}
-// Next NSE trading day midnight IST (epoch ms) after given IST ms
-function _nextTradingDayStart(istMs) {
-  let ms = istMs - (istMs % 86400000) + 86400000; // next midnight UTC (= IST midnight since we're working in shifted time)
-  for (let i = 0; i < 10; i++, ms += 86400000) {
-    if (_isTradingDay(ms)) return ms;
-  }
-  return ms;
 }
 
 // ── Core timer calc: returns remaining seconds (integer) or null = Closed ──
@@ -10036,13 +9779,6 @@ function _renderSwingChips() {
   _updateCurrentTfColorRow();
 }
 
-function toggleSwingTFPanel() {
-  const panel = document.getElementById('swing-tf-panel');
-  const btn   = document.getElementById('swing-gear-btn');
-  const open  = panel.classList.toggle('open');
-  btn.classList.toggle('swg-open', open);
-  if (open) _renderSwingChips();
-}
 
 function _swingChipToggle(i) {
   if (!SWING_TF_LIST[i]) return;
@@ -10298,16 +10034,6 @@ function swingCompute(bars, tfMin) {
   return out;
 }
 
-function swingInitCanvas() {
-  if (swingCanvas) return;
-  const container = document.getElementById('main-chart');
-  if (!container) return;
-  swingCanvas = document.createElement('canvas');
-  swingCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:5';
-  container.appendChild(swingCanvas);
-  swingCtx = swingCanvas.getContext('2d');
-  swingResizeCanvas();
-}
 function swingResizeCanvas() {
   if (!swingCanvas) return;
   const el = document.getElementById('main-chart');
@@ -10442,17 +10168,6 @@ function swingDraw() {
   }
 }
 
-function swingSubscribeChart() {
-  if (!chart || !mainSeries) return;
-  chart.timeScale().subscribeVisibleLogicalRangeChange(swingDraw);
-  // RAF-throttle swing draw on crosshair move
-  let _swXhRAF = null;
-  chart.subscribeCrosshairMove(() => {
-    if (_swXhRAF) return;
-    _swXhRAF = requestAnimationFrame(() => { _swXhRAF = null; swingDraw(); });
-  });
-  try { mainSeries.priceScale().subscribeVisiblePriceRangeChange(swingDraw); } catch(_) {}
-}
 
 // ── Global redraw trigger for vertical price-scale scroll (mobile touch + desktop wheel)
 // Uses rAF so we never flood the browser with redraws during fast gestures.
@@ -10948,10 +10663,6 @@ function _pdotDraw(idx) {
   c._pdotCtx.restore();
 }
 
-// Draw dots for all cells
-function _pdotDrawAll() {
-  CELLS.forEach((_, i) => _pdotDraw(i));
-}
 
 // Called on every live tick (BTC WS / BN poll) to update running dot
 function _pdotOnLiveTick() {
@@ -11032,21 +10743,8 @@ const _BTC2_TF_DEFAULTS = [
   {min:1440, label:'1D',  enabled:true},
 ];
 
-function setBtc2LineWidth(w) {
-  BTC2_LINE_WIDTH = Math.max(0.5, Math.min(4, w||1));
-  try{_LS.setItem(_BTC2_WIDTH_KEY, BTC2_LINE_WIDTH);}catch(_){}
-  btc2Draw();
-  CELLS.forEach((_,i)=>buildCellBtc2(i));
-}
 function _btc2TFSave() {
   try{_LS.setItem('btc2TFList', JSON.stringify(BTC2_TF_LIST));}catch(_){}
-}
-function _btc2TFLoad() {
-  try{
-    const p=JSON.parse(_LS.getItem('btc2TFList'));
-    if(Array.isArray(p)&&p.length>0){BTC2_TF_LIST=p;return;}
-  }catch(_){}
-  BTC2_TF_LIST=_BTC2_TF_DEFAULTS.map(x=>({...x}));
 }
 function _btc2SrColor(tfMin){
   if(BTC2_TF_COLORS[tfMin]&&BTC2_TF_COLORS[tfMin].swing) return BTC2_TF_COLORS[tfMin].swing;
@@ -11295,16 +10993,6 @@ function buildCellBtc2(idx){
   try{c.series.priceScale().subscribeVisiblePriceRangeChange(draw);}catch(_){}
   draw();
 }
-function onBtc2Toggle(cb){
-  BTC2_SWING_STATE.visible=cb.checked;
-  if(cb.checked){
-    if(S.layout==='1x1'){swingAfterRebuildBtc2();}
-    else{CELLS.forEach((_,i)=>buildCellBtc2(i));}
-  } else {
-    btc2RemoveCanvas();
-    CELLS.forEach(c=>{if(c.btc2&&c.btc2.canvas){try{c.btc2.canvas.remove();}catch(_){} c.btc2=null;}});
-  }
-}
 function _renderBtc2Chips(){
   const cont=document.getElementById('btc2-tf-chips');
   if(!cont) return;
@@ -11320,13 +11008,6 @@ function _renderBtc2Chips(){
 }
 function _btc2ChipToggle(i){if(!BTC2_TF_LIST[i])return;BTC2_TF_LIST[i].enabled=!BTC2_TF_LIST[i].enabled;_btc2TFSave();_renderBtc2Chips();_btc2Refresh();}
 function _btc2ChipDel(i){BTC2_TF_LIST.splice(i,1);_btc2TFSave();_renderBtc2Chips();_btc2Refresh();}
-function addBtc2TF(){
-  const inp=document.getElementById('btc2-tf-input');if(!inp)return;
-  const min=_parseTFMin(inp.value);if(!min){inp.style.borderColor='#ef5350';setTimeout(()=>{inp.style.borderColor='';},1200);return;}
-  if(BTC2_TF_LIST.some(t=>t.min===min)){inp.value='';return;}
-  BTC2_TF_LIST.push({min,label:_minToTFLabel(min),enabled:true});
-  inp.value='';_btc2TFSave();_renderBtc2Chips();_btc2Refresh();
-}
 function _btc2Refresh(){
   if(!BTC2_SWING_STATE.visible) return;
   if(S.layout==='1x1'){swingAfterRebuildBtc2();}
@@ -12745,706 +12426,12 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
-// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
-// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
-// ════════════════════════════════════════════════════════════════════════════
-const GD = (function () {
-  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
-  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
-  const FILE_NAME = 'banknifty-layout-sync.json';
-  const AUTH_FLAG = 'gdAuthed';
-
-  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
-  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
-
-  // ── UI helpers ────────────────────────────────────────────────────────────
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-  function _showBtn(label, show) {
-    const b = document.getElementById('gd-btn');
-    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
-    // Manual paste row bhi sign in button ke saath dikhao
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = show ? '' : 'none';
-  }
-  function _toast(msg, color) {
-    let t = document.getElementById('gd-toast');
-    if (!t) {
-      t = document.createElement('div');
-      t.id = 'gd-toast';
-      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
-        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
-        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
-        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
-      document.body.appendChild(t);
-    }
-    t.style.background = color || '#26a69a';
-    t.textContent = msg;
-    t.style.opacity = '1';
-    clearTimeout(t._iv);
-    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
-  }
-  function _now() {
-    try {
-      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-    } catch (_) { return ''; }
-  }
-
-  // ── localStorage snapshot / apply (captures every key = all features) ──────
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === AUTH_FLAG) continue;
-        if (localStorage.getItem(k) !== data[k]) {
-          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
-          changed = true;
-        }
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  // ── OAuth token handling ───────────────────────────────────────────────────
-  function _onToken(resp) {
-    if (resp && resp.access_token) {
-      accessToken = resp.access_token;
-      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
-      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
-      const cb = _pending; _pending = null; if (cb) cb(true);
-    } else {
-      const cb = _pending; _pending = null; if (cb) cb(false);
-    }
-  }
-  function _onTokenErr() {
-    const cb = _pending; _pending = null;
-    _setStatus('☁ Cloud: tap to sign in', '#f23645');
-    _showBtn('Sign in', true);
-    if (cb) cb(false);
-  }
-
-  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
-  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
-  // Google Cloud Console mein dono register honi chahiye:
-  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
-  //   http://localhost:8501/?gd_cb=1
-
-  function _getRedirectURI() {
-    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
-    try {
-      const origin = window.parent !== window
-        ? document.referrer
-          ? new URL(document.referrer).origin
-          : window.location.origin
-        : window.location.origin;
-      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
-    } catch(_) {}
-    // Fallback: Streamlit URL
-    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
-  }
-
-  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
-
-  // postMessage listener — callback page token bhejta hai yahan
-  window.addEventListener('message', function(e) {
-    try {
-      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-      if (d && d.type === 'gd_oauth_token' && d.access_token) {
-        clearInterval(_popupTimer);
-        clearInterval(_lsPollIv);
-        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
-      }
-    } catch(_) {}
-  });
-
-  // localStorage polling fallback (agar postMessage cross-origin block ho)
-  function _startLSPoll(cb) {
-    clearInterval(_lsPollIv);
-    _lsPollIv = setInterval(() => {
-      try {
-        const raw = localStorage.getItem('_gd_oauth_pending');
-        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
-        if (raw && (Date.now() - ts) < 60000) {
-          clearInterval(_lsPollIv);
-          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
-          const d = JSON.parse(raw);
-          if (d && d.access_token) {
-            clearInterval(_popupTimer);
-            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
-            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
-            if (cb) cb(true);
-          }
-        }
-      } catch(_) {}
-    }, 800);
-    setTimeout(() => clearInterval(_lsPollIv), 120000);
-  }
-
-  function _openAuthPopup(cb) {
-    _oauthCb = cb;
-    const REDIRECT_URI = _getRedirectURI();
-
-    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
-      client_id:              CLIENT_ID,
-      redirect_uri:           REDIRECT_URI,
-      response_type:          'token',
-      scope:                  SCOPE,
-      include_granted_scopes: 'true',
-      prompt:                 'consent',
-    });
-
-    const w = 480, h = 620;
-    const left = Math.max(0, (screen.width  - w) / 2);
-    const top  = Math.max(0, (screen.height - h) / 2);
-
-    _popupWin = window.open(
-      authUrl, 'gdauth',
-      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
-    );
-
-    if (!_popupWin || _popupWin.closed) {
-      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
-      _showBtn('Sign in', true);
-      _oauthCb = null;
-      if (cb) cb(false);
-      return;
-    }
-
-    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
-
-    // localStorage fallback polling
-    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
-
-    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
-    clearInterval(_popupTimer);
-    _popupTimer = setInterval(() => {
-      try {
-        if (_popupWin && _popupWin.closed) {
-          clearInterval(_popupTimer);
-          setTimeout(() => {
-            if (_oauthCb) {
-              clearInterval(_lsPollIv);
-              _setStatus('☁ Sign-in cancel hua', '#f23645');
-              _showBtn('Sign in', true);
-              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
-            }
-          }, 2000);
-          return;
-        }
-        // Same-origin check — jab popup redirect_uri pe aa jaaye
-        try {
-          const href = _popupWin.location.href;
-          const fragment = _popupWin.location.hash;
-          if (href && fragment && fragment.includes('access_token')) {
-            // Fragment mil gaya — Streamlit strip karne se pehle
-            clearInterval(_popupTimer);
-            clearInterval(_lsPollIv);
-            const p = new URLSearchParams(fragment.substring(1));
-            const token = p.get('access_token');
-            const exp   = parseInt(p.get('expires_in') || '3600', 10);
-            try { _popupWin.close(); } catch(_) {}
-            if (token) {
-              // localStorage mein bhi save karo backup ke liye
-              try {
-                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
-                localStorage.setItem('_gd_oauth_pending', msg);
-                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
-              } catch(_) {}
-              _onToken({ access_token: token, expires_in: exp });
-              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
-            }
-          }
-        } catch(crossOriginErr) {
-          // Popup abhi Google ke domain pe hai — normal, wait karo
-        }
-      } catch(_) {}
-    }, 300);
-  }
-
-  function _requestToken(interactive, cb) {
-    _pending = cb;
-    if (interactive) {
-      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
-      return;
-    }
-    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
-    if (cb) cb(false);
-  }
-  function _withToken(cb) {
-    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
-    _requestToken(false, cb);
-  }
-
-  // ── Drive REST helpers ──────────────────────────────────────────────────────
-  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
-  function _findFile(cb) {
-    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
-      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
-      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
-    fetch(url, { headers: _hdr() })
-      .then(r => r.json())
-      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
-      .catch(() => cb(null));
-  }
-  function _download(cb) {
-    if (!fileId) { cb(null); return; }
-    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
-      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
-  }
-  function _uploadMedia(payload, cb) {
-    if (fileId) {
-      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
-        method: 'PATCH',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
-        body: payload,
-      }).then(r => cb(r.ok)).catch(() => cb(false));
-    } else {
-      const boundary = 'gdsync' + Date.now();
-      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
-      const body =
-        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
-        JSON.stringify(meta) + '\r\n' +
-        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
-        payload + '\r\n--' + boundary + '--';
-      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
-        method: 'POST',
-        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
-        body: body,
-      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
-        .catch(() => cb(false));
-    }
-  }
-
-  // ── Public: push (save) ──────────────────────────────────────────────────────
-  function push(showToast) {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      if (showToast) _toast('Sign in to Google first', '#f23645');
-      return;
-    }
-    _withToken(ok => {
-      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
-      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-      const doUpload = () => _uploadMedia(payload, okk => {
-        if (okk) {
-          _dirty = false;
-          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
-          if (showToast) _toast('☁ Saved to Google Cloud');
-        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
-      });
-      if (fileId) doUpload(); else _findFile(() => doUpload());
-    });
-  }
-
-  // ── Public: pull (restore) ───────────────────────────────────────────────────
-  function pull(after) {
-    _withToken(ok => {
-      if (!ok) { if (after) after(false, false); return; }
-      _findFile(id => {
-        if (!id) { if (after) after(false, false); return; }
-        _download(obj => {
-          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
-          else if (after) after(false, false);
-        });
-      });
-    });
-  }
-
-  // ── Boot: silent auto-login + restore on page open ──────────────────────────
-  function _boot() {
-    if (_booted) return; _booted = true;
-    if (localStorage.getItem(AUTH_FLAG) !== '1') {
-      _setStatus('☁ Cloud: not signed in');
-      _showBtn('Sign in', true);
-      return;
-    }
-    _setStatus('☁ Cloud: connecting…');
-    _showBtn('', false);
-    _requestToken(false, ok => {
-      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      // Show "restore completed" once after a reload triggered by restore
-      if (sessionStorage.getItem('gdJustRestored') === '1') {
-        sessionStorage.removeItem('gdJustRestored');
-        _toast('✓ Restore completed');
-      }
-      if (sessionStorage.getItem('gdRestored') === '1') {
-        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
-        return;
-      }
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found && changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          _toast('✓ Restore completed');
-          setTimeout(() => location.reload(), 950);
-        } else if (found) {
-          _setStatus('☁ Cloud: restored ✓', '#26a69a');
-          _toast('✓ Restore completed');
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(false); // first-time upload of current local state
-        }
-      });
-    });
-  }
-
-  // ── Manual sign-in (first time) ──────────────────────────────────────────────
-  function signIn() {
-    _setStatus('☁ Cloud: opening Google…');
-    _requestToken(true, ok => {
-      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
-      _showBtn('', false);
-      sessionStorage.removeItem('gdRestored');
-      _setStatus('☁ Cloud: restoring…');
-      pull((found, changed) => {
-        sessionStorage.setItem('gdRestored', '1');
-        if (found) {
-          _toast('✓ Restore completed');
-          if (changed) {
-            sessionStorage.setItem('gdJustRestored', '1');
-            setTimeout(() => location.reload(), 950);
-          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-        } else {
-          _setStatus('☁ Cloud: connected', '#26a69a');
-          push(true); // nothing on Drive yet → upload current
-        }
-      });
-    });
-  }
-
-  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
-  let _origSetItem = null;
-  function _initAutoSave() {
-    try {
-      _origSetItem = localStorage.setItem.bind(localStorage);
-      localStorage.setItem = function (k, v) {
-        _origSetItem(k, v);
-        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
-          _dirty = true;
-          _schedule();
-        }
-      };
-    } catch (_) {}
-  }
-  function _schedule() {
-    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
-    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
-    const autoOn = localStorage.getItem('gdAutoSave') === '1';
-    if (!autoOn) return;
-    clearTimeout(_pushTimer);
-    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
-  }
-
-  // Public: force push (manual Save Layout button ke liye)
-  function pushNow() { push(true); }
-
-  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
-  // (GIS iframe mein origin=null error deta hai)
-  function _waitGIS() { _boot(); } // GIS skip, seedha boot
-  function init() {
-    _initAutoSave();
-    _boot(); // GIS SDK load nahi karo
-  }
-
-  // Manual token inject (URL paste se)
-  function _manualToken(token, exp) {
-    _onToken({ access_token: token, expires_in: exp || 3600 });
-    _showBtn('', false);
-    sessionStorage.removeItem('gdRestored');
-    _setStatus('☁ Cloud: restoring…');
-    pull((found, changed) => {
-      sessionStorage.setItem('gdRestored', '1');
-      if (found) {
-        _toast('✓ Restore completed');
-        if (changed) {
-          sessionStorage.setItem('gdJustRestored', '1');
-          setTimeout(() => location.reload(), 950);
-        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
-      } else {
-        _setStatus('☁ Cloud: connected', '#26a69a');
-        push(true);
-      }
-    });
-  }
-
-  // Save on tab hide / close (best-effort)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden' && _dirty) push(false);
-  });
-
-  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
-})();
-
-// Global handler for the menu button
-function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
-
-// Manual token paste — popup URL se token extract karo
-function gdManualToken() {
-  const inp = document.getElementById('gd-token-inp');
-  if (!inp) return;
-  const raw = inp.value.trim();
-  if (!raw) return;
-
-  // URL mein se fragment nikalo: #access_token=...
-  let fragment = '';
-  try {
-    const hashIdx = raw.indexOf('#');
-    if (hashIdx !== -1) {
-      fragment = raw.substring(hashIdx + 1);
-    } else if (raw.includes('access_token')) {
-      // Sirf fragment part paste kiya hoga
-      fragment = raw;
-    }
-  } catch(_) {}
-
-  if (!fragment) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  const p     = new URLSearchParams(fragment);
-  const token = p.get('access_token');
-  const exp   = parseInt(p.get('expires_in') || '3600', 10);
-
-  if (!token) {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
-    return;
-  }
-
-  // Token mil gaya — GD ko dedo
-  inp.value = '';
-  const row = document.getElementById('gd-manual-row');
-  if (row) row.style.display = 'none';
-  try { GD._manualToken(token, exp); } catch(_) {}
-}
-
-// ════════════════════════════════════════════════════════════════════════════
 // SERVER SAVE  (Streamlit server file — Google Drive ke bina)
 // Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
 // snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
 // Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
 // ════════════════════════════════════════════════════════════════════════════
 
-
-// ════════════════════════════════════════════════════════════════════════════
-// GITHUB SYNC (Gist API)
-// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
-// ════════════════════════════════════════════════════════════════════════════
-const GH = (function () {
-  const GIST_NAME = 'banknifty-layout-sync.json';
-  const TOKEN_KEY = 'gh_token';
-  const GIST_ID_KEY = 'gh_gist_id';
-
-  function _setStatus(txt, color) {
-    const s = document.getElementById('gd-status'); // Reuse GD status for now
-    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
-  }
-
-  function _toast(msg, color) {
-    if (window.GD && GD._toast) GD._toast(msg, color);
-    else alert(msg);
-  }
-
-  function _snapshot() {
-    const data = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        data[k] = localStorage.getItem(k);
-      }
-    } catch (_) {}
-    return data;
-  }
-
-  function _apply(data) {
-    let changed = false;
-    try {
-      for (const k in data) {
-        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
-        // Force overwrite even if it looks the same, to be sure
-        localStorage.setItem(k, data[k]);
-        changed = true;
-      }
-    } catch (_) {}
-    return changed;
-  }
-
-  async function push(showToast) {
-    // Force save current state to localStorage first
-    if (window.saveState) saveState();
-    if (window.saveToActiveLayout) saveToActiveLayout();
-    
-    let token = localStorage.getItem(TOKEN_KEY);
-    if (!token || token.length < 5) {
-      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
-      if (token && token.trim().length > 5) {
-        token = token.trim();
-        localStorage.setItem(TOKEN_KEY, token);
-      } else {
-        _setStatus('🐙 GitHub: Token required', '#f23645');
-        return;
-      }
-    }
-
-    _setStatus('🐙 GitHub: saving...', '#f0b429');
-    let gistId = localStorage.getItem(GIST_ID_KEY);
-    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
-
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json'
-    };
-
-    try {
-      let url = 'https://api.github.com/gists';
-      let method = 'POST';
-      let body = {
-        description: 'BankNifty Layout Sync',
-        public: false,
-        files: { [GIST_NAME]: { content: payload } }
-      };
-
-      if (gistId) {
-        url = `https://api.github.com/gists/${gistId}`;
-        method = 'PATCH';
-      }
-
-      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
-      const json = await resp.json();
-
-      if (resp.ok) {
-        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
-        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
-        if (showToast) _toast('☁ Saved to GitHub Gist');
-      } else {
-        console.error('GH Save Error:', json);
-        const errMsg = json.message || 'Save Failed';
-        
-        if (resp.status === 409) {
-          // Conflict error - force update by creating a new one or trying to pull first
-          console.warn('409 Conflict, retrying as new gist...');
-          localStorage.removeItem(GIST_ID_KEY);
-          return push(showToast);
-        }
-
-        if (resp.status === 404) {
-          localStorage.removeItem(GIST_ID_KEY);
-          const msg = "GitHub Error 404: Not Found.\n\n" +
-                      "This usually means your Token is missing 'gist' permission.\n" +
-                      "Please check 'gist' scope in GitHub Token settings.";
-          alert(msg);
-          _setStatus('🐙 GitHub: 404 Error', '#f23645');
-          return;
-        }
-
-        if (resp.status === 401) {
-          localStorage.removeItem(TOKEN_KEY);
-          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
-          _toast('Invalid Token: ' + errMsg, '#f23645');
-        } else {
-          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
-          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
-        }
-      }
-    } catch (err) {
-      _setStatus('🐙 GitHub: error', '#f23645');
-      _toast('GitHub Error: ' + err.message, '#f23645');
-    }
-  }
-
-  function reset() {
-    if (confirm("Reset GitHub Token and Gist ID?")) {
-      localStorage.removeItem(TOKEN_KEY);
-      localStorage.removeItem(GIST_ID_KEY);
-      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
-      _toast('GitHub settings reset. Tap again to enter new token.');
-    }
-  }
-
-  async function pull(after) {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (!token || !gistId) { if (after) after(false, false); return; }
-
-    _setStatus('🐙 GitHub: restoring...', '#f0b429');
-    const headers = {
-      'Authorization': `token ${token}`,
-      'Accept': 'application/vnd.github.v3+json'
-    };
-
-    try {
-      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
-      const json = await resp.json();
-
-      if (resp.ok && json.files[GIST_NAME]) {
-        const content = JSON.parse(json.files[GIST_NAME].content);
-        const changed = _apply(content.data);
-        if (after) after(true, changed);
-      } else {
-        if (after) after(false, false);
-      }
-    } catch (err) {
-      if (after) after(false, false);
-    }
-  }
-
-  function init() {
-    const token = localStorage.getItem(TOKEN_KEY);
-    const gistId = localStorage.getItem(GIST_ID_KEY);
-    if (token && gistId) {
-      // Check if we just restored to avoid infinite loop
-      if (sessionStorage.getItem('gh_just_restored') === '1') {
-        sessionStorage.removeItem('gh_just_restored');
-        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
-        _toast('✓ GitHub Restore completed');
-        return;
-      }
-
-      _setStatus('🐙 GitHub: checking...', '#f0b429');
-      pull((found, changed) => {
-        if (found && changed) {
-          sessionStorage.setItem('gh_just_restored', '1');
-          _toast('✓ GitHub Restore completed');
-          setTimeout(() => location.reload(), 800);
-        } else if (found) {
-          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
-        } else {
-          _setStatus('🐙 GitHub: connected', '#787b86');
-        }
-      });
-    }
-  }
-
-  return { push, pull, init, reset };
-})();
-
-// Auto-init GitHub
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => GH.init());
-} else {
-  GH.init();
-}
 
 const SS = (function () {
   function _setStatus(txt, color) {
@@ -13567,20 +12554,17 @@ const SS = (function () {
   return { init, push, download, restoreFromFile };
 })();
 
-// Save Layout / New Layout pe server-side save bhi ho jaye (GD wale hook ke saath)
+// Save Layout / New Layout pe server-side save bhi ho jaye
 (function () {
   const _origSave2 = window.saveToActiveLayout;
   window.saveToActiveLayout = function () {
     if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
-    // Cloud sync bhi karo (agar enabled ho)
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
   const _origNew2 = window.newLayout;
   window.newLayout = function () {
     if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
-    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
 })();
 
@@ -13588,89 +12572,6 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => SS.init());
 } else {
   SS.init();
-}
-
-// Auto-save toggle
-function gdAutoSaveToggle() {
-  const cur = localStorage.getItem('gdAutoSave') === '1';
-  const next = !cur;
-  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
-  _updateAutoSaveUI();
-  if (next && _gdEnabled) {
-    // Turant ek push karo
-    try { GD.pushNow(); } catch(_) {}
-  }
-}
-function _updateAutoSaveUI() {
-  const btn = document.getElementById('gd-autosave-btn');
-  if (!btn) return;
-  const on = localStorage.getItem('gdAutoSave') === '1';
-  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
-  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
-  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
-  btn.style.color         = on ? '#26a69a' : '#787b86';
-}
-let _gdEnabled = (() => {
-  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
-})();
-
-function gdToggle() {
-  _gdEnabled = !_gdEnabled;
-  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
-  _updateGdToggleUI();
-  if (_gdEnabled) {
-    // _booted flag reset karo taaki GD dobara connect kar sake
-    try { GD._resetBoot(); } catch(_) {}
-    GD.init();
-  } else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    const b = document.getElementById('gd-btn');
-    if (b) b.style.display = 'none';
-    const mr = document.getElementById('gd-manual-row');
-    if (mr) mr.style.display = 'none';
-  }
-}
-function _updateGdToggleUI() {
-  const tog = document.getElementById('gd-toggle');
-  if (!tog) return;
-  tog.textContent = _gdEnabled ? '🟢' : '⚫';
-  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
-}
-
-// Hook GD save with toggle check
-(function () {
-  const _origSave = window.saveToActiveLayout;
-  window.saveToActiveLayout = function () {
-    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-  const _origNew = window.newLayout;
-  window.newLayout = function () {
-    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
-    // GD push is now done in the SS hook above (with toggle check)
-  };
-})();
-
-// Start cloud sync once DOM is ready (only if enabled)
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    _updateGdToggleUI();
-    _updateAutoSaveUI();
-    if (_gdEnabled) GD.init();
-    else {
-      const s = document.getElementById('gd-status');
-      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-    }
-  });
-} else {
-  _updateGdToggleUI();
-  _updateAutoSaveUI();
-  if (_gdEnabled) GD.init();
-  else {
-    const s = document.getElementById('gd-status');
-    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
