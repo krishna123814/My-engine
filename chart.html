@@ -10239,9 +10239,14 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   // TimeScale range pehle save karo — agar caller ne pehle se save karke bheja hai
   // toh woh use karo (is case mein chart clear ho chuka tha toh internal get null deta).
   // Agar nahi bheja toh ab try karo.
+  // NOTE: TIME-based range use karte hain (getVisibleRange), logical/index-based
+  // NAHI — kyunki SR lines ke synthetic startTime/endTime points shared time-axis
+  // mein NAYE indices insert kar dete hain, jo purane saved logical-index numbers
+  // ko galat bana dete hain (unka "matlab" shift ho jaata hai). Time-values kabhi
+  // shift nahi hote, isliye time-based restore is insertion se immune rehta hai.
   let _savedRange = _preRange || null;
   if (!_savedRange) {
-    try { _savedRange = chartObj.timeScale().getVisibleLogicalRange(); } catch(_) {}
+    try { _savedRange = chartObj.timeScale().getVisibleRange(); } catch(_) {}
   }
 
   for (const ln of lines) {
@@ -10273,8 +10278,12 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   // is deferred internal recompute ke BAAD chalte hain, isliye final word
   // hamesha humara hi rehta hai).
   function _restoreRange() {
-    if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
-      try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
+    // _savedRange ab {from, to} time-values hai (Time type — number ya
+    // {year,month,day} business-day object), setVisibleLogicalRange ka
+    // index-based {from,to} NAHI. Isliye typeof check hata di — Time
+    // dono form mein aa sakta hai, aur setVisibleRange khud validate karta hai.
+    if (_savedRange && _savedRange.from != null && _savedRange.to != null) {
+      try { chartObj.timeScale().setVisibleRange(_savedRange); } catch(_) {}
     } else {
       try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
     }
@@ -10455,7 +10464,7 @@ function initSwingIndicator() {
   // render/reposition karta hai.
   swingRemoveCanvas();
   let _mainPreRange = null;
-  try { _mainPreRange = chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
+  try { _mainPreRange = chart.timeScale().getVisibleRange(); } catch(_) {}
   _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
   _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange);
 }
@@ -10466,9 +10475,9 @@ function buildCellSwing(idx) {
   if (!c || !c.chart || !c.series || !el) return;
 
   // Range PEHLE save karo — clear karne se pehle, warna chart khali
-  // hone par getVisibleLogicalRange() null deta hai aur scrollToRealTime() fire hota hai
+  // hone par getVisibleRange() null deta hai aur scrollToRealTime() fire hota hai
   let _preRange = null;
-  try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
+  try { _preRange = c.chart.timeScale().getVisibleRange(); } catch(_) {}
 
   // Remove old canvas for this cell (BTC path)
   if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} }
@@ -10619,9 +10628,11 @@ function _sv2ApplyCellSR(cellIdx, lines) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
-    // Range pehle save karo taaki auto-scroll na ho
+    // Range pehle save karo taaki auto-scroll na ho (TIME-based, index-based NAHI —
+    // SR lines ke synthetic time-points shared axis mein naye indices insert karte
+    // hain jo logical-range restore ko replay ke baad galat position par le jaate the)
     let _preRange = null;
-    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
+    try { _preRange = c.chart.timeScale().getVisibleRange(); } catch(_) {}
     _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
   } catch(_) {}
 }
