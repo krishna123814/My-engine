@@ -3940,7 +3940,34 @@ function _buildStack2CellChart(idx) {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
         if (!slice.length) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          // FIX: Date range active hone par scrollToRealTime() blank/future area mein
+          // jump kar deta tha (overnight gap ka dusra reason). Ab last historical bar
+          // tak scroll karo taaki chart seedha uspe land kare jab replay start ho.
+          const _rngNow = window._SV2_DATE_RANGE;
+          if (_rngNow && typeof _rngNow.from === 'number') {
+            try {
+              // Last visible (non-blank) bar dhundo aur wahan scroll karo
+              const _allD = c.sv2DisplayData;
+              if (Array.isArray(_allD)) {
+                let _lastHistBar = null;
+                for (let _di = _allD.length - 1; _di >= 0; _di--) {
+                  if (_allD[_di].time < _rngNow.from) { _lastHistBar = _allD[_di]; break; }
+                }
+                if (_lastHistBar) {
+                  c.chart.timeScale().setVisibleRange({
+                    from: _lastHistBar.time - 60 * 300,
+                    to:   _lastHistBar.time + 60 * 20,
+                  });
+                } else {
+                  c.chart.timeScale().scrollToRealTime();
+                }
+              } else {
+                c.chart.timeScale().scrollToRealTime();
+              }
+            } catch(_) {}
+          } else {
+            try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          }
           return;
         }
         try {
@@ -3952,7 +3979,28 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
+        else {
+          const _rngFinal = window._SV2_DATE_RANGE;
+          if (_rngFinal && typeof _rngFinal.from === 'number') {
+            try {
+              const _allD2 = c.sv2DisplayData;
+              let _lastHist2 = null;
+              if (Array.isArray(_allD2)) {
+                for (let _di2 = _allD2.length - 1; _di2 >= 0; _di2--) {
+                  if (_allD2[_di2].time < _rngFinal.from) { _lastHist2 = _allD2[_di2]; break; }
+                }
+              }
+              if (_lastHist2) {
+                c.chart.timeScale().setVisibleRange({
+                  from: _lastHist2.time - 60 * 300,
+                  to:   _lastHist2.time + 60 * 20,
+                });
+              } else { c.chart.timeScale().scrollToRealTime(); }
+            } catch(_) { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
+          } else {
+            try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          }
+        }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -9979,7 +10027,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange) {
+function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10007,8 +10055,16 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      let endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
-      if (endT > _SR_MAX_TIME) endT = _SR_MAX_TIME; // clamp — line stops here, same as before otherwise
+      // FIX: isInfinite line ka endT clamp karo last visible bar tak.
+      // Pehle: startTime + periodSec*100 → bahut dur future mein jaata tha
+      // → LWC timescale mein phantom ticks (3:35pm, 3:50pm) insert ho jaate the.
+      // Ab: lastDataTime + periodSec tak (ek candle aage) — line last bar se
+      // thodi si bahar dikhti hai, lekin koi phantom tick nahi banta.
+      let _infEndT = (typeof lastDataTime === 'number' && lastDataTime > 0)
+                     ? (lastDataTime + _periodSec)
+                     : (ln.startTime + _periodSec * 100);
+      let endT = ln.isInfinite ? _infEndT : ln.endTime;
+      if (endT > _SR_MAX_TIME) endT = _SR_MAX_TIME; // hard cap
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -10366,7 +10422,25 @@ function _sv2ApplyCellSR(cellIdx, lines) {
     // Range pehle save karo taaki auto-scroll na ho
     let _preRange = null;
     try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
+    // FIX: isInfinite SR lines ka endT = startTime + periodSec*100 hota tha —
+    // yeh bahut bada future timestamp tha jo LWC timescale mein phantom ticks
+    // insert kar deta tha (3:35pm, 3:50pm jaise unusual times).
+    // lastDataTime pass karo: _bnBuildSRNative endT ko last visible bar tak clamp karega.
+    let _lastDataTime = null;
+    try {
+      const rawD = window._SV2_RAW_DATA && window._SV2_RAW_DATA[cellIdx];
+      const rng = window._SV2_DATE_RANGE;
+      if (Array.isArray(rawD) && rawD.length) {
+        if (rng && typeof rng.from === 'number') {
+          for (let _ri = rawD.length - 1; _ri >= 0; _ri--) {
+            if (rawD[_ri].time < rng.from) { _lastDataTime = rawD[_ri].time; break; }
+          }
+        } else {
+          _lastDataTime = rawD[rawD.length - 1].time;
+        }
+      }
+    } catch(_) {}
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, _lastDataTime);
   } catch(_) {}
 }
 
