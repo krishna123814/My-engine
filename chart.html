@@ -3903,17 +3903,22 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
-      // (not just hidden visually) so that timeScale shows a genuine gap —
-      // this is the empty space future Bar Replay will fill in one at a time.
-      // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Candles AFTER the range are also dropped for now, since
-      // they'd represent "the future" relative to the replay starting point.
+      // Bar-Replay prep: candles INSIDE [from, to) stay on the timeline but
+      // are painted blank (background color) so the timeline stays continuous
+      // — no gap. Bar Replay reveals them one at a time by restoring normal
+      // colors. Candles BEFORE the range stay untouched (S&R indicator needs
+      // that history). Candles AFTER the range are still dropped for now,
+      // since they'd represent "the future" relative to the replay start.
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        dataToShow = data.filter(bar => bar.time < rng.from);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        const _blank = S.bgColor || '#131722';
+        dataToShow = data
+          .filter(bar => bar.time < rng.to)
+          .map(bar => (bar.time >= rng.from)
+            ? { ...bar, color: _blank, wickColor: _blank, borderColor: _blank }
+            : bar);
+        _dbg.push('rangeBlank from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
 
       const CHUNK = 500;
