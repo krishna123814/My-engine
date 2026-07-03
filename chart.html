@@ -9966,6 +9966,11 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
+  // ── Hard cap: no SR line should ever extend past 30-June-2026 ─────────────
+  // (exclusive upper bound = start of 1-July-2026 UTC, same convention as
+  // the date-range picker's `toEpoch = _dateToEpoch(_selEnd) + 86400`).
+  const _SR_MAX_TIME = Date.UTC(2026, 6, 1) / 1000;
+
   // TimeScale range pehle save karo — agar caller ne pehle se save karke bheja hai
   // toh woh use karo (is case mein chart clear ho chuka tha toh internal get null deta).
   // Agar nahi bheja toh ab try karo.
@@ -9976,6 +9981,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
 
   for (const ln of lines) {
     try {
+      if (ln.startTime >= _SR_MAX_TIME) continue; // line would start past the cap — skip entirely
       const s = chartObj.addLineSeries({
         color: ln.color,
         lineWidth: SWING_LINE_WIDTH,
@@ -9985,7 +9991,8 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      let endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      if (endT > _SR_MAX_TIME) endT = _SR_MAX_TIME; // clamp — line stops here, same as before otherwise
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
