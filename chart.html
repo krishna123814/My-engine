@@ -10027,7 +10027,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime) {
+function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime, nextDataTime) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10055,14 +10055,25 @@ function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime) {
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      // FIX: isInfinite line ka endT clamp karo last visible bar tak.
-      // Pehle: startTime + periodSec*100 → bahut dur future mein jaata tha
-      // → LWC timescale mein phantom ticks (3:35pm, 3:50pm) insert ho jaate the.
-      // Ab: lastDataTime + periodSec tak (ek candle aage) — line last bar se
-      // thodi si bahar dikhti hai, lekin koi phantom tick nahi banta.
-      let _infEndT = (typeof lastDataTime === 'number' && lastDataTime > 0)
-                     ? (lastDataTime + _periodSec)
-                     : (ln.startTime + _periodSec * 100);
+      // FIX 3: endT ab REAL agla candle time (nextDataTime) par lagta hai —
+      // lastDataTime + periodSec sirf ek "guess" tha (arithmetic add), jo khud
+      // ek off-grid time bana deta tha (e.g. 3:25pm + 5m = 3:30pm — jab session
+      // 3:25pm par hi khatam ho chuka ho aur agla REAL bar 9:15am agle din ho).
+      // Koi bhi timestamp jo actual candle-grid par nahi hai, LWC timescale mein
+      // ek phantom tick/column insert kar deta hai (3:35pm, 3:50pm, ya beech mein
+      // gap) — chahe wo kitna bhi "chota" guess kyun na ho.
+      // Ab: nextDataTime (raw data ka woh agla REAL bar jo cutoff ke baad aata
+      // hai — chahe wahi din ka ho ya agle trading session ka 9:15am) seedha
+      // pass hota hai, isliye line hamesha exactly do REAL candle-grid points
+      // (last aur next) ke beech hi banti hai — koi arithmetic guess nahi.
+      let _infEndT;
+      if (typeof nextDataTime === 'number' && nextDataTime > 0) {
+        _infEndT = nextDataTime;
+      } else if (typeof lastDataTime === 'number' && lastDataTime > 0) {
+        _infEndT = lastDataTime + _periodSec; // fallback jab raw data mein aage kuch na ho
+      } else {
+        _infEndT = ln.startTime + _periodSec * 100;
+      }
       let endT = ln.isInfinite ? _infEndT : ln.endTime;
       if (endT > _SR_MAX_TIME) endT = _SR_MAX_TIME; // hard cap
       s.setData([
@@ -10437,7 +10448,13 @@ function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
     // aage badhe, SR line ka end-point bhi "abhi tak ki last real candle" tak shift
     // hota rahe (anchor drift na ho). cutoffTime na mile toh purana rng.from fallback,
     // wo bhi na ho toh poore data ka last bar (mode A — no range active).
+    // FIX 3: `_nextDataTime` bhi nikalo — raw (poore, unfiltered) data ka woh
+    // agla REAL bar jo boundary ke turant baad aata hai. Ye chahe usi din ka
+    // ho (e.g. cutoff beech session mein hai) ya agle trading session ka
+    // 9:15am open ho (cutoff session-end 3:25pm par hai) — dono cases mein
+    // ye ek asli candle-grid timestamp hai, arithmetic guess nahi.
     let _lastDataTime = null;
+    let _nextDataTime = null;
     try {
       const rawD = window._SV2_RAW_DATA && window._SV2_RAW_DATA[cellIdx];
       const rng  = window._SV2_DATE_RANGE;
@@ -10447,14 +10464,18 @@ function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
       if (Array.isArray(rawD) && rawD.length) {
         if (typeof _boundary === 'number') {
           for (let _ri = rawD.length - 1; _ri >= 0; _ri--) {
-            if (rawD[_ri].time < _boundary) { _lastDataTime = rawD[_ri].time; break; }
+            if (rawD[_ri].time < _boundary) {
+              _lastDataTime = rawD[_ri].time;
+              if (_ri + 1 < rawD.length) _nextDataTime = rawD[_ri + 1].time;
+              break;
+            }
           }
         } else {
           _lastDataTime = rawD[rawD.length - 1].time;
         }
       }
     } catch(_) {}
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, _lastDataTime);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, _lastDataTime, _nextDataTime);
   } catch(_) {}
 }
 
