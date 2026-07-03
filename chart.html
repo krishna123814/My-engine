@@ -10410,7 +10410,13 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 }
 
 // ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
-function _sv2ApplyCellSR(cellIdx, lines) {
+// cutoffTime: sv2SwingInit se aaya wahi live cutoff (replay step par badhta
+// rehta hai). Ye ab anchor decide karne ke liye bhi use hota hai — pehle
+// hardcoded window._SV2_DATE_RANGE.from use hota tha jo replay shuru hote
+// hi FREEZE ho jaata tha, isliye replay aage badhne par SR line ka anchor
+// purana hi reh jaata tha aur cutoff-boundary wali candle par phantom
+// future timestamp (3:35pm, 3:50pm) + gap ban jaata tha.
+function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
@@ -10426,14 +10432,22 @@ function _sv2ApplyCellSR(cellIdx, lines) {
     // yeh bahut bada future timestamp tha jo LWC timescale mein phantom ticks
     // insert kar deta tha (3:35pm, 3:50pm jaise unusual times).
     // lastDataTime pass karo: _bnBuildSRNative endT ko last visible bar tak clamp karega.
+    // FIX 2: anchor ab `cutoffTime` (live, step-by-step badhta hua) se nikalta hai,
+    // na ki sirf shuruaati window._SV2_DATE_RANGE.from se — taaki replay jaise-jaise
+    // aage badhe, SR line ka end-point bhi "abhi tak ki last real candle" tak shift
+    // hota rahe (anchor drift na ho). cutoffTime na mile toh purana rng.from fallback,
+    // wo bhi na ho toh poore data ka last bar (mode A — no range active).
     let _lastDataTime = null;
     try {
       const rawD = window._SV2_RAW_DATA && window._SV2_RAW_DATA[cellIdx];
-      const rng = window._SV2_DATE_RANGE;
+      const rng  = window._SV2_DATE_RANGE;
+      const _boundary = (typeof cutoffTime === 'number')
+                         ? cutoffTime
+                         : ((rng && typeof rng.from === 'number') ? rng.from : null);
       if (Array.isArray(rawD) && rawD.length) {
-        if (rng && typeof rng.from === 'number') {
+        if (typeof _boundary === 'number') {
           for (let _ri = rawD.length - 1; _ri >= 0; _ri--) {
-            if (rawD[_ri].time < rng.from) { _lastDataTime = rawD[_ri].time; break; }
+            if (rawD[_ri].time < _boundary) { _lastDataTime = rawD[_ri].time; break; }
           }
         } else {
           _lastDataTime = rawD[rawD.length - 1].time;
@@ -10447,6 +10461,8 @@ function _sv2ApplyCellSR(cellIdx, lines) {
 // ── Sab SV2 cells initialize/refresh karo ──────────────────────────────────
 // cutoffTime = null → poora .gz data
 // cutoffTime = number → sirf bar.time < cutoffTime wale candles
+// (yehi cutoffTime ab _sv2ApplyCellSR ko bhi jaata hai, taaki SR anchor
+//  har replay step par is live value ke saath shift ho — see FIX 2 above)
 function sv2SwingInit(cutoffTime) {
   if (!SWING_STATE.visible) return;
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
@@ -10455,7 +10471,7 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines);
+    _sv2ApplyCellSR(i, lines, cutoffTime);
   }
 }
 
