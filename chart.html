@@ -3921,6 +3921,19 @@ function _buildStack2CellChart(idx) {
         _dbg.push('rangeBlank from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
 
+      // ── Bar-Replay support: keep a LIVE reference to the exact array that's
+      // sitting on the chart, plus a time→index map, so Step Replay can patch
+      // a bar ANYWHERE in the middle of the timeline (not just the last bar).
+      // NOTE: series.update() in lightweight-charts v4 can only touch the
+      // LAST bar of the series (or append past it) — since blanked replay
+      // bars sit in the MIDDLE of an already-loaded range, update() silently
+      // throws (swallowed by try/catch) and the candle never reveals, even
+      // though the S&R indicator (unrelated code path) keeps working fine.
+      // Fix: mutate this array in place and re-apply via setData() instead.
+      c.sv2DisplayData = dataToShow;
+      c.sv2TimeIndex = {};
+      for (let _i = 0; _i < dataToShow.length; _i++) c.sv2TimeIndex[dataToShow[_i].time] = _i;
+
       const CHUNK = 500;
       let offset = 0;
       function feedChunk() {
@@ -4785,7 +4798,20 @@ function ss2ApplyAndClose() {
             low:   animL,
             close: animC,
           };
-          try { cell.series.update(animBar); } catch(_) {}
+          // ── Patch the bar in place instead of series.update() ──────────────
+          // series.update() only works on the LAST bar of the series. The bar
+          // we're revealing sits in the MIDDLE of an already-loaded (blanked)
+          // range, so update() would silently throw (swallowed below) and the
+          // candle would never actually appear. Mutating the live display
+          // array + calling setData() works for a bar at any position.
+          if (cell.sv2DisplayData && cell.sv2TimeIndex &&
+              cell.sv2TimeIndex.hasOwnProperty(partial.time)) {
+            var _pos = cell.sv2TimeIndex[partial.time];
+            cell.sv2DisplayData[_pos] = animBar;   // no color fields → default up/down colors
+            try { cell.series.setData(cell.sv2DisplayData); } catch(_) {}
+          } else {
+            try { cell.series.update(animBar); } catch(_) {}
+          }
         }
       }
 
