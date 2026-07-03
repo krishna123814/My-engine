@@ -4668,21 +4668,53 @@ function ss2ApplyAndClose() {
     return null;
   }
 
+  // ── Bucket time — resolved from the cell's OWN server-resampled data ──────
+  // BUG FIX: this used to be recomputed on the client via a formula
+  // (_getBucketTime). For intraday TFs that formula happened to match the
+  // server (main.py _sv2_resample_bn_intraday), but for daily / multi-day
+  // TFs (1D/3D/9D/27D) it did NOT: the server anchors each trading day to
+  // 9:15 IST (3:45 UTC, +13500s) and, for 3D/9D/27D, groups N *trading*
+  // days together (main.py _sv2_resample_bn_daily) — neither of which a
+  // simple Math.floor(t/86400)*86400 midnight formula can reproduce, and
+  // BTC multi-day cells had the same mismatch (missing the ×N in the
+  // divisor). Result: series.update() during Bar Replay wrote to a
+  // time-key that didn't match the already-plotted (blanked) bar, so it
+  // silently inserted a stray point instead of un-hiding the real candle
+  // — the candle stayed invisible even though the S&R indicator (which
+  // doesn't depend on this bucket math) kept updating fine.
+  //
+  // Fix: rawData (window._SV2_RAW_DATA[idx]) IS the correctly-resampled
+  // series already sitting on the chart (just painted blank for bars
+  // inside the replay range). So look up which of ITS bars the current
+  // base candle falls into — that time is guaranteed to match the
+  // blanked bar's key exactly, so update() replaces it in place.
+  function _findBucketTime(rawData, tSec) {
+    if (!Array.isArray(rawData) || !rawData.length) return null;
+    var lo = 0, hi = rawData.length - 1, ans = null;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (rawData[mid].time <= tSec) { ans = rawData[mid].time; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return ans;
+  }
+
   // ── Compute cell-level partial candle for given replayed base candles ──────
   // baseBars: array of base-TF candles seen so far (up to current step)
-  // cellTFMin: cell's TF in minutes
-  // isBN: true = NSE session-aware buckets, false = UTC buckets
-  function _computePartialCandle(baseBars, cellTFMin, isBN) {
+  // rawData:  cell's own full (pre-blank) resampled data — source of truth
+  //           for bucket boundaries, see _findBucketTime above.
+  function _computePartialCandle(baseBars, rawData) {
     if (!baseBars || !baseBars.length) return null;
     // Find the bucket that the LAST base bar belongs to
     var last = baseBars[baseBars.length - 1];
-    var bucketTime = _getBucketTime(last.time, cellTFMin, isBN);
+    var bucketTime = _findBucketTime(rawData, last.time);
+    if (bucketTime === null) return null;
 
     // Accumulate all base bars in the same bucket
     var o = null, h = -Infinity, l = Infinity, c2 = null;
     for (var i = 0; i < baseBars.length; i++) {
       var bar = baseBars[i];
-      var bt  = _getBucketTime(bar.time, cellTFMin, isBN);
+      var bt  = _findBucketTime(rawData, bar.time);
       if (bt !== bucketTime) continue;
       if (o === null) o = bar.open;
       if (bar.high > h) h = bar.high;
@@ -4691,30 +4723,6 @@ function ss2ApplyAndClose() {
     }
     if (o === null) return null;
     return { time: bucketTime, open: o, high: h, low: l, close: c2 };
-  }
-
-  // ── Session-aware bucket time for NSE intraday ────────────────────────────
-  function _getBucketTime(tSec, tfMin, isBN) {
-    if (tfMin >= 1440) {
-      // Daily: UTC midnight
-      return Math.floor(tSec / 86400) * 86400;
-    }
-    if (isBN && tfMin < 1440) {
-      // NSE: 9:15 IST anchor
-      var IST = 5.5 * 3600;
-      var istSec   = tSec + IST;
-      var dayStart = istSec - (istSec % 86400);
-      var minOfDay = Math.floor((istSec % 86400) / 60);
-      var SESSION_START = 9 * 60 + 15;   // 555
-      var minSinceOpen  = minOfDay - SESSION_START;
-      if (minSinceOpen < 0) minSinceOpen = 0;
-      var bucketIdx     = Math.floor(minSinceOpen / tfMin);
-      var bucketStartMin = SESSION_START + bucketIdx * tfMin;
-      return (dayStart - IST) + bucketStartMin * 60;
-    }
-    // UTC anchor (BTC / crypto)
-    var sec = tfMin * 60;
-    return Math.floor(tSec / sec) * sec;
   }
 
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
@@ -4741,16 +4749,16 @@ function ss2ApplyAndClose() {
           var cell = STACK2_CELLS[ci];
           if (!cell || !cell.chart || !cell.series) continue;
 
-          // Cell TF in minutes — resolved from the real label, NOT cell.tf
-          // (cell.tf is always hardcoded 1440 — see _getCellTFMin comment)
-          var cellTFMin = _getCellTFMin(ci);
+          // Cell's own resampled data — source of truth for bucket
+          // boundaries (see _findBucketTime comment above) and also used
+          // below to find the pre-range "existing" bar for this bucket.
+          var rawData = _getCellRawData(ci);
 
           // baseBars for this cell = replayed bars that belong to same bucket
-          var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
+          var partial = _computePartialCandle(allReplayed, rawData);
           if (!partial) continue;
 
           // Get cell's existing last bar from raw data (before range)
-          var rawData = _getCellRawData(ci);
           var existingBar = null;
           if (Array.isArray(rawData)) {
             for (var ri = rawData.length - 1; ri >= 0; ri--) {
