@@ -9759,7 +9759,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, forceLastBarForming) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -9789,6 +9789,13 @@ function swingCompute(bars, tfMin) {
   // Agar current IST time uss window ke andar hai → still forming → exclude.
   const _isLastBarForming = (() => {
     if (!raw.length || raw.length < 2) return false;
+    // Cutoff-truncated dataset (replay / historical date-range mode):
+    // we don't yet have the REAL next candle for whatever bar sits right
+    // at the cutoff boundary — for ANY timeframe — so always treat it as
+    // still-forming/unconfirmed. It'll be judged properly once the actual
+    // next candle is revealed by a later replay step (cutoff grows, that
+    // bar is no longer last, and it gets validated against real data).
+    if (forceLastBarForming) return true;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
     const nDays = tfMin > 1440 ? Math.round(tfMin / 1440) : 0;
@@ -10306,7 +10313,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      swingCompute(dataCur, cellTFMin, typeof cutoffTime === 'number')
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10320,7 +10327,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, typeof cutoffTime === 'number')
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
