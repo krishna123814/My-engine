@@ -9955,9 +9955,11 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   // TimeScale range wapas restore karo
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
     try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
-  } else {
-    try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
+  // else: kuch mat karo — pehle yahan forced scrollToRealTime() tha jo
+  // Bar Replay ke beech (jab cell abhi layout na hua ho aur getVisibleLogicalRange
+  // null de) chart ko reset karke real-time/right edge par jump kara deta tha,
+  // har replay step par. View jahan hai wahin chhod do.
 
   return created;
 }
