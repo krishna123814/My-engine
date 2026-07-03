@@ -1546,19 +1546,48 @@ def _build_chart_html(
     html = html.replace("__BN_45M__",      _to_lwc(bn_45m))
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
 
-    # ── Stack View 2: ab yahan .gz se koi data load/inject NAHI hota ────────
-    # Pehle yahan GitHub se .gz files fetch karke pura history resample+inject
-    # hota tha (page open hote hi), jisse start slow ho jata tha. Ab Stack
-    # View 2 khaali (empty charts) khulta hai — "Go to date" FAB abhi bhi
-    # turant dikhta hai (uska show/hide sirf _stack2Active pe depend karta
-    # hai, gz data pe nahi).
-    for _ph in ["__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
-                "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
-                "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
-                "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
-        html = html.replace(_ph, "[]")
+    # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
+    _sv2_err_msg = ""
+    try:
+        _sv2 = _build_sv2_data()
+        _bn  = _sv2["bn"]
+        _btc = _sv2["btc"]
+        # Debug info: paths + counts inject karo
+        _sv2_debug_info = {
+            "bn_path":  _SV2_CACHE.get("bn_path", "?"),
+            "btc_path": _SV2_CACHE.get("btc_path", "?"),
+            "bn_err":   _SV2_CACHE.get("bn_err", ""),
+            "btc_err":  _SV2_CACHE.get("btc_err", ""),
+            "bn_counts": {k: len(v) for k, v in _bn.items()},
+            "btc_counts": {k: len(v) for k, v in _btc.items()},
+        }
+        _sv2_err_msg = json.dumps(_sv2_debug_info)
+        html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
+        html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
+        html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
+        html = html.replace("__SV2_BN_135M__", _sv2_to_js(_bn["135m"]))
+        html = html.replace("__SV2_BN_1D__",   _sv2_to_js(_bn["1D"]))
+        html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
+        html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
+        html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
+        html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
+        html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
+        html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
+        html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))
+        html = html.replace("__SV2_BTC_9D__",   _sv2_to_js(_btc["9D"]))
+        html = html.replace("__SV2_BTC_27D__",  _sv2_to_js(_btc["27D"]))
+    except Exception as _sv2_ex:
+        _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
+        # Fallback: empty arrays agar gz file missing/corrupt ho
+        for _ph in ["__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
+                    "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
+                    "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
+                    "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
+            html = html.replace(_ph, "[]")
+    # Inject debug info as JS variable — visible via window.__SV2_DEBUG in browser console
+    _sv2_safe = _sv2_err_msg.replace("</", "<\/")
     html = html.replace("</body>",
-        "<script>window.__SV2_DEBUG='SV2 auto gz-load disabled';</script>\n</body>", 1)
+        f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};</script>\n</body>", 1)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 

@@ -795,18 +795,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#555;
   cursor:not-allowed;
 }
-#sv2-step-btn.playing{
-  opacity:1;
-  border-color:#f23645;
-  color:#f23645;
-  cursor:pointer;
-}
-#sv2-step-btn.playing.animating{
-  opacity:.75;
-  border-color:#f23645;
-  color:#f23645;
-  cursor:pointer;
-}
 #sv2-step-btn.done{
   opacity:.3;
   border-color:#555;
@@ -2199,7 +2187,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-drng-fab" title="Go to date">📅</button>
 
 <!-- ═══ SV2 STEP / REPLAY BUTTON (FAB ke neeche, sirf active-range mein) ══ -->
-<button id="sv2-step-btn" title="Play: Auto Replay" onclick="_sv2TogglePlay()">▶</button>
+<button id="sv2-step-btn" title="Step: Next Candle Replay" onclick="_sv2StepForward()">⏭</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -2225,7 +2213,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div id="sv2-cal-grid"></div>
 
     <!-- Hint -->
-    <div id="sv2-drng-sp-hint">🎯 Date chuno aur "Go to Date" dabao — us date se aage ke saare candles hide ho jayenge, phir ▶ Play dabao — chart apne aap candle-by-candle continue chalega (jaise TradingView Bar Replay). Beech mein rokne ke liye ⏸ dabao.</div>
+    <div id="sv2-drng-sp-hint">🎯 Date chuno aur "Go to Date" dabao — us date se aage ke saare candles hide ho jayenge, phir ⏭ Step se ek-ek candle replay karo (jaise TradingView Bar Replay)</div>
 
     <!-- Apply -->
     <button id="sv2-drng-start-only" onclick="_sv2DrngApplyStartOnly()" disabled>🎯 Go to Date</button>
@@ -4114,40 +4102,6 @@ function _buildStack2CellChart(idx) {
                         : rng.from;
         dataToShow = data.filter(bar => bar.time < cutoff);
         _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' cutoff='+cutoff+' kept='+dataToShow.length+'/'+data.length);
-
-        // ── Invisible real-time anchors for the hidden (future/replay) gap ──
-        // SR indicator's native far-future line-series drops a synthetic
-        // data-point deep into this now-empty gap. Because the chart has NO
-        // other data in that gap, it doesn't know the real trading-time
-        // spacing there and invents evenly-spaced fake times (e.g. 3:35pm,
-        // 3:50pm right after the 3:30pm market close) to fill it.
-        // Fix: seed the gap with a fully invisible line-series whose points
-        // sit at the REAL future trading-times (pulled straight from the
-        // unfiltered `data` array — these are the exact bars Bar Replay will
-        // reveal one-by-one later). This gives the chart correct time
-        // anchors to snap to, so it never has to invent fake ones.
-        // Purely cosmetic/time-anchoring: transparent color, excluded from
-        // autoscale, no price-line, no legend, no crosshair marker — it does
-        // not touch the SR indicator or candle data in any way.
-        try {
-          const futureBars = data.filter(bar => bar.time >= cutoff).slice(0, 300);
-          if (futureBars.length && dataToShow.length && c.chart) {
-            const anchorVal = dataToShow[dataToShow.length - 1].close;
-            const anchorSeries = c.chart.addLineSeries({
-              color: 'rgba(0,0,0,0)',
-              lineWidth: 1,
-              lastValueVisible: false,
-              priceLineVisible: false,
-              crosshairMarkerVisible: false,
-              autoscaleInfoProvider: () => null,
-            });
-            anchorSeries.setData(futureBars.map(b => ({ time: b.time, value: anchorVal })));
-            c._sv2AnchorSeries = anchorSeries;
-            _dbg.push('anchorSeries pts='+futureBars.length);
-          }
-        } catch(e) {
-          _dbg.push('anchorSeries ERR: '+e.message);
-        }
       }
 
       const CHUNK = 500;
@@ -4738,7 +4692,7 @@ function ss2ApplyAndClose() {
 // ────────────────────────────────────────────────────────────────────────────
 // Sirf tab dikhta hai jab _SV2_DATE_RANGE active ho (date range select hua ho)
 // Ek tap = 1 candle forward replay (BN=5m, BTC=160m)
-// Animation: 30 second mein gradually build (open→H/L extend→close move)
+// Animation: 1 second mein gradually build (open→H/L extend→close move)
 // Sabhi STACK2_CELLS simultaneously update honge (Option A: partial candle)
 // Next tap block jab tak animation complete na ho
 // Range end (_rng.to) pe button disabled
@@ -4751,10 +4705,7 @@ function ss2ApplyAndClose() {
   var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
   var _animating      = false;  // tap blocked jab true
   var _animRaf        = null;   // requestAnimationFrame handle
-  var _ANIM_MS        = 30000;   // 30 second animation
-  var _isPlaying      = false;  // auto-play (continuous replay) ON/OFF
-  var _playTimer      = null;   // setTimeout handle between auto-play steps
-  var _PLAY_GAP_MS    = 250;    // chhota gap agla candle shuru hone se pehle
+  var _ANIM_MS        = 1000;   // 1 second animation
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -4786,7 +4737,6 @@ function ss2ApplyAndClose() {
       _replayCandles = null;
       _animating     = false;
       if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-      _sv2StopPlay();
     }
   }
 
@@ -5055,11 +5005,6 @@ function ss2ApplyAndClose() {
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
           _stepBtn.classList.add('done');
-          _sv2StopPlay();
-        } else if (_isPlaying) {
-          // Auto-play ON hai — thoda gap dekar agli candle apne aap shuru karo
-          if (_playTimer) clearTimeout(_playTimer);
-          _playTimer = setTimeout(_sv2PlayNext, _PLAY_GAP_MS);
         }
       }
     }
@@ -5082,7 +5027,6 @@ function ss2ApplyAndClose() {
     if (!_replayCandles.length) return;
     if (_replayIdx >= _replayCandles.length) {
       _stepBtn.classList.add('done');
-      _sv2StopPlay();
       return;
     }
 
@@ -5099,43 +5043,6 @@ function ss2ApplyAndClose() {
     _animateStep(stepBar);
   };
 
-  // ── Auto-play icon/state helpers ────────────────────────────────────────
-  function _sv2SetPlayIcon() {
-    if (!_stepBtn) return;
-    _stepBtn.innerHTML = _isPlaying ? '⏸' : '▶';
-    _stepBtn.title      = _isPlaying ? 'Pause Replay' : 'Play: Auto Replay';
-  }
-
-  // ── Continuous play loop: har candle animation complete hote hi
-  // agla candle apne aap chal jaata hai — jab tak done na ho ya pause na ho ──
-  function _sv2PlayNext() {
-    if (!_isPlaying) return;
-    if (!_stepBtn || _stepBtn.classList.contains('done')) { _sv2StopPlay(); return; }
-    window._sv2StepForward();
-  }
-
-  window._sv2StopPlay = function() {
-    _isPlaying = false;
-    if (_playTimer) { clearTimeout(_playTimer); _playTimer = null; }
-    if (_stepBtn) _stepBtn.classList.remove('playing');
-    _sv2SetPlayIcon();
-  };
-
-  window._sv2TogglePlay = function() {
-    if (!_stepBtn) return;
-    if (_stepBtn.classList.contains('done')) return; // replay complete, kuch mat karo
-    if (_isPlaying) {
-      // Pause — jo candle abhi animate ho rahi hai wo poori ho jayegi,
-      // bas agli candle apne aap shuru nahi hogi
-      _sv2StopPlay();
-      return;
-    }
-    _isPlaying = true;
-    _stepBtn.classList.add('playing');
-    _sv2SetPlayIcon();
-    if (!_animating) window._sv2StepForward();  // agar pehle se animating nahi hai to turant shuru karo
-  };
-
   // ── React to FAB position changes (drag) — keep step btn aligned ──────────
   function _onFabMove() {
     if (_stepBtn && _stepBtn.classList.contains('visible')) _syncStepBtnPos();
@@ -5147,7 +5054,6 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    _sv2StopPlay();
     if (_stepBtn) {
       _stepBtn.classList.remove('done', 'animating');
     }
@@ -5160,7 +5066,6 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    _sv2StopPlay();
     _syncStepBtn();
   });
 
@@ -5177,7 +5082,6 @@ function ss2ApplyAndClose() {
   function _stepInit() {
     _stepBtn = document.getElementById('sv2-step-btn');
     if (!_stepBtn) return;
-    _sv2SetPlayIcon();
     _syncStepBtn();
     _watchFabPos();
   }
