@@ -10251,7 +10251,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange) {
+function _bnBuildSRNative(chartObj, lines, _preRange, cutoffTime) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10262,6 +10262,15 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   if (!_savedRange) {
     try { _savedRange = chartObj.timeScale().getVisibleLogicalRange(); } catch(_) {}
   }
+
+  // Bar-Replay guard: agar caller ne cutoffTime diya hai (replay active — data
+  // ka last REAL candle isi time tak hai), to infinite swing lines ka fake
+  // "+100 candle future" endT us cutoff se aage nahi jaana chahiye. Warna
+  // time-axis un fake future timestamps ko bhi tick-range mein le leta hai
+  // aur cutoff ke baad bhi (jaise market-close 3:30pm ke baad) time-labels
+  // dikhne lagte hain jahan koi real candle exist hi nahi karta.
+  // Live mode (cutoffTime not passed) mein behavior 100% pehle jaisa hi hai.
+  const _hasCutoff = typeof cutoffTime === 'number';
 
   for (const ln of lines) {
     try {
@@ -10274,7 +10283,12 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      let endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      if (_hasCutoff && endT > cutoffTime) {
+        // Cap karo — lekin startTime se strictly aage rakho warna
+        // setData() do same/reversed-time points ke saath fail ho sakta hai.
+        endT = Math.max(cutoffTime, ln.startTime + 1);
+      }
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -10611,7 +10625,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 }
 
 // ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
-function _sv2ApplyCellSR(cellIdx, lines) {
+function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
@@ -10623,7 +10637,7 @@ function _sv2ApplyCellSR(cellIdx, lines) {
     // Range pehle save karo taaki auto-scroll na ho
     let _preRange = null;
     try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, cutoffTime);
   } catch(_) {}
 }
 
@@ -10638,7 +10652,7 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines);
+    _sv2ApplyCellSR(i, lines, cutoffTime);
   }
 }
 
