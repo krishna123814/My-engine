@@ -4485,20 +4485,24 @@ function ss2ApplyAndClose() {
 
   function _sv2DrngApply() {
     if (!_selStart || !_selEnd || _selEnd < _selStart) return;
-    // Cutoff = 9:20 AM IST of the selected start date (not midnight).
-    // 9:20 IST = 3:50 UTC → UTC-midnight + 3h50m (13800s). This keeps the
-    // first 5m candle (9:15–9:20) as historical/visible, and the replay
-    // boundary lands exactly on a real candle time instead of midnight —
-    // which is what caused the earlier stray 3:45/3:50 leaked candles.
-    var IST_920_OFFSET_SEC = 3 * 3600 + 50 * 60; // 13800
-    var fromEpoch = _dateToEpoch(_selStart) + IST_920_OFFSET_SEC;
-    // End date should cover the FULL day (up to but not including next day's
-    // start) — otherwise candles on the end date itself wouldn't get hidden,
-    // since their bar.time would be >= toEpoch (start of that day) and our
-    // filter only keeps bar.time < rng.from. We add +86400 here so the
-    // comparison logic in _buildStack2CellChart (bar.time < rng.from) can
-    // stay simple, and treat "to" as exclusive-end = start of day AFTER end date.
-    var toEpoch = _dateToEpoch(_selEnd) + 86400;
+    // FIX: fromEpoch = 9:15 IST of the selected start date.
+    // .gz data mein 5m candles ka pehla bar 9:15 IST par hota hai.
+    // Real UTC = IST - 5:30 → 9:15 IST = 3:45 UTC = UTC-midnight + 13500s.
+    // Pehle yahan 13800 (9:20 IST) tha — isse 9:15 candle historical mein
+    // dikhti thi lekin replay range mein nahi aati thi, jisse replay start
+    // par overnight gap ban jata tha (9:15 bar blank nahi hoti thi).
+    // 9:15 IST = 3:45 UTC → UTC-midnight + 3h45m = 13500s
+    var IST_915_OFFSET_SEC = 3 * 3600 + 45 * 60; // 13500
+    var fromEpoch = _dateToEpoch(_selStart) + IST_915_OFFSET_SEC;
+    // FIX: toEpoch = 15:30 IST of selEnd day (end of NSE trading session).
+    // .gz data mein candles ka last bar 15:25 IST hota hai (real UTC = 9:55 UTC).
+    // Pehle toEpoch = next day UTC midnight tha — isse agle din ke candles
+    // replay range mein aa jate the, jo 3:35, 3:50pm jaise unusual times
+    // mein dikhte the. Sirf selEnd din ki 15:30 IST tak include karo.
+    // 15:30 IST = 10:00 UTC → UTC-midnight + 10h = 36000s
+    // +1 extra second taaki 15:30 ka bar bhi inclusive ho (exclusive upper bound)
+    var IST_1530_OFFSET_SEC = 10 * 3600 + 1; // 36001 (15:30:01 UTC → exclusive of 15:30)
+    var toEpoch = _dateToEpoch(_selEnd) + IST_1530_OFFSET_SEC;
     window._SV2_DATE_RANGE = {
       from:    fromEpoch,
       to:      toEpoch,
@@ -9980,8 +9984,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   if (!chartObj || !lines || !lines.length) return created;
 
   // ── Hard cap: no SR line should ever extend past 30-June-2026 ─────────────
-  // (exclusive upper bound = start of 1-July-2026 UTC, same convention as
-  // the date-range picker's `toEpoch = _dateToEpoch(_selEnd) + 86400`).
+  // (exclusive upper bound = start of 1-July-2026 UTC)
   const _SR_MAX_TIME = Date.UTC(2026, 6, 1) / 1000;
 
   // TimeScale range pehle save karo — agar caller ne pehle se save karke bheja hai
