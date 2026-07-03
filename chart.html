@@ -4823,7 +4823,10 @@ function ss2ApplyAndClose() {
         _stepBtn.classList.remove('animating');
 
         // SV2 Swing S&R: closed candle ke baad SR update karo
-        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
+        // Pass the base candle's CLOSE time (open + its own duration), not
+        // its open time — see sv2SwingOnStep / _sv2DataForTF for why.
+        var _baseDurSec = isBN ? 5 * 60 : 160 * 60;
+        try { sv2SwingOnStep(stepBar.time + _baseDurSec); } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
@@ -10246,9 +10249,16 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    return (typeof cutoffTime === 'number')
-      ? data.filter(b => b.time < cutoffTime)
-      : data;
+    if (typeof cutoffTime !== 'number') return data;
+    // FIX: previously filtered on bar OPEN time (`b.time < cutoffTime`).
+    // That wrongly treated a higher-TF bar (e.g. 15m) as "closed" the
+    // moment its FIRST lower-TF child (e.g. 5m) closed — since a 15m
+    // bar's open time equals its first 5m child's open time, and cutoff
+    // was just that child's open+1. Now we require the bar's own CLOSE
+    // time (open + its full duration) to have passed cutoffTime, so a
+    // 15m bar only counts once all its 5m children have actually closed.
+    const durSec = (_parseTFMin(tfLabel) || 0) * 60;
+    return data.filter(b => (b.time + durSec) <= cutoffTime);
   } catch(_) { return []; }
 }
 
@@ -10361,10 +10371,13 @@ function sv2SwingRefresh() {
 }
 
 // ── Replay step: jab ek candle fully close ho tab SR update karo ─────────────
-function sv2SwingOnStep(closedCandleTime) {
+// nowTime = actual elapsed replay time = CLOSE time of the just-replayed base
+// candle (open + its full duration) — NOT its open time. _sv2DataForTF now
+// compares each TF's own close time against this, so a higher-TF bar (15m,
+// 45m, ...) is only included once it has genuinely finished forming.
+function sv2SwingOnStep(nowTime) {
   if (!SWING_STATE.visible) return;
-  // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
-  sv2SwingInit(closedCandleTime + 1);
+  sv2SwingInit(nowTime);
 }
 
 // ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
