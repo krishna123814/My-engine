@@ -1268,6 +1268,48 @@ select.s-select{
   color:#9598a1;font-size:12px;cursor:pointer;
 }
 
+/* ── Stack View 1: Simple Bar Replay ("Go to Date") ──────────────────── */
+#stack1-replay-btn{
+  height:18px;padding:0 7px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+  display:none;
+}
+#stack1-replay-btn.visible{display:inline-block}
+#stack1-replay-btn:hover{border-color:#f0b429;color:#f0b429}
+#stack1-replay-btn.active-replay{border-color:#26a69a;color:#26a69a}
+#stack1-replay-panel{
+  display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
+  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
+  padding:12px 14px;z-index:9999;box-shadow:0 8px 32px #0009;
+  min-width:220px;
+}
+#stack1-replay-panel.open{display:block}
+#stack1-replay-panel label{font-size:11px;color:#787b86;display:block;margin-bottom:4px}
+#stack1-replay-inp{
+  background:#131722;border:1px solid #363c4e;border-radius:4px;
+  color:#d1d4dc;font-size:12px;padding:4px 8px;width:100%;
+  outline:none;margin-bottom:8px;
+}
+#stack1-replay-inp:focus{border-color:#2962ff}
+#stack1-step-btn{
+  display:none;position:fixed;z-index:9999;
+  bottom:70px;right:16px;
+  width:34px;height:34px;border-radius:50%;
+  background:#1e222d;border:1px solid #363c4e;color:#d1d4dc;
+  font-size:14px;cursor:pointer;box-shadow:0 4px 14px #0007;
+  align-items:center;justify-content:center;
+}
+#stack1-step-btn.visible{display:flex}
+#stack1-exit-btn{
+  display:none;position:fixed;z-index:9999;
+  bottom:78px;right:58px;
+  height:24px;padding:0 10px;border-radius:12px;
+  background:#2a2e39;border:1px solid #ef5350;color:#ef5350;
+  font-size:11px;cursor:pointer;box-shadow:0 4px 14px #0007;
+}
+#stack1-exit-btn.visible{display:block}
+
 /* ── Fix 7: Timer setting row ──────────────────────────────────── */
 /* (reuses existing toggle styles) */
 
@@ -2159,9 +2201,22 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
+  <button id="stack1-replay-btn" onclick="toggleStack1ReplayPanel()" title="Bar Replay: go to a date">🔁 Replay</button>
   <button id="stack2-up-btn" onclick="_stack2StepJump(-1)" title="Stack2: Scroll up" style="display:none">▲②</button>
   <button id="stack2-down-btn" onclick="_stack2StepJump(1)" title="Stack2: Scroll down" style="display:none">▼②</button>
 </div>
+
+<!-- ═══ STACK VIEW 1 — SIMPLE BAR REPLAY PANEL ═══════════════════════ -->
+<div id="stack1-replay-panel">
+  <label>Go to Date (Replay start)</label>
+  <input type="datetime-local" id="stack1-replay-inp">
+  <div class="goto-date-btns">
+    <button class="goto-date-go" onclick="execStack1GoToDate()">Start Replay</button>
+    <button class="goto-date-cancel" onclick="toggleStack1ReplayPanel()">Cancel</button>
+  </div>
+</div>
+<button id="stack1-step-btn" onclick="_stack1ReplayStep()" title="Next candle">⏭</button>
+<button id="stack1-exit-btn" onclick="_stack1ExitReplay()" title="Exit replay, resume live">✕ Exit Replay</button>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
 <div id="goto-date-panel">
@@ -3805,6 +3860,13 @@ function selectStack2View() {
     _renderStackSwitch();
     const row1 = document.getElementById('gp-stack-row');
     if (row1) row1.classList.remove('active');
+    if (window._STACK1_REPLAY && window._STACK1_REPLAY.active) {
+      window._STACK1_REPLAY.active = false;
+      window._STACK1_REPLAY.cutoff = null;
+      window._STACK1_REPLAY.cells  = {};
+    }
+    document.getElementById('stack1-replay-panel')?.classList.remove('open');
+    _stack1SyncButtons();
     destroyStackCells();
   }
 
@@ -5085,6 +5147,7 @@ function selectStackView() {
   buildStack();
   setTimeout(_startCellTimers, 200);
   setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+  _stack1SyncButtons();
 }
 
 // Build all of a symbol's stack slots (Step 2: static, all rendered, no snap-scroll yet).
@@ -7024,6 +7087,15 @@ function setLayout(key, btn) {
   _stackOnOff  = false;
   _saveStackOnOff(false);
   _renderStackSwitch();
+  // Replay active tha aur user Stack View 1 se bahar ja raha hai — state reset
+  // karo (cells destroy hi ho rahe hain, replay ko carry karne ka koi matlab nahi).
+  if (window._STACK1_REPLAY && window._STACK1_REPLAY.active) {
+    window._STACK1_REPLAY.active = false;
+    window._STACK1_REPLAY.cutoff = null;
+    window._STACK1_REPLAY.cells  = {};
+  }
+  document.getElementById('stack1-replay-panel')?.classList.remove('open');
+  _stack1SyncButtons();
   const sv=document.getElementById('stack-view');
   if (sv) sv.classList.remove('active');
   destroyStackCells();
@@ -8436,6 +8508,7 @@ function _applyBTCKline(k) {
       // Recompute candle H/L lines with the updated data (debounced 300ms)
       clearTimeout(_swingRebuildTimer);
       _swingRebuildTimer=setTimeout(()=>{
+        if (window._STACK1_REPLAY && window._STACK1_REPLAY.active) return;  // replay active — SR handled by replay itself
         if (S.layout==='1x1') swingAfterRebuild();
         else CELLS.forEach((_,i)=>buildCellSwing(i));
       }, 300);
@@ -8514,6 +8587,7 @@ function _applyBTCKline(k) {
   // Grid mode — RAF throttled per cell to avoid main thread blocking
   CELLS.forEach(c => {
     if (c.asset!==BTC_ASSET||!c.series) return;
+    if (window._STACK1_REPLAY && window._STACK1_REPLAY.active) return;  // replay active — live ticks paused
     const cTfSec=(c.tf||1)*60, cBucket=Math.floor(kOpenSec/cTfSec)*cTfSec;
     if (!c._btcBkt||c._btcBkt.time!==cBucket||c._btcBkt.tf!==c.tf) {
       // Bucket change: resample sirf tab karo — yeh expensive hai
@@ -9400,6 +9474,7 @@ function _applyBNLiveTick(d) {
   // ── Step 4: Grid cells update ─────────────────────────────────────────────
   CELLS.forEach((c, ci) => {
     if (c.asset !== BN_ASSET || !c.series) return;
+    if (window._STACK1_REPLAY && window._STACK1_REPLAY.active) return;  // replay active — live ticks paused
     const cellBar = _bnGetCellBar(c, latest);
 
     if (!c._bnRafPending) {
@@ -10485,7 +10560,7 @@ function initSwingIndicator() {
   _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange);
 }
 
-function buildCellSwing(idx) {
+function buildCellSwing(idx, cutoffTime) {
   const c  = CELLS[idx];
   const el = document.getElementById('cell-chart-' + idx);
   if (!c || !c.chart || !c.series || !el) return;
@@ -10507,7 +10582,124 @@ function buildCellSwing(idx) {
 
   // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
   // canvas nahi, koi coordinate-limit ka sawaal nahi.
-  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange);
+  // cutoffTime diya gaya ho (Stack1 replay active) to fake future SR-line
+  // endT usse aage nahi jaayega — same guard jo SV2 replay mein use hota hai.
+  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange, cutoffTime);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// STACK VIEW 1 — SIMPLE BAR REPLAY ("Go to Date")
+// ────────────────────────────────────────────────────────────────────────────
+// SV2 wale poore date-range/step system se alag — ye simple hai:
+//  1) "Go to Date" dabao → us waqt tak ka data hi cells mein reh jaata hai,
+//     baaki hide ho jaata hai (already-loaded live data se, koi naya
+//     data-resolution/fetch logic nahi likhi — jo chart pe plotted hai
+//     wahi c.series.data() se le liya jaata hai).
+//  2) Live websocket ticks replay ke dauraan pause rehte hain (guard flag
+//     upar dono live-update loops mein already laga hua hai).
+//  3) ⏭ Step: jis bhi cell ka agla hidden candle sabse pehle (time se)
+//     aata hai, wahi cutoff bनता hai aur usi cutoff tak sab cells reveal
+//     hote hain — koi asset/TF hardcode nahi, generic hai.
+//  4) ✕ Exit Replay: cells ko fresh rebuild karke live data + ticks resume.
+//  swingCompute()/_bnBuildSRNative() bilkul untouched — sirf cutoffTime
+//  param already-existing hook se pass hota hai.
+// ════════════════════════════════════════════════════════════════════════════
+window._STACK1_REPLAY = { active: false, cutoff: null, cells: {} };
+
+function toggleStack1ReplayPanel() {
+  const p = document.getElementById('stack1-replay-panel');
+  if (!p) return;
+  p.classList.toggle('open');
+  const inp = document.getElementById('stack1-replay-inp');
+  if (inp && p.classList.contains('open')) inp.focus();
+}
+
+function _stack1SyncButtons() {
+  const btn = document.getElementById('stack1-replay-btn');
+  if (btn) {
+    const showBase = (typeof _stackActive !== 'undefined') && _stackActive;
+    btn.classList.toggle('visible', !!showBase);
+    btn.classList.toggle('active-replay', !!window._STACK1_REPLAY.active);
+  }
+  const stepBtn = document.getElementById('stack1-step-btn');
+  const exitBtn = document.getElementById('stack1-exit-btn');
+  const showReplay = (typeof _stackActive !== 'undefined') && _stackActive && window._STACK1_REPLAY.active;
+  if (stepBtn) stepBtn.classList.toggle('visible', !!showReplay);
+  if (exitBtn) exitBtn.classList.toggle('visible', !!showReplay);
+}
+
+function execStack1GoToDate() {
+  const inp = document.getElementById('stack1-replay-inp');
+  if (!inp || !inp.value) return;
+  const cutoffSec = Math.floor(new Date(inp.value).getTime() / 1000);
+  if (isNaN(cutoffSec)) return;
+
+  const R = window._STACK1_REPLAY;
+  R.cells = {};
+  CELLS.forEach((c, idx) => {
+    if (!c || !c.chart || !c.series) return;
+    let full = [];
+    try { full = c.series.data().map(d => ({ ...d })); } catch(_) { full = []; }
+    if (!full.length) return;
+    const revealedCount = full.filter(b => b.time < cutoffSec).length;
+    R.cells[idx] = { fullData: full, revealedCount };
+    try { c.series.setData(full.slice(0, revealedCount)); } catch(_) {}
+  });
+  R.active = true;
+  R.cutoff = cutoffSec;
+
+  toggleStack1ReplayPanel();
+  _stack1SyncButtons();
+  _stack1RefreshAllSR();
+}
+
+// Jis cell ka agla hidden candle time-wise sabse pehle aata hai, usi tak
+// step karo — sab cells ka apna-apna agla candle expose ho jaata hai jo
+// us naye cutoff se pehle aata hai. Generic hai, kisi ek TF ko base nahi
+// maanta (SV2 jaisa hardcoded 5m/160m base yahan nahi chahiye).
+function _stack1ReplayStep() {
+  const R = window._STACK1_REPLAY;
+  if (!R.active) return;
+
+  let nextTime = Infinity;
+  for (const idx in R.cells) {
+    const cell = R.cells[idx];
+    if (cell.revealedCount < cell.fullData.length) {
+      const t = cell.fullData[cell.revealedCount].time;
+      if (t < nextTime) nextTime = t;
+    }
+  }
+  if (nextTime === Infinity) return;  // sab cells apna poora data dikha chuke
+
+  R.cutoff = nextTime + 1;
+  for (const idx in R.cells) {
+    const cell = R.cells[idx];
+    while (cell.revealedCount < cell.fullData.length &&
+           cell.fullData[cell.revealedCount].time < R.cutoff) {
+      cell.revealedCount++;
+    }
+    const c = CELLS[idx];
+    if (c && c.series) {
+      try { c.series.setData(cell.fullData.slice(0, cell.revealedCount)); } catch(_) {}
+    }
+  }
+  _stack1RefreshAllSR();
+}
+
+function _stack1RefreshAllSR() {
+  const R = window._STACK1_REPLAY;
+  const cutoff = R.active ? R.cutoff : null;
+  CELLS.forEach((c, idx) => { if (c && c.chart) buildCellSwing(idx, cutoff); });
+}
+
+function _stack1ExitReplay() {
+  const R = window._STACK1_REPLAY;
+  R.active = false;
+  R.cutoff = null;
+  R.cells  = {};
+  _stack1SyncButtons();
+  // Cells fresh rebuild karo — live data + websocket ticks resume ho jaayenge
+  CELLS.forEach((c, idx) => { if (c) buildCellChart(idx); });
 }
 
 function swingAfterRebuild() {
