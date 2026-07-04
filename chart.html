@@ -10045,9 +10045,18 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, nowSec) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
+  // nowSec (optional): replay/live VIRTUAL clock — the time of the latest
+  // revealed base bar (e.g. the just-revealed 5m candle), NOT Date.now().
+  // Pivot/line CREATION never uses this (still only real closed candles,
+  // see `data` below — no repaint). It is only used at the very end to
+  // keep already-existing lines visually extended/alive up to the replay's
+  // true current position while a higher-TF bucket is still forming —
+  // otherwise a line's endTime (computed off the last CLOSED bucket) can
+  // fall behind the replay's actual position and the line disappears too
+  // early, leaving a visual gap until the next bucket finally closes.
   // CANDLE H/L RULES (kind:'ch'|'cl'):
   //   Candle 1 closes → High & Low lines created (endTime = +2×period)
   //   Candle 2 (validator): Low ≤ price ≤ High → TOUCHED → extend to +3×period
@@ -10213,7 +10222,23 @@ function swingCompute(bars, tfMin) {
   const out = [];
   const srColor  = _tfSrColor(tfMin);
   const _cndClr  = _tfCandleColor(tfMin);
-  const lastTime = data.length ? data[data.length - 1].time : 0;
+  const lastClosedTime = data.length ? data[data.length - 1].time : 0;
+
+  // ── Replay virtual-clock extension (NO new pivots/lines created here) ──
+  // Agar replay abhi bhi is TF ka agla bucket close hone ka wait kar raha
+  // hai (nowSec > lastClosedTime), to already-existing lines ko replay ki
+  // asli current position (nowSec) tak "alive/visible" rakho — warna line
+  // ka endTime purane closed-candle ke hisaab se hi reh jaata aur replay
+  // aage badhte hi line beech mein hi gayab ho jaati (gap). Yeh sirf
+  // extension hai — koi naya pivot ya candle H/L is candle se nahi banta.
+  if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
+    const _swingFloor = nowSec + swingDuration(tfMin);
+    for (const l of aRes)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    for (const l of aSup)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    for (const l of chLines) if (l.endTime < nowSec)       l.endTime = nowSec;
+    for (const l of clLines) if (l.endTime < nowSec)       l.endTime = nowSec;
+  }
+  const lastTime = (typeof nowSec === 'number') ? Math.max(lastClosedTime, nowSec) : lastClosedTime;
 
   // Swing SR lines — finite, latest 5
   const allSwings = [
@@ -10602,6 +10627,14 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 
     const live       = window._SV2_LIVE;
     const isLiveMode = !!(live && Array.isArray(live.baseBars));
+    // Replay VIRTUAL clock — time of the latest revealed base bar (NOT
+    // Date.now()). Passed into swingCompute so already-existing SR/swing
+    // lines stay visually extended up to replay's true current position
+    // while a higher-TF bucket is still forming, instead of stalling at
+    // the last-closed-bucket time and creating a visual gap.
+    const liveNowSec = (isLiveMode && live.revealIdx > 0 && live.baseBars[live.revealIdx - 1])
+      ? live.baseBars[live.revealIdx - 1].time
+      : null;
 
     function _dataForTFAny(tfMin, hintLabel) {
       if (isLiveMode) {
@@ -10621,7 +10654,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _dataForTFAny(cellTFMin, tfLabel);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      swingCompute(dataCur, cellTFMin, liveNowSec)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10633,7 +10666,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     for (const tf of enabledHTFs) {
       const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, liveNowSec)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
