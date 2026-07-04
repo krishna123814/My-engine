@@ -10556,24 +10556,9 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    if (typeof cutoffTime !== 'number') return data;
-
-    // Sirf wo bars lo jo cutoffTime pe fully closed hain.
-    // Bar closed tab maano jab: bar.time + barDuration <= cutoffTime
-    // barDuration = next bar ka time - is bar ka time (actual measured gap).
-    // Last bar ke liye barDuration = prev gap se estimate karo.
-    const result = [];
-    for (let i = 0; i < data.length; i++) {
-      if (data[i].time >= cutoffTime) break;  // startTime hi cutoff ke baad → skip
-      const barDuration = (i + 1 < data.length)
-        ? (data[i + 1].time - data[i].time)
-        : (i > 0 ? data[i].time - data[i - 1].time : 0);
-      // Bar fully closed = uska end (time + duration) <= cutoffTime
-      if (data[i].time + barDuration <= cutoffTime) {
-        result.push(data[i]);
-      }
-    }
-    return result;
+    return (typeof cutoffTime === 'number')
+      ? data.filter(b => b.time < cutoffTime)
+      : data;
   } catch(_) { return []; }
 }
 
