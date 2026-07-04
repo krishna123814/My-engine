@@ -3742,6 +3742,7 @@ function toggleStack2OnOff() {
 function _deactivateStack2() {
   _stack2Active = false;
   _stack2OnOff  = false;
+  window._SV2_REPLAY_CUTOFF = null;
   _saveStack2OnOff(false);
   _renderStack2Switch();
   const row = document.getElementById('gp-stack2-row');
@@ -10762,10 +10763,6 @@ function sv2SwingInit(cutoffTime) {
   if (!SWING_STATE.visible) return;
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
-  // Remember the cutoff actually used — so a later toggle-triggered refresh
-  // (sv2SwingRefresh) recomputes from THIS (current/replayed) position
-  // instead of snapping back to the original date-range start.
-  window._SV2_SR_CUTOFF = cutoffTime;
   const assetKey = (typeof _stackKeyForAsset === 'function')
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
@@ -10775,18 +10772,24 @@ function sv2SwingInit(cutoffTime) {
 }
 
 // ── Refresh — chip/preset/line-width/toggle change par ──────────────────────
+// IMPORTANT: does NOT cache/reuse a "last cutoff" across calls — that caused
+// a stale cutoff from a previous date-range/replay session to leak into a
+// fresh historical view, making toggles look like they "worked for replay
+// but not historical". Instead the cutoff is always derived fresh:
+//   • Mid-replay  → window._SV2_REPLAY_CUTOFF (set only by sv2SwingOnStep,
+//                   reset to null on every date-range apply/clear)
+//   • Historical (date range set, no replay step taken yet) → rng.from
+//   • No date range active → null (full .gz data)
 function sv2SwingRefresh() {
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
-  // Prefer the last-used cutoff (kept in sync with replay steps by
-  // sv2SwingInit above). Falls back to the date-range start only if no
-  // cutoff has been recorded yet (e.g. right after a fresh date-range apply,
-  // or full/no-range historical view).
+  const rng = window._SV2_DATE_RANGE;
   let cutoff;
-  if (typeof window._SV2_SR_CUTOFF !== 'undefined' && window._SV2_SR_CUTOFF !== null) {
-    cutoff = window._SV2_SR_CUTOFF;
+  if (typeof window._SV2_REPLAY_CUTOFF === 'number') {
+    cutoff = window._SV2_REPLAY_CUTOFF;
+  } else if (rng && typeof rng.from === 'number') {
+    cutoff = rng.from;
   } else {
-    const rng = window._SV2_DATE_RANGE;
-    cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
+    cutoff = null;
   }
   sv2SwingInit(cutoff);
 }
@@ -10795,7 +10798,8 @@ function sv2SwingRefresh() {
 function sv2SwingOnStep(closedCandleTime) {
   if (!SWING_STATE.visible) return;
   // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
-  sv2SwingInit(closedCandleTime + 1);
+  window._SV2_REPLAY_CUTOFF = closedCandleTime + 1;
+  sv2SwingInit(window._SV2_REPLAY_CUTOFF);
 }
 
 // ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
@@ -10814,6 +10818,8 @@ function sv2SwingClear() {
 
 // ── Date Range events sunna ─────────────────────────────────────────────────
 document.addEventListener('sv2DateRangeApplied', function(e) {
+  // New date range → any previous replay position is no longer valid.
+  window._SV2_REPLAY_CUTOFF = null;
   const rng = e && e.detail;
   if (rng && typeof rng.from === 'number') {
     // buildStack2 ke baad settle hone ka time do (500ms)
@@ -10821,6 +10827,7 @@ document.addEventListener('sv2DateRangeApplied', function(e) {
   }
 });
 document.addEventListener('sv2DateRangeCleared', function() {
+  window._SV2_REPLAY_CUTOFF = null;
   setTimeout(() => sv2SwingInit(null), 550);
 });
 
