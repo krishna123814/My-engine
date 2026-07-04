@@ -2426,12 +2426,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
             <div class="swing-cur-dots">
               <span class="swing-clr-tag">Swing</span>
               <button class="sr-clr-inp tv-clr-btn" id="swing-cur-swing-clr" title="Swing H/L color (active TF)"></button>
+              <span class="swing-clr-tag" style="margin-left:4px">Candle</span>
+              <button class="sr-clr-inp tv-clr-btn" id="swing-cur-candle-clr" title="Candle H/L color (active TF)"></button>
             </div>
           </div>
           <div class="swing-tf-chips" id="swing-tf-chips"></div>
           <!-- Color legend — shown when chips exist -->
           <div class="swing-clr-legend" id="swing-clr-legend" style="display:none">
-            ⬤ = Swing H/L color &nbsp;· Click dot to change color
+            ⬤ = Swing H/L &nbsp;|&nbsp; ⬤ = Candle H/L &nbsp;· Click dot to change color
           </div>
           <div class="swing-tf-add-row">
             <input class="swing-tf-input" id="swing-tf-input" type="text"
@@ -3963,6 +3965,86 @@ function buildStack2() {
   }, 650);
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 BAR-REPLAY SESSION CLAMP (NSE-aware) ──────────────────────────────────
+// Sirf bar-replay ke "future" hisse par lagta hai — replay se PEHLE wala
+// historical data (upar wala `data.filter(bar => bar.time < rng.from)`)
+// bilkul nahi chheda gaya. SR indicator (_bnBuildSRNative) bhi untouched hai.
+// Maksad: chart ka apna time-scale kabhi bhi market-closed time
+// (jaise 3:35pm–3:50pm ya raat) fake tick/whitespace ke roop mein na dikhaye,
+// chahe koi bhi Stack View 2 cell/timeframe ho.
+// ════════════════════════════════════════════════════════════════════════════
+const _SV2_IST_OFFSET_SEC    = 5.5 * 3600;            // IST = UTC + 5:30
+const _SV2_SESSION_START_SEC = 9 * 3600 + 15 * 60;    // 9:15 IST
+const _SV2_SESSION_END_SEC   = 15 * 3600 + 30 * 60;   // 15:30 IST
+const _SV2_DAY_SEC           = 86400;
+
+// Real-UTC time ko NSE session ke andar honi chahiye to check karta hai.
+// BTC (isBN=false) ke liye hamesha true — 24x7 market, clamp ki zaroorat nahi.
+function _sv2IsValidSessionTime(tUtc, isBN) {
+  if (!isBN) return true;
+  const istSec   = tUtc + _SV2_IST_OFFSET_SEC;
+  const modOfDay = ((istSec % _SV2_DAY_SEC) + _SV2_DAY_SEC) % _SV2_DAY_SEC;
+  return modOfDay >= _SV2_SESSION_START_SEC && modOfDay < _SV2_SESSION_END_SEC;
+}
+
+// Diye gaye real-UTC time ko agle valid session-slot (9:15 IST) par snap
+// karta hai agar wo band-market ke hours mein aata hai. BTC ke liye no-op.
+function _sv2ClampToSession(tUtc, isBN) {
+  if (!isBN) return tUtc;
+  const istSec   = tUtc + _SV2_IST_OFFSET_SEC;
+  const dayStart = istSec - (((istSec % _SV2_DAY_SEC) + _SV2_DAY_SEC) % _SV2_DAY_SEC);
+  const modOfDay = ((istSec % _SV2_DAY_SEC) + _SV2_DAY_SEC) % _SV2_DAY_SEC;
+  let snappedIst;
+  if (modOfDay < _SV2_SESSION_START_SEC) {
+    snappedIst = dayStart + _SV2_SESSION_START_SEC;
+  } else if (modOfDay >= _SV2_SESSION_END_SEC) {
+    snappedIst = dayStart + _SV2_DAY_SEC + _SV2_SESSION_START_SEC;
+  } else {
+    return tUtc; // already valid
+  }
+  return snappedIst - _SV2_IST_OFFSET_SEC;
+}
+
+// `fromTimeUtc` se aage `count` valid session time-slots (har `periodSec` ka)
+// nikalta hai — band-hours (15:30 → agle din 9:15) automatically skip karta
+// hai. BTC ke liye plain continuous stepping (clamp ki zaroorat nahi).
+function _sv2FutureSessionSlots(fromTimeUtc, periodSec, count, isBN) {
+  const out = [];
+  let t = fromTimeUtc;
+  for (let i = 0; i < count; i++) {
+    t = _sv2ClampToSession(t + periodSec, isBN);
+    out.push(t);
+  }
+  return out;
+}
+
+// Har cell ke liye — us cell ke last-known (revealed) time ke aage, valid
+// session whitespace-points chart mein daal deta hai (bina OHLC ke — sirf
+// {time}), taaki timeScale kabhi bhi invalid future time na dikhaye.
+// `uptoTime` (rng.to) ke aage nahi jaata — replay ke hidden-range se bahar
+// ka data yahan involve nahi hota.
+window._SV2_LAST_REAL_TIME = window._SV2_LAST_REAL_TIME || {};
+function _sv2ApplySessionWhitespace(idx, uptoTime) {
+  try {
+    const cell = (typeof STACK2_CELLS !== 'undefined') ? STACK2_CELLS[idx] : null;
+    if (!cell || !cell.series) return;
+    const assetKey2 = _stackKeyForAsset(S.asset);
+    if (assetKey2 !== 'bn') return;   // BTC 24x7 — clamp ki zaroorat nahi
+    const cfg2      = (_stack2Cfg[assetKey2] || _stack2Cfg.btc);
+    const tfLabel    = (cfg2.tfs && cfg2.tfs[idx]) || '';
+    const cellTFMin  = _parseTFMin(tfLabel) || 5;
+    const periodSec  = cellTFMin * 60;
+    const lastT      = window._SV2_LAST_REAL_TIME[idx];
+    if (typeof lastT !== 'number' || typeof uptoTime !== 'number') return;
+    const slots = _sv2FutureSessionSlots(lastT, periodSec, 500, true)
+                    .filter(t => t < uptoTime);
+    for (const t of slots) {
+      try { cell.series.update({ time: t }); } catch(_) {}
+    }
+  } catch(_) {}
+}
+
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
   const el = document.getElementById('stack2-chart-' + idx);
@@ -4053,13 +4135,23 @@ function _buildStack2CellChart(idx) {
 
       const CHUNK = 500;
       let offset = 0;
+      // ── Feed poora hone ke baad hi session-clamp whitespace lagta hai ──────
+      // Historical dataToShow (upar wala filter) bilkul untouched hai — ye
+      // sirf replay-active range ke "future" hisse ke liye valid NSE
+      // session-slots whitespace ke roop mein add karta hai, taaki chart
+      // apna time-scale khud se band-market ka fake time na dikhaye.
+      function _sv2OnCellDataFed() {
+        try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+        if (rng && dataToShow.length && typeof _sv2ApplySessionWhitespace === 'function') {
+          window._SV2_LAST_REAL_TIME = window._SV2_LAST_REAL_TIME || {};
+          window._SV2_LAST_REAL_TIME[idx] = dataToShow[dataToShow.length - 1].time;
+          _sv2ApplySessionWhitespace(idx, rng.to);
+        }
+      }
       function feedChunk() {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
-        if (!slice.length) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          return;
-        }
+        if (!slice.length) { _sv2OnCellDataFed(); return; }
         try {
           if (offset === 0) { c.series.setData(slice); }
           else { slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} }); }
@@ -4069,7 +4161,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
+        else { _sv2OnCellDataFed(); }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -4918,6 +5010,20 @@ function ss2ApplyAndClose() {
         _animating = false;
         _stepBtn.classList.remove('animating');
 
+        // ── Session-clamp refresh: HAR cell/timeframe ke liye ────────────────
+        // Replay step ke baad, revealed data ke aage ka "future" hissa bhi
+        // NSE session (9:15–15:30 IST) ke hisaab se clamp hota hai — SR
+        // indicator ko yahan chheda nahi gaya, ye alag/generic step hai.
+        if (typeof STACK2_CELLS !== 'undefined' && typeof _sv2ApplySessionWhitespace === 'function') {
+          window._SV2_LAST_REAL_TIME = window._SV2_LAST_REAL_TIME || {};
+          for (var _cj = 0; _cj < STACK2_CELLS.length; _cj++) {
+            var _cellTFMinJ = _getCellTFMin(_cj);
+            var _partialJ   = _computePartialCandle(allReplayed, _cellTFMinJ, isBN);
+            if (_partialJ) window._SV2_LAST_REAL_TIME[_cj] = _partialJ.time;
+            _sv2ApplySessionWhitespace(_cj, rng.to);
+          }
+        }
+
         // SV2 Swing S&R: closed candle ke baad SR update karo
         try { sv2SwingOnStep(stepBar.time); } catch(_) {}
 
@@ -4985,6 +5091,7 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    window._SV2_LAST_REAL_TIME = {};   // session-clamp bookkeeping reset
     _syncStepBtn();
   });
 
@@ -9935,6 +10042,7 @@ function _renderSwingChips() {
 
   sorted.forEach((tf, i) => {
     const swClr = _tfSrColor(tf.min);
+    const cnClr = _tfCandleColor(tf.min);
     const chip = document.createElement('div');
     chip.className = 'swing-tf-chip' + (tf.enabled ? ' active' : '');
     chip.style.borderLeftColor = swClr;
@@ -9943,6 +10051,9 @@ function _renderSwingChips() {
       // Swing color dot
       '<button class="sr-clr-inp tv-clr-btn" title="Swing H/L color" data-color="' + swClr + '" style="background:' + swClr + '" ' +
         'onclick="event.stopPropagation();_openChipColor(this,' + tf.min + ',\'swing\')"></button>' +
+      // Candle H/L color dot
+      '<button class="sr-clr-inp tv-clr-btn" title="Candle H/L color" data-color="' + cnClr + '" style="background:' + cnClr + '" ' +
+        'onclick="event.stopPropagation();_openChipColor(this,' + tf.min + ',\'candle\')"></button>' +
       '<span class="swing-chip-lbl" onclick="_swingChipToggle(' + i + ')">' + tf.label + '</span>' +
       '<span class="swing-chip-del" onclick="_swingChipDel(' + i + ')">✕</span>';
     el.appendChild(chip);
@@ -10008,29 +10119,55 @@ function _tfSrColor(tfMin) {
   if (_TF_COLORS[tfMin] && _TF_COLORS[tfMin].swing) return _TF_COLORS[tfMin].swing;
   return _tfSrColorDefault(tfMin);
 }
+// Candle H/L line color for a TF (user override → previous default palette,
+// unaffected by the Swing S/R color override above)
+function _tfCandleColor(tfMin) {
+  if (_TF_COLORS[tfMin] && _TF_COLORS[tfMin].candle) return _TF_COLORS[tfMin].candle;
+  if (_TF_COLORS[tfMin] && _TF_COLORS[tfMin].swing)  return _TF_COLORS[tfMin].swing;
+  if (tfMin === 15)    return '#000000';  // black   (15m) — matches swing SR
+  if (tfMin <= 5)     return '#9c27b0';  // purple  (5m)
+  if (tfMin <= 30)    return '#d1d4dc';  // light   (30m)
+  if (tfMin <= 90)    return '#ff1493';  // pink    (45m)
+  if (tfMin <= 240)   return '#00bcd4';  // cyan    (135m)
+  if (tfMin <= 1440)  return '#ff9800';  // orange  (1D)
+  if (tfMin <= 4320)  return '#4caf50';  // green   (3D)
+  if (tfMin <= 12960) return '#f23645';  // red     (9D)
+  return '#ffeb3b';                      // yellow  (27D+)
+}
 // Update the "Active TF" color row in the indicator panel
 function _updateCurrentTfColorRow() {
   const activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL]) ? CELLS[SELECTED_CELL].tf : S.tf;
   const lblEl  = document.getElementById('swing-cur-lbl');
   const swEl   = document.getElementById('swing-cur-swing-clr');
+  const cnEl   = document.getElementById('swing-cur-candle-clr');
   if (lblEl) lblEl.textContent = 'Active TF (' + tfMinToLabel(activeTf) + ')';
   if (swEl)  { const sc = _tfSrColor(activeTf); swEl.style.background = sc; swEl.dataset.color = sc;
                swEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(swEl, 'swing', activeTf); }; }
+  if (cnEl)  { const cc = _tfCandleColor(activeTf); cnEl.style.background = cc; cnEl.dataset.color = cc;
+               cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
 function swingCompute(bars, tfMin) {
-  // ── Swing H/L only — Candle H/L concept fully removed ───────────────────
-  // SWING H/L RULES (kind:'sh'|'sl'):
+  // ── Candle H/L + Swing H/L — two independent systems ───────────────────
+  //
+  // CANDLE H/L RULES (kind:'ch'|'cl'):
+  //   Candle 1 closes → High & Low lines created (endTime = +2×period)
+  //   Candle 2 (validator): Low ≤ price ≤ High → TOUCHED → extend to +3×period
+  //                         Not touched         → DELETED immediately
+  //   Max lifespan: end of Candle 3. Latest 2 lines shown at any time.
+  //
+  // SWING H/L RULES (kind:'sh'|'sl') — untouched, independent:
   //   prevGreen→currRed  → Swing High (resistance)
   //   prevRed→currGreen  → Swing Low  (support)
   //   Infinite right-edge extension. Latest 5 lines shown.
 
   if (!bars || bars.length < 2) return [];
 
+  const _defaultPeriodSec = (tfMin || 1) * 60;
   const WIN  = 300;
   // Exclude the last (still-running) candle — only fully closed candles used.
   // But if the market is closed, the last candle is ALSO closed (final),
-  // so include it too.
+  // so include it too — both Swing H/L and Candle H/L rules use this same data.
   const raw  = bars.length > WIN ? bars.slice(-WIN) : bars.slice();
   // Multi-day TF (3D/9D/27D): last bar tab tak forming candle hai jab tak
   // uske baad N trading days poori na ho jayein. Isliye market open/close
@@ -10057,15 +10194,60 @@ function swingCompute(bars, tfMin) {
 
   let aRes     = [];  // swing highs  { price, startTime, kind:'sh' }
   let aSup     = [];  // swing lows   { price, startTime, kind:'sl' }
+  let chLines  = [];  // candle high lines (pending / validated)
+  let clLines  = [];  // candle low  lines (pending / validated)
 
   let pGreen = false, pRed = false, pHigh = 0, pLow = 0;
 
+  // ── Overnight/session-gap guard (intraday TFs only) ──────────────────────
+  // Minute TFs (5/15/45/135m) ka pehla candle har trading day 9:15 par ek
+  // gap ke baad shuru hota hai (overnight gap). Pichhle din ke last candle
+  // se bani lines, agle din ke pehle candle ki narrow range mein bahut kam
+  // touch hoti hain — jo unhe galat tarike se turant delete kar deta tha.
+  // Fix: jab cur candle naye IST trading day ka pehla candle ho, validation
+  // (touch-check + delete) us round ke liye skip karo — line bina judge hue
+  // aage carry hoti hai, aur normal intraday candle (gap ke baad) par judge
+  // hoti hai. Daily+ TFs (1D/3D/9D/27D) is guard se affected nahi — unka
+  // har candle hi ek "naya din" hota hai, wo gap koi anomaly nahi hai.
+  const IST_OFFSET_SEC = 5.5 * 3600;
+  const _istDayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
+
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
+    // Actual candle duration from real data — fixes synthetic TFs like 135m
+    // where tfMin*60 may not match actual candle boundaries after resampling
+    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
+    const isSessionGap = tfMin < 1440 && i >= 1 &&
+                          _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
 
-    // ── Step 1: Swing High (prevGreen → currRed) ────────────────────────
+    // ── Step 1: Validate ALL active candle lines with current bar ───────
+    const validateLines = (arr) => {
+      for (let j = arr.length - 1; j >= 0; j--) {
+        const ln = arr[j];
+        if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
+        
+        // Strict Touch Logic
+        let isTouched = (cur.low <= ln.price && cur.high >= ln.price);
+        
+        if (isTouched) {
+          // TOUCHED — re-extend 1 candle ahead from the current bar
+          ln.endTime = cur.time + 2 * periodSec;
+        } else {
+          // NOT TOUCHED — delete immediately
+          arr.splice(j, 1);
+        }
+      }
+    };
+    if (!isSessionGap) {
+      validateLines(chLines);
+      validateLines(clLines);
+    }
+    // isSessionGap === true: skip judging this round — lines carry forward
+    // untouched, to be validated against the next (intraday) candle instead.
+
+    // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
     if (i >= 1 && pGreen && curRed) {
       const rPrice = Math.max(pHigh, cur.high);
       const rTime  = pHigh >= cur.high ? data[i - 1].time : cur.time;
@@ -10074,7 +10256,7 @@ function swingCompute(bars, tfMin) {
       aRes.push({ price: rPrice, startTime: rTime, kind: 'sh' });
     }
 
-    // ── Step 2: Swing Low (prevRed → currGreen) ─────────────────────────
+    // ── Step 3: Swing Low (prevRed → currGreen) ─────────────────────────
     if (i >= 1 && pRed && curGreen) {
       const sPrice = Math.min(pLow, cur.low);
       const sTime  = pLow <= cur.low ? data[i - 1].time : cur.time;
@@ -10083,7 +10265,27 @@ function swingCompute(bars, tfMin) {
       aSup.push({ price: sPrice, startTime: sTime, kind: 'sl' });
     }
 
-    // ── Step 3: Roll state forward ───────────────────────────────────────
+    // ── Step 4: Create candle H/L lines for current bar ─────────────────
+    // Agar candle high/low price kisi active swing H/L ki price se match kare
+    // toh candle H/L line push mat karo — swing line already wahan hai
+    const _activeSwingPrices = new Set([
+      ...aRes.map(l => l.price),
+      ...aSup.map(l => l.price)
+    ]);
+    if (!_activeSwingPrices.has(cur.high)) {
+      chLines.push({ price: cur.high, startTime: cur.time,
+                     endTime: cur.time + 2 * periodSec,
+                     creationIndex: i, kind: 'ch', periodSec });
+    }
+    if (!_activeSwingPrices.has(cur.low)) {
+      clLines.push({ price: cur.low,  startTime: cur.time,
+                     endTime: cur.time + 2 * periodSec,
+                     creationIndex: i, kind: 'cl', periodSec });
+    }
+
+    // DO NOT USE shift() here! We must not delete surviving lines artificially.
+
+    // ── Step 5: Roll state forward ───────────────────────────────────────
     pGreen = curGreen;
     pRed   = curRed;
     pHigh  = cur.high;
@@ -10103,6 +10305,20 @@ function swingCompute(bars, tfMin) {
   for (const sw of allSwings) {
     out.push({ price: sw.price, startTime: sw.startTime, endTime: null,
                kind: sw.kind, color: srColor, isInfinite: true, levelTf: tfMin });
+  }
+
+  // Candle lines — Return ALL valid surviving lines without slicing/capping to 5
+  // Use per-TF candle color (user-configurable); falls back to swing color.
+  const _cndClr = _tfCandleColor(tfMin);
+  const lastTime = data.length ? data[data.length - 1].time : 0;
+  const allCandles = [
+    ...chLines.map(l => ({ ...l, color: _cndClr })),
+    ...clLines.map(l => ({ ...l, color: _cndClr })),
+  ].filter(l => l.endTime > lastTime);
+
+  for (const l of allCandles) {
+    out.push({ price: l.price, startTime: l.startTime, endTime: l.endTime,
+               kind: l.kind, color: l.color, isInfinite: false, periodSec: l.periodSec, levelTf: tfMin });
   }
 
   return out;
