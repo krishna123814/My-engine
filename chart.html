@@ -2229,21 +2229,22 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="sv2-drng-sheet-inner">
     <div id="sv2-drng-handle"></div>
     <div id="sv2-drng-hdr">
-      <span id="sv2-drng-title">📅 Date Range</span>
+      <span id="sv2-drng-title">📅 Replay Date</span>
       <button id="sv2-drng-clear" onclick="_sv2DrngClear()">✕ Clear</button>
       <button id="sv2-drng-close" onclick="_sv2DrngClose()">✕</button>
     </div>
 
-    <!-- Start / End tabs -->
+    <!-- Single date tab — us date tak ka data dikhega, uske baad replay shuru -->
     <div id="sv2-drng-tabs">
-      <div class="sv2-drng-tab active" id="sv2-tab-start" onclick="_sv2DrngSwitchTab('start')">
-        <span class="sv2-drng-tab-lbl">START DATE</span>
-        <span class="sv2-drng-tab-val" id="sv2-tab-start-val">-- Select --</span>
+      <div class="sv2-drng-tab active" id="sv2-tab-start" style="width:100%;border-radius:8px;">
+        <span class="sv2-drng-tab-lbl">HISTORY CUTOFF DATE</span>
+        <span class="sv2-drng-tab-val" id="sv2-tab-start-val">-- Date chuniye --</span>
       </div>
-      <div class="sv2-drng-tab" id="sv2-tab-end" onclick="_sv2DrngSwitchTab('end')">
-        <span class="sv2-drng-tab-lbl">END DATE</span>
-        <span class="sv2-drng-tab-val" id="sv2-tab-end-val">-- Select --</span>
-      </div>
+      <!-- End tab hidden — single-date mode -->
+      <div id="sv2-tab-end" style="display:none"></div>
+    </div>
+    <div style="font-size:10px;color:#848da0;text-align:center;padding:4px 0 0 0;margin-top:-4px;">
+      ← Is date tak ka data dikhega · Uske baad Replay ▶ shuru hoga
     </div>
 
     <!-- Calendar nav row -->
@@ -2257,7 +2258,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div id="sv2-cal-grid"></div>
 
     <!-- Apply -->
-    <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply Range</button>
+    <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply &amp; Start Replay</button>
   </div>
 </div>
 
@@ -2694,31 +2695,76 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
   return Math.floor(tSec / sec) * sec;
 }
 
+// Structural (NOT wall-clock) bucket-completion boundary for a given bucket.
+// Ye batata hai ki ye bucket kab "poora" maana jayega — sirf iski apni
+// duration + (BN ke liye) session-end se, real Date.now() se bilkul nahi.
+//   - Daily/multi-day (tfMin>=1440): agla calendar day shuru hote hi complete.
+//   - BN intraday: naturalEnd = bucketStart + tfMin*60, LEKIN agar session
+//     (15:30 IST) usse pehle khatam ho jati hai (jaise din ka last bucket,
+//     e.g. 135m ka aakhri bucket sirf 90 min ka hota hai), to sessionEnd hi
+//     asli boundary hai — jo bhi pehle aaye.
+//   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
+function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
+  if (tfMin >= 1440) {
+    return bucketTime + 86400; // next calendar day boundary
+  }
+  var naturalEnd = bucketTime + tfMin * 60;
+  if (!isBN) return naturalEnd;
+  var IST = 5.5 * 3600;
+  var istSec       = bucketTime + IST;
+  var dayStart     = istSec - (istSec % 86400);
+  var SESSION_END  = 15 * 60 + 30;                 // 15:30 IST in minutes
+  var sessionEndUtc = (dayStart + SESSION_END * 60) - IST;
+  return Math.min(naturalEnd, sessionEndUtc);
+}
+
 // baseBars: full ordered array of base-TF candles (5m for BN / 160m for BTC)
 // revealCount: how many of those base bars are "known" right now (from index 0)
 // Returns an ordered array of aggregated candles for tfMin — last entry may
 // still be a forming (incomplete) bucket, exactly like a real live chart.
+//
+// out._formingLast flag (structural, replay-clock-safe): true if the LAST
+// candle in `out` has not yet received enough revealed base-bars to cover
+// its own bucket window (or the session-end, whichever comes first). This
+// replaces any real-clock (Date.now()) based "is it still forming" check —
+// during replay the wall-clock is irrelevant; only how many base bars have
+// been revealed matters. Consumers that feed this into SR/swing computation
+// (which shouldn't repaint off an incomplete candle) should drop the last
+// element whenever out._formingLast is true.
 function _liveAggregateTF(baseBars, revealCount, tfMin, isBN) {
   var out = [];
   var curBucket = null, o = null, h = -Infinity, l = Infinity, c = null;
+  var lastBarTime = null;
   var n = Math.min(revealCount, baseBars.length);
+  // Base-bar spacing (5m→300s for BN, 160m→9600s for BTC) — used only to
+  // know how much of the bucket window the last revealed base-bar covers.
+  var baseDurSec = (baseBars.length > 1) ? (baseBars[1].time - baseBars[0].time) : 300;
   for (var i = 0; i < n; i++) {
     var bar = baseBars[i];
     var bt  = _liveGetBucketTime(bar.time, tfMin, isBN);
     if (curBucket === null) {
       curBucket = bt; o = bar.open; h = bar.high; l = bar.low; c = bar.close;
+      lastBarTime = bar.time;
       continue;
     }
     if (bt === curBucket) {
       if (bar.high > h) h = bar.high;
       if (bar.low  < l) l = bar.low;
       c = bar.close;
+      lastBarTime = bar.time;
     } else {
       out.push({ time: curBucket, open: o, high: h, low: l, close: c });
       curBucket = bt; o = bar.open; h = bar.high; l = bar.low; c = bar.close;
+      lastBarTime = bar.time;
     }
   }
-  if (curBucket !== null) out.push({ time: curBucket, open: o, high: h, low: l, close: c });
+  var formingLast = false;
+  if (curBucket !== null) {
+    var expectedEnd = _liveBucketExpectedEnd(curBucket, tfMin, isBN);
+    formingLast = (lastBarTime + baseDurSec) < expectedEnd;
+    out.push({ time: curBucket, open: o, high: h, low: l, close: c });
+  }
+  out._formingLast = formingLast;
   return out;
 }
 
@@ -4047,6 +4093,34 @@ function buildStack2() {
   }, 650);
 }
 
+// ── SV2: Date select karne se pehle chart pe hint dikhao ──────────────────
+function _sv2ShowNoPeriodHint(idx, el) {
+  if (!el) return;
+  // Purani hint hato
+  var old = el.querySelector('._sv2-nohint');
+  if (old) return;   // already shown
+  el.style.position = 'relative';
+  var hint = document.createElement('div');
+  hint.className = '_sv2-nohint';
+  hint.style.cssText = [
+    'position:absolute','inset:0','display:flex','flex-direction:column',
+    'align-items:center','justify-content:center',
+    'background:rgba(19,23,34,0.96)','color:#848da0',
+    'font-size:12px','text-align:center','padding:16px','z-index:20','gap:6px',
+    'border-radius:4px','pointer-events:none'
+  ].join(';');
+  var isFirst = (idx === 0);
+  hint.innerHTML = (isFirst
+    ? '<div style="font-size:22px">📅</div>'
+      + '<div style="color:#c4cad4;font-weight:600;font-size:13px">Date chuniye → Apply karo</div>'
+      + '<div style="font-size:10px;margin-top:2px">Bottom-right 📅 button tap karo</div>'
+      + '<div style="font-size:9px;color:#4a5068;margin-top:4px">Us date tak ka BankNifty data dikhega<br>Uske baad Live Replay ▶ shuru hoga</div>'
+    : '<div style="font-size:16px">📅</div>'
+      + '<div style="font-size:10px;color:#4a5068">Date select karo</div>'
+  );
+  el.appendChild(hint);
+}
+
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
   const el = document.getElementById('stack2-chart-' + idx);
@@ -4079,6 +4153,14 @@ function _buildStack2CellChart(idx) {
 
   // ── Load pre-resampled data from gz-based SV2_BN / SV2_BTC ──────────────
   (function _sv2LoadData() {
+    // ── Date range select nahi hui abhi → sirf hint dikhao, koi data nahi ──
+    // User ko pehle 📅 se date chunni hogi.
+    // Jab _sv2DrngApply() call hoga, buildStack2() phir se run hoga
+    // aur tab _SV2_DATE_RANGE set hoga → yahan bypass nahi hoga.
+    if (!window._SV2_DATE_RANGE) {
+      _sv2ShowNoPeriodHint(idx, el);
+      return;
+    }
     const _dbg = [];
     try {
       const assetKey2 = _stackKeyForAsset(S.asset);
@@ -4387,7 +4469,13 @@ function ss2ApplyAndClose() {
   }
 
   // Called by selectStack2View and _deactivateStack2 patches below
-  window._sv2DrngOnActivate   = function(){ _sv2DrngSyncFab(); };
+  window._sv2DrngOnActivate   = function(){
+    _sv2DrngSyncFab();
+    // Agar koi date range set nahi hai to calendar auto-open karo
+    if (!window._SV2_DATE_RANGE) {
+      setTimeout(function(){ try { _sv2DrngOpen(); } catch(_){} }, 450);
+    }
+  };
   window._sv2DrngOnDeactivate = function(){
     _sv2DrngSyncFab();
     _sv2DrngClose();   // close sheet if open when SV2 exits
@@ -4583,17 +4671,11 @@ function ss2ApplyAndClose() {
     return new Date(y, m, d);
   }
 
-  // ── Render tabs ───────────────────────────────────────────────────────────
+  // ── Render tabs — single-date mode ───────────────────────────────────────
   function _renderTabs() {
-    var ts = document.getElementById('sv2-tab-start');
-    var te = document.getElementById('sv2-tab-end');
     var tsv = document.getElementById('sv2-tab-start-val');
-    var tev = document.getElementById('sv2-tab-end-val');
-    if (!ts) return;
-    ts.classList.toggle('active', _activeTab === 'start');
-    te.classList.toggle('active', _activeTab === 'end');
-    if (tsv) tsv.textContent = _fmtDate(_selStart);
-    if (tev) tev.textContent = _fmtDate(_selEnd);
+    if (tsv) tsv.textContent = _selStart ? _fmtDate(_selStart) : '-- Date chuniye --';
+    // End tab hidden in single-date mode — noop
   }
 
   // ── Render calendar grid ──────────────────────────────────────────────────
@@ -4675,70 +4757,67 @@ function ss2ApplyAndClose() {
     }
   }
 
-  // ── Day tap logic ─────────────────────────────────────────────────────────
+  // ── Day tap logic — single-date mode ─────────────────────────────────────
+  // Sirf ek date select hoti hai: history cutoff
+  // Us date tak ka data = history (seedha dikhega)
+  // Uske baad ka data = replay territory (ek ek karke reveal hoga)
   function _onDayTap(date) {
-    if (_activeTab === 'start') {
-      _selStart = date;
-      // If end is before start → clear end
-      if (_selEnd && _selEnd < _selStart) _selEnd = null;
-      // Auto-switch to end tab
-      _activeTab = 'end';
-    } else {
-      if (_selStart && date < _selStart) {
-        // Tapped before start → make it the new start, clear end
-        _selStart = date;
-        _activeTab = 'end';
-      } else {
-        _selEnd = date;
-        _activeTab = 'start';   // cycle back
-      }
-    }
+    _selStart = date;
+    _selEnd   = date;   // internally same, apply logic sirf _selStart use karta hai
     _renderTabs();
     _renderCal();
     _updateApplyBtn();
   }
 
-  // ── Apply button ──────────────────────────────────────────────────────────
+  // ── Apply button — single-date mode ──────────────────────────────────────
   function _updateApplyBtn() {
     var btn = document.getElementById('sv2-drng-apply');
     if (!btn) return;
-    var valid = _selStart && _selEnd && _selEnd >= _selStart;
-    btn.disabled = !valid;
+    btn.disabled = !_selStart;   // sirf ek date chahiye
   }
 
   function _sv2DrngApply() {
-    if (!_selStart || !_selEnd || _selEnd < _selStart) return;
-    var fromEpoch = _dateToEpoch(_selStart);
-    // End date should cover the FULL day (up to but not including next day's
-    // start) — otherwise candles on the end date itself wouldn't get hidden,
-    // since their bar.time would be >= toEpoch (start of that day) and our
-    // filter only keeps bar.time < rng.from. We add +86400 here so the
-    // comparison logic in _buildStack2CellChart (bar.time < rng.from) can
-    // stay simple, and treat "to" as exclusive-end = start of day AFTER end date.
-    var toEpoch = _dateToEpoch(_selEnd) + 86400;
+    if (!_selStart) return;
+
+    // ── Single-date replay logic ───────────────────────────────────────────
+    // Selected date D = "history cutoff"
+    // rng.from = UTC midnight of D+1  (exclusive boundary)
+    //   → sabhi candles jinka time < rng.from = Day D tak ka pura data
+    //     ye sab seedha dikhega (fully aggregated history)
+    //   → rng.from se aage ke candles = replay territory
+    //     ek ek karke reveal honge jab ▶ play hoga
+    // rng.to = Infinity  (no upper bound — replay sabhi future bars cover karta hai)
+    var cutEpoch = _dateToEpoch(_selStart) + 86400;   // Day D+1 UTC midnight
+
     window._SV2_DATE_RANGE = {
-      from:    fromEpoch,
-      to:      toEpoch,
+      from:    cutEpoch,
+      to:      Infinity,
       fromStr: _fmtDate(_selStart),
-      toStr:   _fmtDate(_selEnd),
+      toStr:   _fmtDate(_selStart),
     };
     if (_fab) _fab.classList.add('active-range');
+    // FAB label update — selected date dikhao
+    var fabLbl = document.getElementById('sv2-drng-fab');
+    if (fabLbl) fabLbl.title = 'Cutoff: ' + _fmtDate(_selStart) + '  (tap to change)';
+
     _sv2DrngClose();
-    // Dispatch event — future replay/SR indicator listens here
+
+    // Replay engine ko signal karo
     try {
       document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', {
         detail: window._SV2_DATE_RANGE
       }));
     } catch(_){}
-    console.log('[SV2 DateRange] Applied:', window._SV2_DATE_RANGE);
-    // Rebuild Stack View 2 immediately — every cell re-filters its candles
-    // against the new range right away (per the confirmed requirement that
-    // ALL cells refresh together, since they all share this one calendar range).
+    console.log('[SV2 Replay] Cutoff applied:', window._SV2_DATE_RANGE);
+
+    // SV2 rebuild karo — har cell apna data filter karega + replay arm hoga
     if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
+      // Hint overlays hatao (agar the)
+      document.querySelectorAll('._sv2-nohint').forEach(function(h){ h.remove(); });
       try {
         buildStack2();
         setTimeout(_startCellTimers, 200);
-        setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+        setTimeout(function(){ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
       } catch(_){}
     }
   }
@@ -9998,25 +10077,11 @@ function swingCompute(bars, tfMin) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    // Pure time-based check — market open/close pe depend nahi karta.
+    // Pure time-based check — market open/close ya replay mode pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
     // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
     const barDuration = last.time - prev.time;
-    // FIX: replay ke dauran real system clock (Date.now()) kaam ka nahi hai —
-    // replay historical dates dikhata hai jinke aage/peeche asli "abhi" ka
-    // koi matlab nahi. Jab SV2 live-replay active hai, "abhi" ka virtual
-    // matlab nikalo: sabse recent revealed base-bar ke close hone ke turant
-    // baad ka waqt (uska time + uski apni duration). Replay na ho toh
-    // asli system clock use karo, jaisa pehle tha.
-    const live = window._SV2_LIVE;
-    let nowSec;
-    if (live && Array.isArray(live.baseBars) && live.revealIdx > 0) {
-      const lastBase = live.baseBars[live.revealIdx - 1];
-      const baseDur  = live.isBN ? 300 : 9600;   // BN base=5m, BTC base=160m
-      nowSec = lastBase.time + baseDur;
-    } else {
-      nowSec = Math.floor(Date.now() / 1000);
-    }
+    const nowSec = Math.floor(Date.now() / 1000);
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
@@ -10244,18 +10309,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange) {
   // TimeScale range wapas restore karo
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
     try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
-  } else if (!window._SV2_LIVE) {
-    // FIX: scrollToRealTime() jumps to the edge of ALL series on this chart,
-    // including the "infinite" S/R lines which are drawn 100x period ahead
-    // (see endT above) — during an active SV2 replay this was dragging the
-    // whole chart's timescale toward that far-future line endpoint every
-    // single tick (sv2SwingOnStep runs every candle), causing the visible
-    // window to creep right and eventually go off-screen. When a replay
-    // session is active, the virtual clock (_SV2_LIVE.revealIdx) already
-    // drives what's visible via _rebuildAllCells()/setData() — so if we
-    // can't restore the saved range, do nothing rather than guessing with
-    // a real-time scroll. Only fall back to scrollToRealTime() outside of
-    // replay (SV1 live chart, or SV2 static/non-replay view).
+  } else {
     try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
 
@@ -10551,7 +10605,14 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 
     function _dataForTFAny(tfMin, hintLabel) {
       if (isLiveMode) {
-        return _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
+        // SR/swing calc ke liye kabhi bhi ek still-forming (incomplete)
+        // bucket use nahi karna — chahe wo tfMin cell ka apna TF ho ya koi
+        // higher TF. Completeness ab replay-clock-safe hai (structural
+        // bucket-window check _liveAggregateTF ke andar, real Date.now()
+        // pe depend nahi karta) — is fix ka effect isliye 5m/15m/45m/135m
+        // sab timeframes par ek hi jagah se automatically laagu ho jaata hai.
+        const arr = _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
+        return (arr._formingLast && arr.length) ? arr.slice(0, -1) : arr;
       }
       const label = _sv2FindTFLabel(assetKey, tfMin, hintLabel);
       return label ? _sv2DataForTF(assetKey, label, cutoffTime) : [];

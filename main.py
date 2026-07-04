@@ -1598,7 +1598,7 @@ def _build_chart_html(
                     "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
             html = html.replace(_ph, "[]")
     # Inject debug info as JS variable — visible via window.__SV2_DEBUG in browser console
-    _sv2_safe = _sv2_err_msg.replace("</", "<\/")
+    _sv2_safe = _sv2_err_msg.replace("</", "<\\/")
     html = html.replace("</body>",
         f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};</script>\n</body>", 1)
     html = html.replace("__FYERS_APP_ID__", app_id)
