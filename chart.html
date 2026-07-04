@@ -10137,7 +10137,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, clipToLast) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10331,7 +10331,14 @@ function swingCompute(bars, tfMin) {
   ].filter(l => l.endTime > lastTime);
 
   for (const l of allCandles) {
-    out.push({ price: l.price, startTime: l.startTime, endTime: l.endTime,
+    // clipToLast (passed by SV2 callers, where data is truncated at a
+    // replay/historical cutoff — there IS no future candle to justify the
+    // usual +2×period forward projection). Without this, a line's endTime
+    // can sit past the last real candle, drawing a phantom line/candle in
+    // empty space — this was the actual root cause of the stray-candle bug,
+    // independent of TF and independent of the 15:30 session boundary.
+    const outEnd = clipToLast ? Math.min(l.endTime, lastTime) : l.endTime;
+    out.push({ price: l.price, startTime: l.startTime, endTime: outEnd,
                kind: l.kind, color: l.color, isInfinite: false, periodSec: l.periodSec, levelTf: tfMin });
   }
 
@@ -10714,7 +10721,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      swingCompute(dataCur, cellTFMin, true)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10728,7 +10735,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, true)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
