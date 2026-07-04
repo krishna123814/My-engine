@@ -2394,13 +2394,13 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Candle H/L (colour change) — SV2</span>
+          <span class="ind-name">Validation SR — SV2</span>
           <div class="ind-ctrl">
             <label class="toggle"><input type="checkbox" id="ck-sv2-candle-hl" checked onchange="onSv2CandleHLToggle(this)"><span class="sl"></span></label>
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Swing High/Low Lines — SV2</span>
+          <span class="ind-name">Colour Change — SV2</span>
           <div class="ind-ctrl">
             <label class="toggle"><input type="checkbox" id="ck-sv2-swing-hl" checked onchange="onSv2SwingHLToggle(this)"><span class="sl"></span></label>
           </div>
@@ -9839,6 +9839,50 @@ let SV2_SWING_TF_LIST = [];     // SV2's own independent copy
 const _SWING_STORE_KEY = 'swingTFList2';
 const _SV2_SWING_STORE_KEY = 'sv2SwingTFList';
 
+// ── Swing line "length" (infinite-line forward multiplier, in candles) ────
+// Default 100 candles forward from start (matches original hardcoded behavior).
+// SV2's own cell TF (the timeframe the chart itself is on, not a higher-TF
+// overlay) gets its own editable multiplier since it isn't part of the
+// SV2_SWING_TF_LIST array (that list only holds higher-TF overlays).
+const _SV2_OWNLEN_KEY = 'sv2SwingOwnLen';
+let SV2_SWING_OWN_LEN = +(_LS.getItem(_SV2_OWNLEN_KEY) || 100);
+function setSv2SwingOwnLen(v) {
+  SV2_SWING_OWN_LEN = Math.max(1, Math.min(500, Math.round(+v) || 100));
+  try { _LS.setItem(_SV2_OWNLEN_KEY, SV2_SWING_OWN_LEN); } catch(_) {}
+  const inp = document.getElementById('sv2-swing-ownlen');
+  if (inp) inp.value = SV2_SWING_OWN_LEN;
+  try { sv2SwingRefresh(); } catch(_) {}
+}
+// Validation SR (candle H/L) — own-TF length, candles (default 2, original hardcoded value)
+const _SV2_OWNCNDLEN_KEY = 'sv2CandleOwnLen';
+let SV2_CANDLE_OWN_LEN = +(_LS.getItem(_SV2_OWNCNDLEN_KEY) || 2);
+function setSv2CandleOwnLen(v) {
+  SV2_CANDLE_OWN_LEN = Math.max(1, Math.min(50, Math.round(+v) || 2));
+  try { _LS.setItem(_SV2_OWNCNDLEN_KEY, SV2_CANDLE_OWN_LEN); } catch(_) {}
+  const inp = document.getElementById('sv2-candle-ownlen');
+  if (inp) inp.value = SV2_CANDLE_OWN_LEN;
+  try { sv2SwingRefresh(); } catch(_) {}
+}
+// Per-TF length override for higher-TF chips (stored on the chip object itself
+// as tf.len, so it persists automatically inside SV2_SWING_TF_LIST/SWING_TF_LIST).
+function _swingChipSetLen(i, v) {
+  const _ctx = _swCtx();
+  const list = (_ctx === 'sv2') ? SV2_SWING_TF_LIST : SWING_TF_LIST;
+  if (!list[i]) return;
+  list[i].len = Math.max(1, Math.min(500, Math.round(+v) || 100));
+  if (_ctx === 'sv2') { _sv2TFSave(); sv2SwingRefresh(); }
+  else                { _swingTFSave(); _swingRefresh(); }
+}
+// Per-TF Validation SR (candle H/L) length override for higher-TF chips
+function _candleChipSetLen(i, v) {
+  const _ctx = _swCtx();
+  const list = (_ctx === 'sv2') ? SV2_SWING_TF_LIST : SWING_TF_LIST;
+  if (!list[i]) return;
+  list[i].cndLen = Math.max(1, Math.min(50, Math.round(+v) || 2));
+  if (_ctx === 'sv2') { _sv2TFSave(); sv2SwingRefresh(); }
+  else                { _swingTFSave(); _swingRefresh(); }
+}
+
 // ── Per Asset+TF future-line color — { "ASSET_tfMin": '#hex' } ──────────────
 // Default: '#2962ff' (blue). User can set red/green per asset+TF combination.
 let _VLINE_COLORS = {};
@@ -10143,6 +10187,21 @@ function _renderSwingChips() {
     chip.className = 'swing-tf-chip' + (tf.enabled ? ' active' : '');
     chip.style.borderLeftColor = swClr;
     chip.style.borderLeftWidth = '3px';
+    // Length inputs — only shown in SV2 (native-series render actually uses
+    // them; SV1 main chart draws infinite lines edge-to-edge via canvas, so
+    // a multiplier there wouldn't do anything and would just confuse the UI).
+    const lenHtml = (_ctx === 'sv2')
+      ? '<input class="swing-tf-len" type="number" min="1" max="500" step="1" value="' + (tf.len || 100) + '" ' +
+          'title="Colour Change length (candles forward)" ' +
+          'onclick="event.stopPropagation()" ' +
+          'onchange="_swingChipSetLen(' + i + ', this.value)" ' +
+          'style="width:40px;background:#12151c;border:1px solid #2a2e39;border-radius:4px;color:#d1d4dc;font-size:10px;padding:2px 3px;margin-left:4px;">' +
+        '<input class="swing-tf-len" type="number" min="1" max="50" step="1" value="' + (tf.cndLen || 2) + '" ' +
+          'title="Validation SR length (candles)" ' +
+          'onclick="event.stopPropagation()" ' +
+          'onchange="_candleChipSetLen(' + i + ', this.value)" ' +
+          'style="width:36px;background:#12151c;border:1px solid #2a2e39;border-radius:4px;color:#d1d4dc;font-size:10px;padding:2px 3px;margin-left:3px;">'
+      : '';
     chip.innerHTML =
       // Swing color dot
       '<button class="sr-clr-inp tv-clr-btn" title="Swing H/L color" data-color="' + swClr + '" style="background:' + swClr + '" ' +
@@ -10151,9 +10210,39 @@ function _renderSwingChips() {
       '<button class="sr-clr-inp tv-clr-btn" title="Candle H/L color" data-color="' + cnClr + '" style="background:' + cnClr + '" ' +
         'onclick="event.stopPropagation();_openChipColor(this,' + tf.min + ',\'candle\')"></button>' +
       '<span class="swing-chip-lbl" onclick="_swingChipToggle(' + i + ')">' + tf.label + '</span>' +
+      lenHtml +
       '<span class="swing-chip-del" onclick="_swingChipDel(' + i + ')">✕</span>';
     el.appendChild(chip);
   });
+
+  // "Own TF" length controls — only relevant in SV2 (each cell's own base
+  // timeframe swing/candle line, separate from the higher-TF overlay chips above).
+  let ownRow = document.getElementById('sv2-swing-ownlen-row');
+  if (_ctx === 'sv2') {
+    if (!ownRow) {
+      ownRow = document.createElement('div');
+      ownRow.id = 'sv2-swing-ownlen-row';
+      ownRow.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 0;font-size:10px;color:#9598a1;flex-wrap:wrap;';
+      ownRow.innerHTML =
+        '<span style="flex:1">Own-TF · Colour Change len</span>' +
+        '<input id="sv2-swing-ownlen" type="number" min="1" max="500" step="1" value="' + SV2_SWING_OWN_LEN + '" ' +
+          'onchange="setSv2SwingOwnLen(this.value)" ' +
+          'style="width:48px;background:#12151c;border:1px solid #2a2e39;border-radius:4px;color:#d1d4dc;font-size:10px;padding:2px 3px;">' +
+        '<span style="margin-left:8px">Validation SR len</span>' +
+        '<input id="sv2-candle-ownlen" type="number" min="1" max="50" step="1" value="' + SV2_CANDLE_OWN_LEN + '" ' +
+          'onchange="setSv2CandleOwnLen(this.value)" ' +
+          'style="width:44px;background:#12151c;border:1px solid #2a2e39;border-radius:4px;color:#d1d4dc;font-size:10px;padding:2px 3px;">';
+      el.parentNode.insertBefore(ownRow, el);
+    } else {
+      ownRow.style.display = '';
+      const inp = document.getElementById('sv2-swing-ownlen');
+      if (inp) inp.value = SV2_SWING_OWN_LEN;
+      const inp2 = document.getElementById('sv2-candle-ownlen');
+      if (inp2) inp2.value = SV2_CANDLE_OWN_LEN;
+    }
+  } else if (ownRow) {
+    ownRow.style.display = 'none';
+  }
 
   _updateCurrentTfColorRow();
 }
@@ -10265,7 +10354,15 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, lenMult, candleLenMult) {
+  // lenMult = kitne "candles" aage tak infinite Swing H/L line kheenchni hai
+  // (native line-series ko real end-timestamp chahiye, so "infinite" ek
+  // fixed-length approximation hai). Default 100 — original hardcoded value.
+  const _srLen = (typeof lenMult === 'number' && lenMult > 0) ? lenMult : 100;
+  // candleLenMult = Validation SR (candle H/L) line ki length, candles mein
+  // (creation ke waqt aur har touch/re-extend ke waqt dono jagah). Default 2
+  // — original hardcoded value.
+  const _cndLen = (typeof candleLenMult === 'number' && candleLenMult > 0) ? candleLenMult : 2;
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10351,7 +10448,7 @@ function swingCompute(bars, tfMin) {
         
         if (isTouched) {
           // TOUCHED — re-extend 1 candle ahead from the current bar
-          ln.endTime = cur.time + 2 * periodSec;
+          ln.endTime = cur.time + _cndLen * periodSec;
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
@@ -10392,12 +10489,12 @@ function swingCompute(bars, tfMin) {
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
+                     endTime: cur.time + _cndLen * periodSec,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
+                     endTime: cur.time + _cndLen * periodSec,
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
@@ -10422,7 +10519,8 @@ function swingCompute(bars, tfMin) {
 
   for (const sw of allSwings) {
     out.push({ price: sw.price, startTime: sw.startTime, endTime: null,
-               kind: sw.kind, color: srColor, isInfinite: true, levelTf: tfMin });
+               kind: sw.kind, color: srColor, isInfinite: true, levelTf: tfMin,
+               srLen: _srLen });
   }
 
   // Candle lines — Return ALL valid surviving lines without slicing/capping to 5
@@ -10498,7 +10596,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange, _lineWidth) {
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * (ln.srLen || 100)) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -10851,7 +10949,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      swingCompute(dataCur, cellTFMin, SV2_SWING_OWN_LEN, SV2_CANDLE_OWN_LEN)
         .forEach(l => {
           if (!l.isInfinite) {
             if (!SV2_CANDLE_HL_STATE.visible) return;   // Candle H/L rule off
@@ -10873,7 +10971,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, (typeof tf.len === 'number' ? tf.len : 100), (typeof tf.cndLen === 'number' ? tf.cndLen : 2))
           .forEach(l => {
             if (!l.isInfinite) {
               if (!SV2_CANDLE_HL_STATE.visible) return;   // Candle H/L rule off
