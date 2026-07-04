@@ -802,49 +802,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   cursor:not-allowed;
 }
 
-/* ── SV2 End-Day / Next-Day Buttons (step btn ke neeche stack) ─────────── */
-#sv2-endday-btn, #sv2-nextday-btn{
-  display:none;
-  position:fixed;
-  z-index:8498;
-  width:48px;height:48px;
-  border-radius:50%;
-  background:#1e222d;
-  box-shadow:0 4px 16px #0007;
-  font-size:17px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, opacity .2s;
-}
-#sv2-endday-btn{ border:2px solid #f0b429; color:#f0b429; }
-#sv2-nextday-btn{ border:2px solid #2962ff; color:#2962ff; }
-#sv2-endday-btn.visible, #sv2-nextday-btn.visible{ display:flex; }
-#sv2-endday-btn.disabled, #sv2-nextday-btn.disabled{
-  opacity:.3; border-color:#555; color:#555; cursor:not-allowed;
-}
-
-/* ── SV2 Replay status label — abhi kaunsa din/time replay ho raha hai ── */
-#sv2-replay-label{
-  display:none;
-  position:fixed;
-  z-index:8497;
-  background:#131722ee;
-  border:1px solid #2a2e39;
-  color:#d1d4dc;
-  font-size:11px;
-  font-weight:600;
-  padding:5px 10px;
-  border-radius:14px;
-  white-space:nowrap;
-  box-shadow:0 2px 10px #0007;
-  pointer-events:none;
-}
-#sv2-replay-label.visible{ display:block; }
-#sv2-replay-label .sv2-rl-time{ color:#26a69a; margin-left:4px; }
-
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
   display:none;
@@ -912,20 +869,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-drng-tab.active{background:#2962ff;border-color:#2962ff;color:#fff}
 .sv2-drng-tab-lbl{font-size:9px;opacity:.7;display:block}
 .sv2-drng-tab-val{font-size:12px;font-weight:700;margin-top:1px;display:block}
-
-/* Start-time row (replay ka "abhi kitna baj gaya" point) */
-#sv2-drng-time-row{
-  display:flex;align-items:center;gap:10px;
-  padding:10px 16px 0;
-}
-#sv2-drng-time-row label{
-  font-size:11px;font-weight:600;color:#787b86;flex:1;
-}
-#sv2-start-time{
-  background:#131722;border:1px solid #2a2e39;color:#d1d4dc;
-  font-size:13px;font-weight:700;border-radius:6px;
-  padding:6px 8px;
-}
 
 /* Calendar nav */
 #sv2-cal-nav{
@@ -2257,15 +2200,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ SV2 STEP / REPLAY BUTTON (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Step: Next Candle Replay" onclick="_sv2StepForward()">⏭</button>
 
-<!-- ═══ SV2 END DAY — usi din ki 3:25pm candle tak instantly pahuncho ══ -->
-<button id="sv2-endday-btn" title="End Day: Din ki last candle tak jao" onclick="_sv2EndDay()">🏁</button>
-
-<!-- ═══ SV2 NEXT DAY — agle din ka replay start karo ══ -->
-<button id="sv2-nextday-btn" title="Next Day: Agle din ka replay shuru karo" onclick="_sv2NextDay()">📆⏭</button>
-
-<!-- ═══ SV2 REPLAY STATUS LABEL — abhi kaunsa din/time replay ho raha hai ══ -->
-<div id="sv2-replay-label"></div>
-
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
 
@@ -2289,12 +2223,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <span class="sv2-drng-tab-lbl">END DATE</span>
         <span class="sv2-drng-tab-val" id="sv2-tab-end-val">-- Select --</span>
       </div>
-    </div>
-
-    <!-- Start time — replay "abhi ka time" kya maana jaye (default 09:15 = market open) -->
-    <div id="sv2-drng-time-row">
-      <label>⏱ START TIME (abhi time)</label>
-      <input type="time" id="sv2-start-time" value="09:15" onchange="_sv2DrngTimeChanged()">
     </div>
 
     <!-- Calendar nav row -->
@@ -2471,6 +2399,39 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
             <input class="ind-len" id="swing-line-width" type="number" value="1" min="0.5" max="4" step="0.5"
               title="S/R line thickness"
               onchange="setSwingLineWidth(+this.value)">
+          </div>
+        </div>
+        <!-- ── SR Rules (debug toggles) — help isolate root cause of stray
+             candle/line rendering after market close / during replay ── -->
+        <div class="ind-group-title" style="margin-top:6px">SR Rules (debug)</div>
+        <div class="ind-row">
+          <span class="ind-name">Candle H/L alag colour</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-sr-candle-color" checked onchange="setSrFlag('candleColor', this.checked)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">Candle H/L validation niyam</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-sr-validation" checked onchange="setSrFlag('validation', this.checked)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">Dedup rule (candle)</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-sr-dedup" checked onchange="setSrFlag('dedup', this.checked)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">Same price → bada TF jeete</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-sr-tf-priority" checked onchange="setSrFlag('tfPriority', this.checked)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">Session close (3:30) clamp</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-sr-session-clamp" checked onchange="setSrFlag('sessionClamp', this.checked)"><span class="sl"></span></label>
           </div>
         </div>
         <!-- TF list — always visible -->
@@ -4341,18 +4302,6 @@ function ss2ApplyAndClose() {
   var _selEnd    = null;      // Date object or null
   var _calYear   = 0;
   var _calMonth  = 0;         // 0-indexed (0=Jan)
-  var _selStartHH = 9;        // START TIME hour   — "abhi kitna baja hai" replay ke liye
-  var _selStartMM = 15;       // START TIME minute — default 09:15 = NSE market open
-  var IST_OFF_SEC = 5.5 * 3600;   // IST = UTC + 5:30
-
-  // Called when user changes the "START TIME" input in the sheet
-  window._sv2DrngTimeChanged = function() {
-    var inp = document.getElementById('sv2-start-time');
-    if (!inp || !inp.value) return;
-    var parts = inp.value.split(':');
-    _selStartHH = parseInt(parts[0], 10) || 0;
-    _selStartMM = parseInt(parts[1], 10) || 0;
-  };
 
   // Month names
   var MONTHS = ['January','February','March','April','May','June',
@@ -4488,8 +4437,6 @@ function ss2ApplyAndClose() {
     _renderTabs();
     _renderCal();
     _updateApplyBtn();
-    var tinp = document.getElementById('sv2-start-time');
-    if (tinp) tinp.value = (_selStartHH<10?'0':'')+_selStartHH+':'+(_selStartMM<10?'0':'')+_selStartMM;
     _backdrop.classList.add('open');
     _sheet.classList.add('open');
   }
@@ -4690,8 +4637,6 @@ function ss2ApplyAndClose() {
 
   function _sv2DrngApply() {
     if (!_selStart || !_selEnd || _selEnd < _selStart) return;
-    // Sync latest value from the time input in case onchange didn't fire yet
-    window._sv2DrngTimeChanged();
     var fromEpoch = _dateToEpoch(_selStart);
     // End date should cover the FULL day (up to but not including next day's
     // start) — otherwise candles on the end date itself wouldn't get hidden,
@@ -4700,19 +4645,11 @@ function ss2ApplyAndClose() {
     // comparison logic in _buildStack2CellChart (bar.time < rng.from) can
     // stay simple, and treat "to" as exclusive-end = start of day AFTER end date.
     var toEpoch = _dateToEpoch(_selEnd) + 86400;
-    // "resumeEpoch" = the exact instant on START DATE that replay should
-    // instantly catch up to — e.g. START DATE 21-Jun-2026 + START TIME 10:30
-    // means "abhi 10:30am chal raha hai": candles are hidden from day-start
-    // (fromEpoch, so higher-TF cells rebuild cleanly via the step engine),
-    // but the step engine auto-fast-forwards to 10:30am right after Apply.
-    var resumeEpoch = fromEpoch + (_selStartHH * 3600 + _selStartMM * 60) - IST_OFF_SEC;
     window._SV2_DATE_RANGE = {
       from:    fromEpoch,
       to:      toEpoch,
       fromStr: _fmtDate(_selStart),
       toStr:   _fmtDate(_selEnd),
-      resumeEpoch: resumeEpoch,
-      resumeStr:   (_selStartHH<10?'0':'')+_selStartHH+':'+(_selStartMM<10?'0':'')+_selStartMM,
     };
     if (_fab) _fab.classList.add('active-range');
     _sv2DrngClose();
@@ -4782,16 +4719,11 @@ function ss2ApplyAndClose() {
 
   // ── State ──────────────────────────────────────────────────────────────────
   var _stepBtn        = null;   // #sv2-step-btn element
-  var _enddayBtn      = null;   // #sv2-endday-btn element
-  var _nextdayBtn     = null;   // #sv2-nextday-btn element
-  var _replayLabel    = null;   // #sv2-replay-label element
   var _replayIdx      = 0;      // next candle index to replay (into hidden range)
   var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
   var _animating      = false;  // tap blocked jab true
   var _animRaf        = null;   // requestAnimationFrame handle
   var _ANIM_MS        = 1000;   // 1 second animation
-  var IST_OFF_SEC2    = 5.5 * 3600;
-  var _activeDayKey   = null;   // which trading-day is "today" for End-Day/Next-Day
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -4806,19 +4738,6 @@ function ss2ApplyAndClose() {
     var r = fab.getBoundingClientRect();
     _stepBtn.style.left = r.left + 'px';
     _stepBtn.style.top  = (r.bottom + 8) + 'px';
-    var nextTop = r.bottom + 8 + 56;   // step btn height(48) + 8 gap
-    if (_enddayBtn) {
-      _enddayBtn.style.left = r.left + 'px';
-      _enddayBtn.style.top  = nextTop + 'px';
-    }
-    if (_nextdayBtn) {
-      _nextdayBtn.style.left = r.left + 'px';
-      _nextdayBtn.style.top  = nextTop + 'px';   // same slot — only one shows at a time
-    }
-    if (_replayLabel) {
-      _replayLabel.style.left = r.left + 'px';
-      _replayLabel.style.top  = (nextTop + 56) + 'px';
-    }
   }
 
   // ── Show / hide step button ────────────────────────────────────────────────
@@ -4837,81 +4756,6 @@ function ss2ApplyAndClose() {
       _animating     = false;
       if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     }
-    _syncEndNextButtons();
-  }
-
-  // ── IST calendar-day key for a bar's epoch time — used to group candles
-  // by trading day so End-Day / Next-Day know where one day ends. ───────────
-  function _dayKeyIST(tSec) {
-    var istSec = tSec + IST_OFF_SEC2;
-    var d = new Date(istSec * 1000);
-    return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate();
-  }
-
-  // Lazy-init _activeDayKey to the first candle's day the first time we need it.
-  // Advanced explicitly by _sv2NextDay() — NOT re-derived from _replayIdx,
-  // so it stays stable across End Day (which lands exactly on the boundary).
-  function _ensureActiveDayKey() {
-    if (_activeDayKey === null && _replayCandles && _replayCandles.length) {
-      _activeDayKey = _dayKeyIST(_replayCandles[0].time);
-    }
-    return _activeDayKey;
-  }
-
-  // ── Show/hide + enable/disable End-Day / Next-Day buttons based on state ──
-  function _syncEndNextButtons() {
-    var rangeActive = !!(window._SV2_DATE_RANGE &&
-                         typeof window._SV2_DATE_RANGE.from === 'number');
-    var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
-    var show = rangeActive && stack2On;
-
-    if (_enddayBtn)  _enddayBtn.classList.toggle('visible', show);
-    if (_nextdayBtn) _nextdayBtn.classList.toggle('visible', show);
-    if (_replayLabel) _replayLabel.classList.toggle('visible', show);
-    if (!show) return;
-
-    if (!_replayCandles) _replayCandles = _buildReplayCandles();
-    var fullyDone   = _replayIdx >= _replayCandles.length;
-    var dayKey      = _ensureActiveDayKey();
-    var dayExhausted = fullyDone || (dayKey !== null &&
-                        _replayIdx < _replayCandles.length &&
-                        _dayKeyIST(_replayCandles[_replayIdx].time) !== dayKey);
-
-    // End Day: usable jab tak aaj ka din khatam nahi hua
-    if (_enddayBtn) {
-      _enddayBtn.style.display = dayExhausted ? 'none' : 'flex';
-      _enddayBtn.classList.toggle('disabled', _animating);
-    }
-    // Next Day: sirf jab aaj ka din khatam ho chuka ho aur aage aur din bache hon
-    if (_nextdayBtn) {
-      _nextdayBtn.style.display = (dayExhausted && !fullyDone) ? 'flex' : 'none';
-      _nextdayBtn.classList.toggle('disabled', _animating);
-    }
-
-    _updateReplayLabel();
-  }
-
-  // ── Replay status label — "kaunsa din, kaunsa time chal raha hai" ─────────
-  function _updateReplayLabel() {
-    if (!_replayLabel) return;
-    if (!_replayCandles || !_replayCandles.length) { _replayLabel.textContent = ''; return; }
-    var rng = window._SV2_DATE_RANGE;
-    if (_replayIdx <= 0) {
-      _replayLabel.innerHTML = '▶ Replay ready: ' + (rng ? rng.fromStr : '') +
-        '<span class="sv2-rl-time">' + (rng ? rng.resumeStr : '') + '</span>';
-      return;
-    }
-    var last = _replayCandles[_replayIdx - 1];
-    var istSec = last.time + IST_OFF_SEC2;
-    var d = new Date(istSec * 1000);
-    var dd = d.getUTCDate(), mo = d.getUTCMonth(), yy = d.getUTCFullYear();
-    var hh = d.getUTCHours(), mm = d.getUTCMinutes();
-    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    var dateStr = dd + '-' + MON[mo] + '-' + yy;
-    var timeStr = (hh<10?'0':'')+hh + ':' + (mm<10?'0':'')+mm;
-    var done = _replayIdx >= _replayCandles.length;
-    _replayLabel.innerHTML = (done ? '✔ Replay done: ' : '▶ Replaying: ') + dateStr +
-      '<span class="sv2-rl-time">' + timeStr + '</span>';
   }
 
   // ── Build sorted candle list for replay ───────────────────────────────────
@@ -5038,22 +4882,6 @@ function ss2ApplyAndClose() {
     return Math.floor(tSec / sec) * sec;
   }
 
-  // ── Commit ONE base-candle-step to every STACK2_CELL, at its FINAL (fully
-  // formed) value — no interpolation. Used both as the animation's t=1 frame
-  // AND as the per-step unit inside instant fast-forward (End Day / Set Time).
-  function _commitStepFinal(replayedSoFarArr) {
-    var isBN = ((typeof _stackKeyForAsset === 'function' ? _stackKeyForAsset(S.asset) : 'bn') === 'bn');
-    if (typeof STACK2_CELLS === 'undefined') return;
-    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
-      var cell = STACK2_CELLS[ci];
-      if (!cell || !cell.chart || !cell.series) continue;
-      var cellTFMin = _getCellTFMin(ci);
-      var partial = _computePartialCandle(replayedSoFarArr, cellTFMin, isBN);
-      if (!partial) continue;
-      try { cell.series.update(partial); } catch(_) {}
-    }
-  }
-
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
   // For each STACK2_CELL, find its current bucket bar from already-loaded data,
   // then animate the partial candle contribution on top.
@@ -5132,7 +4960,6 @@ function ss2ApplyAndClose() {
         if (_replayIdx >= _replayCandles.length) {
           _stepBtn.classList.add('done');
         }
-        _syncEndNextButtons();
       }
     }
 
@@ -5170,54 +4997,6 @@ function ss2ApplyAndClose() {
     _animateStep(stepBar);
   };
 
-  // ── Instant fast-forward: replay candles [fromIdx, toIdx) with NO animation,
-  // committing each closed higher-TF bucket transition as it happens so
-  // history isn't skipped — just faster than the 1s-per-candle step button.
-  // Used by: initial "resume at 10:30am" catch-up, and the End-Day button.
-  function _processStepsInstant(fromIdx, toIdx) {
-    if (!_replayCandles || toIdx <= fromIdx) return;
-    for (var i = fromIdx; i < toIdx; i++) {
-      var allReplayed = _replayCandles.slice(0, i + 1);
-      _commitStepFinal(allReplayed);
-      try { sv2SwingOnStep(_replayCandles[i].time); } catch(_) {}
-    }
-    _replayIdx = toIdx;
-    if (_replayIdx >= _replayCandles.length && _stepBtn) {
-      _stepBtn.classList.add('done');
-    }
-  }
-
-  // ── End Day: instantly fast-forward through every remaining candle of the
-  // CURRENT trading day (e.g. up to the 3:25pm candle for BankNifty). ───────
-  window._sv2EndDay = function() {
-    if (_animating) return;
-    if (!window._SV2_DATE_RANGE) return;
-    if (!_replayCandles) {
-      _replayCandles = _buildReplayCandles();
-      _replayIdx     = 0;
-    }
-    if (!_replayCandles.length) return;
-
-    var dayKey = _ensureActiveDayKey();
-    var target = _replayIdx;
-    while (target < _replayCandles.length && _dayKeyIST(_replayCandles[target].time) === dayKey) {
-      target++;
-    }
-    if (target === _replayIdx) { _syncEndNextButtons(); return; }
-    _processStepsInstant(_replayIdx, target);
-    _syncEndNextButtons();
-  };
-
-  // ── Next Day: moves the "active day" pointer forward to whichever trading
-  // day comes next in the range, and un-blocks Step/End-Day for it. No
-  // candles are pre-filled — the new day starts exactly like a fresh replay. ──
-  window._sv2NextDay = function() {
-    if (_animating) return;
-    if (!_replayCandles || _replayIdx >= _replayCandles.length) return;
-    _activeDayKey = _dayKeyIST(_replayCandles[_replayIdx].time);
-    _syncEndNextButtons();
-  };
-
   // ── React to FAB position changes (drag) — keep step btn aligned ──────────
   function _onFabMove() {
     if (_stepBtn && _stepBtn.classList.contains('visible')) _syncStepBtnPos();
@@ -5225,9 +5004,8 @@ function ss2ApplyAndClose() {
 
   // ── Listen for date range events ───────────────────────────────────────────
   document.addEventListener('sv2DateRangeApplied', function() {
-    _replayCandles = null;   // force rebuild
+    _replayCandles = null;   // force rebuild on next tap
     _replayIdx     = 0;
-    _activeDayKey  = null;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     if (_stepBtn) {
@@ -5235,35 +5013,14 @@ function ss2ApplyAndClose() {
     }
     _syncStepBtn();
     _syncStepBtnPos();
-
-    // ── "Abhi time X baja hai" — instantly catch up to resumeEpoch ─────────
-    // Deferred: buildStack2() (called right after this event fires, in the
-    // date-range module) rebuilds every cell's series from scratch via
-    // chunked setData calls — if we fast-forward before that finishes, our
-    // updates get wiped out. 450ms comfortably clears buildStack2's own
-    // 200ms/300ms follow-up timers.
-    setTimeout(function() {
-      var rng = window._SV2_DATE_RANGE;
-      if (rng && typeof rng.resumeEpoch === 'number') {
-        _replayCandles = _buildReplayCandles();
-        var target = 0;
-        while (target < _replayCandles.length && _replayCandles[target].time < rng.resumeEpoch) {
-          target++;
-        }
-        if (target > 0) _processStepsInstant(0, target);
-      }
-      _syncEndNextButtons();
-    }, 450);
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
     _replayCandles = null;
     _replayIdx     = 0;
-    _activeDayKey  = null;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     _syncStepBtn();
-    _syncEndNextButtons();
   });
 
   // ── FAB drag: reposition step btn ─────────────────────────────────────────
@@ -5277,10 +5034,7 @@ function ss2ApplyAndClose() {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   function _stepInit() {
-    _stepBtn     = document.getElementById('sv2-step-btn');
-    _enddayBtn   = document.getElementById('sv2-endday-btn');
-    _nextdayBtn  = document.getElementById('sv2-nextday-btn');
-    _replayLabel = document.getElementById('sv2-replay-label');
+    _stepBtn = document.getElementById('sv2-step-btn');
     if (!_stepBtn) return;
     _syncStepBtn();
     _watchFabPos();
@@ -7784,7 +7538,9 @@ function updateCellPrice(idx, data) {
 // ════════════════════════════════════════════════════════════════════════════
 function toggleIndPanel() {
   const p=document.getElementById('ind-panel'), b=document.getElementById('ind-btn');
-  b.classList.toggle('active', p.classList.toggle('open'));
+  const nowOpen = p.classList.toggle('open');
+  b.classList.toggle('active', nowOpen);
+  if (nowOpen) { try { _srFlagsSyncUI(); } catch(_) {} }
 }
 function indPanelBg(e) { if(e.target===document.getElementById('ind-panel'))toggleIndPanel(); }
 
@@ -9995,6 +9751,63 @@ function setSwingLineWidth(w) {
   _swingRefresh();
 }
 
+// ── SR Rule Toggles (debug) — isolate root cause of stray candle/line issues ──
+// candleColor : ON  → Candle H/L lines use their own color (_tfCandleColor)
+//               OFF → Candle H/L lines reuse the Swing color (no separate color)
+// validation  : ON  → touch-based validate/extend/delete rule for candle H/L lines
+//               OFF → candle H/L lines skip touch-validation (fixed 2-candle life only)
+// dedup       : ON  → same-price candle lines collapse to latest; candle beats swing
+//               OFF → no candle-level dedup, all raw candle lines kept
+// tfPriority  : ON  → same-price SWING lines collapse to the highest TF's line
+//               OFF → no swing-level dedup, all raw swing lines kept
+// sessionClamp: ON  → candle H/L line endTime clamped to that day's 15:30 session
+//               close, so lines/candles never visually extend into unusual times
+//               like 15:35/15:45/15:50 after market close
+//               OFF → endTime = candleTime + N×period (old behaviour, can spill
+//               past session close)
+const _SR_FLAGS_KEY = 'srRuleFlags1';
+let SR_FLAGS = { candleColor: true, validation: true, dedup: true, tfPriority: true, sessionClamp: true };
+function _srFlagsLoad() {
+  try {
+    const p = JSON.parse(_LS.getItem(_SR_FLAGS_KEY));
+    if (p && typeof p === 'object') SR_FLAGS = { ...SR_FLAGS, ...p };
+  } catch(_) {}
+}
+function _srFlagsSave() {
+  try { _LS.setItem(_SR_FLAGS_KEY, JSON.stringify(SR_FLAGS)); } catch(_) {}
+}
+_srFlagsLoad();
+function _srFlagsSyncUI() {
+  try {
+    const map = {
+      'ck-sr-candle-color':  'candleColor',
+      'ck-sr-validation':    'validation',
+      'ck-sr-dedup':         'dedup',
+      'ck-sr-tf-priority':   'tfPriority',
+      'ck-sr-session-clamp': 'sessionClamp',
+    };
+    for (const id in map) {
+      const el = document.getElementById(id);
+      if (el) el.checked = !!SR_FLAGS[map[id]];
+    }
+  } catch(_) {}
+}
+function setSrFlag(key, val) {
+  SR_FLAGS[key] = !!val;
+  _srFlagsSave();
+  // Refresh SR rendering everywhere (main chart, SV1 cells, SV2 cells)
+  try { _swingRefresh(); } catch(_) {}
+}
+// Session-close (15:30 IST) clamp helper — used by swingCompute() when
+// SR_FLAGS.sessionClamp is ON, so candle H/L lines never extend past the
+// trading day's close into unusual times.
+function _srSessionCloseFor(tSec) {
+  const IST_OFF   = 5.5 * 3600;
+  const istSec    = tSec + IST_OFF;
+  const dayStartU = Math.floor(istSec / 86400) * 86400 - IST_OFF; // UTC epoch of that IST day's 00:00
+  return dayStartU + (15 * 3600 + 30 * 60); // 15:30 IST
+}
+
 // ── Swing S/R — user-configurable timeframe list ──────────────────────────
 // Each entry: { min: <minutes>, label: <display string>, enabled: <bool> }
 const _SWING_TF_DEFAULTS = [];  // user adds their own — no defaults
@@ -10397,6 +10210,8 @@ function swingCompute(bars, tfMin) {
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
 
     // ── Step 1: Validate ALL active candle lines with current bar ───────
+    // (toggle: SR_FLAGS.validation — OFF skips touch-based extend/delete,
+    // lines then just live out their fixed initial 2×period lifespan)
     const validateLines = (arr) => {
       for (let j = arr.length - 1; j >= 0; j--) {
         const ln = arr[j];
@@ -10407,19 +10222,27 @@ function swingCompute(bars, tfMin) {
         
         if (isTouched) {
           // TOUCHED — re-extend 1 candle ahead from the current bar
-          ln.endTime = cur.time + 2 * periodSec;
+          let newEnd = cur.time + 2 * periodSec;
+          // toggle: SR_FLAGS.sessionClamp — never let an intraday candle H/L
+          // line extend past that trading day's 15:30 IST close (this is
+          // what previously caused stray lines/candles at 15:35/15:45/15:50)
+          if (SR_FLAGS.sessionClamp && tfMin < 1440) {
+            newEnd = Math.min(newEnd, _srSessionCloseFor(cur.time));
+          }
+          ln.endTime = newEnd;
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
         }
       }
     };
-    if (!isSessionGap) {
+    if (!isSessionGap && SR_FLAGS.validation) {
       validateLines(chLines);
       validateLines(clLines);
     }
     // isSessionGap === true: skip judging this round — lines carry forward
     // untouched, to be validated against the next (intraday) candle instead.
+    // SR_FLAGS.validation === false: skip touch-validation entirely this round.
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
     if (i >= 1 && pGreen && curRed) {
@@ -10446,14 +10269,19 @@ function swingCompute(bars, tfMin) {
       ...aRes.map(l => l.price),
       ...aSup.map(l => l.price)
     ]);
+    let _initEnd = cur.time + 2 * periodSec;
+    // toggle: SR_FLAGS.sessionClamp — same clamp applied at creation time too
+    if (SR_FLAGS.sessionClamp && tfMin < 1440) {
+      _initEnd = Math.min(_initEnd, _srSessionCloseFor(cur.time));
+    }
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
+                     endTime: _initEnd,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + 2 * periodSec,
+                     endTime: _initEnd,
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
@@ -10483,7 +10311,10 @@ function swingCompute(bars, tfMin) {
 
   // Candle lines — Return ALL valid surviving lines without slicing/capping to 5
   // Use per-TF candle color (user-configurable); falls back to swing color.
-  const _cndClr = _tfCandleColor(tfMin);
+  // toggle: SR_FLAGS.candleColor — OFF forces candle H/L lines to reuse the
+  // swing color instead of their own distinct color (useful to check whether
+  // color-handling itself is contributing to the rendering issue)
+  const _cndClr = SR_FLAGS.candleColor ? _tfCandleColor(tfMin) : srColor;
   const lastTime = data.length ? data[data.length - 1].time : 0;
   const allCandles = [
     ...chLines.map(l => ({ ...l, color: _cndClr })),
@@ -10671,6 +10502,47 @@ document.addEventListener('wheel',      _scheduleSwingRedraw, { passive: true })
 document.addEventListener('touchstart', _scheduleSwingRedraw, { passive: true });
 document.addEventListener('touchend',   _scheduleSwingRedraw, { passive: true });
 
+// ── Shared dedup step for multi-TF SR lines (SV1 + SV2 both call this) ────
+// toggle: SR_FLAGS.tfPriority — same-price SWING lines collapse to the
+//         highest TF's line (OFF → keep every raw swing line, no collapsing)
+// toggle: SR_FLAGS.dedup      — same-price CANDLE lines collapse to the
+//         latest startTime, and a candle line at a price beats any swing
+//         line at that same price (OFF → keep every raw candle line, and
+//         swing lines are never removed in favor of a candle line)
+function _srDedupLines(allLines) {
+  const swings  = allLines.filter(l => l.isInfinite);
+  const candles = allLines.filter(l => !l.isInfinite);
+
+  let swingOut;
+  if (SR_FLAGS.tfPriority) {
+    const m = new Map();
+    for (const l of swings) {
+      const ex = m.get(l.price);
+      if (!ex || l.levelTf > ex.levelTf) m.set(l.price, l);
+    }
+    swingOut = [...m.values()];
+  } else {
+    swingOut = swings;
+  }
+
+  let candleOut;
+  if (SR_FLAGS.dedup) {
+    const m = new Map();
+    for (const l of candles) {
+      const ex = m.get(l.price);
+      if (!ex || l.startTime > ex.startTime) m.set(l.price, l);
+    }
+    candleOut = [...m.values()];
+    // Candle H/L beats Swing H/L at the same price
+    const candlePrices = new Set(candleOut.map(l => l.price));
+    swingOut = swingOut.filter(l => !candlePrices.has(l.price));
+  } else {
+    candleOut = candles;
+  }
+
+  return [...swingOut, ...candleOut];
+}
+
 // ── Multi-timeframe SR: current TF + user-configured higher TF levels ────
 // Uses SWING_TF_LIST (set in indicator settings panel) — each enabled TF
 // that is strictly greater than the current chart TF is added as a layer.
@@ -10705,27 +10577,8 @@ function swingComputeMultiTF(asset, currentTf) {
     }
   }
 
-  // Step 1: Swing dedup — exact same price → highest TF rakho
-  const _swingByPrice = new Map();
-  // Step 2: Candle dedup — exact same price → latest startTime rakho
-  const _candleByPrice = new Map();
-  for (const line of allLines) {
-    if (line.isInfinite) {
-      const ex = _swingByPrice.get(line.price);
-      if (!ex || line.levelTf > ex.levelTf)
-        _swingByPrice.set(line.price, line);
-    } else {
-      const ex = _candleByPrice.get(line.price);
-      if (!ex || line.startTime > ex.startTime)
-        _candleByPrice.set(line.price, line);
-    }
-  }
-  // Step 3: Agar same price par candle H/L bhi hai aur swing bhi —
-  // candle H/L rakho, swing delete karo
-  for (const price of _candleByPrice.keys()) {
-    _swingByPrice.delete(price);
-  }
-  return [...Array.from(_swingByPrice.values()), ...Array.from(_candleByPrice.values())];
+  // Dedup step (toggle-aware — see SR_FLAGS.dedup / SR_FLAGS.tfPriority)
+  return _srDedupLines(allLines);
 }
 
 function initSwingIndicator() {
@@ -10871,21 +10724,9 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       }
     }
 
-    // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
-    // swing se upar priority do (SV1 swingComputeMultiTF ke saath identical)
-    const _swingByPrice  = new Map();
-    const _candleByPrice = new Map();
-    for (const line of allLines) {
-      if (line.isInfinite) {
-        const ex = _swingByPrice.get(line.price);
-        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
-      } else {
-        const ex = _candleByPrice.get(line.price);
-        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
-      }
-    }
-    for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
-    return [..._swingByPrice.values(), ..._candleByPrice.values()];
+    // Step 3: Dedup step (toggle-aware — identical to SV1 swingComputeMultiTF,
+    // see SR_FLAGS.dedup / SR_FLAGS.tfPriority)
+    return _srDedupLines(allLines);
   } catch(_) { return []; }
 }
 
