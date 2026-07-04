@@ -2401,39 +2401,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
               onchange="setSwingLineWidth(+this.value)">
           </div>
         </div>
-        <!-- ── SR Rules (debug toggles) — help isolate root cause of stray
-             candle/line rendering after market close / during replay ── -->
-        <div class="ind-group-title" style="margin-top:6px">SR Rules (debug)</div>
-        <div class="ind-row">
-          <span class="ind-name">Candle H/L alag colour</span>
-          <div class="ind-ctrl">
-            <label class="toggle"><input type="checkbox" id="ck-sr-candle-color" checked onchange="setSrFlag('candleColor', this.checked)"><span class="sl"></span></label>
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Candle H/L lines (validation niyam)</span>
-          <div class="ind-ctrl">
-            <label class="toggle"><input type="checkbox" id="ck-sr-validation" checked onchange="setSrFlag('validation', this.checked)"><span class="sl"></span></label>
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Dedup rule (candle)</span>
-          <div class="ind-ctrl">
-            <label class="toggle"><input type="checkbox" id="ck-sr-dedup" checked onchange="setSrFlag('dedup', this.checked)"><span class="sl"></span></label>
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Same price → bada TF jeete</span>
-          <div class="ind-ctrl">
-            <label class="toggle"><input type="checkbox" id="ck-sr-tf-priority" checked onchange="setSrFlag('tfPriority', this.checked)"><span class="sl"></span></label>
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Session close (3:30) clamp</span>
-          <div class="ind-ctrl">
-            <label class="toggle"><input type="checkbox" id="ck-sr-session-clamp" checked onchange="setSrFlag('sessionClamp', this.checked)"><span class="sl"></span></label>
-          </div>
-        </div>
         <!-- TF list — always visible -->
         <div class="swing-tf-panel open" id="swing-tf-panel">
           <!-- ── Preset row with lock button ── -->
@@ -3742,7 +3709,6 @@ function toggleStack2OnOff() {
 function _deactivateStack2() {
   _stack2Active = false;
   _stack2OnOff  = false;
-  window._SV2_REPLAY_CUTOFF = null;
   _saveStack2OnOff(false);
   _renderStack2Switch();
   const row = document.getElementById('gp-stack2-row');
@@ -7539,9 +7505,7 @@ function updateCellPrice(idx, data) {
 // ════════════════════════════════════════════════════════════════════════════
 function toggleIndPanel() {
   const p=document.getElementById('ind-panel'), b=document.getElementById('ind-btn');
-  const nowOpen = p.classList.toggle('open');
-  b.classList.toggle('active', nowOpen);
-  if (nowOpen) { try { _srFlagsSyncUI(); } catch(_) {} }
+  b.classList.toggle('active', p.classList.toggle('open'));
 }
 function indPanelBg(e) { if(e.target===document.getElementById('ind-panel'))toggleIndPanel(); }
 
@@ -9752,65 +9716,6 @@ function setSwingLineWidth(w) {
   _swingRefresh();
 }
 
-// ── SR Rule Toggles (debug) — isolate root cause of stray candle/line issues ──
-// candleColor : ON  → Candle H/L lines use their own color (_tfCandleColor)
-//               OFF → Candle H/L lines reuse the Swing color (no separate color)
-// validation  : ON  → Candle H/L lines are created + touch-validated normally
-//               OFF → Candle H/L lines are NOT created at all (hard switch) —
-//               only Swing H/L lines remain. Use this to test whether the
-//               whole Candle H/L subsystem is causing stray lines/candles.
-// dedup       : ON  → same-price candle lines collapse to latest; candle beats swing
-//               OFF → no candle-level dedup, all raw candle lines kept
-// tfPriority  : ON  → same-price SWING lines collapse to the highest TF's line
-//               OFF → no swing-level dedup, all raw swing lines kept
-// sessionClamp: ON  → candle H/L line endTime clamped to that day's 15:30 session
-//               close, so lines/candles never visually extend into unusual times
-//               like 15:35/15:45/15:50 after market close
-//               OFF → endTime = candleTime + N×period (old behaviour, can spill
-//               past session close)
-const _SR_FLAGS_KEY = 'srRuleFlags2';  // bumped v2 — earlier testing saved OFF values under v1; force fresh ON defaults
-let SR_FLAGS = { candleColor: true, validation: true, dedup: true, tfPriority: true, sessionClamp: true };
-function _srFlagsLoad() {
-  try {
-    const p = JSON.parse(_LS.getItem(_SR_FLAGS_KEY));
-    if (p && typeof p === 'object') SR_FLAGS = { ...SR_FLAGS, ...p };
-  } catch(_) {}
-}
-function _srFlagsSave() {
-  try { _LS.setItem(_SR_FLAGS_KEY, JSON.stringify(SR_FLAGS)); } catch(_) {}
-}
-_srFlagsLoad();
-function _srFlagsSyncUI() {
-  try {
-    const map = {
-      'ck-sr-candle-color':  'candleColor',
-      'ck-sr-validation':    'validation',
-      'ck-sr-dedup':         'dedup',
-      'ck-sr-tf-priority':   'tfPriority',
-      'ck-sr-session-clamp': 'sessionClamp',
-    };
-    for (const id in map) {
-      const el = document.getElementById(id);
-      if (el) el.checked = !!SR_FLAGS[map[id]];
-    }
-  } catch(_) {}
-}
-function setSrFlag(key, val) {
-  SR_FLAGS[key] = !!val;
-  _srFlagsSave();
-  // Refresh SR rendering everywhere (main chart, SV1 cells, SV2 cells)
-  try { _swingRefresh(); } catch(_) {}
-}
-// Session-close (15:30 IST) clamp helper — used by swingCompute() when
-// SR_FLAGS.sessionClamp is ON, so candle H/L lines never extend past the
-// trading day's close into unusual times.
-function _srSessionCloseFor(tSec) {
-  const IST_OFF   = 5.5 * 3600;
-  const istSec    = tSec + IST_OFF;
-  const dayStartU = Math.floor(istSec / 86400) * 86400 - IST_OFF; // UTC epoch of that IST day's 00:00
-  return dayStartU + (15 * 3600 + 30 * 60); // 15:30 IST
-}
-
 // ── Swing S/R — user-configurable timeframe list ──────────────────────────
 // Each entry: { min: <minutes>, label: <display string>, enabled: <bool> }
 const _SWING_TF_DEFAULTS = [];  // user adds their own — no defaults
@@ -10137,7 +10042,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, clipToLast) {
+function swingCompute(bars, tfMin, clampToLastBar) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10213,8 +10118,6 @@ function swingCompute(bars, tfMin, clipToLast) {
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
 
     // ── Step 1: Validate ALL active candle lines with current bar ───────
-    // (toggle: SR_FLAGS.validation — OFF skips touch-based extend/delete,
-    // lines then just live out their fixed initial 2×period lifespan)
     const validateLines = (arr) => {
       for (let j = arr.length - 1; j >= 0; j--) {
         const ln = arr[j];
@@ -10225,27 +10128,19 @@ function swingCompute(bars, tfMin, clipToLast) {
         
         if (isTouched) {
           // TOUCHED — re-extend 1 candle ahead from the current bar
-          let newEnd = cur.time + 2 * periodSec;
-          // toggle: SR_FLAGS.sessionClamp — never let an intraday candle H/L
-          // line extend past that trading day's 15:30 IST close (this is
-          // what previously caused stray lines/candles at 15:35/15:45/15:50)
-          if (SR_FLAGS.sessionClamp && tfMin < 1440) {
-            newEnd = Math.min(newEnd, _srSessionCloseFor(cur.time));
-          }
-          ln.endTime = newEnd;
+          ln.endTime = cur.time + 2 * periodSec;
         } else {
           // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
         }
       }
     };
-    if (!isSessionGap && SR_FLAGS.validation) {
+    if (!isSessionGap) {
       validateLines(chLines);
       validateLines(clLines);
     }
     // isSessionGap === true: skip judging this round — lines carry forward
     // untouched, to be validated against the next (intraday) candle instead.
-    // SR_FLAGS.validation === false: skip touch-validation entirely this round.
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
     if (i >= 1 && pGreen && curRed) {
@@ -10266,32 +10161,21 @@ function swingCompute(bars, tfMin, clipToLast) {
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
-    // toggle: SR_FLAGS.validation — OFF means the whole Candle H/L system
-    // (creation + touch-validation) is skipped entirely this bar, so no
-    // candle H/L lines exist at all (only Swing H/L lines remain). This is
-    // a hard on/off so the effect is immediately visible for debugging.
     // Agar candle high/low price kisi active swing H/L ki price se match kare
     // toh candle H/L line push mat karo — swing line already wahan hai
-    if (SR_FLAGS.validation) {
-      const _activeSwingPrices = new Set([
-        ...aRes.map(l => l.price),
-        ...aSup.map(l => l.price)
-      ]);
-      let _initEnd = cur.time + 2 * periodSec;
-      // toggle: SR_FLAGS.sessionClamp — same clamp applied at creation time too
-      if (SR_FLAGS.sessionClamp && tfMin < 1440) {
-        _initEnd = Math.min(_initEnd, _srSessionCloseFor(cur.time));
-      }
-      if (!_activeSwingPrices.has(cur.high)) {
-        chLines.push({ price: cur.high, startTime: cur.time,
-                       endTime: _initEnd,
-                       creationIndex: i, kind: 'ch', periodSec });
-      }
-      if (!_activeSwingPrices.has(cur.low)) {
-        clLines.push({ price: cur.low,  startTime: cur.time,
-                       endTime: _initEnd,
-                       creationIndex: i, kind: 'cl', periodSec });
-      }
+    const _activeSwingPrices = new Set([
+      ...aRes.map(l => l.price),
+      ...aSup.map(l => l.price)
+    ]);
+    if (!_activeSwingPrices.has(cur.high)) {
+      chLines.push({ price: cur.high, startTime: cur.time,
+                     endTime: cur.time + 2 * periodSec,
+                     creationIndex: i, kind: 'ch', periodSec });
+    }
+    if (!_activeSwingPrices.has(cur.low)) {
+      clLines.push({ price: cur.low,  startTime: cur.time,
+                     endTime: cur.time + 2 * periodSec,
+                     creationIndex: i, kind: 'cl', periodSec });
     }
 
     // DO NOT USE shift() here! We must not delete surviving lines artificially.
@@ -10320,25 +10204,29 @@ function swingCompute(bars, tfMin, clipToLast) {
 
   // Candle lines — Return ALL valid surviving lines without slicing/capping to 5
   // Use per-TF candle color (user-configurable); falls back to swing color.
-  // toggle: SR_FLAGS.candleColor — OFF forces candle H/L lines to reuse the
-  // swing color instead of their own distinct color (useful to check whether
-  // color-handling itself is contributing to the rendering issue)
-  const _cndClr = SR_FLAGS.candleColor ? _tfCandleColor(tfMin) : srColor;
+  const _cndClr = _tfCandleColor(tfMin);
   const lastTime = data.length ? data[data.length - 1].time : 0;
+  // ── SV2 (replay/historical) clamp ─────────────────────────────────────
+  // Live chart (SV1) me candle H/L line 2 period future project hoti hai
+  // (pending-zone design). SV2 me future candle exist hi nahi karta — na
+  // pehle (static historical view) na replay ke dauran — isliye wahan line
+  // ko seedha last actual candle ke end tak clip karo, TF ki parwaah kiye
+  // baghair. Session-close (15:30) tak nahi — kyunki 5m ka last candle
+  // 15:25 hota hai aur session-close tak chhod dene se woh bhi aage nikal
+  // jaati thi.
+  const _lastPeriodSec = data.length >= 2
+    ? (data[data.length - 1].time - data[data.length - 2].time)
+    : _defaultPeriodSec;
+  const _lastBarEnd = lastTime + _lastPeriodSec;
   const allCandles = [
     ...chLines.map(l => ({ ...l, color: _cndClr })),
     ...clLines.map(l => ({ ...l, color: _cndClr })),
-  ].filter(l => l.endTime > lastTime);
+  ]
+    .filter(l => l.endTime > lastTime)
+    .map(l => clampToLastBar ? { ...l, endTime: Math.min(l.endTime, _lastBarEnd) } : l);
 
   for (const l of allCandles) {
-    // clipToLast (passed by SV2 callers, where data is truncated at a
-    // replay/historical cutoff — there IS no future candle to justify the
-    // usual +2×period forward projection). Without this, a line's endTime
-    // can sit past the last real candle, drawing a phantom line/candle in
-    // empty space — this was the actual root cause of the stray-candle bug,
-    // independent of TF and independent of the 15:30 session boundary.
-    const outEnd = clipToLast ? Math.min(l.endTime, lastTime) : l.endTime;
-    out.push({ price: l.price, startTime: l.startTime, endTime: outEnd,
+    out.push({ price: l.price, startTime: l.startTime, endTime: l.endTime,
                kind: l.kind, color: l.color, isInfinite: false, periodSec: l.periodSec, levelTf: tfMin });
   }
 
@@ -10518,47 +10406,6 @@ document.addEventListener('wheel',      _scheduleSwingRedraw, { passive: true })
 document.addEventListener('touchstart', _scheduleSwingRedraw, { passive: true });
 document.addEventListener('touchend',   _scheduleSwingRedraw, { passive: true });
 
-// ── Shared dedup step for multi-TF SR lines (SV1 + SV2 both call this) ────
-// toggle: SR_FLAGS.tfPriority — same-price SWING lines collapse to the
-//         highest TF's line (OFF → keep every raw swing line, no collapsing)
-// toggle: SR_FLAGS.dedup      — same-price CANDLE lines collapse to the
-//         latest startTime, and a candle line at a price beats any swing
-//         line at that same price (OFF → keep every raw candle line, and
-//         swing lines are never removed in favor of a candle line)
-function _srDedupLines(allLines) {
-  const swings  = allLines.filter(l => l.isInfinite);
-  const candles = allLines.filter(l => !l.isInfinite);
-
-  let swingOut;
-  if (SR_FLAGS.tfPriority) {
-    const m = new Map();
-    for (const l of swings) {
-      const ex = m.get(l.price);
-      if (!ex || l.levelTf > ex.levelTf) m.set(l.price, l);
-    }
-    swingOut = [...m.values()];
-  } else {
-    swingOut = swings;
-  }
-
-  let candleOut;
-  if (SR_FLAGS.dedup) {
-    const m = new Map();
-    for (const l of candles) {
-      const ex = m.get(l.price);
-      if (!ex || l.startTime > ex.startTime) m.set(l.price, l);
-    }
-    candleOut = [...m.values()];
-    // Candle H/L beats Swing H/L at the same price
-    const candlePrices = new Set(candleOut.map(l => l.price));
-    swingOut = swingOut.filter(l => !candlePrices.has(l.price));
-  } else {
-    candleOut = candles;
-  }
-
-  return [...swingOut, ...candleOut];
-}
-
 // ── Multi-timeframe SR: current TF + user-configured higher TF levels ────
 // Uses SWING_TF_LIST (set in indicator settings panel) — each enabled TF
 // that is strictly greater than the current chart TF is added as a layer.
@@ -10593,8 +10440,27 @@ function swingComputeMultiTF(asset, currentTf) {
     }
   }
 
-  // Dedup step (toggle-aware — see SR_FLAGS.dedup / SR_FLAGS.tfPriority)
-  return _srDedupLines(allLines);
+  // Step 1: Swing dedup — exact same price → highest TF rakho
+  const _swingByPrice = new Map();
+  // Step 2: Candle dedup — exact same price → latest startTime rakho
+  const _candleByPrice = new Map();
+  for (const line of allLines) {
+    if (line.isInfinite) {
+      const ex = _swingByPrice.get(line.price);
+      if (!ex || line.levelTf > ex.levelTf)
+        _swingByPrice.set(line.price, line);
+    } else {
+      const ex = _candleByPrice.get(line.price);
+      if (!ex || line.startTime > ex.startTime)
+        _candleByPrice.set(line.price, line);
+    }
+  }
+  // Step 3: Agar same price par candle H/L bhi hai aur swing bhi —
+  // candle H/L rakho, swing delete karo
+  for (const price of _candleByPrice.keys()) {
+    _swingByPrice.delete(price);
+  }
+  return [...Array.from(_swingByPrice.values()), ...Array.from(_candleByPrice.values())];
 }
 
 function initSwingIndicator() {
@@ -10740,9 +10606,21 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       }
     }
 
-    // Step 3: Dedup step (toggle-aware — identical to SV1 swingComputeMultiTF,
-    // see SR_FLAGS.dedup / SR_FLAGS.tfPriority)
-    return _srDedupLines(allLines);
+    // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
+    // swing se upar priority do (SV1 swingComputeMultiTF ke saath identical)
+    const _swingByPrice  = new Map();
+    const _candleByPrice = new Map();
+    for (const line of allLines) {
+      if (line.isInfinite) {
+        const ex = _swingByPrice.get(line.price);
+        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
+      } else {
+        const ex = _candleByPrice.get(line.price);
+        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
+      }
+    }
+    for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
+    return [..._swingByPrice.values(), ..._candleByPrice.values()];
   } catch(_) { return []; }
 }
 
@@ -10779,25 +10657,10 @@ function sv2SwingInit(cutoffTime) {
 }
 
 // ── Refresh — chip/preset/line-width/toggle change par ──────────────────────
-// IMPORTANT: does NOT cache/reuse a "last cutoff" across calls — that caused
-// a stale cutoff from a previous date-range/replay session to leak into a
-// fresh historical view, making toggles look like they "worked for replay
-// but not historical". Instead the cutoff is always derived fresh:
-//   • Mid-replay  → window._SV2_REPLAY_CUTOFF (set only by sv2SwingOnStep,
-//                   reset to null on every date-range apply/clear)
-//   • Historical (date range set, no replay step taken yet) → rng.from
-//   • No date range active → null (full .gz data)
 function sv2SwingRefresh() {
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
-  const rng = window._SV2_DATE_RANGE;
-  let cutoff;
-  if (typeof window._SV2_REPLAY_CUTOFF === 'number') {
-    cutoff = window._SV2_REPLAY_CUTOFF;
-  } else if (rng && typeof rng.from === 'number') {
-    cutoff = rng.from;
-  } else {
-    cutoff = null;
-  }
+  const rng    = window._SV2_DATE_RANGE;
+  const cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
   sv2SwingInit(cutoff);
 }
 
@@ -10805,8 +10668,7 @@ function sv2SwingRefresh() {
 function sv2SwingOnStep(closedCandleTime) {
   if (!SWING_STATE.visible) return;
   // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
-  window._SV2_REPLAY_CUTOFF = closedCandleTime + 1;
-  sv2SwingInit(window._SV2_REPLAY_CUTOFF);
+  sv2SwingInit(closedCandleTime + 1);
 }
 
 // ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
@@ -10825,8 +10687,6 @@ function sv2SwingClear() {
 
 // ── Date Range events sunna ─────────────────────────────────────────────────
 document.addEventListener('sv2DateRangeApplied', function(e) {
-  // New date range → any previous replay position is no longer valid.
-  window._SV2_REPLAY_CUTOFF = null;
   const rng = e && e.detail;
   if (rng && typeof rng.from === 'number') {
     // buildStack2 ke baad settle hone ka time do (500ms)
@@ -10834,7 +10694,6 @@ document.addEventListener('sv2DateRangeApplied', function(e) {
   }
 });
 document.addEventListener('sv2DateRangeCleared', function() {
-  window._SV2_REPLAY_CUTOFF = null;
   setTimeout(() => sv2SwingInit(null), 550);
 });
 
