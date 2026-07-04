@@ -10105,7 +10105,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, virtualNowSec) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10137,11 +10137,21 @@ function swingCompute(bars, tfMin) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    // Pure time-based check — market open/close ya replay mode pe depend nahi.
+    // Pure time-based check — market open/close pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
-    // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
+    // "Abhi" ka time normally real Date.now() hota hai — LEKIN Bar Replay
+    // mein "abhi" ka matlab replay ka virtual clock hai, real wall-clock
+    // nahi. Pehle yeh hamesha Date.now() use karta tha, jo replay ke data
+    // (jo hamesha aaj se purana hota hai) ke liye hamesha TRUE (bar ka
+    // duration already beet chuka) nikalta — matlab last bar hamesha
+    // "closed" maan liya jaata, chahe replay usse abhi tak reach na hua ho.
+    // Isi wajah se SR validation rules forming candle par bhi turant fire
+    // ho jaate the — sabhi TF par, kyunki yeh function har TF ke liye
+    // shared hai. Fix: jab caller replay ka virtualNowSec de, wahi use karo.
     const barDuration = last.time - prev.time;
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowSec = (typeof virtualNowSec === 'number')
+                   ? virtualNowSec
+                   : Math.floor(Date.now() / 1000);
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
@@ -10656,7 +10666,12 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      // cutoffTime = replay ka virtual "abhi" (last replayed base-candle
+      // time + 1). Isse pass karna zaroori hai warna swingCompute andar
+      // real Date.now() use karke last (abhi bhi forming) candle ko
+      // "closed" maan leta — replay mein hamesha true nikalta kyunki
+      // replay ka data hamesha aaj se purana hota hai.
+      swingCompute(dataCur, cellTFMin, cutoffTime)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10670,7 +10685,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, cutoffTime)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
