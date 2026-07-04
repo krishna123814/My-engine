@@ -250,6 +250,8 @@
                 Tools: trendline, hline, vline, ray, extended, arrow, rect, text
                 _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
   Line 8540   TF Chips in Drawing Settings Modal
+  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
+                GD.init(), GD.push(), GD.pull(), GD.signIn()
   Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -800,6 +802,49 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   cursor:not-allowed;
 }
 
+/* ── SV2 End-Day / Next-Day Buttons (step btn ke neeche stack) ─────────── */
+#sv2-endday-btn, #sv2-nextday-btn{
+  display:none;
+  position:fixed;
+  z-index:8498;
+  width:48px;height:48px;
+  border-radius:50%;
+  background:#1e222d;
+  box-shadow:0 4px 16px #0007;
+  font-size:17px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, opacity .2s;
+}
+#sv2-endday-btn{ border:2px solid #f0b429; color:#f0b429; }
+#sv2-nextday-btn{ border:2px solid #2962ff; color:#2962ff; }
+#sv2-endday-btn.visible, #sv2-nextday-btn.visible{ display:flex; }
+#sv2-endday-btn.disabled, #sv2-nextday-btn.disabled{
+  opacity:.3; border-color:#555; color:#555; cursor:not-allowed;
+}
+
+/* ── SV2 Replay status label — abhi kaunsa din/time replay ho raha hai ── */
+#sv2-replay-label{
+  display:none;
+  position:fixed;
+  z-index:8497;
+  background:#131722ee;
+  border:1px solid #2a2e39;
+  color:#d1d4dc;
+  font-size:11px;
+  font-weight:600;
+  padding:5px 10px;
+  border-radius:14px;
+  white-space:nowrap;
+  box-shadow:0 2px 10px #0007;
+  pointer-events:none;
+}
+#sv2-replay-label.visible{ display:block; }
+#sv2-replay-label .sv2-rl-time{ color:#26a69a; margin-left:4px; }
+
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
   display:none;
@@ -867,6 +912,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-drng-tab.active{background:#2962ff;border-color:#2962ff;color:#fff}
 .sv2-drng-tab-lbl{font-size:9px;opacity:.7;display:block}
 .sv2-drng-tab-val{font-size:12px;font-weight:700;margin-top:1px;display:block}
+
+/* Start-time row (replay ka "abhi kitna baj gaya" point) */
+#sv2-drng-time-row{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 16px 0;
+}
+#sv2-drng-time-row label{
+  font-size:11px;font-weight:600;color:#787b86;flex:1;
+}
+#sv2-start-time{
+  background:#131722;border:1px solid #2a2e39;color:#d1d4dc;
+  font-size:13px;font-weight:700;border-radius:6px;
+  padding:6px 8px;
+}
 
 /* Calendar nav */
 #sv2-cal-nav{
@@ -1341,6 +1400,68 @@ select.s-select{
 }
 #s-cross-color:hover{border-color:#9598a1}
 
+/* ── Fix 13: Overlay panel ────────────────────────────────────── */
+#overlay-btn{
+  height:18px;padding:0 7px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+#overlay-btn:active{background:#2a2e39}
+#overlay-btn.active{border-color:#2962ff;color:#2962ff}
+#overlay-dd{
+  display:none;position:fixed;bottom:30px;left:100px;
+  background:#1e222d;border:1px solid #363c4e;border-radius:6px;
+  z-index:9999;box-shadow:0 8px 24px #0009;min-width:120px;overflow:hidden;
+}
+#overlay-dd.open{display:block}
+.ovl-dd-item{
+  padding:8px 12px;font-size:12px;color:#d1d4dc;cursor:pointer;
+  border-bottom:1px solid #2a2e3944;
+}
+.ovl-dd-item:last-child{border-bottom:none}
+.ovl-dd-item:hover{background:#2a2e39}
+/* Overlay panels now tile like grid cells — no resize/drag */
+.ovl-panel{
+  position:fixed;z-index:8000;
+  background:#131722;border:1px solid #2a2e39;
+  overflow:hidden;display:flex;flex-direction:column;
+  box-sizing:border-box;
+}
+.ovl-panel-hdr{
+  height:20px;background:#1e222d;border-bottom:1px solid #2a2e39;
+  display:flex;align-items:center;padding:0 5px;gap:3px;flex-shrink:0;
+}
+.ovl-panel-title{font-size:9px;color:#787b86;flex:1}
+.ovl-panel-home{
+  background:none;border:none;color:#787b86;font-size:10px;cursor:pointer;
+  padding:1px 4px;border-radius:2px;
+}
+.ovl-panel-home:hover{background:#2a2e39;color:#d1d4dc}
+.ovl-panel-body{flex:1;min-height:0;overflow:hidden}
+#ovl-count-inp{
+  width:40px;height:22px;background:#131722;border:1px solid #363c4e;
+  border-radius:3px;color:#d1d4dc;font-size:12px;text-align:center;
+  -webkit-user-select:auto;user-select:auto;
+}
+/* Active overlay panel highlight */
+.ovl-panel.ovl-active{
+  border:2px solid #2962ff !important;
+  box-shadow:0 0 0 1px #2962ff44;
+}
+.ovl-panel.ovl-active .ovl-panel-hdr{
+  background:#1a2444;
+}
+.ovl-panel-hdr{cursor:pointer;}
+
+/* Close-all floating button shown when overlays are active */
+#ovl-close-all{
+  display:none;position:fixed;top:50px;right:6px;z-index:8500;
+  background:#2a2e39;border:1px solid #363c4e;border-radius:20px;
+  color:#d1d4dc;font-size:10px;padding:4px 10px;cursor:pointer;
+  box-shadow:0 4px 12px #000a;gap:4px;align-items:center;
+}
+#ovl-close-all:hover{background:#363c4e}
+
 /* ── Go-to-latest button (Fix 10: 70% smaller) ────────────────────── */
 #goto-latest-btn{
   position:fixed;bottom:30px;right:6px;z-index:8200;
@@ -1759,6 +1880,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
+    <button class="hdr-icon-btn" id="gh-save-btn" 
+      onclick="GH.push(true)" 
+      oncontextmenu="event.preventDefault(); GH.reset();"
+      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
+      ontouchend="clearTimeout(this._ghLong)"
+      title="Save to GitHub (Long-press to reset token)" 
+      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
+      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+    </button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
@@ -1787,6 +1917,51 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
   
+  <!-- GitHub Sync Buttons (Moved to Top) -->
+  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
+    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
+    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
+      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
+      PULL (Restore)
+    </button>
+    <button onclick="GH.reset()" 
+      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
+      Reset
+    </button>
+  </div>
+
+  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
+    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
+    <!-- Auto-save toggle -->
+    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
+      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
+             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
+             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
+      title="Auto-save on/off">⚡ Auto</button>
+    <!-- Cloud on/off toggle -->
+    <button id="gd-toggle" onclick="gdToggle()"
+      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
+             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
+      title="Cloud sync on/off">🟢</button>
+    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
+  </div>
+
+  <!-- Manual token paste — popup URL copy karke yahan paste karo -->
+  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
+    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
+    <div style="display:flex;gap:6px;">
+      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
+        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
+               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
+      <button onclick="gdManualToken()"
+        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
+               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
+        ✓ OK
+      </button>
+    </div>
+  </div>
+  <!-- ss-status hidden — sirf internal use -->
+  <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
   <div id="lm-list"><div class="lm-empty">No saved layouts</div></div>
 </div>
@@ -2036,6 +2211,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
+  <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
@@ -2054,6 +2230,24 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
 </div>
 
+<!-- ═══ CLOSE-ALL OVERLAYS BUTTON ══════════════════════════════════ -->
+<button id="ovl-close-all" onclick="_closeAllOverlays()">✕ Close All Overlays</button>
+
+<!-- ═══ OVERLAY DROPDOWN ═════════════════════════════════════════════ -->
+<div id="overlay-dd">
+  <div class="ovl-dd-item" onclick="openOverlayPanels()">Open</div>
+  <div class="ovl-dd-item" onclick="openOverlaySetting()">Setting</div>
+</div>
+
+<!-- ═══ OVERLAY SETTING PANEL ═══════════════════════════════════════ -->
+<div id="ovl-setting-panel" style="display:none;position:fixed;z-index:10001;bottom:35px;left:110px;background:#1e222d;border:1px solid #363c4e;border-radius:8px;padding:12px 14px;box-shadow:0 8px 24px #0009;min-width:170px;">
+  <div style="font-size:11px;font-weight:700;color:#d1d4dc;margin-bottom:8px">Overlay Setting</div>
+  <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#9598a1">
+    <span>Screens</span>
+    <input id="ovl-count-inp" type="number" min="1" max="4" value="2">
+  </div>
+  <button class="goto-date-go" style="margin-top:10px;width:100%" onclick="closeOverlaySetting()">Done</button>
+</div>
 
 </div><!-- #app -->
 
@@ -2062,6 +2256,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 <!-- ═══ SV2 STEP / REPLAY BUTTON (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Step: Next Candle Replay" onclick="_sv2StepForward()">⏭</button>
+
+<!-- ═══ SV2 END DAY — usi din ki 3:25pm candle tak instantly pahuncho ══ -->
+<button id="sv2-endday-btn" title="End Day: Din ki last candle tak jao" onclick="_sv2EndDay()">🏁</button>
+
+<!-- ═══ SV2 NEXT DAY — agle din ka replay start karo ══ -->
+<button id="sv2-nextday-btn" title="Next Day: Agle din ka replay shuru karo" onclick="_sv2NextDay()">📆⏭</button>
+
+<!-- ═══ SV2 REPLAY STATUS LABEL — abhi kaunsa din/time replay ho raha hai ══ -->
+<div id="sv2-replay-label"></div>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -2086,6 +2289,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <span class="sv2-drng-tab-lbl">END DATE</span>
         <span class="sv2-drng-tab-val" id="sv2-tab-end-val">-- Select --</span>
       </div>
+    </div>
+
+    <!-- Start time — replay "abhi ka time" kya maana jaye (default 09:15 = market open) -->
+    <div id="sv2-drng-time-row">
+      <label>⏱ START TIME (abhi time)</label>
+      <input type="time" id="sv2-start-time" value="09:15" onchange="_sv2DrngTimeChanged()">
     </div>
 
     <!-- Calendar nav row -->
@@ -3903,36 +4112,18 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to) stay on the timeline but
-      // are painted blank (background color) so the timeline stays continuous
-      // — no gap. Bar Replay reveals them one at a time by restoring normal
-      // colors. Candles BEFORE the range stay untouched (S&R indicator needs
-      // that history). Candles AFTER the range are still dropped for now,
-      // since they'd represent "the future" relative to the replay start.
+      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
+      // (not just hidden visually) so that timeScale shows a genuine gap —
+      // this is the empty space future Bar Replay will fill in one at a time.
+      // Candles BEFORE the range stay untouched (S&R indicator needs that
+      // history). Candles AFTER the range are also dropped for now, since
+      // they'd represent "the future" relative to the replay starting point.
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        const _blank = S.bgColor || '#131722';
-        dataToShow = data
-          .filter(bar => bar.time < rng.to)
-          .map(bar => (bar.time >= rng.from)
-            ? { ...bar, color: _blank, wickColor: _blank, borderColor: _blank }
-            : bar);
-        _dbg.push('rangeBlank from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        dataToShow = data.filter(bar => bar.time < rng.from);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
-
-      // ── Bar-Replay support: keep a LIVE reference to the exact array that's
-      // sitting on the chart, plus a time→index map, so Step Replay can patch
-      // a bar ANYWHERE in the middle of the timeline (not just the last bar).
-      // NOTE: series.update() in lightweight-charts v4 can only touch the
-      // LAST bar of the series (or append past it) — since blanked replay
-      // bars sit in the MIDDLE of an already-loaded range, update() silently
-      // throws (swallowed by try/catch) and the candle never reveals, even
-      // though the S&R indicator (unrelated code path) keeps working fine.
-      // Fix: mutate this array in place and re-apply via setData() instead.
-      c.sv2DisplayData = dataToShow;
-      c.sv2TimeIndex = {};
-      for (let _i = 0; _i < dataToShow.length; _i++) c.sv2TimeIndex[dataToShow[_i].time] = _i;
 
       const CHUNK = 500;
       let offset = 0;
@@ -3940,34 +4131,7 @@ function _buildStack2CellChart(idx) {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
         if (!slice.length) {
-          // FIX: Date range active hone par scrollToRealTime() blank/future area mein
-          // jump kar deta tha (overnight gap ka dusra reason). Ab last historical bar
-          // tak scroll karo taaki chart seedha uspe land kare jab replay start ho.
-          const _rngNow = window._SV2_DATE_RANGE;
-          if (_rngNow && typeof _rngNow.from === 'number') {
-            try {
-              // Last visible (non-blank) bar dhundo aur wahan scroll karo
-              const _allD = c.sv2DisplayData;
-              if (Array.isArray(_allD)) {
-                let _lastHistBar = null;
-                for (let _di = _allD.length - 1; _di >= 0; _di--) {
-                  if (_allD[_di].time < _rngNow.from) { _lastHistBar = _allD[_di]; break; }
-                }
-                if (_lastHistBar) {
-                  c.chart.timeScale().setVisibleRange({
-                    from: _lastHistBar.time - 60 * 300,
-                    to:   _lastHistBar.time + 60 * 20,
-                  });
-                } else {
-                  c.chart.timeScale().scrollToRealTime();
-                }
-              } else {
-                c.chart.timeScale().scrollToRealTime();
-              }
-            } catch(_) {}
-          } else {
-            try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          }
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
           return;
         }
         try {
@@ -3979,28 +4143,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else {
-          const _rngFinal = window._SV2_DATE_RANGE;
-          if (_rngFinal && typeof _rngFinal.from === 'number') {
-            try {
-              const _allD2 = c.sv2DisplayData;
-              let _lastHist2 = null;
-              if (Array.isArray(_allD2)) {
-                for (let _di2 = _allD2.length - 1; _di2 >= 0; _di2--) {
-                  if (_allD2[_di2].time < _rngFinal.from) { _lastHist2 = _allD2[_di2]; break; }
-                }
-              }
-              if (_lastHist2) {
-                c.chart.timeScale().setVisibleRange({
-                  from: _lastHist2.time - 60 * 300,
-                  to:   _lastHist2.time + 60 * 20,
-                });
-              } else { c.chart.timeScale().scrollToRealTime(); }
-            } catch(_) { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
-          } else {
-            try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          }
-        }
+        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -4198,6 +4341,18 @@ function ss2ApplyAndClose() {
   var _selEnd    = null;      // Date object or null
   var _calYear   = 0;
   var _calMonth  = 0;         // 0-indexed (0=Jan)
+  var _selStartHH = 9;        // START TIME hour   — "abhi kitna baja hai" replay ke liye
+  var _selStartMM = 15;       // START TIME minute — default 09:15 = NSE market open
+  var IST_OFF_SEC = 5.5 * 3600;   // IST = UTC + 5:30
+
+  // Called when user changes the "START TIME" input in the sheet
+  window._sv2DrngTimeChanged = function() {
+    var inp = document.getElementById('sv2-start-time');
+    if (!inp || !inp.value) return;
+    var parts = inp.value.split(':');
+    _selStartHH = parseInt(parts[0], 10) || 0;
+    _selStartMM = parseInt(parts[1], 10) || 0;
+  };
 
   // Month names
   var MONTHS = ['January','February','March','April','May','June',
@@ -4333,6 +4488,8 @@ function ss2ApplyAndClose() {
     _renderTabs();
     _renderCal();
     _updateApplyBtn();
+    var tinp = document.getElementById('sv2-start-time');
+    if (tinp) tinp.value = (_selStartHH<10?'0':'')+_selStartHH+':'+(_selStartMM<10?'0':'')+_selStartMM;
     _backdrop.classList.add('open');
     _sheet.classList.add('open');
   }
@@ -4533,29 +4690,29 @@ function ss2ApplyAndClose() {
 
   function _sv2DrngApply() {
     if (!_selStart || !_selEnd || _selEnd < _selStart) return;
-    // FIX: fromEpoch = 9:15 IST of the selected start date.
-    // .gz data mein 5m candles ka pehla bar 9:15 IST par hota hai.
-    // Real UTC = IST - 5:30 → 9:15 IST = 3:45 UTC = UTC-midnight + 13500s.
-    // Pehle yahan 13800 (9:20 IST) tha — isse 9:15 candle historical mein
-    // dikhti thi lekin replay range mein nahi aati thi, jisse replay start
-    // par overnight gap ban jata tha (9:15 bar blank nahi hoti thi).
-    // 9:15 IST = 3:45 UTC → UTC-midnight + 3h45m = 13500s
-    var IST_915_OFFSET_SEC = 3 * 3600 + 45 * 60; // 13500
-    var fromEpoch = _dateToEpoch(_selStart) + IST_915_OFFSET_SEC;
-    // FIX: toEpoch = 15:30 IST of selEnd day (end of NSE trading session).
-    // .gz data mein candles ka last bar 15:25 IST hota hai (real UTC = 9:55 UTC).
-    // Pehle toEpoch = next day UTC midnight tha — isse agle din ke candles
-    // replay range mein aa jate the, jo 3:35, 3:50pm jaise unusual times
-    // mein dikhte the. Sirf selEnd din ki 15:30 IST tak include karo.
-    // 15:30 IST = 10:00 UTC → UTC-midnight + 10h = 36000s
-    // +1 extra second taaki 15:30 ka bar bhi inclusive ho (exclusive upper bound)
-    var IST_1530_OFFSET_SEC = 10 * 3600 + 1; // 36001 (15:30:01 UTC → exclusive of 15:30)
-    var toEpoch = _dateToEpoch(_selEnd) + IST_1530_OFFSET_SEC;
+    // Sync latest value from the time input in case onchange didn't fire yet
+    window._sv2DrngTimeChanged();
+    var fromEpoch = _dateToEpoch(_selStart);
+    // End date should cover the FULL day (up to but not including next day's
+    // start) — otherwise candles on the end date itself wouldn't get hidden,
+    // since their bar.time would be >= toEpoch (start of that day) and our
+    // filter only keeps bar.time < rng.from. We add +86400 here so the
+    // comparison logic in _buildStack2CellChart (bar.time < rng.from) can
+    // stay simple, and treat "to" as exclusive-end = start of day AFTER end date.
+    var toEpoch = _dateToEpoch(_selEnd) + 86400;
+    // "resumeEpoch" = the exact instant on START DATE that replay should
+    // instantly catch up to — e.g. START DATE 21-Jun-2026 + START TIME 10:30
+    // means "abhi 10:30am chal raha hai": candles are hidden from day-start
+    // (fromEpoch, so higher-TF cells rebuild cleanly via the step engine),
+    // but the step engine auto-fast-forwards to 10:30am right after Apply.
+    var resumeEpoch = fromEpoch + (_selStartHH * 3600 + _selStartMM * 60) - IST_OFF_SEC;
     window._SV2_DATE_RANGE = {
       from:    fromEpoch,
       to:      toEpoch,
       fromStr: _fmtDate(_selStart),
       toStr:   _fmtDate(_selEnd),
+      resumeEpoch: resumeEpoch,
+      resumeStr:   (_selStartHH<10?'0':'')+_selStartHH+':'+(_selStartMM<10?'0':'')+_selStartMM,
     };
     if (_fab) _fab.classList.add('active-range');
     _sv2DrngClose();
@@ -4625,11 +4782,16 @@ function ss2ApplyAndClose() {
 
   // ── State ──────────────────────────────────────────────────────────────────
   var _stepBtn        = null;   // #sv2-step-btn element
+  var _enddayBtn      = null;   // #sv2-endday-btn element
+  var _nextdayBtn     = null;   // #sv2-nextday-btn element
+  var _replayLabel    = null;   // #sv2-replay-label element
   var _replayIdx      = 0;      // next candle index to replay (into hidden range)
   var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
   var _animating      = false;  // tap blocked jab true
   var _animRaf        = null;   // requestAnimationFrame handle
   var _ANIM_MS        = 1000;   // 1 second animation
+  var IST_OFF_SEC2    = 5.5 * 3600;
+  var _activeDayKey   = null;   // which trading-day is "today" for End-Day/Next-Day
 
   // ── BN base TF for step: always 5m ────────────────────────────────────────
   var BN_STEP_TF  = '5m';
@@ -4644,6 +4806,19 @@ function ss2ApplyAndClose() {
     var r = fab.getBoundingClientRect();
     _stepBtn.style.left = r.left + 'px';
     _stepBtn.style.top  = (r.bottom + 8) + 'px';
+    var nextTop = r.bottom + 8 + 56;   // step btn height(48) + 8 gap
+    if (_enddayBtn) {
+      _enddayBtn.style.left = r.left + 'px';
+      _enddayBtn.style.top  = nextTop + 'px';
+    }
+    if (_nextdayBtn) {
+      _nextdayBtn.style.left = r.left + 'px';
+      _nextdayBtn.style.top  = nextTop + 'px';   // same slot — only one shows at a time
+    }
+    if (_replayLabel) {
+      _replayLabel.style.left = r.left + 'px';
+      _replayLabel.style.top  = (nextTop + 56) + 'px';
+    }
   }
 
   // ── Show / hide step button ────────────────────────────────────────────────
@@ -4662,6 +4837,81 @@ function ss2ApplyAndClose() {
       _animating     = false;
       if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     }
+    _syncEndNextButtons();
+  }
+
+  // ── IST calendar-day key for a bar's epoch time — used to group candles
+  // by trading day so End-Day / Next-Day know where one day ends. ───────────
+  function _dayKeyIST(tSec) {
+    var istSec = tSec + IST_OFF_SEC2;
+    var d = new Date(istSec * 1000);
+    return d.getUTCFullYear() + '-' + d.getUTCMonth() + '-' + d.getUTCDate();
+  }
+
+  // Lazy-init _activeDayKey to the first candle's day the first time we need it.
+  // Advanced explicitly by _sv2NextDay() — NOT re-derived from _replayIdx,
+  // so it stays stable across End Day (which lands exactly on the boundary).
+  function _ensureActiveDayKey() {
+    if (_activeDayKey === null && _replayCandles && _replayCandles.length) {
+      _activeDayKey = _dayKeyIST(_replayCandles[0].time);
+    }
+    return _activeDayKey;
+  }
+
+  // ── Show/hide + enable/disable End-Day / Next-Day buttons based on state ──
+  function _syncEndNextButtons() {
+    var rangeActive = !!(window._SV2_DATE_RANGE &&
+                         typeof window._SV2_DATE_RANGE.from === 'number');
+    var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
+    var show = rangeActive && stack2On;
+
+    if (_enddayBtn)  _enddayBtn.classList.toggle('visible', show);
+    if (_nextdayBtn) _nextdayBtn.classList.toggle('visible', show);
+    if (_replayLabel) _replayLabel.classList.toggle('visible', show);
+    if (!show) return;
+
+    if (!_replayCandles) _replayCandles = _buildReplayCandles();
+    var fullyDone   = _replayIdx >= _replayCandles.length;
+    var dayKey      = _ensureActiveDayKey();
+    var dayExhausted = fullyDone || (dayKey !== null &&
+                        _replayIdx < _replayCandles.length &&
+                        _dayKeyIST(_replayCandles[_replayIdx].time) !== dayKey);
+
+    // End Day: usable jab tak aaj ka din khatam nahi hua
+    if (_enddayBtn) {
+      _enddayBtn.style.display = dayExhausted ? 'none' : 'flex';
+      _enddayBtn.classList.toggle('disabled', _animating);
+    }
+    // Next Day: sirf jab aaj ka din khatam ho chuka ho aur aage aur din bache hon
+    if (_nextdayBtn) {
+      _nextdayBtn.style.display = (dayExhausted && !fullyDone) ? 'flex' : 'none';
+      _nextdayBtn.classList.toggle('disabled', _animating);
+    }
+
+    _updateReplayLabel();
+  }
+
+  // ── Replay status label — "kaunsa din, kaunsa time chal raha hai" ─────────
+  function _updateReplayLabel() {
+    if (!_replayLabel) return;
+    if (!_replayCandles || !_replayCandles.length) { _replayLabel.textContent = ''; return; }
+    var rng = window._SV2_DATE_RANGE;
+    if (_replayIdx <= 0) {
+      _replayLabel.innerHTML = '▶ Replay ready: ' + (rng ? rng.fromStr : '') +
+        '<span class="sv2-rl-time">' + (rng ? rng.resumeStr : '') + '</span>';
+      return;
+    }
+    var last = _replayCandles[_replayIdx - 1];
+    var istSec = last.time + IST_OFF_SEC2;
+    var d = new Date(istSec * 1000);
+    var dd = d.getUTCDate(), mo = d.getUTCMonth(), yy = d.getUTCFullYear();
+    var hh = d.getUTCHours(), mm = d.getUTCMinutes();
+    var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var dateStr = dd + '-' + MON[mo] + '-' + yy;
+    var timeStr = (hh<10?'0':'')+hh + ':' + (mm<10?'0':'')+mm;
+    var done = _replayIdx >= _replayCandles.length;
+    _replayLabel.innerHTML = (done ? '✔ Replay done: ' : '▶ Replaying: ') + dateStr +
+      '<span class="sv2-rl-time">' + timeStr + '</span>';
   }
 
   // ── Build sorted candle list for replay ───────────────────────────────────
@@ -4739,53 +4989,21 @@ function ss2ApplyAndClose() {
     return null;
   }
 
-  // ── Bucket time — resolved from the cell's OWN server-resampled data ──────
-  // BUG FIX: this used to be recomputed on the client via a formula
-  // (_getBucketTime). For intraday TFs that formula happened to match the
-  // server (main.py _sv2_resample_bn_intraday), but for daily / multi-day
-  // TFs (1D/3D/9D/27D) it did NOT: the server anchors each trading day to
-  // 9:15 IST (3:45 UTC, +13500s) and, for 3D/9D/27D, groups N *trading*
-  // days together (main.py _sv2_resample_bn_daily) — neither of which a
-  // simple Math.floor(t/86400)*86400 midnight formula can reproduce, and
-  // BTC multi-day cells had the same mismatch (missing the ×N in the
-  // divisor). Result: series.update() during Bar Replay wrote to a
-  // time-key that didn't match the already-plotted (blanked) bar, so it
-  // silently inserted a stray point instead of un-hiding the real candle
-  // — the candle stayed invisible even though the S&R indicator (which
-  // doesn't depend on this bucket math) kept updating fine.
-  //
-  // Fix: rawData (window._SV2_RAW_DATA[idx]) IS the correctly-resampled
-  // series already sitting on the chart (just painted blank for bars
-  // inside the replay range). So look up which of ITS bars the current
-  // base candle falls into — that time is guaranteed to match the
-  // blanked bar's key exactly, so update() replaces it in place.
-  function _findBucketTime(rawData, tSec) {
-    if (!Array.isArray(rawData) || !rawData.length) return null;
-    var lo = 0, hi = rawData.length - 1, ans = null;
-    while (lo <= hi) {
-      var mid = (lo + hi) >> 1;
-      if (rawData[mid].time <= tSec) { ans = rawData[mid].time; lo = mid + 1; }
-      else hi = mid - 1;
-    }
-    return ans;
-  }
-
   // ── Compute cell-level partial candle for given replayed base candles ──────
   // baseBars: array of base-TF candles seen so far (up to current step)
-  // rawData:  cell's own full (pre-blank) resampled data — source of truth
-  //           for bucket boundaries, see _findBucketTime above.
-  function _computePartialCandle(baseBars, rawData) {
+  // cellTFMin: cell's TF in minutes
+  // isBN: true = NSE session-aware buckets, false = UTC buckets
+  function _computePartialCandle(baseBars, cellTFMin, isBN) {
     if (!baseBars || !baseBars.length) return null;
     // Find the bucket that the LAST base bar belongs to
     var last = baseBars[baseBars.length - 1];
-    var bucketTime = _findBucketTime(rawData, last.time);
-    if (bucketTime === null) return null;
+    var bucketTime = _getBucketTime(last.time, cellTFMin, isBN);
 
     // Accumulate all base bars in the same bucket
     var o = null, h = -Infinity, l = Infinity, c2 = null;
     for (var i = 0; i < baseBars.length; i++) {
       var bar = baseBars[i];
-      var bt  = _findBucketTime(rawData, bar.time);
+      var bt  = _getBucketTime(bar.time, cellTFMin, isBN);
       if (bt !== bucketTime) continue;
       if (o === null) o = bar.open;
       if (bar.high > h) h = bar.high;
@@ -4794,6 +5012,46 @@ function ss2ApplyAndClose() {
     }
     if (o === null) return null;
     return { time: bucketTime, open: o, high: h, low: l, close: c2 };
+  }
+
+  // ── Session-aware bucket time for NSE intraday ────────────────────────────
+  function _getBucketTime(tSec, tfMin, isBN) {
+    if (tfMin >= 1440) {
+      // Daily: UTC midnight
+      return Math.floor(tSec / 86400) * 86400;
+    }
+    if (isBN && tfMin < 1440) {
+      // NSE: 9:15 IST anchor
+      var IST = 5.5 * 3600;
+      var istSec   = tSec + IST;
+      var dayStart = istSec - (istSec % 86400);
+      var minOfDay = Math.floor((istSec % 86400) / 60);
+      var SESSION_START = 9 * 60 + 15;   // 555
+      var minSinceOpen  = minOfDay - SESSION_START;
+      if (minSinceOpen < 0) minSinceOpen = 0;
+      var bucketIdx     = Math.floor(minSinceOpen / tfMin);
+      var bucketStartMin = SESSION_START + bucketIdx * tfMin;
+      return (dayStart - IST) + bucketStartMin * 60;
+    }
+    // UTC anchor (BTC / crypto)
+    var sec = tfMin * 60;
+    return Math.floor(tSec / sec) * sec;
+  }
+
+  // ── Commit ONE base-candle-step to every STACK2_CELL, at its FINAL (fully
+  // formed) value — no interpolation. Used both as the animation's t=1 frame
+  // AND as the per-step unit inside instant fast-forward (End Day / Set Time).
+  function _commitStepFinal(replayedSoFarArr) {
+    var isBN = ((typeof _stackKeyForAsset === 'function' ? _stackKeyForAsset(S.asset) : 'bn') === 'bn');
+    if (typeof STACK2_CELLS === 'undefined') return;
+    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+      var cell = STACK2_CELLS[ci];
+      if (!cell || !cell.chart || !cell.series) continue;
+      var cellTFMin = _getCellTFMin(ci);
+      var partial = _computePartialCandle(replayedSoFarArr, cellTFMin, isBN);
+      if (!partial) continue;
+      try { cell.series.update(partial); } catch(_) {}
+    }
   }
 
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
@@ -4820,16 +5078,16 @@ function ss2ApplyAndClose() {
           var cell = STACK2_CELLS[ci];
           if (!cell || !cell.chart || !cell.series) continue;
 
-          // Cell's own resampled data — source of truth for bucket
-          // boundaries (see _findBucketTime comment above) and also used
-          // below to find the pre-range "existing" bar for this bucket.
-          var rawData = _getCellRawData(ci);
+          // Cell TF in minutes — resolved from the real label, NOT cell.tf
+          // (cell.tf is always hardcoded 1440 — see _getCellTFMin comment)
+          var cellTFMin = _getCellTFMin(ci);
 
           // baseBars for this cell = replayed bars that belong to same bucket
-          var partial = _computePartialCandle(allReplayed, rawData);
+          var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
           if (!partial) continue;
 
           // Get cell's existing last bar from raw data (before range)
+          var rawData = _getCellRawData(ci);
           var existingBar = null;
           if (Array.isArray(rawData)) {
             for (var ri = rawData.length - 1; ri >= 0; ri--) {
@@ -4856,20 +5114,7 @@ function ss2ApplyAndClose() {
             low:   animL,
             close: animC,
           };
-          // ── Patch the bar in place instead of series.update() ──────────────
-          // series.update() only works on the LAST bar of the series. The bar
-          // we're revealing sits in the MIDDLE of an already-loaded (blanked)
-          // range, so update() would silently throw (swallowed below) and the
-          // candle would never actually appear. Mutating the live display
-          // array + calling setData() works for a bar at any position.
-          if (cell.sv2DisplayData && cell.sv2TimeIndex &&
-              cell.sv2TimeIndex.hasOwnProperty(partial.time)) {
-            var _pos = cell.sv2TimeIndex[partial.time];
-            cell.sv2DisplayData[_pos] = animBar;   // no color fields → default up/down colors
-            try { cell.series.setData(cell.sv2DisplayData); } catch(_) {}
-          } else {
-            try { cell.series.update(animBar); } catch(_) {}
-          }
+          try { cell.series.update(animBar); } catch(_) {}
         }
       }
 
@@ -4881,15 +5126,13 @@ function ss2ApplyAndClose() {
         _stepBtn.classList.remove('animating');
 
         // SV2 Swing S&R: closed candle ke baad SR update karo
-        // Pass the base candle's CLOSE time (open + its own duration), not
-        // its open time — see sv2SwingOnStep / _sv2DataForTF for why.
-        var _baseDurSec = isBN ? 5 * 60 : 160 * 60;
-        try { sv2SwingOnStep(stepBar.time + _baseDurSec); } catch(_) {}
+        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
           _stepBtn.classList.add('done');
         }
+        _syncEndNextButtons();
       }
     }
 
@@ -4927,6 +5170,54 @@ function ss2ApplyAndClose() {
     _animateStep(stepBar);
   };
 
+  // ── Instant fast-forward: replay candles [fromIdx, toIdx) with NO animation,
+  // committing each closed higher-TF bucket transition as it happens so
+  // history isn't skipped — just faster than the 1s-per-candle step button.
+  // Used by: initial "resume at 10:30am" catch-up, and the End-Day button.
+  function _processStepsInstant(fromIdx, toIdx) {
+    if (!_replayCandles || toIdx <= fromIdx) return;
+    for (var i = fromIdx; i < toIdx; i++) {
+      var allReplayed = _replayCandles.slice(0, i + 1);
+      _commitStepFinal(allReplayed);
+      try { sv2SwingOnStep(_replayCandles[i].time); } catch(_) {}
+    }
+    _replayIdx = toIdx;
+    if (_replayIdx >= _replayCandles.length && _stepBtn) {
+      _stepBtn.classList.add('done');
+    }
+  }
+
+  // ── End Day: instantly fast-forward through every remaining candle of the
+  // CURRENT trading day (e.g. up to the 3:25pm candle for BankNifty). ───────
+  window._sv2EndDay = function() {
+    if (_animating) return;
+    if (!window._SV2_DATE_RANGE) return;
+    if (!_replayCandles) {
+      _replayCandles = _buildReplayCandles();
+      _replayIdx     = 0;
+    }
+    if (!_replayCandles.length) return;
+
+    var dayKey = _ensureActiveDayKey();
+    var target = _replayIdx;
+    while (target < _replayCandles.length && _dayKeyIST(_replayCandles[target].time) === dayKey) {
+      target++;
+    }
+    if (target === _replayIdx) { _syncEndNextButtons(); return; }
+    _processStepsInstant(_replayIdx, target);
+    _syncEndNextButtons();
+  };
+
+  // ── Next Day: moves the "active day" pointer forward to whichever trading
+  // day comes next in the range, and un-blocks Step/End-Day for it. No
+  // candles are pre-filled — the new day starts exactly like a fresh replay. ──
+  window._sv2NextDay = function() {
+    if (_animating) return;
+    if (!_replayCandles || _replayIdx >= _replayCandles.length) return;
+    _activeDayKey = _dayKeyIST(_replayCandles[_replayIdx].time);
+    _syncEndNextButtons();
+  };
+
   // ── React to FAB position changes (drag) — keep step btn aligned ──────────
   function _onFabMove() {
     if (_stepBtn && _stepBtn.classList.contains('visible')) _syncStepBtnPos();
@@ -4934,8 +5225,9 @@ function ss2ApplyAndClose() {
 
   // ── Listen for date range events ───────────────────────────────────────────
   document.addEventListener('sv2DateRangeApplied', function() {
-    _replayCandles = null;   // force rebuild on next tap
+    _replayCandles = null;   // force rebuild
     _replayIdx     = 0;
+    _activeDayKey  = null;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     if (_stepBtn) {
@@ -4943,14 +5235,35 @@ function ss2ApplyAndClose() {
     }
     _syncStepBtn();
     _syncStepBtnPos();
+
+    // ── "Abhi time X baja hai" — instantly catch up to resumeEpoch ─────────
+    // Deferred: buildStack2() (called right after this event fires, in the
+    // date-range module) rebuilds every cell's series from scratch via
+    // chunked setData calls — if we fast-forward before that finishes, our
+    // updates get wiped out. 450ms comfortably clears buildStack2's own
+    // 200ms/300ms follow-up timers.
+    setTimeout(function() {
+      var rng = window._SV2_DATE_RANGE;
+      if (rng && typeof rng.resumeEpoch === 'number') {
+        _replayCandles = _buildReplayCandles();
+        var target = 0;
+        while (target < _replayCandles.length && _replayCandles[target].time < rng.resumeEpoch) {
+          target++;
+        }
+        if (target > 0) _processStepsInstant(0, target);
+      }
+      _syncEndNextButtons();
+    }, 450);
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
     _replayCandles = null;
     _replayIdx     = 0;
+    _activeDayKey  = null;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
     _syncStepBtn();
+    _syncEndNextButtons();
   });
 
   // ── FAB drag: reposition step btn ─────────────────────────────────────────
@@ -4964,7 +5277,10 @@ function ss2ApplyAndClose() {
 
   // ── Init ──────────────────────────────────────────────────────────────────
   function _stepInit() {
-    _stepBtn = document.getElementById('sv2-step-btn');
+    _stepBtn     = document.getElementById('sv2-step-btn');
+    _enddayBtn   = document.getElementById('sv2-endday-btn');
+    _nextdayBtn  = document.getElementById('sv2-nextday-btn');
+    _replayLabel = document.getElementById('sv2-replay-label');
     if (!_stepBtn) return;
     _syncStepBtn();
     _watchFabPos();
@@ -5624,6 +5940,23 @@ function deleteTF(tfMin) {
 
 // ── Apply a TF to the active chart / selected cell ───────────────────────
 function applyTF(tfMin) {
+  // ── When overlay panels are open: TF change goes to the active overlay panel ──
+  if (_overlayPanels.length > 0) {
+    const panel = _overlayPanels[_activeOvlPanelIdx];
+    if (panel) {
+      const body = panel.querySelector('.ovl-panel-body');
+      if (body) {
+        if (body._ovlChart) { try { body._ovlChart.remove(); } catch(_) {} }
+        _buildOverlayChart(body, _activeOvlPanelIdx, tfMin);
+        const titleEl = document.getElementById('ovl-title-' + _activeOvlPanelIdx);
+        if (titleEl) titleEl.textContent = '⧉ Overlay ' + (_activeOvlPanelIdx+1) + ' — ' + tfMinToLabel(tfMin);
+      }
+    }
+    document.querySelectorAll('.tf-btn').forEach(b => b.classList.toggle('active', +b.dataset.tf === tfMin));
+    const el = document.getElementById('tf-menu-label');
+    if (el) el.textContent = tfMinToLabel(tfMin);
+    return;
+  }
   // ── No-op if this TF is already active (prevents double-refresh on re-click) ──
   const _curTf = (CELLS.length > 0 && CELLS[SELECTED_CELL]) ? CELLS[SELECTED_CELL].tf : S.tf;
   if (_curTf === tfMin) return;
@@ -7575,6 +7908,11 @@ function _applyCrosshairStyle() {
     horzLine:{color:col, width:width, style:style, labelBackgroundColor:'#131722'},
   }};
   CELLS.forEach(c=>{ if(c.chart) try{c.chart.applyOptions(cellOpts);}catch(_){} });
+  // Also apply to overlay charts
+  _overlayPanels.forEach(p=>{
+    const body=p.querySelector('.ovl-panel-body');
+    if(body&&body._ovlChart) try{body._ovlChart.applyOptions(opts);}catch(_){}
+  });
 }
 
 // Fix 4: hide axis price/time labels when crosshair is active
@@ -7621,6 +7959,9 @@ function toggleGotoDate() {
   p.classList.toggle('open');
   const inp=document.getElementById('goto-date-inp');
   if(inp && p.classList.contains('open')) inp.focus();
+  // close overlay menu if open
+  const dd=document.getElementById('overlay-dd');
+  if(dd) dd.classList.remove('open');
 }
 function execGotoDate() {
   const inp=document.getElementById('goto-date-inp');
@@ -7631,6 +7972,170 @@ function execGotoDate() {
   if(S.layout==='1x1'){ if(chart) jump(chart); }
   else CELLS.forEach(c=>{ if(c.chart) jump(c.chart); });
   toggleGotoDate();
+}
+
+// Fix 13: Overlay menu + panels
+let _overlayPanels=[];
+function toggleOverlayMenu() {
+  const dd=document.getElementById('overlay-dd');
+  if(!dd) return;
+  dd.classList.toggle('open');
+  document.getElementById('goto-date-panel').classList.remove('open');
+}
+// Track which overlay panel is "active" (receives TF / indicator changes)
+let _activeOvlPanelIdx = 0;
+
+function openOverlayPanels() {
+  const dd=document.getElementById('overlay-dd');
+  if(dd) dd.classList.remove('open');
+  const n=+document.getElementById('ovl-count-inp').value||2;
+  _overlayPanels.forEach(p=>p.remove()); _overlayPanels=[];
+  _activeOvlPanelIdx=0;
+
+  // Compute chart area bounds (below top-bar, above bottom-bar)
+  const topEl=document.getElementById('top-bar')||document.getElementById('tf-bar')||document.querySelector('.tf-bar');
+  const botEl=document.getElementById('bottom-bar');
+  const topH=topEl ? topEl.getBoundingClientRect().bottom : 50;
+  const botH=botEl ? (window.innerHeight-botEl.getBoundingClientRect().top) : 26;
+  const availH=window.innerHeight-topH-botH;
+  const availW=window.innerWidth;
+
+  // ─── SINGLE COLUMN layout: panels stacked vertically ────────────────────
+  const cols=1;
+  const rows=n;
+  const cellW=availW;
+  const cellH=Math.floor(availH/rows);
+
+  const ovlTFs=[1,5,15,60,240,1440];
+  for(let i=0;i<n;i++){
+    const tf=ovlTFs[i%ovlTFs.length];
+    const panel=document.createElement('div');
+    panel.className='ovl-panel'+(i===0?' ovl-active':'');
+    panel.style.cssText=`left:0px;top:${topH+i*cellH}px;width:${cellW}px;height:${cellH}px;`;
+    panel.dataset.idx=String(i);
+    panel.innerHTML=
+      `<div class="ovl-panel-hdr" onclick="_setActiveOvlPanel(${i})">`+
+        `<span class="ovl-panel-title" id="ovl-title-${i}">⧉ Overlay ${i+1} — ${tfMinToLabel(tf)}</span>`+
+        `<button class="ovl-panel-home" onclick="event.stopPropagation();_ovlGotoLatest(this.closest('.ovl-panel'))" title="Go to latest">⊡</button>`+
+        `<button class="ovl-panel-home" onclick="event.stopPropagation();_closeOverlay(this.closest('.ovl-panel'))" title="Close this overlay">✕</button>`+
+      `</div>`+
+      `<div class="ovl-panel-body" id="ovl-body-${i}"></div>`;
+    document.body.appendChild(panel);
+    _overlayPanels.push(panel);
+    const capturedI=i, capturedTf=tf;
+    setTimeout(()=>_buildOverlayChart(panel.querySelector('.ovl-panel-body'),capturedI,capturedTf),60*i);
+  }
+  const cab=document.getElementById('ovl-close-all');
+  if(cab) cab.style.display='flex';
+  const ob=document.getElementById('overlay-btn');
+  if(ob) ob.classList.add('active');
+  // Dim the background chart
+  _setMainChartDim(true);
+}
+
+function _setActiveOvlPanel(idx) {
+  _activeOvlPanelIdx=idx;
+  _overlayPanels.forEach((p,i)=>{
+    p.classList.toggle('ovl-active', i===idx);
+  });
+}
+
+function _setMainChartDim(dim) {
+  let dimEl=document.getElementById('main-chart-dim');
+  if(dim) {
+    if(!dimEl){
+      dimEl=document.createElement('div');
+      dimEl.id='main-chart-dim';
+      dimEl.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;z-index:7999;background:rgba(0,0,0,0.55);pointer-events:auto;cursor:not-allowed;';
+      dimEl.title='Overlay active — click "Close All Overlays" to return to main chart';
+      document.body.appendChild(dimEl);
+    }
+  } else {
+    if(dimEl) dimEl.remove();
+  }
+}
+
+function _closeOverlay(panel) {
+  if(!panel) return;
+  const body=panel.querySelector('.ovl-panel-body');
+  if(body&&body._ovlChart) { try{body._ovlChart.remove();}catch(_){} try{body._ovlResizeObs&&body._ovlResizeObs.disconnect();}catch(_){} }
+  panel.remove();
+  _overlayPanels=_overlayPanels.filter(p=>p!==panel);
+  // Renumber remaining panels' idx
+  _overlayPanels.forEach((p,i)=>{p.dataset.idx=String(i);});
+  _activeOvlPanelIdx=Math.min(_activeOvlPanelIdx,Math.max(0,_overlayPanels.length-1));
+  if(_overlayPanels.length===0){
+    const cab=document.getElementById('ovl-close-all');
+    if(cab) cab.style.display='none';
+    const ob=document.getElementById('overlay-btn');
+    if(ob) ob.classList.remove('active');
+    _setMainChartDim(false);
+  }
+}
+function _closeAllOverlays() {
+  _overlayPanels.forEach(p=>{
+    const body=p.querySelector('.ovl-panel-body');
+    if(body&&body._ovlChart) { try{body._ovlChart.remove();}catch(_){} try{body._ovlResizeObs&&body._ovlResizeObs.disconnect();}catch(_){} }
+    p.remove();
+  });
+  _overlayPanels=[];
+  const cab=document.getElementById('ovl-close-all');
+  if(cab) cab.style.display='none';
+  const ob=document.getElementById('overlay-btn');
+  if(ob) ob.classList.remove('active');
+  _setMainChartDim(false);
+}
+function _buildOverlayChart(bodyEl, idx, tf) {
+  if(!bodyEl) return;
+  tf = tf || S.tf;
+  const rawData=_baseDataFor(S.asset, tf);
+  const data=resampleForTF(rawData, tf, S.asset);
+  const ch=LightweightCharts.createChart(bodyEl, {
+    width:bodyEl.clientWidth||300, height:bodyEl.clientHeight||200,
+    layout:{background:{type:'solid',color:S.bgColor},textColor:S.textColor,fontSize:7},
+    grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
+    crosshair:{mode:0,vertLine:{color:S.crossColor||'#758696',width:S.crossWidth||1,style:(S.crossStyle!=null?+S.crossStyle:1),labelBackgroundColor:'#131722'},horzLine:{color:S.crossColor||'#758696',width:S.crossWidth||1,style:(S.crossStyle!=null?+S.crossStyle:1),labelBackgroundColor:'#131722'}},
+    rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,barSpacing:6,rightOffset:5},
+    localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
+    handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
+    handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true},
+    kineticScroll:{mouse:true,touch:true},
+  });
+  const ser=ch.addCandlestickSeries({
+    upColor:S.upColor,downColor:S.dnColor,
+    borderUpColor:S.upColor,borderDownColor:S.dnColor,
+    wickUpColor:S.upColor,wickDownColor:S.dnColor,
+    priceLineVisible:true,
+  });
+  if(data.length) { ser.setData(data); try{ch.timeScale().scrollToRealTime();}catch(_){} }
+  bodyEl._ovlChart=ch; bodyEl._ovlSeries=ser; bodyEl._ovlTf=tf;
+  if (bodyEl._ovlResizeObs) { try{bodyEl._ovlResizeObs.disconnect();}catch(_){} }
+  const ro=new ResizeObserver(()=>{ try{ch.resize(bodyEl.clientWidth,bodyEl.clientHeight);}catch(_){} });
+  ro.observe(bodyEl);
+  bodyEl._ovlResizeObs=ro;
+}
+function _ovlGotoLatest(panel) {
+  const body=panel.querySelector('.ovl-panel-body');
+  if(body&&body._ovlChart) try{body._ovlChart.timeScale().scrollToRealTime();}catch(_){}
+}
+function openOverlaySetting() {
+  const dd=document.getElementById('overlay-dd');
+  if(dd) dd.classList.remove('open');
+  const p=document.getElementById('ovl-setting-panel');
+  if(p) p.style.display=p.style.display==='none'?'block':'none';
+}
+function closeOverlaySetting() {
+  const p=document.getElementById('ovl-setting-panel');
+  if(p) p.style.display='none';
+}
+// Fix 13: drag overlay panels
+function _dragPanel(e, panel) {
+  e.preventDefault();
+  const ox=e.clientX-panel.offsetLeft, oy=e.clientY-panel.offsetTop;
+  const mm=(ev)=>{ panel.style.left=(ev.clientX-ox)+'px'; panel.style.top=(ev.clientY-oy)+'px'; };
+  const mu=()=>{ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); };
+  document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
 }
 
 // Fix 8: per-cell settings panel (opens near the ⚙ button of that cell)
@@ -7718,8 +8223,13 @@ function _setCellLog(idx,on){
   const c=CELLS[idx]; if(!c) return; c.log=on; buildCellChart(idx); wireSync();
 }
 
-// Close date / cell-settings panels on outside click
+// Close overlay / date / cell-settings panels on outside click
 document.addEventListener('click', (e) => {
+  // Overlay dropdown
+  const ovlBtn=document.getElementById('overlay-btn');
+  const ovlDd=document.getElementById('overlay-dd');
+  if(ovlDd && ovlDd.classList.contains('open') && !ovlDd.contains(e.target) && e.target!==ovlBtn)
+    ovlDd.classList.remove('open');
   // Go-to-date panel
   const gdPanel=document.getElementById('goto-date-panel');
   const gdBtn=document.getElementById('goto-date-btn');
@@ -9811,7 +10321,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, forceLastBarForming) {
+function swingCompute(bars, tfMin) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -9841,13 +10351,6 @@ function swingCompute(bars, tfMin, forceLastBarForming) {
   // Agar current IST time uss window ke andar hai → still forming → exclude.
   const _isLastBarForming = (() => {
     if (!raw.length || raw.length < 2) return false;
-    // Cutoff-truncated dataset (replay / historical date-range mode):
-    // we don't yet have the REAL next candle for whatever bar sits right
-    // at the cutoff boundary — for ANY timeframe — so always treat it as
-    // still-forming/unconfirmed. It'll be judged properly once the actual
-    // next candle is revealed by a later replay step (cutoff grows, that
-    // bar is no longer last, and it gets validated against real data).
-    if (forceLastBarForming) return true;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
     const nDays = tfMin > 1440 ? Math.round(tfMin / 1440) : 0;
@@ -10027,13 +10530,9 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime, nextDataTime) {
+function _bnBuildSRNative(chartObj, lines, _preRange) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
-
-  // ── Hard cap: no SR line should ever extend past 30-June-2026 ─────────────
-  // (exclusive upper bound = start of 1-July-2026 UTC)
-  const _SR_MAX_TIME = Date.UTC(2026, 6, 1) / 1000;
 
   // TimeScale range pehle save karo — agar caller ne pehle se save karke bheja hai
   // toh woh use karo (is case mein chart clear ho chuka tha toh internal get null deta).
@@ -10045,7 +10544,6 @@ function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime, nextDataTime
 
   for (const ln of lines) {
     try {
-      if (ln.startTime >= _SR_MAX_TIME) continue; // line would start past the cap — skip entirely
       const s = chartObj.addLineSeries({
         color: ln.color,
         lineWidth: SWING_LINE_WIDTH,
@@ -10055,27 +10553,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime, nextDataTime
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      // FIX 3: endT ab REAL agla candle time (nextDataTime) par lagta hai —
-      // lastDataTime + periodSec sirf ek "guess" tha (arithmetic add), jo khud
-      // ek off-grid time bana deta tha (e.g. 3:25pm + 5m = 3:30pm — jab session
-      // 3:25pm par hi khatam ho chuka ho aur agla REAL bar 9:15am agle din ho).
-      // Koi bhi timestamp jo actual candle-grid par nahi hai, LWC timescale mein
-      // ek phantom tick/column insert kar deta hai (3:35pm, 3:50pm, ya beech mein
-      // gap) — chahe wo kitna bhi "chota" guess kyun na ho.
-      // Ab: nextDataTime (raw data ka woh agla REAL bar jo cutoff ke baad aata
-      // hai — chahe wahi din ka ho ya agle trading session ka 9:15am) seedha
-      // pass hota hai, isliye line hamesha exactly do REAL candle-grid points
-      // (last aur next) ke beech hi banti hai — koi arithmetic guess nahi.
-      let _infEndT;
-      if (typeof nextDataTime === 'number' && nextDataTime > 0) {
-        _infEndT = nextDataTime;
-      } else if (typeof lastDataTime === 'number' && lastDataTime > 0) {
-        _infEndT = lastDataTime + _periodSec; // fallback jab raw data mein aage kuch na ho
-      } else {
-        _infEndT = ln.startTime + _periodSec * 100;
-      }
-      let endT = ln.isInfinite ? _infEndT : ln.endTime;
-      if (endT > _SR_MAX_TIME) endT = _SR_MAX_TIME; // hard cap
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -10087,11 +10565,9 @@ function _bnBuildSRNative(chartObj, lines, _preRange, lastDataTime, nextDataTime
   // TimeScale range wapas restore karo
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
     try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
+  } else {
+    try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
-  // else: kuch mat karo — pehle yahan forced scrollToRealTime() tha jo
-  // Bar Replay ke beech (jab cell abhi layout na hua ho aur getVisibleLogicalRange
-  // null de) chart ko reset karke real-time/right edge par jump kara deta tha,
-  // har replay step par. View jahan hai wahin chhod do.
 
   return created;
 }
@@ -10339,16 +10815,9 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    if (typeof cutoffTime !== 'number') return data;
-    // FIX: previously filtered on bar OPEN time (`b.time < cutoffTime`).
-    // That wrongly treated a higher-TF bar (e.g. 15m) as "closed" the
-    // moment its FIRST lower-TF child (e.g. 5m) closed — since a 15m
-    // bar's open time equals its first 5m child's open time, and cutoff
-    // was just that child's open+1. Now we require the bar's own CLOSE
-    // time (open + its full duration) to have passed cutoffTime, so a
-    // 15m bar only counts once all its 5m children have actually closed.
-    const durSec = (_parseTFMin(tfLabel) || 0) * 60;
-    return data.filter(b => (b.time + durSec) <= cutoffTime);
+    return (typeof cutoffTime === 'number')
+      ? data.filter(b => b.time < cutoffTime)
+      : data;
   } catch(_) { return []; }
 }
 
@@ -10383,7 +10852,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin, typeof cutoffTime === 'number')
+      swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10397,7 +10866,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min, typeof cutoffTime === 'number')
+        swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
@@ -10421,13 +10890,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 }
 
 // ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
-// cutoffTime: sv2SwingInit se aaya wahi live cutoff (replay step par badhta
-// rehta hai). Ye ab anchor decide karne ke liye bhi use hota hai — pehle
-// hardcoded window._SV2_DATE_RANGE.from use hota tha jo replay shuru hote
-// hi FREEZE ho jaata tha, isliye replay aage badhne par SR line ka anchor
-// purana hi reh jaata tha aur cutoff-boundary wali candle par phantom
-// future timestamp (3:35pm, 3:50pm) + gap ban jaata tha.
-function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
+function _sv2ApplyCellSR(cellIdx, lines) {
   try {
     const c = STACK2_CELLS[cellIdx];
     if (!c || !c.chart) return;
@@ -10439,51 +10902,13 @@ function _sv2ApplyCellSR(cellIdx, lines, cutoffTime) {
     // Range pehle save karo taaki auto-scroll na ho
     let _preRange = null;
     try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-    // FIX: isInfinite SR lines ka endT = startTime + periodSec*100 hota tha —
-    // yeh bahut bada future timestamp tha jo LWC timescale mein phantom ticks
-    // insert kar deta tha (3:35pm, 3:50pm jaise unusual times).
-    // lastDataTime pass karo: _bnBuildSRNative endT ko last visible bar tak clamp karega.
-    // FIX 2: anchor ab `cutoffTime` (live, step-by-step badhta hua) se nikalta hai,
-    // na ki sirf shuruaati window._SV2_DATE_RANGE.from se — taaki replay jaise-jaise
-    // aage badhe, SR line ka end-point bhi "abhi tak ki last real candle" tak shift
-    // hota rahe (anchor drift na ho). cutoffTime na mile toh purana rng.from fallback,
-    // wo bhi na ho toh poore data ka last bar (mode A — no range active).
-    // FIX 3: `_nextDataTime` bhi nikalo — raw (poore, unfiltered) data ka woh
-    // agla REAL bar jo boundary ke turant baad aata hai. Ye chahe usi din ka
-    // ho (e.g. cutoff beech session mein hai) ya agle trading session ka
-    // 9:15am open ho (cutoff session-end 3:25pm par hai) — dono cases mein
-    // ye ek asli candle-grid timestamp hai, arithmetic guess nahi.
-    let _lastDataTime = null;
-    let _nextDataTime = null;
-    try {
-      const rawD = window._SV2_RAW_DATA && window._SV2_RAW_DATA[cellIdx];
-      const rng  = window._SV2_DATE_RANGE;
-      const _boundary = (typeof cutoffTime === 'number')
-                         ? cutoffTime
-                         : ((rng && typeof rng.from === 'number') ? rng.from : null);
-      if (Array.isArray(rawD) && rawD.length) {
-        if (typeof _boundary === 'number') {
-          for (let _ri = rawD.length - 1; _ri >= 0; _ri--) {
-            if (rawD[_ri].time < _boundary) {
-              _lastDataTime = rawD[_ri].time;
-              if (_ri + 1 < rawD.length) _nextDataTime = rawD[_ri + 1].time;
-              break;
-            }
-          }
-        } else {
-          _lastDataTime = rawD[rawD.length - 1].time;
-        }
-      }
-    } catch(_) {}
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, _lastDataTime, _nextDataTime);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange);
   } catch(_) {}
 }
 
 // ── Sab SV2 cells initialize/refresh karo ──────────────────────────────────
 // cutoffTime = null → poora .gz data
 // cutoffTime = number → sirf bar.time < cutoffTime wale candles
-// (yehi cutoffTime ab _sv2ApplyCellSR ko bhi jaata hai, taaki SR anchor
-//  har replay step par is live value ke saath shift ho — see FIX 2 above)
 function sv2SwingInit(cutoffTime) {
   if (!SWING_STATE.visible) return;
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
@@ -10492,7 +10917,7 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines, cutoffTime);
+    _sv2ApplyCellSR(i, lines);
   }
 }
 
@@ -10505,13 +10930,10 @@ function sv2SwingRefresh() {
 }
 
 // ── Replay step: jab ek candle fully close ho tab SR update karo ─────────────
-// nowTime = actual elapsed replay time = CLOSE time of the just-replayed base
-// candle (open + its full duration) — NOT its open time. _sv2DataForTF now
-// compares each TF's own close time against this, so a higher-TF bar (15m,
-// 45m, ...) is only included once it has genuinely finished forming.
-function sv2SwingOnStep(nowTime) {
+function sv2SwingOnStep(closedCandleTime) {
   if (!SWING_STATE.visible) return;
-  sv2SwingInit(nowTime);
+  // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
+  sv2SwingInit(closedCandleTime + 1);
 }
 
 // ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
@@ -12512,6 +12934,498 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 });
 
 
+// ════════════════════════════════════════════════════════════════════════════
+// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
+// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
+// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
+// ════════════════════════════════════════════════════════════════════════════
+const GD = (function () {
+  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
+  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE_NAME = 'banknifty-layout-sync.json';
+  const AUTH_FLAG = 'gdAuthed';
+
+  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
+  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  function _setStatus(txt, color) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+  function _showBtn(label, show) {
+    const b = document.getElementById('gd-btn');
+    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
+    // Manual paste row bhi sign in button ke saath dikhao
+    const mr = document.getElementById('gd-manual-row');
+    if (mr) mr.style.display = show ? '' : 'none';
+  }
+  function _toast(msg, color) {
+    let t = document.getElementById('gd-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'gd-toast';
+      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
+        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
+        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
+        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
+      document.body.appendChild(t);
+    }
+    t.style.background = color || '#26a69a';
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._iv);
+    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
+  }
+  function _now() {
+    try {
+      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } catch (_) { return ''; }
+  }
+
+  // ── localStorage snapshot / apply (captures every key = all features) ──────
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (k === AUTH_FLAG) continue;
+        if (localStorage.getItem(k) !== data[k]) {
+          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
+          changed = true;
+        }
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  // ── OAuth token handling ───────────────────────────────────────────────────
+  function _onToken(resp) {
+    if (resp && resp.access_token) {
+      accessToken = resp.access_token;
+      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
+      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
+      const cb = _pending; _pending = null; if (cb) cb(true);
+    } else {
+      const cb = _pending; _pending = null; if (cb) cb(false);
+    }
+  }
+  function _onTokenErr() {
+    const cb = _pending; _pending = null;
+    _setStatus('☁ Cloud: tap to sign in', '#f23645');
+    _showBtn('Sign in', true);
+    if (cb) cb(false);
+  }
+
+  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
+  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
+  // Google Cloud Console mein dono register honi chahiye:
+  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
+  //   http://localhost:8501/?gd_cb=1
+
+  function _getRedirectURI() {
+    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
+    try {
+      const origin = window.parent !== window
+        ? document.referrer
+          ? new URL(document.referrer).origin
+          : window.location.origin
+        : window.location.origin;
+      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
+    } catch(_) {}
+    // Fallback: Streamlit URL
+    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
+  }
+
+  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
+
+  // postMessage listener — callback page token bhejta hai yahan
+  window.addEventListener('message', function(e) {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d && d.type === 'gd_oauth_token' && d.access_token) {
+        clearInterval(_popupTimer);
+        clearInterval(_lsPollIv);
+        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
+        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
+        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
+      }
+    } catch(_) {}
+  });
+
+  // localStorage polling fallback (agar postMessage cross-origin block ho)
+  function _startLSPoll(cb) {
+    clearInterval(_lsPollIv);
+    _lsPollIv = setInterval(() => {
+      try {
+        const raw = localStorage.getItem('_gd_oauth_pending');
+        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
+        if (raw && (Date.now() - ts) < 60000) {
+          clearInterval(_lsPollIv);
+          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
+          const d = JSON.parse(raw);
+          if (d && d.access_token) {
+            clearInterval(_popupTimer);
+            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
+            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
+            if (cb) cb(true);
+          }
+        }
+      } catch(_) {}
+    }, 800);
+    setTimeout(() => clearInterval(_lsPollIv), 120000);
+  }
+
+  function _openAuthPopup(cb) {
+    _oauthCb = cb;
+    const REDIRECT_URI = _getRedirectURI();
+
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:              CLIENT_ID,
+      redirect_uri:           REDIRECT_URI,
+      response_type:          'token',
+      scope:                  SCOPE,
+      include_granted_scopes: 'true',
+      prompt:                 'consent',
+    });
+
+    const w = 480, h = 620;
+    const left = Math.max(0, (screen.width  - w) / 2);
+    const top  = Math.max(0, (screen.height - h) / 2);
+
+    _popupWin = window.open(
+      authUrl, 'gdauth',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
+    );
+
+    if (!_popupWin || _popupWin.closed) {
+      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
+      _showBtn('Sign in', true);
+      _oauthCb = null;
+      if (cb) cb(false);
+      return;
+    }
+
+    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
+
+    // localStorage fallback polling
+    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
+
+    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
+    clearInterval(_popupTimer);
+    _popupTimer = setInterval(() => {
+      try {
+        if (_popupWin && _popupWin.closed) {
+          clearInterval(_popupTimer);
+          setTimeout(() => {
+            if (_oauthCb) {
+              clearInterval(_lsPollIv);
+              _setStatus('☁ Sign-in cancel hua', '#f23645');
+              _showBtn('Sign in', true);
+              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
+            }
+          }, 2000);
+          return;
+        }
+        // Same-origin check — jab popup redirect_uri pe aa jaaye
+        try {
+          const href = _popupWin.location.href;
+          const fragment = _popupWin.location.hash;
+          if (href && fragment && fragment.includes('access_token')) {
+            // Fragment mil gaya — Streamlit strip karne se pehle
+            clearInterval(_popupTimer);
+            clearInterval(_lsPollIv);
+            const p = new URLSearchParams(fragment.substring(1));
+            const token = p.get('access_token');
+            const exp   = parseInt(p.get('expires_in') || '3600', 10);
+            try { _popupWin.close(); } catch(_) {}
+            if (token) {
+              // localStorage mein bhi save karo backup ke liye
+              try {
+                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
+                localStorage.setItem('_gd_oauth_pending', msg);
+                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
+              } catch(_) {}
+              _onToken({ access_token: token, expires_in: exp });
+              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
+            }
+          }
+        } catch(crossOriginErr) {
+          // Popup abhi Google ke domain pe hai — normal, wait karo
+        }
+      } catch(_) {}
+    }, 300);
+  }
+
+  function _requestToken(interactive, cb) {
+    _pending = cb;
+    if (interactive) {
+      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
+      return;
+    }
+    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
+    if (cb) cb(false);
+  }
+  function _withToken(cb) {
+    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
+    _requestToken(false, cb);
+  }
+
+  // ── Drive REST helpers ──────────────────────────────────────────────────────
+  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
+  function _findFile(cb) {
+    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
+      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
+      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
+    fetch(url, { headers: _hdr() })
+      .then(r => r.json())
+      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
+      .catch(() => cb(null));
+  }
+  function _download(cb) {
+    if (!fileId) { cb(null); return; }
+    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
+      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
+  }
+  function _uploadMedia(payload, cb) {
+    if (fileId) {
+      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+        method: 'PATCH',
+        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
+        body: payload,
+      }).then(r => cb(r.ok)).catch(() => cb(false));
+    } else {
+      const boundary = 'gdsync' + Date.now();
+      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
+      const body =
+        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(meta) + '\r\n' +
+        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
+        payload + '\r\n--' + boundary + '--';
+      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST',
+        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
+        body: body,
+      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
+        .catch(() => cb(false));
+    }
+  }
+
+  // ── Public: push (save) ──────────────────────────────────────────────────────
+  function push(showToast) {
+    if (localStorage.getItem(AUTH_FLAG) !== '1') {
+      if (showToast) _toast('Sign in to Google first', '#f23645');
+      return;
+    }
+    _withToken(ok => {
+      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
+      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
+      const doUpload = () => _uploadMedia(payload, okk => {
+        if (okk) {
+          _dirty = false;
+          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
+          if (showToast) _toast('☁ Saved to Google Cloud');
+        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
+      });
+      if (fileId) doUpload(); else _findFile(() => doUpload());
+    });
+  }
+
+  // ── Public: pull (restore) ───────────────────────────────────────────────────
+  function pull(after) {
+    _withToken(ok => {
+      if (!ok) { if (after) after(false, false); return; }
+      _findFile(id => {
+        if (!id) { if (after) after(false, false); return; }
+        _download(obj => {
+          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
+          else if (after) after(false, false);
+        });
+      });
+    });
+  }
+
+  // ── Boot: silent auto-login + restore on page open ──────────────────────────
+  function _boot() {
+    if (_booted) return; _booted = true;
+    if (localStorage.getItem(AUTH_FLAG) !== '1') {
+      _setStatus('☁ Cloud: not signed in');
+      _showBtn('Sign in', true);
+      return;
+    }
+    _setStatus('☁ Cloud: connecting…');
+    _showBtn('', false);
+    _requestToken(false, ok => {
+      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
+      _showBtn('', false);
+      // Show "restore completed" once after a reload triggered by restore
+      if (sessionStorage.getItem('gdJustRestored') === '1') {
+        sessionStorage.removeItem('gdJustRestored');
+        _toast('✓ Restore completed');
+      }
+      if (sessionStorage.getItem('gdRestored') === '1') {
+        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
+        return;
+      }
+      _setStatus('☁ Cloud: restoring…');
+      pull((found, changed) => {
+        sessionStorage.setItem('gdRestored', '1');
+        if (found && changed) {
+          sessionStorage.setItem('gdJustRestored', '1');
+          _toast('✓ Restore completed');
+          setTimeout(() => location.reload(), 950);
+        } else if (found) {
+          _setStatus('☁ Cloud: restored ✓', '#26a69a');
+          _toast('✓ Restore completed');
+        } else {
+          _setStatus('☁ Cloud: connected', '#26a69a');
+          push(false); // first-time upload of current local state
+        }
+      });
+    });
+  }
+
+  // ── Manual sign-in (first time) ──────────────────────────────────────────────
+  function signIn() {
+    _setStatus('☁ Cloud: opening Google…');
+    _requestToken(true, ok => {
+      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
+      _showBtn('', false);
+      sessionStorage.removeItem('gdRestored');
+      _setStatus('☁ Cloud: restoring…');
+      pull((found, changed) => {
+        sessionStorage.setItem('gdRestored', '1');
+        if (found) {
+          _toast('✓ Restore completed');
+          if (changed) {
+            sessionStorage.setItem('gdJustRestored', '1');
+            setTimeout(() => location.reload(), 950);
+          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
+        } else {
+          _setStatus('☁ Cloud: connected', '#26a69a');
+          push(true); // nothing on Drive yet → upload current
+        }
+      });
+    });
+  }
+
+  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
+  let _origSetItem = null;
+  function _initAutoSave() {
+    try {
+      _origSetItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function (k, v) {
+        _origSetItem(k, v);
+        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
+          _dirty = true;
+          _schedule();
+        }
+      };
+    } catch (_) {}
+  }
+  function _schedule() {
+    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
+    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
+    const autoOn = localStorage.getItem('gdAutoSave') === '1';
+    if (!autoOn) return;
+    clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
+  }
+
+  // Public: force push (manual Save Layout button ke liye)
+  function pushNow() { push(true); }
+
+  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
+  // (GIS iframe mein origin=null error deta hai)
+  function _waitGIS() { _boot(); } // GIS skip, seedha boot
+  function init() {
+    _initAutoSave();
+    _boot(); // GIS SDK load nahi karo
+  }
+
+  // Manual token inject (URL paste se)
+  function _manualToken(token, exp) {
+    _onToken({ access_token: token, expires_in: exp || 3600 });
+    _showBtn('', false);
+    sessionStorage.removeItem('gdRestored');
+    _setStatus('☁ Cloud: restoring…');
+    pull((found, changed) => {
+      sessionStorage.setItem('gdRestored', '1');
+      if (found) {
+        _toast('✓ Restore completed');
+        if (changed) {
+          sessionStorage.setItem('gdJustRestored', '1');
+          setTimeout(() => location.reload(), 950);
+        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
+      } else {
+        _setStatus('☁ Cloud: connected', '#26a69a');
+        push(true);
+      }
+    });
+  }
+
+  // Save on tab hide / close (best-effort)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && _dirty) push(false);
+  });
+
+  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
+})();
+
+// Global handler for the menu button
+function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
+
+// Manual token paste — popup URL se token extract karo
+function gdManualToken() {
+  const inp = document.getElementById('gd-token-inp');
+  if (!inp) return;
+  const raw = inp.value.trim();
+  if (!raw) return;
+
+  // URL mein se fragment nikalo: #access_token=...
+  let fragment = '';
+  try {
+    const hashIdx = raw.indexOf('#');
+    if (hashIdx !== -1) {
+      fragment = raw.substring(hashIdx + 1);
+    } else if (raw.includes('access_token')) {
+      // Sirf fragment part paste kiya hoga
+      fragment = raw;
+    }
+  } catch(_) {}
+
+  if (!fragment) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
+    return;
+  }
+
+  const p     = new URLSearchParams(fragment);
+  const token = p.get('access_token');
+  const exp   = parseInt(p.get('expires_in') || '3600', 10);
+
+  if (!token) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
+    return;
+  }
+
+  // Token mil gaya — GD ko dedo
+  inp.value = '';
+  const row = document.getElementById('gd-manual-row');
+  if (row) row.style.display = 'none';
+  try { GD._manualToken(token, exp); } catch(_) {}
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // SERVER SAVE  (Streamlit server file — Google Drive ke bina)
@@ -12519,6 +13433,209 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 // snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
 // Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
 // ════════════════════════════════════════════════════════════════════════════
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// GITHUB SYNC (Gist API)
+// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
+// ════════════════════════════════════════════════════════════════════════════
+const GH = (function () {
+  const GIST_NAME = 'banknifty-layout-sync.json';
+  const TOKEN_KEY = 'gh_token';
+  const GIST_ID_KEY = 'gh_gist_id';
+
+  function _setStatus(txt, color) {
+    const s = document.getElementById('gd-status'); // Reuse GD status for now
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+
+  function _toast(msg, color) {
+    if (window.GD && GD._toast) GD._toast(msg, color);
+    else alert(msg);
+  }
+
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
+        // Force overwrite even if it looks the same, to be sure
+        localStorage.setItem(k, data[k]);
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  async function push(showToast) {
+    // Force save current state to localStorage first
+    if (window.saveState) saveState();
+    if (window.saveToActiveLayout) saveToActiveLayout();
+    
+    let token = localStorage.getItem(TOKEN_KEY);
+    if (!token || token.length < 5) {
+      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
+      if (token && token.trim().length > 5) {
+        token = token.trim();
+        localStorage.setItem(TOKEN_KEY, token);
+      } else {
+        _setStatus('🐙 GitHub: Token required', '#f23645');
+        return;
+      }
+    }
+
+    _setStatus('🐙 GitHub: saving...', '#f0b429');
+    let gistId = localStorage.getItem(GIST_ID_KEY);
+    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json'
+    };
+
+    try {
+      let url = 'https://api.github.com/gists';
+      let method = 'POST';
+      let body = {
+        description: 'BankNifty Layout Sync',
+        public: false,
+        files: { [GIST_NAME]: { content: payload } }
+      };
+
+      if (gistId) {
+        url = `https://api.github.com/gists/${gistId}`;
+        method = 'PATCH';
+      }
+
+      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
+      const json = await resp.json();
+
+      if (resp.ok) {
+        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
+        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
+        if (showToast) _toast('☁ Saved to GitHub Gist');
+      } else {
+        console.error('GH Save Error:', json);
+        const errMsg = json.message || 'Save Failed';
+        
+        if (resp.status === 409) {
+          // Conflict error - force update by creating a new one or trying to pull first
+          console.warn('409 Conflict, retrying as new gist...');
+          localStorage.removeItem(GIST_ID_KEY);
+          return push(showToast);
+        }
+
+        if (resp.status === 404) {
+          localStorage.removeItem(GIST_ID_KEY);
+          const msg = "GitHub Error 404: Not Found.\n\n" +
+                      "This usually means your Token is missing 'gist' permission.\n" +
+                      "Please check 'gist' scope in GitHub Token settings.";
+          alert(msg);
+          _setStatus('🐙 GitHub: 404 Error', '#f23645');
+          return;
+        }
+
+        if (resp.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
+          _toast('Invalid Token: ' + errMsg, '#f23645');
+        } else {
+          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
+          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
+        }
+      }
+    } catch (err) {
+      _setStatus('🐙 GitHub: error', '#f23645');
+      _toast('GitHub Error: ' + err.message, '#f23645');
+    }
+  }
+
+  function reset() {
+    if (confirm("Reset GitHub Token and Gist ID?")) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(GIST_ID_KEY);
+      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
+      _toast('GitHub settings reset. Tap again to enter new token.');
+    }
+  }
+
+  async function pull(after) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (!token || !gistId) { if (after) after(false, false); return; }
+
+    _setStatus('🐙 GitHub: restoring...', '#f0b429');
+    const headers = {
+      'Authorization': `token ${token}`,
+      'Accept': 'application/vnd.github.v3+json'
+    };
+
+    try {
+      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
+      const json = await resp.json();
+
+      if (resp.ok && json.files[GIST_NAME]) {
+        const content = JSON.parse(json.files[GIST_NAME].content);
+        const changed = _apply(content.data);
+        if (after) after(true, changed);
+      } else {
+        if (after) after(false, false);
+      }
+    } catch (err) {
+      if (after) after(false, false);
+    }
+  }
+
+  function init() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (token && gistId) {
+      // Check if we just restored to avoid infinite loop
+      if (sessionStorage.getItem('gh_just_restored') === '1') {
+        sessionStorage.removeItem('gh_just_restored');
+        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
+        _toast('✓ GitHub Restore completed');
+        return;
+      }
+
+      _setStatus('🐙 GitHub: checking...', '#f0b429');
+      pull((found, changed) => {
+        if (found && changed) {
+          sessionStorage.setItem('gh_just_restored', '1');
+          _toast('✓ GitHub Restore completed');
+          setTimeout(() => location.reload(), 800);
+        } else if (found) {
+          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
+        } else {
+          _setStatus('🐙 GitHub: connected', '#787b86');
+        }
+      });
+    }
+  }
+
+  return { push, pull, init, reset };
+})();
+
+// Auto-init GitHub
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => GH.init());
+} else {
+  GH.init();
+}
+
 const SS = (function () {
   function _setStatus(txt, color) {
     const s = document.getElementById('ss-status');
@@ -12640,17 +13757,20 @@ const SS = (function () {
   return { init, push, download, restoreFromFile };
 })();
 
-// Save Layout / New Layout pe server-side save bhi ho jaye
+// Save Layout / New Layout pe server-side save bhi ho jaye (GD wale hook ke saath)
 (function () {
   const _origSave2 = window.saveToActiveLayout;
   window.saveToActiveLayout = function () {
     if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
+    // Cloud sync bhi karo (agar enabled ho)
+    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
   const _origNew2 = window.newLayout;
   window.newLayout = function () {
     if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
+    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
 })();
 
@@ -12658,6 +13778,89 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => SS.init());
 } else {
   SS.init();
+}
+
+// Auto-save toggle
+function gdAutoSaveToggle() {
+  const cur = localStorage.getItem('gdAutoSave') === '1';
+  const next = !cur;
+  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
+  _updateAutoSaveUI();
+  if (next && _gdEnabled) {
+    // Turant ek push karo
+    try { GD.pushNow(); } catch(_) {}
+  }
+}
+function _updateAutoSaveUI() {
+  const btn = document.getElementById('gd-autosave-btn');
+  if (!btn) return;
+  const on = localStorage.getItem('gdAutoSave') === '1';
+  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
+  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
+  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
+  btn.style.color         = on ? '#26a69a' : '#787b86';
+}
+let _gdEnabled = (() => {
+  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
+})();
+
+function gdToggle() {
+  _gdEnabled = !_gdEnabled;
+  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
+  _updateGdToggleUI();
+  if (_gdEnabled) {
+    // _booted flag reset karo taaki GD dobara connect kar sake
+    try { GD._resetBoot(); } catch(_) {}
+    GD.init();
+  } else {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+    const b = document.getElementById('gd-btn');
+    if (b) b.style.display = 'none';
+    const mr = document.getElementById('gd-manual-row');
+    if (mr) mr.style.display = 'none';
+  }
+}
+function _updateGdToggleUI() {
+  const tog = document.getElementById('gd-toggle');
+  if (!tog) return;
+  tog.textContent = _gdEnabled ? '🟢' : '⚫';
+  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
+}
+
+// Hook GD save with toggle check
+(function () {
+  const _origSave = window.saveToActiveLayout;
+  window.saveToActiveLayout = function () {
+    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
+    // GD push is now done in the SS hook above (with toggle check)
+  };
+  const _origNew = window.newLayout;
+  window.newLayout = function () {
+    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
+    // GD push is now done in the SS hook above (with toggle check)
+  };
+})();
+
+// Start cloud sync once DOM is ready (only if enabled)
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    _updateGdToggleUI();
+    _updateAutoSaveUI();
+    if (_gdEnabled) GD.init();
+    else {
+      const s = document.getElementById('gd-status');
+      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+    }
+  });
+} else {
+  _updateGdToggleUI();
+  _updateAutoSaveUI();
+  if (_gdEnabled) GD.init();
+  else {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
