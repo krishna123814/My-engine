@@ -4050,8 +4050,10 @@ function _buildStack2CellChart(idx) {
       // axis to invent odd extra labels (e.g. 3:35pm/3:45pm) — which is what
       // caused the gap/glitch when the old delete-based approach was used.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Step-forward later just series.update()'s these whitespace
-      // slots with real OHLC, one at a time.
+      // history). Step-forward later reveals these whitespace slots with
+      // real OHLC one at a time (via setData — see _sv2RevealBar below;
+      // NOT series.update(), which can't touch a non-last point once the
+      // whole future is pre-loaded as whitespace).
       let dataToShow = data;
       let _replayFromIdx = -1;
       const rng = window._SV2_DATE_RANGE;
@@ -4060,6 +4062,16 @@ function _buildStack2CellChart(idx) {
         _replayFromIdx = data.findIndex(bar => bar.time >= rng.from);
         _dbg.push('rangeFilter(whitespace) from='+rng.fromStr+' to='+(rng.toStr||'')+' realKept='+_replayFromIdx+'/'+data.length);
       }
+      // Keep a mutable reference to what's actually loaded in this cell's
+      // series. Bar-Replay reveals a hidden (whitespace) bar by mutating
+      // this array in place and re-calling series.setData() on it — NOT
+      // series.update(), because update() only accepts a time >= the
+      // series' current LAST point. Since whitespace already pre-loads the
+      // entire future, the "last" point is far ahead in time, so update()
+      // on an earlier (just-being-revealed) bar is silently rejected —
+      // that's what caused "candle show nahi ho rahi" after switching to
+      // whitespace-based replay. setData() has no such restriction.
+      c._sv2FullData = dataToShow;
 
       const CHUNK = 500;
       let offset = 0;
@@ -4870,6 +4882,34 @@ function ss2ApplyAndClose() {
     return Math.floor(tSec / sec) * sec;
   }
 
+  // ── Reveal/update a bar inside a cell's whitespace-loaded series ──────────
+  // series.update() ONLY accepts a time >= the series' current last point.
+  // Our whitespace pre-load pushes the "last" point far into the future, so
+  // update() can't touch an earlier (currently-being-revealed) bar — it's
+  // silently rejected (candle never shows). setData() has no such
+  // restriction: we mutate the stored full array in place and re-supply it.
+  function _sv2RevealBar(cell, bar) {
+    if (!cell || !cell._sv2FullData || !cell.series) return false;
+    var arr = cell._sv2FullData;
+    // Binary search (arr is time-ascending)
+    var lo = 0, hi = arr.length - 1, idx = -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      if (arr[mid].time === bar.time) { idx = mid; break; }
+      else if (arr[mid].time < bar.time) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    if (idx === -1) return false;   // bar.time not on this cell's grid — skip
+    arr[idx] = bar;
+    try { cell.series.setData(arr); } catch(_) { return false; }
+    return true;
+  }
+
+  // Throttle setData calls during the ~1s animation (setData rebuilds the
+  // whole series internally — fine at ~20fps, wasteful at a full 60fps).
+  var _lastRevealMs = 0;
+  var _REVEAL_THROTTLE_MS = 45;
+
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
   // For each STACK2_CELL, find its current bucket bar from already-loaded data,
   // then animate the partial candle contribution on top.
@@ -4887,6 +4927,8 @@ function ss2ApplyAndClose() {
       var t = Math.min(1, (now - startMs) / _ANIM_MS);
       // Easing: ease-out cubic
       var e = 1 - Math.pow(1 - t, 3);
+      var _doReveal = (t >= 1) || (now - _lastRevealMs >= _REVEAL_THROTTLE_MS);
+      if (_doReveal) _lastRevealMs = now;
 
       // For each STACK2_CELL: compute partial candle and animate
       if (typeof STACK2_CELLS !== 'undefined') {
@@ -4930,7 +4972,7 @@ function ss2ApplyAndClose() {
             low:   animL,
             close: animC,
           };
-          try { cell.series.update(animBar); } catch(_) {}
+          if (_doReveal) _sv2RevealBar(cell, animBar);
         }
       }
 
