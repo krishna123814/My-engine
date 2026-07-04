@@ -4936,7 +4936,18 @@ function ss2ApplyAndClose() {
       if (!cell || !cell.series) continue;
       var tfMin = _getCellTFMinLive(ci);
       var agg = _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
+      // setData() poora series data replace karta hai — jiski wajah se
+      // Lightweight Charts apna visible time-range reset/re-fit kar deta
+      // hai (default rightOffset view par). Isse replay ke har tick par
+      // chart "right ki taraf bhaagta" dikhta tha. Fix: setData() se pehle
+      // current viewport save karo, baad mein wahi restore kar do — same
+      // pattern jo _sv2ApplyCellSR() SR lines ke liye already use karta hai.
+      var _preRange = null;
+      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_) {}
       try { cell.series.setData(agg); } catch(_) {}
+      if (_preRange && cell.chart) {
+        try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
+      }
     }
   }
 
