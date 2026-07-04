@@ -6003,12 +6003,35 @@ function isCryptoSymbol(asset) {
          s.includes('BNB')  || s.includes('BUSD') || s.includes('USDC');
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// CENTRAL VIRTUAL CLOCK
+// ────────────────────────────────────────────────────────────────────────────
+// Poore chart mein "abhi kya time hai" ka EK hi source of truth.
+// Live mode: real Date.now().
+// Bar Replay ke dauran: replay jahan tak pahuncha hai wahi "abhi" hota hai
+// (window._REPLAY_VIRTUAL_NOW_SEC set hota hai sv2SwingInit se, per-step).
+//
+// Kisi bhi jagah jo "current real-world time" janna chahti ho (forming-
+// candle check, market-open/closed, countdown, session boundaries) usko
+// seedha Date.now()/new Date() ki jagah _getNow()/_getNowSec() use karna
+// chahiye — taaki Bar Replay automatically "live jaisa" behave kare, bina
+// har function ko manually replay-aware banaye. Naya code likhte waqt bhi
+// yahi rule follow karo.
+// ════════════════════════════════════════════════════════════════════════════
+window._REPLAY_VIRTUAL_NOW_SEC = null;  // null = live mode; number = replay's virtual "abhi" (epoch seconds)
+function _getNow() {
+  return (typeof window._REPLAY_VIRTUAL_NOW_SEC === 'number')
+    ? window._REPLAY_VIRTUAL_NOW_SEC * 1000
+    : Date.now();
+}
+function _getNowSec() { return Math.floor(_getNow() / 1000); }
+
 // NSE/BSE cash-market trading session: Mon–Fri, 09:15–15:30 IST,
 // excluding declared NSE holidays (NSE_HOLIDAYS above).
 // Crypto (BTC/USDT etc.) trades 24/7 → always "open".
 function _isMarketOpen(asset) {
   if (isCryptoSymbol(asset !== undefined ? asset : S.asset)) return true;
-  const now   = new Date();
+  const now   = new Date(_getNow());
   // Fixed +5:30 IST offset — NO getTimezoneOffset() to avoid double-shift
   const istMs = now.getTime() + 5.5 * 3600000;
   const ist   = new Date(istMs);
@@ -10105,7 +10128,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, virtualNowSec) {
+function swingCompute(bars, tfMin) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10139,19 +10162,17 @@ function swingCompute(bars, tfMin, virtualNowSec) {
     const prev = raw[raw.length - 2];
     // Pure time-based check — market open/close pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
-    // "Abhi" ka time normally real Date.now() hota hai — LEKIN Bar Replay
-    // mein "abhi" ka matlab replay ka virtual clock hai, real wall-clock
-    // nahi. Pehle yeh hamesha Date.now() use karta tha, jo replay ke data
+    // "Abhi" ka time _getNowSec() se aata hai — live mode mein real time,
+    // Bar Replay ke dauran replay ka virtual "abhi" (central clock, upar
+    // dekho). Pehle yeh seedha Date.now() use karta tha, jo replay ke data
     // (jo hamesha aaj se purana hota hai) ke liye hamesha TRUE (bar ka
     // duration already beet chuka) nikalta — matlab last bar hamesha
     // "closed" maan liya jaata, chahe replay usse abhi tak reach na hua ho.
     // Isi wajah se SR validation rules forming candle par bhi turant fire
     // ho jaate the — sabhi TF par, kyunki yeh function har TF ke liye
-    // shared hai. Fix: jab caller replay ka virtualNowSec de, wahi use karo.
+    // shared hai.
     const barDuration = last.time - prev.time;
-    const nowSec = (typeof virtualNowSec === 'number')
-                   ? virtualNowSec
-                   : Math.floor(Date.now() / 1000);
+    const nowSec = _getNowSec();
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
@@ -10666,12 +10687,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      // cutoffTime = replay ka virtual "abhi" (last replayed base-candle
-      // time + 1). Isse pass karna zaroori hai warna swingCompute andar
-      // real Date.now() use karke last (abhi bhi forming) candle ko
-      // "closed" maan leta — replay mein hamesha true nikalta kyunki
-      // replay ka data hamesha aaj se purana hota hai.
-      swingCompute(dataCur, cellTFMin, cutoffTime)
+      swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10685,7 +10701,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min, cutoffTime)
+        swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
@@ -10734,9 +10750,19 @@ function sv2SwingInit(cutoffTime) {
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
   const assetKey = (typeof _stackKeyForAsset === 'function')
                     ? _stackKeyForAsset(S.asset) : 'bn';
-  for (let i = 0; i < STACK2_CELLS.length; i++) {
-    const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines);
+  // Bar-Replay: iss poore loop ke liye chart ka "abhi" replay ka virtual
+  // cutoff bana do (central clock — dekho _getNow() upar). Isse forming-
+  // candle / market-open jaise saare real-time-dependent checks replay ke
+  // hisaab se sahi chalte hain, bina har function ko alag se batana pade.
+  // cutoffTime null ho (poora .gz data / replay off) to live mode par wapas.
+  window._REPLAY_VIRTUAL_NOW_SEC = (typeof cutoffTime === 'number') ? cutoffTime : null;
+  try {
+    for (let i = 0; i < STACK2_CELLS.length; i++) {
+      const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
+      _sv2ApplyCellSR(i, lines);
+    }
+  } finally {
+    window._REPLAY_VIRTUAL_NOW_SEC = null;
   }
 }
 
@@ -11121,7 +11147,7 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
     if(!raw.length||raw.length<2) return false;
     const last=raw[raw.length-1]; const prev=raw[raw.length-2];
     const nDays=tfMin>1440?Math.round(tfMin/1440):0;
-    if(nDays>=2){ const bd=last.time-prev.time; const nowSec=Math.floor(Date.now()/1000); return nowSec<(last.time+bd); }
+    if(nDays>=2){ const bd=last.time-prev.time; const nowSec=_getNowSec(); return nowSec<(last.time+bd); }
     return _isMarketOpen();
   })();
   const data=(raw.length>1&&_isLastBarForming2)?raw.slice(0,-1):raw;
