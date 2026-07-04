@@ -10074,16 +10074,12 @@ function swingCompute(bars, tfMin) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    const nDays = tfMin > 1440 ? Math.round(tfMin / 1440) : 0;
-    if (nDays >= 2) {
-      // Last bar ki expected end = last.time + nDays * 86400 (approx, trading days)
-      // Simple check: agar current IST time last bar ke start aur prev bar ke
-      // gap-based expected-end ke beech hai → forming
-      const barDuration = last.time - prev.time; // actual measured duration
-      const nowSec = Math.floor(Date.now() / 1000);
-      return nowSec < (last.time + barDuration);
-    }
-    return _isMarketOpen(); // intraday/daily: existing logic
+    // Pure time-based check — market open/close ya replay mode pe depend nahi.
+    // Last bar ki actual duration = last.time - prev.time (real measured gap).
+    // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
+    const barDuration = last.time - prev.time;
+    const nowSec = Math.floor(Date.now() / 1000);
+    return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
 
@@ -10166,9 +10162,9 @@ function swingCompute(bars, tfMin) {
       // Deletion: purane swings jo naye se upar hain → hata do
       aRes = aRes.filter(l => l.price <= rPrice);
       aSup = aSup.filter(l => l.price <= rPrice);
-      // Naya swing — endTime = cur.time + swingDuration (no infinity)
+      // Naya swing — endTime = cur.time + swingDuration * 2 (double on creation)
       aRes.push({ price: rPrice, startTime: rTime,
-                  endTime: cur.time + swingDuration(tfMin),
+                  endTime: cur.time + swingDuration(tfMin) * 2,
                   creationIndex: i, kind: 'sh', periodSec });
     }
 
@@ -10179,9 +10175,9 @@ function swingCompute(bars, tfMin) {
       // Deletion: purane swings jo naye se neeche hain → hata do
       aSup = aSup.filter(l => l.price >= sPrice);
       aRes = aRes.filter(l => l.price >= sPrice);
-      // Naya swing — endTime = cur.time + swingDuration (no infinity)
+      // Naya swing — endTime = cur.time + swingDuration * 2 (double on creation)
       aSup.push({ price: sPrice, startTime: sTime,
-                  endTime: cur.time + swingDuration(tfMin),
+                  endTime: cur.time + swingDuration(tfMin) * 2,
                   creationIndex: i, kind: 'sl', periodSec });
     }
 
