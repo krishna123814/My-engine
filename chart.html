@@ -4945,8 +4945,16 @@ function ss2ApplyAndClose() {
         _animating = false;
         _stepBtn.classList.remove('animating');
 
-        // SV2 Swing S&R: closed candle ke baad SR update karo
-        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
+        // SV2 Swing S&R: closed candle ke baad SR update karo.
+        // stepBar.time bar ka OPEN time hai, close time nahi — isliye
+        // wahi seedha bhejne se cutoff "candle khulte hi" ban jaata tha,
+        // "candle band hote hi" nahi. Base-TF duration jodkar asli close
+        // time nikalo taaki har TF (base ho ya higher) sahi waqt par close
+        // maana jaaye — na ek step jaldi, na ek step late.
+        try {
+          var _baseTFSec = (_parseTFMin(isBN ? BN_STEP_TF : BTC_STEP_TF) || 5) * 60;
+          sv2SwingOnStep(stepBar.time + _baseTFSec);
+        } catch(_) {}
 
         // Check if replay is complete
         if (_replayIdx >= _replayCandles.length) {
