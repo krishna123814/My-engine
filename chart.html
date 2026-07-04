@@ -4040,28 +4040,49 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
-      // (not just hidden visually) so that timeScale shows a genuine gap —
-      // this is the empty space future Bar Replay will fill in one at a time.
+      // Bar-Replay prep (WHITESPACE-based): candles AT/AFTER rng.from are
+      // NOT deleted — they're swapped for "whitespace" points ({time} only,
+      // no OHLC), same trick TradingView's own Bar Replay uses. Nothing is
+      // drawn for those candles (visually still hidden), but their time
+      // slots stay on the axis. This keeps the timeScale fully continuous,
+      // so indicator lines (S&R/Swing) that extend endTime into the future
+      // land on real, already-existing grid points instead of forcing the
+      // axis to invent odd extra labels (e.g. 3:35pm/3:45pm) — which is what
+      // caused the gap/glitch when the old delete-based approach was used.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Candles AFTER the range are also dropped for now, since
-      // they'd represent "the future" relative to the replay starting point.
+      // history). Step-forward later just series.update()'s these whitespace
+      // slots with real OHLC, one at a time.
       let dataToShow = data;
+      let _replayFromIdx = -1;
       const rng = window._SV2_DATE_RANGE;
-      if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        dataToShow = data.filter(bar => bar.time < rng.from);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+      if (rng && typeof rng.from === 'number') {
+        dataToShow = data.map(bar => (bar.time < rng.from) ? bar : { time: bar.time });
+        _replayFromIdx = data.findIndex(bar => bar.time >= rng.from);
+        _dbg.push('rangeFilter(whitespace) from='+rng.fromStr+' to='+(rng.toStr||'')+' realKept='+_replayFromIdx+'/'+data.length);
       }
 
       const CHUNK = 500;
       let offset = 0;
+      function _positionAfterLoad() {
+        if (_replayFromIdx >= 0) {
+          // Bar-Replay: park the view with rng.from near the right edge —
+          // a little whitespace visible to the right, like real TV replay —
+          // instead of scrollToRealTime() which would now scroll all the
+          // way to the (blank) present since the axis is continuous.
+          try {
+            const barsVisible = 100;
+            const toLogical   = _replayFromIdx + 5;
+            const fromLogical = Math.max(0, _replayFromIdx - barsVisible);
+            c.chart.timeScale().setVisibleLogicalRange({ from: fromLogical, to: toLogical });
+          } catch(_) {}
+        } else {
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+        }
+      }
       function feedChunk() {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
-        if (!slice.length) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          return;
-        }
+        if (!slice.length) { _positionAfterLoad(); return; }
         try {
           if (offset === 0) { c.series.setData(slice); }
           else { slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} }); }
@@ -4071,7 +4092,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
+        else { _positionAfterLoad(); }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
