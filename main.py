@@ -632,7 +632,18 @@ def _sv2_to_js(data: list) -> str:
     return json.dumps(data, separators=(",", ":"))
 
 def _build_sv2_data() -> dict:
-    """Dono .gz files se sab TFs ka resampled data build karo."""
+    """Dono .gz files se sab TFs ka aggregated data return karo.
+
+    IMPORTANT: yeh ab sirf EK BAAR resample karta hai (jab process/session mein
+    pehli dafa call hota hai) aur result ko _SV2_CACHE["agg"] mein store kar
+    deta hai. Uske baad har stackview-2 open / Streamlit rerun pe seedha
+    cached aggregated data return hota hai — resample functions dobara nahi
+    chalte. Raw 5m .gz data ka source same hai, bas resampling ab repeat
+    nahi hoti.
+    """
+    if "agg" in _SV2_CACHE:
+        return _SV2_CACHE["agg"]
+
     bn_raw  = _sv2_load_bn_gz()
     btc_raw = _sv2_load_btc_gz()
 
@@ -654,10 +665,12 @@ def _build_sv2_data() -> dict:
         "9D":   _sv2_resample_btc(btc_raw, 1440 * 9),
         "27D":  _sv2_resample_btc(btc_raw, 1440 * 27),
     }
-    return {
+    agg = {
         "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
         "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
     }
+    _SV2_CACHE["agg"] = agg
+    return agg
 
 # ─── Fyers historical data ─────────────────────────────────────────────────────
 def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
