@@ -9767,7 +9767,7 @@ function setSwingLineWidth(w) {
 //               like 15:35/15:45/15:50 after market close
 //               OFF → endTime = candleTime + N×period (old behaviour, can spill
 //               past session close)
-const _SR_FLAGS_KEY = 'srRuleFlags1';
+const _SR_FLAGS_KEY = 'srRuleFlags2';  // bumped v2 — earlier testing saved OFF values under v1; force fresh ON defaults
 let SR_FLAGS = { candleColor: true, validation: true, dedup: true, tfPriority: true, sessionClamp: true };
 function _srFlagsLoad() {
   try {
@@ -10762,6 +10762,10 @@ function sv2SwingInit(cutoffTime) {
   if (!SWING_STATE.visible) return;
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  // Remember the cutoff actually used — so a later toggle-triggered refresh
+  // (sv2SwingRefresh) recomputes from THIS (current/replayed) position
+  // instead of snapping back to the original date-range start.
+  window._SV2_SR_CUTOFF = cutoffTime;
   const assetKey = (typeof _stackKeyForAsset === 'function')
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
@@ -10773,8 +10777,17 @@ function sv2SwingInit(cutoffTime) {
 // ── Refresh — chip/preset/line-width/toggle change par ──────────────────────
 function sv2SwingRefresh() {
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
-  const rng    = window._SV2_DATE_RANGE;
-  const cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
+  // Prefer the last-used cutoff (kept in sync with replay steps by
+  // sv2SwingInit above). Falls back to the date-range start only if no
+  // cutoff has been recorded yet (e.g. right after a fresh date-range apply,
+  // or full/no-range historical view).
+  let cutoff;
+  if (typeof window._SV2_SR_CUTOFF !== 'undefined' && window._SV2_SR_CUTOFF !== null) {
+    cutoff = window._SV2_SR_CUTOFF;
+  } else {
+    const rng = window._SV2_DATE_RANGE;
+    cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
+  }
   sv2SwingInit(cutoff);
 }
 
