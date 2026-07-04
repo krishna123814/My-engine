@@ -2400,6 +2400,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           </div>
         </div>
         <div class="ind-row">
+          <span class="ind-name">Swing High/Low Lines — SV2</span>
+          <div class="ind-ctrl">
+            <label class="toggle"><input type="checkbox" id="ck-sv2-swing-hl" checked onchange="onSv2SwingHLToggle(this)"><span class="sl"></span></label>
+          </div>
+        </div>
+        <div class="ind-row">
           <span class="ind-name">Line Width (motai)</span>
           <div class="ind-ctrl">
             <input class="ind-len" id="swing-line-width" type="number" value="1" min="0.5" max="4" step="0.5"
@@ -7561,6 +7567,7 @@ function _syncSwingPanelUI() {
   const width   = (ctx === 'sv2') ? SV2_SWING_LINE_WIDTH   : SWING_LINE_WIDTH;
   const ck = document.getElementById('ck-swing');   if (ck)  ck.checked = visible;
   const ckHL = document.getElementById('ck-sv2-candle-hl'); if (ckHL) ckHL.checked = SV2_CANDLE_HL_STATE.visible;
+  const ckSwHL = document.getElementById('ck-sv2-swing-hl'); if (ckSwHL) ckSwHL.checked = SV2_SWING_HL_STATE.visible;
   const wInp = document.getElementById('swing-line-width'); if (wInp) wInp.value = width;
   _renderSwingChips();
   _updateLockBtn();
@@ -9785,6 +9792,19 @@ function onSv2CandleHLToggle(cb) {
   try { _LS.setItem(_SV2_CANDLE_HL_KEY, cb.checked ? '1' : '0'); } catch(_) {}
   try { sv2SwingRefresh(); } catch(_) {}
 }
+// ── SV2-only toggle: true Swing High/Low ("colour-flip") rule lines.
+// Independent of both the Candle H/L toggle above and the master SV2
+// Swing S/R toggle (ck-swing) — turning this off hides ONLY the swing
+// high/low lines (kind 'sh'/'sl', isInfinite:true) produced by the
+// prevGreen→currRed / prevRed→currGreen rule in swingCompute(), while
+// Candle H/L lines (kind 'ch'/'cl') keep showing as usual.
+const _SV2_SWING_HL_KEY = 'sv2SwingHLVisible';
+const SV2_SWING_HL_STATE = { visible: (_LS.getItem(_SV2_SWING_HL_KEY) !== '0') };
+function onSv2SwingHLToggle(cb) {
+  SV2_SWING_HL_STATE.visible = cb.checked;
+  try { _LS.setItem(_SV2_SWING_HL_KEY, cb.checked ? '1' : '0'); } catch(_) {}
+  try { sv2SwingRefresh(); } catch(_) {}
+}
 function _swCtx() {
   return (typeof _stack2Active !== 'undefined' && _stack2Active) ? 'sv2' : 'default';
 }
@@ -10836,6 +10856,8 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
           if (!l.isInfinite) {
             if (!SV2_CANDLE_HL_STATE.visible) return;   // Candle H/L rule off
             l.endTime = _sv2SessionClamp(l.endTime, isBN);
+          } else {
+            if (!SV2_SWING_HL_STATE.visible) return;    // Swing H/L rule off
           }
           if (cellTFMin <= l.levelTf) allLines.push(l);
         });
@@ -10856,6 +10878,8 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
             if (!l.isInfinite) {
               if (!SV2_CANDLE_HL_STATE.visible) return;   // Candle H/L rule off
               l.endTime = _sv2SessionClamp(l.endTime, isBN);
+            } else {
+              if (!SV2_SWING_HL_STATE.visible) return;    // Swing H/L rule off
             }
             if (cellTFMin <= l.levelTf) allLines.push(l);
           });
