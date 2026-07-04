@@ -789,6 +789,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-step-btn.visible{
   display:flex;
 }
+#sv2-reset-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:40px;height:40px;
+  border-radius:50%;
+  background:#1e222d;
+  border:2px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:17px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  color:#787b86;
+}
+#sv2-reset-btn.visible{
+  display:flex;
+}
 #sv2-step-btn.animating{
   opacity:.45;
   border-color:#555;
@@ -2197,8 +2217,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
-<!-- ═══ SV2 STEP / REPLAY BUTTON (FAB ke neeche, sirf active-range mein) ══ -->
-<button id="sv2-step-btn" title="Step: Next Candle Replay" onclick="_sv2StepForward()">⏭</button>
+<!-- ═══ SV2 LIVE REPLAY CONTROLS (FAB ke neeche, sirf active-range mein) ══ -->
+<button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
+<button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -2639,6 +2660,67 @@ const SV2_BTC = {
 
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
+
+// ════════════════════════════════════════════════════════════════════════════
+// LIVE BAR-REPLAY: bottom-up TF aggregation (NO server pre-resample used)
+// ────────────────────────────────────────────────────────────────────────────
+// Used ONLY during an active Live Replay session. Every timeframe candle
+// (closed or currently forming) is built purely from base bars
+// (BN = 5m, BTC = 160m) that have been "revealed" so far — exactly like a
+// real live feed builds higher timeframes up from the base tick/candle data.
+// Normal (non-replay) Stack View 2 is untouched and keeps using the
+// pre-resampled SV2_BN / SV2_BTC store.
+// NOTE: for tfMin >= 1440 (1D/3D/9D/27D) this buckets by single calendar day
+// only (matches the existing step-engine bucket logic) — true N-day grouping
+// for 3D/9D/27D is a known simplification, same as before.
+// ════════════════════════════════════════════════════════════════════════════
+function _liveGetBucketTime(tSec, tfMin, isBN) {
+  if (tfMin >= 1440) {
+    return Math.floor(tSec / 86400) * 86400;
+  }
+  if (isBN) {
+    var IST = 5.5 * 3600;
+    var istSec   = tSec + IST;
+    var dayStart = istSec - (istSec % 86400);
+    var minOfDay = Math.floor((istSec % 86400) / 60);
+    var SESSION_START = 9 * 60 + 15;   // 555
+    var minSinceOpen  = minOfDay - SESSION_START;
+    if (minSinceOpen < 0) minSinceOpen = 0;
+    var bucketIdx      = Math.floor(minSinceOpen / tfMin);
+    var bucketStartMin = SESSION_START + bucketIdx * tfMin;
+    return (dayStart - IST) + bucketStartMin * 60;
+  }
+  var sec = tfMin * 60;
+  return Math.floor(tSec / sec) * sec;
+}
+
+// baseBars: full ordered array of base-TF candles (5m for BN / 160m for BTC)
+// revealCount: how many of those base bars are "known" right now (from index 0)
+// Returns an ordered array of aggregated candles for tfMin — last entry may
+// still be a forming (incomplete) bucket, exactly like a real live chart.
+function _liveAggregateTF(baseBars, revealCount, tfMin, isBN) {
+  var out = [];
+  var curBucket = null, o = null, h = -Infinity, l = Infinity, c = null;
+  var n = Math.min(revealCount, baseBars.length);
+  for (var i = 0; i < n; i++) {
+    var bar = baseBars[i];
+    var bt  = _liveGetBucketTime(bar.time, tfMin, isBN);
+    if (curBucket === null) {
+      curBucket = bt; o = bar.open; h = bar.high; l = bar.low; c = bar.close;
+      continue;
+    }
+    if (bt === curBucket) {
+      if (bar.high > h) h = bar.high;
+      if (bar.low  < l) l = bar.low;
+      c = bar.close;
+    } else {
+      out.push({ time: curBucket, open: o, high: h, low: l, close: c });
+      curBucket = bt; o = bar.open; h = bar.high; l = bar.low; c = bar.close;
+    }
+  }
+  if (curBucket !== null) out.push({ time: curBucket, open: o, high: h, low: l, close: c });
+  return out;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // STATE
@@ -4049,8 +4131,30 @@ function _buildStack2CellChart(idx) {
       let dataToShow = data;
       const rng = window._SV2_DATE_RANGE;
       if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        dataToShow = data.filter(bar => bar.time < rng.from);
-        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
+        // ── LIVE REPLAY ARMED: no pre-resampled shortcut, AT ALL ─────────
+        // History shown here must be built bottom-up from the base bars
+        // (5m for BN / 160m for BTC) — same function the live tick loop
+        // will keep using — so there's zero seam between "history" and
+        // "live forming" candles once replay starts. (Normal static view,
+        // i.e. no range active, still uses pre-resampled `data` above.)
+        const baseKeyLive   = (assetKey2 === 'bn') ? '5m' : '160m';
+        const baseStoreLive = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
+        const baseBarsLive  = baseStoreLive[baseKeyLive] || [];
+        const tfMinCell     = _parseTFMin(tfLabel) || 5;
+        let revealCount = 0;
+        for (let bi = 0; bi < baseBarsLive.length; bi++) {
+          if (baseBarsLive[bi].time < rng.from) revealCount = bi + 1; else break;
+        }
+        dataToShow = _liveAggregateTF(baseBarsLive, revealCount, tfMinCell, assetKey2 === 'bn');
+
+        // Stash for the live-replay engine (shared base array + start point)
+        window._SV2_LIVE = window._SV2_LIVE || {};
+        window._SV2_LIVE.baseBars  = baseBarsLive;
+        window._SV2_LIVE.isBN      = (assetKey2 === 'bn');
+        window._SV2_LIVE.startIdx  = revealCount;
+        window._SV2_LIVE.revealIdx = revealCount;
+
+        _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
       }
 
       const CHUNK = 500;
@@ -4673,348 +4777,168 @@ function ss2ApplyAndClose() {
 })();
 
 // ════════════════════════════════════════════════════════════════════════════
-// SV2 STEP / REPLAY BUTTON
+// SV2 LIVE BAR-REPLAY ENGINE
 // ────────────────────────────────────────────────────────────────────────────
-// Sirf tab dikhta hai jab _SV2_DATE_RANGE active ho (date range select hua ho)
-// Ek tap = 1 candle forward replay (BN=5m, BTC=160m)
-// Animation: 1 second mein gradually build (open→H/L extend→close move)
-// Sabhi STACK2_CELLS simultaneously update honge (Option A: partial candle)
-// Next tap block jab tak animation complete na ho
-// Range end (_rng.to) pe button disabled
+// Behaves like a real live feed, but every bar comes from the .gz data:
+//   • Active only when a Date Range is selected (window._SV2_DATE_RANGE)
+//   • Base bars (BN=5m, BTC=160m) are revealed ONE AT A TIME, fully formed
+//     (no intra-candle animation) — a jump-reveal, not a gradual build.
+//   • Pace is driven by OUR OWN virtual-clock parameter (TICK_MS = 1 real
+//     second = 1 candle by default), NEVER by reading real wall-clock time
+//     to decide what should be visible. setInterval is only a metronome —
+//     a tick source — not a source of truth for "what time is it".
+//   • When the base array runs out for the day, the very next base bar in
+//     the array is automatically the next trading day's 9:15 bar — so
+//     "agle din 9:15 se continue" needs no special-case code, it just keeps
+//     stepping through the same array.
+//   • Every tick, ALL STACK2_CELLS are fully rebuilt bottom-up from the
+//     revealed base bars via _liveAggregateTF() — the pre-resampled
+//     SV2_BN/SV2_BTC store is never touched during a replay session.
 // ════════════════════════════════════════════════════════════════════════════
 (function(){
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  var _stepBtn        = null;   // #sv2-step-btn element
-  var _replayIdx      = 0;      // next candle index to replay (into hidden range)
-  var _replayCandles  = null;   // array of {cellIdx, bar} for current BN TF or BTC TF
-  var _animating      = false;  // tap blocked jab true
-  var _animRaf        = null;   // requestAnimationFrame handle
-  var _ANIM_MS        = 1000;   // 1 second animation
+  var _playBtn   = null;   // #sv2-step-btn (repurposed as Play/Pause)
+  var _resetBtn  = null;   // #sv2-reset-btn
+  var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
+  var _running   = false;
+  var TICK_MS    = 1000;   // virtual-clock parameter: 1 real sec = 1 candle
 
-  // ── BN base TF for step: always 5m ────────────────────────────────────────
-  var BN_STEP_TF  = '5m';
-  // ── BTC base TF for step: always 160m ─────────────────────────────────────
-  var BTC_STEP_TF = '160m';
+  // ── Show / hide controls based on whether a replay range is active ───────
+  function _syncControls() {
+    var rangeActive = !!(window._SV2_DATE_RANGE && typeof window._SV2_DATE_RANGE.from === 'number');
+    var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
+    var show = rangeActive && stack2On;
+    if (_playBtn)  _playBtn.classList.toggle('visible', show);
+    if (_resetBtn) _resetBtn.classList.toggle('visible', show);
+    if (!show) _pause();
+    _renderPlayIcon();
+    _syncPos();
+  }
 
-  // ── Sync step button position directly below the FAB ──────────────────────
-  function _syncStepBtnPos() {
-    if (!_stepBtn) return;
+  function _syncPos() {
     var fab = document.getElementById('sv2-drng-fab');
     if (!fab) return;
     var r = fab.getBoundingClientRect();
-    _stepBtn.style.left = r.left + 'px';
-    _stepBtn.style.top  = (r.bottom + 8) + 'px';
-  }
-
-  // ── Show / hide step button ────────────────────────────────────────────────
-  function _syncStepBtn() {
-    if (!_stepBtn) return;
-    var rangeActive = !!(window._SV2_DATE_RANGE &&
-                         typeof window._SV2_DATE_RANGE.from === 'number');
-    var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
-    if (rangeActive && stack2On) {
-      _stepBtn.classList.add('visible');
-      _syncStepBtnPos();
-    } else {
-      _stepBtn.classList.remove('visible');
-      _replayIdx     = 0;
-      _replayCandles = null;
-      _animating     = false;
-      if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
+    if (_playBtn) {
+      _playBtn.style.left = r.left + 'px';
+      _playBtn.style.top  = (r.bottom + 8) + 'px';
+    }
+    if (_resetBtn) {
+      _resetBtn.style.left = (r.left + 58) + 'px';
+      _resetBtn.style.top  = (r.bottom + 8) + 'px';
     }
   }
 
-  // ── Build sorted candle list for replay ───────────────────────────────────
-  // Returns array of candles from SV2 raw data that fall inside [rng.from, rng.to)
-  // for the correct base TF (BN=5m, BTC=160m)
-  function _buildReplayCandles() {
-    var rng = window._SV2_DATE_RANGE;
-    if (!rng) return [];
-    var assetKey = (typeof _stackKeyForAsset === 'function')
-                    ? _stackKeyForAsset(S.asset) : 'bn';
-    var isBN = (assetKey === 'bn');
-    var tfKey = isBN ? BN_STEP_TF : BTC_STEP_TF;
-
-    // Get base data from SV2 store
-    var store = null;
-    try {
-      store = isBN ? SV2_BN : SV2_BTC;
-    } catch(_) { return []; }
-    if (!store) return [];
-
-    var baseData = null;
-    var keyLow = tfKey.toLowerCase();
-    for (var k in store) {
-      if (k.toLowerCase() === keyLow) { baseData = store[k]; break; }
-    }
-    if (!Array.isArray(baseData) || !baseData.length) return [];
-
-    // Filter to hidden range [from, to)
-    return baseData.filter(function(b){
-      return b.time >= rng.from && b.time < rng.to;
-    });
+  function _renderPlayIcon() {
+    if (!_playBtn) return;
+    var live = window._SV2_LIVE;
+    var done = !!(live && live.baseBars && live.revealIdx >= live.baseBars.length);
+    _playBtn.classList.toggle('done', done);
+    _playBtn.textContent = done ? '\u2713' : (_running ? '\u23f8' : '\u25b6');
   }
 
-  // ── Resolve a STACK2 cell's REAL timeframe in minutes ──────────────────────
-  // BUG FIX: cellObj.tf is hardcoded to 1440 in buildStack2() (it's unused —
-  // the actual per-cell TF lives only as a LABEL string in cfg.tfs[idx], e.g.
-  // "45m", "135m", "1D"). Using cell.tf directly made every cell resolve to
-  // the same 1440-min (1-day) bucket, so every step collapsed onto the same
-  // candle instead of advancing. Parse the real label here instead.
-  function _getCellTFMin(idx) {
+  // Resolve a cell's real TF in minutes from its label (cell.tf is unused/hardcoded)
+  function _getCellTFMinLive(idx) {
     try {
-      var assetKey = (typeof _stackKeyForAsset === 'function')
-                      ? _stackKeyForAsset(S.asset) : 'bn';
+      var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
       var cfg2 = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
       var tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
       var min = _parseTFMin(tfLabel);
       if (min && min > 0) return min;
     } catch(_) {}
-    return 5; // safe fallback — base TF
+    return 5;
   }
 
-  // ── Get all STACK2_CELLS data arrays (raw, unfiltered) ────────────────────
-  // Each cell has its own TF. We need to feed the partial candle contribution
-  // of the base-TF candle into each cell's higher-TF forming candle.
-  function _getCellRawData(idx) {
-    // Try _SV2_RAW_DATA first (set by _buildStack2CellChart)
-    if (window._SV2_RAW_DATA && window._SV2_RAW_DATA[idx]) {
-      return window._SV2_RAW_DATA[idx];
+  function _rebuildAllCells() {
+    var live = window._SV2_LIVE;
+    if (!live || typeof STACK2_CELLS === 'undefined') return;
+    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+      var cell = STACK2_CELLS[ci];
+      if (!cell || !cell.series) continue;
+      var tfMin = _getCellTFMinLive(ci);
+      var agg = _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
+      try { cell.series.setData(agg); } catch(_) {}
     }
-    // Fallback: read from SV2 store
-    try {
-      var c = STACK2_CELLS[idx];
-      if (!c) return null;
-      var assetKey = (typeof _stackKeyForAsset === 'function')
-                      ? _stackKeyForAsset(S.asset) : 'bn';
-      var cfg2 = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-      var tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
-      if (!tfLabel) return null;
-      var store = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
-      var keyLow = tfLabel.toLowerCase();
-      for (var k in store) {
-        if (k.toLowerCase() === keyLow) return store[k];
-      }
-    } catch(_) {}
-    return null;
   }
 
-  // ── Compute cell-level partial candle for given replayed base candles ──────
-  // baseBars: array of base-TF candles seen so far (up to current step)
-  // cellTFMin: cell's TF in minutes
-  // isBN: true = NSE session-aware buckets, false = UTC buckets
-  function _computePartialCandle(baseBars, cellTFMin, isBN) {
-    if (!baseBars || !baseBars.length) return null;
-    // Find the bucket that the LAST base bar belongs to
-    var last = baseBars[baseBars.length - 1];
-    var bucketTime = _getBucketTime(last.time, cellTFMin, isBN);
+  // ── One tick = reveal exactly ONE more base bar, then rebuild all cells ──
+  function _tick() {
+    var live = window._SV2_LIVE;
+    if (!live || !live.baseBars) { _pause(); return; }
+    if (live.revealIdx >= live.baseBars.length) { _pause(); _renderPlayIcon(); return; }
 
-    // Accumulate all base bars in the same bucket
-    var o = null, h = -Infinity, l = Infinity, c2 = null;
-    for (var i = 0; i < baseBars.length; i++) {
-      var bar = baseBars[i];
-      var bt  = _getBucketTime(bar.time, cellTFMin, isBN);
-      if (bt !== bucketTime) continue;
-      if (o === null) o = bar.open;
-      if (bar.high > h) h = bar.high;
-      if (bar.low  < l) l = bar.low;
-      c2 = bar.close;
-    }
-    if (o === null) return null;
-    return { time: bucketTime, open: o, high: h, low: l, close: c2 };
+    live.revealIdx++;
+    _rebuildAllCells();
+    try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
+    _renderPlayIcon();
   }
 
-  // ── Session-aware bucket time for NSE intraday ────────────────────────────
-  function _getBucketTime(tSec, tfMin, isBN) {
-    if (tfMin >= 1440) {
-      // Daily: UTC midnight
-      return Math.floor(tSec / 86400) * 86400;
-    }
-    if (isBN && tfMin < 1440) {
-      // NSE: 9:15 IST anchor
-      var IST = 5.5 * 3600;
-      var istSec   = tSec + IST;
-      var dayStart = istSec - (istSec % 86400);
-      var minOfDay = Math.floor((istSec % 86400) / 60);
-      var SESSION_START = 9 * 60 + 15;   // 555
-      var minSinceOpen  = minOfDay - SESSION_START;
-      if (minSinceOpen < 0) minSinceOpen = 0;
-      var bucketIdx     = Math.floor(minSinceOpen / tfMin);
-      var bucketStartMin = SESSION_START + bucketIdx * tfMin;
-      return (dayStart - IST) + bucketStartMin * 60;
-    }
-    // UTC anchor (BTC / crypto)
-    var sec = tfMin * 60;
-    return Math.floor(tSec / sec) * sec;
+  function _play() {
+    if (_running) return;
+    var live = window._SV2_LIVE;
+    if (!live || !live.baseBars || live.revealIdx >= live.baseBars.length) return;
+    _running = true;
+    _timerId = setInterval(_tick, TICK_MS);   // our own paced metronome
+    _renderPlayIcon();
   }
 
-  // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
-  // For each STACK2_CELL, find its current bucket bar from already-loaded data,
-  // then animate the partial candle contribution on top.
-  function _animateStep(stepBar) {
-    var rng    = window._SV2_DATE_RANGE;
-    var assetKey = (typeof _stackKeyForAsset === 'function')
-                    ? _stackKeyForAsset(S.asset) : 'bn';
-    var isBN   = (assetKey === 'bn');
-    var startMs = performance.now();
-
-    // Collect all base bars replayed SO FAR (including this one)
-    var allReplayed = _replayCandles.slice(0, _replayIdx);
-
-    function frame(now) {
-      var t = Math.min(1, (now - startMs) / _ANIM_MS);
-      // Easing: ease-out cubic
-      var e = 1 - Math.pow(1 - t, 3);
-
-      // For each STACK2_CELL: compute partial candle and animate
-      if (typeof STACK2_CELLS !== 'undefined') {
-        for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
-          var cell = STACK2_CELLS[ci];
-          if (!cell || !cell.chart || !cell.series) continue;
-
-          // Cell TF in minutes — resolved from the real label, NOT cell.tf
-          // (cell.tf is always hardcoded 1440 — see _getCellTFMin comment)
-          var cellTFMin = _getCellTFMin(ci);
-
-          // baseBars for this cell = replayed bars that belong to same bucket
-          var partial = _computePartialCandle(allReplayed, cellTFMin, isBN);
-          if (!partial) continue;
-
-          // Get cell's existing last bar from raw data (before range)
-          var rawData = _getCellRawData(ci);
-          var existingBar = null;
-          if (Array.isArray(rawData)) {
-            for (var ri = rawData.length - 1; ri >= 0; ri--) {
-              if (rawData[ri].time < rng.from && rawData[ri].time === partial.time) {
-                existingBar = rawData[ri]; break;
-              }
-            }
-          }
-
-          // Interpolate: at t=0 only open visible, at t=1 full OHLC
-          var animO = partial.open;
-          var animH = existingBar
-                      ? Math.max(existingBar.high, partial.open + (partial.high - partial.open) * e)
-                      : partial.open + (partial.high - partial.open) * e;
-          var animL = existingBar
-                      ? Math.min(existingBar.low, partial.open - (partial.open - partial.low) * e)
-                      : partial.open - (partial.open - partial.low) * e;
-          var animC = partial.open + (partial.close - partial.open) * e;
-
-          var animBar = {
-            time:  partial.time,
-            open:  animO,
-            high:  animH,
-            low:   animL,
-            close: animC,
-          };
-          try { cell.series.update(animBar); } catch(_) {}
-        }
-      }
-
-      if (t < 1) {
-        _animRaf = requestAnimationFrame(frame);
-      } else {
-        // Animation complete — finalize
-        _animating = false;
-        _stepBtn.classList.remove('animating');
-
-        // SV2 Swing S&R: closed candle ke baad SR update karo
-        try { sv2SwingOnStep(stepBar.time); } catch(_) {}
-
-        // Check if replay is complete
-        if (_replayIdx >= _replayCandles.length) {
-          _stepBtn.classList.add('done');
-        }
-      }
-    }
-
-    _animRaf = requestAnimationFrame(frame);
+  function _pause() {
+    _running = false;
+    if (_timerId) { clearInterval(_timerId); _timerId = null; }
+    _renderPlayIcon();
   }
 
-  // ── Main step function ─────────────────────────────────────────────────────
-  window._sv2StepForward = function() {
-    if (_animating) return;                         // tap blocked
-    if (!window._SV2_DATE_RANGE) return;
-    if (!_stepBtn) return;
-    if (_stepBtn.classList.contains('done')) return; // replay complete
-
-    // Build candle list on first tap (or after range change)
-    if (!_replayCandles) {
-      _replayCandles = _buildReplayCandles();
-      _replayIdx     = 0;
-    }
-    if (!_replayCandles.length) return;
-    if (_replayIdx >= _replayCandles.length) {
-      _stepBtn.classList.add('done');
-      return;
-    }
-
-    // Advance index
-    _replayIdx++;
-
-    // Block next tap
-    _animating = true;
-    _stepBtn.classList.add('animating');
-
-    // Animate
-    var stepBar = _replayCandles[_replayIdx - 1];
-    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    _animateStep(stepBar);
-  };
-
-  // ── React to FAB position changes (drag) — keep step btn aligned ──────────
-  function _onFabMove() {
-    if (_stepBtn && _stepBtn.classList.contains('visible')) _syncStepBtnPos();
+  function _togglePlay() {
+    if (_running) _pause(); else _play();
   }
 
-  // ── Listen for date range events ───────────────────────────────────────────
+  function _reset() {
+    _pause();
+    var live = window._SV2_LIVE;
+    if (!live) return;
+    live.revealIdx = live.startIdx;
+    _rebuildAllCells();
+    _renderPlayIcon();
+  }
+
+  // Keep old global names working (HTML onclick + external callers use these)
+  window._sv2StepForward = _togglePlay;
+  window._sv2LiveReset   = _reset;
+  window._sv2StepSyncBtn = _syncControls;
+
   document.addEventListener('sv2DateRangeApplied', function() {
-    _replayCandles = null;   // force rebuild on next tap
-    _replayIdx     = 0;
-    _animating     = false;
-    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    if (_stepBtn) {
-      _stepBtn.classList.remove('done', 'animating');
-    }
-    _syncStepBtn();
-    _syncStepBtnPos();
+    _pause();
+    _syncControls();
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
-    _replayCandles = null;
-    _replayIdx     = 0;
-    _animating     = false;
-    if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    _syncStepBtn();
+    _pause();
+    window._SV2_LIVE = null;
+    _syncControls();
   });
 
-  // ── FAB drag: reposition step btn ─────────────────────────────────────────
-  // Watch FAB position changes via MutationObserver on its style attribute
   function _watchFabPos() {
     var fab = document.getElementById('sv2-drng-fab');
     if (!fab) return;
-    var obs = new MutationObserver(_onFabMove);
+    var obs = new MutationObserver(function(){
+      if (_playBtn && _playBtn.classList.contains('visible')) _syncPos();
+    });
     obs.observe(fab, { attributes: true, attributeFilter: ['style'] });
   }
 
-  // ── Init ──────────────────────────────────────────────────────────────────
-  function _stepInit() {
-    _stepBtn = document.getElementById('sv2-step-btn');
-    if (!_stepBtn) return;
-    _syncStepBtn();
+  function _init() {
+    _playBtn  = document.getElementById('sv2-step-btn');
+    _resetBtn = document.getElementById('sv2-reset-btn');
+    if (_resetBtn) _resetBtn.addEventListener('click', _reset);
+    _syncControls();
     _watchFabPos();
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _stepInit);
+    document.addEventListener('DOMContentLoaded', _init);
   } else {
-    _stepInit();
+    _init();
   }
-
-  // ── Expose sync for external callers (selectStack2View/_deactivateStack2) ──
-  window._sv2StepSyncBtn = _syncStepBtn;
 
 })();
 
@@ -10042,7 +9966,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, simulatedNow) {
+function swingCompute(bars, tfMin) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10055,17 +9979,6 @@ function swingCompute(bars, tfMin, simulatedNow) {
   //   prevGreen→currRed  → Swing High (resistance)
   //   prevRed→currGreen  → Swing Low  (support)
   //   Infinite right-edge extension. Latest 5 lines shown.
-  //
-  // simulatedNow (optional): SV2 replay ke liye. Jab diya jaaye, "abhi kaunsa
-  // bar forming hai" ka check real Date.now() ki jagah is simulated replay-time
-  // se hota hai — kyunki SV2 ka data pehle se hi fully-resampled historical
-  // snapshot hai (koi bar data me genuinely adhoora nahi hota jaisa live feed
-  // mein hota hai). Bina iske, historical bars ke liye Date.now() hamesha bahut
-  // aage hota hai, isliye forming-check kabhi trigger hi nahi hota — jisse
-  // ek abhi-forming higher-TF bucket (jiska store-data poora hai kyunki wo
-  // real history se aaya) apna FINAL High/Low SR mein leak kar deta hai,
-  // replay ke us point se aage ka "future" reveal karke. Live SV1 path is
-  // param ko pass hi nahi karta, isliye uska behaviour bilkul unchanged hai.
 
   if (!bars || bars.length < 2) return [];
 
@@ -10085,13 +9998,11 @@ function swingCompute(bars, tfMin, simulatedNow) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    // Pure time-based check — market open/close pe depend nahi.
+    // Pure time-based check — market open/close ya replay mode pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
-    // "Abhi" ka reference: replay mode mein simulatedNow (SV2 cutoff se aaya),
-    // warna real wall-clock Date.now() (SV1 live, bilkul purana behaviour).
-    // Agar us "abhi" ke hisaab se hum last bar ki window ke andar hain → still forming → exclude.
+    // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
     const barDuration = last.time - prev.time;
-    const nowSec = (typeof simulatedNow === 'number') ? simulatedNow : Math.floor(Date.now() / 1000);
+    const nowSec = Math.floor(Date.now() / 1000);
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
@@ -10602,17 +10513,11 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
     const cellTFMin = _parseTFMin(tfLabel) || 5;
     const allLines  = [];
-    // Replay-time reference for the forming-candle check inside swingCompute.
-    // cutoffTime hi yahan "replay ke is point tak ka simulated abhi" hai —
-    // sirf tab pass karo jab range/replay active ho (cutoffTime number ho).
-    // Warna (normal SV2 view, no range) swingCompute apna purana real
-    // Date.now()-based default hi use karega — bilkul unchanged behaviour.
-    const simulatedNow = (typeof cutoffTime === 'number') ? cutoffTime : undefined;
 
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin, simulatedNow)
+      swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10626,7 +10531,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min, simulatedNow)
+        swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
