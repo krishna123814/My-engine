@@ -2411,7 +2411,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Candle H/L validation niyam</span>
+          <span class="ind-name">Candle H/L lines (validation niyam)</span>
           <div class="ind-ctrl">
             <label class="toggle"><input type="checkbox" id="ck-sr-validation" checked onchange="setSrFlag('validation', this.checked)"><span class="sl"></span></label>
           </div>
@@ -9754,8 +9754,10 @@ function setSwingLineWidth(w) {
 // ── SR Rule Toggles (debug) — isolate root cause of stray candle/line issues ──
 // candleColor : ON  → Candle H/L lines use their own color (_tfCandleColor)
 //               OFF → Candle H/L lines reuse the Swing color (no separate color)
-// validation  : ON  → touch-based validate/extend/delete rule for candle H/L lines
-//               OFF → candle H/L lines skip touch-validation (fixed 2-candle life only)
+// validation  : ON  → Candle H/L lines are created + touch-validated normally
+//               OFF → Candle H/L lines are NOT created at all (hard switch) —
+//               only Swing H/L lines remain. Use this to test whether the
+//               whole Candle H/L subsystem is causing stray lines/candles.
 // dedup       : ON  → same-price candle lines collapse to latest; candle beats swing
 //               OFF → no candle-level dedup, all raw candle lines kept
 // tfPriority  : ON  → same-price SWING lines collapse to the highest TF's line
@@ -10263,26 +10265,32 @@ function swingCompute(bars, tfMin) {
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
+    // toggle: SR_FLAGS.validation — OFF means the whole Candle H/L system
+    // (creation + touch-validation) is skipped entirely this bar, so no
+    // candle H/L lines exist at all (only Swing H/L lines remain). This is
+    // a hard on/off so the effect is immediately visible for debugging.
     // Agar candle high/low price kisi active swing H/L ki price se match kare
     // toh candle H/L line push mat karo — swing line already wahan hai
-    const _activeSwingPrices = new Set([
-      ...aRes.map(l => l.price),
-      ...aSup.map(l => l.price)
-    ]);
-    let _initEnd = cur.time + 2 * periodSec;
-    // toggle: SR_FLAGS.sessionClamp — same clamp applied at creation time too
-    if (SR_FLAGS.sessionClamp && tfMin < 1440) {
-      _initEnd = Math.min(_initEnd, _srSessionCloseFor(cur.time));
-    }
-    if (!_activeSwingPrices.has(cur.high)) {
-      chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: _initEnd,
-                     creationIndex: i, kind: 'ch', periodSec });
-    }
-    if (!_activeSwingPrices.has(cur.low)) {
-      clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: _initEnd,
-                     creationIndex: i, kind: 'cl', periodSec });
+    if (SR_FLAGS.validation) {
+      const _activeSwingPrices = new Set([
+        ...aRes.map(l => l.price),
+        ...aSup.map(l => l.price)
+      ]);
+      let _initEnd = cur.time + 2 * periodSec;
+      // toggle: SR_FLAGS.sessionClamp — same clamp applied at creation time too
+      if (SR_FLAGS.sessionClamp && tfMin < 1440) {
+        _initEnd = Math.min(_initEnd, _srSessionCloseFor(cur.time));
+      }
+      if (!_activeSwingPrices.has(cur.high)) {
+        chLines.push({ price: cur.high, startTime: cur.time,
+                       endTime: _initEnd,
+                       creationIndex: i, kind: 'ch', periodSec });
+      }
+      if (!_activeSwingPrices.has(cur.low)) {
+        clLines.push({ price: cur.low,  startTime: cur.time,
+                       endTime: _initEnd,
+                       creationIndex: i, kind: 'cl', periodSec });
+      }
     }
 
     // DO NOT USE shift() here! We must not delete surviving lines artificially.
