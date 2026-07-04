@@ -10720,9 +10720,18 @@ function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
       if (k.toLowerCase() === keyLow) { data = store[k]; break; }
     }
     if (!Array.isArray(data) || !data.length) return [];
-    return (typeof cutoffTime === 'number')
-      ? data.filter(b => b.time < cutoffTime)
-      : data;
+    if (typeof cutoffTime !== 'number') return data;
+    // Bar ko sirf tab "closed" maano jab uska AGLA bar bhi shuru ho chuka ho
+    // (cutoffTime tak) — sirf apna khud ka start-time cutoff se pehle hona
+    // kaafi nahi hai, warna ek higher-TF candle (e.g. 15m) uske pehle hi
+    // andar wale base candle (5m) ke close hote hi "complete" maan liya
+    // jaata hai, jabki wo abhi forming hi hai.
+    const out = [];
+    for (let i = 0; i < data.length - 1; i++) {
+      if (data[i + 1].time <= cutoffTime) out.push(data[i]);
+      else break;   // sorted ascending — aage sab bhi abhi future hain
+    }
+    return out;
   } catch(_) { return []; }
 }
 
