@@ -10507,6 +10507,13 @@ function _sv2FindTFLabel(assetKey, tfMin, hintLabel) {
 }
 
 // ── Ek SV2 cell ke liye Multi-TF SR compute karo ──────────────────────────
+// LIVE REPLAY FIX: jab ek replay session active hai (window._SV2_LIVE set
+// hai), SR kabhi bhi pre-resampled SV2_BN/SV2_BTC store se data nahi leta —
+// har TF (cell ka apna aur higher TFs, dono) sirf ab-tak-revealed base bars
+// (window._SV2_LIVE.revealIdx) se _liveAggregateTF() ke through banta hai.
+// Isse forming candle ka SR bhi sirf utne hi data se banta hai jitna abhi
+// tak "known" hai — koi future leak nahi. Normal (non-replay) static SR
+// abhi bhi purane _sv2DataForTF (pre-resampled) rasty se hi chalta hai.
 function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
   try {
     const cfg2      = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
@@ -10514,8 +10521,19 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const cellTFMin = _parseTFMin(tfLabel) || 5;
     const allLines  = [];
 
+    const live       = window._SV2_LIVE;
+    const isLiveMode = !!(live && Array.isArray(live.baseBars));
+
+    function _dataForTFAny(tfMin, hintLabel) {
+      if (isLiveMode) {
+        return _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
+      }
+      const label = _sv2FindTFLabel(assetKey, tfMin, hintLabel);
+      return label ? _sv2DataForTF(assetKey, label, cutoffTime) : [];
+    }
+
     // Step 1: Cell ka apna TF
-    const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
+    const dataCur = _dataForTFAny(cellTFMin, tfLabel);
     if (dataCur.length >= 3) {
       swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
@@ -10527,9 +10545,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       .sort((a, b) => a.min - b.min);
 
     for (const tf of enabledHTFs) {
-      const label = _sv2FindTFLabel(assetKey, tf.min, tf.label);
-      if (!label) continue;
-      const data = _sv2DataForTF(assetKey, label, cutoffTime);
+      const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
         swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
