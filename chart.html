@@ -10042,7 +10042,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, nowOverrideSec) {
+function swingCompute(bars, tfMin) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10074,20 +10074,11 @@ function swingCompute(bars, tfMin, nowOverrideSec) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    // Time-based check — market open/close pe depend nahi, LEKIN replay mode
-    // (Bar Replay) me "now" real wall-clock Date.now() nahi ho sakta, kyunki
-    // real time hamesha historical data se aage hota hai (isse ye check kabhi
-    // true nahi aata tha, aur replay me abhi-forming higher-TF candle bhi
-    // "closed" maan liya jata tha — SR turant, time se pehle draw ho jate the).
-    // Caller (SV2 replay) apna simulated "now" (cutoffTime) nowOverrideSec
-    // ke through pass karta hai; normal/live calls me ye undefined rehta hai
-    // aur real Date.now() hi use hota hai (behavior unchanged).
+    // Pure time-based check — market open/close ya replay mode pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
-    // Agar "now" abhi last bar ki window ke andar hai → still forming → exclude.
+    // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
     const barDuration = last.time - prev.time;
-    const nowSec = (typeof nowOverrideSec === 'number')
-                    ? nowOverrideSec
-                    : Math.floor(Date.now() / 1000);
+    const nowSec = Math.floor(Date.now() / 1000);
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
@@ -10602,7 +10593,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin, cutoffTime)
+      swingCompute(dataCur, cellTFMin)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10616,7 +10607,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min, cutoffTime)
+        swingCompute(data, tf.min)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
