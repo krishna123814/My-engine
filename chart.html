@@ -10109,13 +10109,21 @@ function swingCompute(bars, tfMin, clampToLastBar) {
 
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
-    // Actual candle duration from real data — fixes synthetic TFs like 135m
-    // where tfMin*60 may not match actual candle boundaries after resampling
-    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
-    const curGreen = cur.close > cur.open;
-    const curRed   = cur.close < cur.open;
     const isSessionGap = tfMin < 1440 && i >= 1 &&
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
+    // Actual candle duration from real data — fixes synthetic TFs like 135m
+    // where tfMin*60 may not match actual candle boundaries after resampling.
+    // EXCEPTION: overnight/session gap (new trading day ka pehla candle) —
+    // yahan raw diff (cur.time - prev.time) me poora overnight gap (ghanton
+    // ka) aa jaata hai, jo periodSec ko galat tarike se bahut bada bana deta
+    // hai. Isse us candle ki H/L line ka endTime bhi ghanton aage project ho
+    // jaata tha (aur SV2 clamp bhi isi inflated value se beasar ho jaata
+    // tha — 5m TF is boundary ko replay ke har din ki shuruaat me hit karta
+    // hai, isliye wahi sabse zyada visible tha). Fallback: nominal TF period.
+    const periodSec = isSessionGap ? _defaultPeriodSec
+                     : (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
+    const curGreen = cur.close > cur.open;
+    const curRed   = cur.close < cur.open;
 
     // ── Step 1: Validate ALL active candle lines with current bar ───────
     const validateLines = (arr) => {
@@ -10214,7 +10222,8 @@ function swingCompute(bars, tfMin, clampToLastBar) {
   // baghair. Session-close (15:30) tak nahi — kyunki 5m ka last candle
   // 15:25 hota hai aur session-close tak chhod dene se woh bhi aage nikal
   // jaati thi.
-  const _lastPeriodSec = data.length >= 2
+  const _lastPeriodSec = (data.length >= 2 && !(tfMin < 1440 &&
+      _istDayKey(data[data.length - 1].time) !== _istDayKey(data[data.length - 2].time)))
     ? (data[data.length - 1].time - data[data.length - 2].time)
     : _defaultPeriodSec;
   const _lastBarEnd = lastTime + _lastPeriodSec;
