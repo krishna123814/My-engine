@@ -3965,86 +3965,6 @@ function buildStack2() {
   }, 650);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SV2 BAR-REPLAY SESSION CLAMP (NSE-aware) ──────────────────────────────────
-// Sirf bar-replay ke "future" hisse par lagta hai — replay se PEHLE wala
-// historical data (upar wala `data.filter(bar => bar.time < rng.from)`)
-// bilkul nahi chheda gaya. SR indicator (_bnBuildSRNative) bhi untouched hai.
-// Maksad: chart ka apna time-scale kabhi bhi market-closed time
-// (jaise 3:35pm–3:50pm ya raat) fake tick/whitespace ke roop mein na dikhaye,
-// chahe koi bhi Stack View 2 cell/timeframe ho.
-// ════════════════════════════════════════════════════════════════════════════
-const _SV2_IST_OFFSET_SEC    = 5.5 * 3600;            // IST = UTC + 5:30
-const _SV2_SESSION_START_SEC = 9 * 3600 + 15 * 60;    // 9:15 IST
-const _SV2_SESSION_END_SEC   = 15 * 3600 + 30 * 60;   // 15:30 IST
-const _SV2_DAY_SEC           = 86400;
-
-// Real-UTC time ko NSE session ke andar honi chahiye to check karta hai.
-// BTC (isBN=false) ke liye hamesha true — 24x7 market, clamp ki zaroorat nahi.
-function _sv2IsValidSessionTime(tUtc, isBN) {
-  if (!isBN) return true;
-  const istSec   = tUtc + _SV2_IST_OFFSET_SEC;
-  const modOfDay = ((istSec % _SV2_DAY_SEC) + _SV2_DAY_SEC) % _SV2_DAY_SEC;
-  return modOfDay >= _SV2_SESSION_START_SEC && modOfDay < _SV2_SESSION_END_SEC;
-}
-
-// Diye gaye real-UTC time ko agle valid session-slot (9:15 IST) par snap
-// karta hai agar wo band-market ke hours mein aata hai. BTC ke liye no-op.
-function _sv2ClampToSession(tUtc, isBN) {
-  if (!isBN) return tUtc;
-  const istSec   = tUtc + _SV2_IST_OFFSET_SEC;
-  const dayStart = istSec - (((istSec % _SV2_DAY_SEC) + _SV2_DAY_SEC) % _SV2_DAY_SEC);
-  const modOfDay = ((istSec % _SV2_DAY_SEC) + _SV2_DAY_SEC) % _SV2_DAY_SEC;
-  let snappedIst;
-  if (modOfDay < _SV2_SESSION_START_SEC) {
-    snappedIst = dayStart + _SV2_SESSION_START_SEC;
-  } else if (modOfDay >= _SV2_SESSION_END_SEC) {
-    snappedIst = dayStart + _SV2_DAY_SEC + _SV2_SESSION_START_SEC;
-  } else {
-    return tUtc; // already valid
-  }
-  return snappedIst - _SV2_IST_OFFSET_SEC;
-}
-
-// `fromTimeUtc` se aage `count` valid session time-slots (har `periodSec` ka)
-// nikalta hai — band-hours (15:30 → agle din 9:15) automatically skip karta
-// hai. BTC ke liye plain continuous stepping (clamp ki zaroorat nahi).
-function _sv2FutureSessionSlots(fromTimeUtc, periodSec, count, isBN) {
-  const out = [];
-  let t = fromTimeUtc;
-  for (let i = 0; i < count; i++) {
-    t = _sv2ClampToSession(t + periodSec, isBN);
-    out.push(t);
-  }
-  return out;
-}
-
-// Har cell ke liye — us cell ke last-known (revealed) time ke aage, valid
-// session whitespace-points chart mein daal deta hai (bina OHLC ke — sirf
-// {time}), taaki timeScale kabhi bhi invalid future time na dikhaye.
-// `uptoTime` (rng.to) ke aage nahi jaata — replay ke hidden-range se bahar
-// ka data yahan involve nahi hota.
-window._SV2_LAST_REAL_TIME = window._SV2_LAST_REAL_TIME || {};
-function _sv2ApplySessionWhitespace(idx, uptoTime) {
-  try {
-    const cell = (typeof STACK2_CELLS !== 'undefined') ? STACK2_CELLS[idx] : null;
-    if (!cell || !cell.series) return;
-    const assetKey2 = _stackKeyForAsset(S.asset);
-    if (assetKey2 !== 'bn') return;   // BTC 24x7 — clamp ki zaroorat nahi
-    const cfg2      = (_stack2Cfg[assetKey2] || _stack2Cfg.btc);
-    const tfLabel    = (cfg2.tfs && cfg2.tfs[idx]) || '';
-    const cellTFMin  = _parseTFMin(tfLabel) || 5;
-    const periodSec  = cellTFMin * 60;
-    const lastT      = window._SV2_LAST_REAL_TIME[idx];
-    if (typeof lastT !== 'number' || typeof uptoTime !== 'number') return;
-    const slots = _sv2FutureSessionSlots(lastT, periodSec, 500, true)
-                    .filter(t => t < uptoTime);
-    for (const t of slots) {
-      try { cell.series.update({ time: t }); } catch(_) {}
-    }
-  } catch(_) {}
-}
-
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
   const el = document.getElementById('stack2-chart-' + idx);
@@ -4135,23 +4055,13 @@ function _buildStack2CellChart(idx) {
 
       const CHUNK = 500;
       let offset = 0;
-      // ── Feed poora hone ke baad hi session-clamp whitespace lagta hai ──────
-      // Historical dataToShow (upar wala filter) bilkul untouched hai — ye
-      // sirf replay-active range ke "future" hisse ke liye valid NSE
-      // session-slots whitespace ke roop mein add karta hai, taaki chart
-      // apna time-scale khud se band-market ka fake time na dikhaye.
-      function _sv2OnCellDataFed() {
-        try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-        if (rng && dataToShow.length && typeof _sv2ApplySessionWhitespace === 'function') {
-          window._SV2_LAST_REAL_TIME = window._SV2_LAST_REAL_TIME || {};
-          window._SV2_LAST_REAL_TIME[idx] = dataToShow[dataToShow.length - 1].time;
-          _sv2ApplySessionWhitespace(idx, rng.to);
-        }
-      }
       function feedChunk() {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
-        if (!slice.length) { _sv2OnCellDataFed(); return; }
+        if (!slice.length) {
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          return;
+        }
         try {
           if (offset === 0) { c.series.setData(slice); }
           else { slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} }); }
@@ -4161,7 +4071,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { _sv2OnCellDataFed(); }
+        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -5010,20 +4920,6 @@ function ss2ApplyAndClose() {
         _animating = false;
         _stepBtn.classList.remove('animating');
 
-        // ── Session-clamp refresh: HAR cell/timeframe ke liye ────────────────
-        // Replay step ke baad, revealed data ke aage ka "future" hissa bhi
-        // NSE session (9:15–15:30 IST) ke hisaab se clamp hota hai — SR
-        // indicator ko yahan chheda nahi gaya, ye alag/generic step hai.
-        if (typeof STACK2_CELLS !== 'undefined' && typeof _sv2ApplySessionWhitespace === 'function') {
-          window._SV2_LAST_REAL_TIME = window._SV2_LAST_REAL_TIME || {};
-          for (var _cj = 0; _cj < STACK2_CELLS.length; _cj++) {
-            var _cellTFMinJ = _getCellTFMin(_cj);
-            var _partialJ   = _computePartialCandle(allReplayed, _cellTFMinJ, isBN);
-            if (_partialJ) window._SV2_LAST_REAL_TIME[_cj] = _partialJ.time;
-            _sv2ApplySessionWhitespace(_cj, rng.to);
-          }
-        }
-
         // SV2 Swing S&R: closed candle ke baad SR update karo
         try { sv2SwingOnStep(stepBar.time); } catch(_) {}
 
@@ -5091,7 +4987,6 @@ function ss2ApplyAndClose() {
     _replayIdx     = 0;
     _animating     = false;
     if (_animRaf) { cancelAnimationFrame(_animRaf); _animRaf = null; }
-    window._SV2_LAST_REAL_TIME = {};   // session-clamp bookkeeping reset
     _syncStepBtn();
   });
 
@@ -10667,6 +10562,43 @@ function _sv2FindTFLabel(assetKey, tfMin, hintLabel) {
   return null;
 }
 
+// ── Session clamp (SV2 bar-replay SR indicator, BankNifty only) ────────────
+// BN trading session = 9:15–15:30 IST. Inside swingCompute(), a candle H/L
+// line's endTime is set to cur.time + 2×periodSec (on creation, and again
+// each time the line is "touched" and re-extended). When cur is the LAST
+// candle of a trading day (e.g. 15:25 for the 5m TF), that math lands a
+// few periods PAST the 15:30 close — e.g. 15:25 + 2×5m = 15:35 — which is
+// dead time, not a real session candle. Left alone, that bogus timestamp
+// gets fed straight into the chart (via _bnBuildSRNative's setData), which
+// shows up as an extra/phantom time slot right after the last real candle.
+// Fix: clamp any such out-of-session time forward onto the next real
+// session boundary — same trading day's 9:15 if we only spilled into the
+// pre-open hours, otherwise the next trading day's 9:15 (skipping
+// weekends/NSE holidays via the existing _isTradingDay/_nextTradingDayStart
+// helpers). BTC/crypto has no session, so isBN=false always passes through.
+function _sv2SessionClamp(tSec, isBN) {
+  if (!isBN || typeof tSec !== 'number') return tSec;
+  const IST_OFFSET_SEC = 5.5 * 3600;
+  const SESSION_START   = 9  * 60 + 15;   // 555 = 9:15 IST
+  const SESSION_END     = 15 * 60 + 30;   // 930 = 15:30 IST
+
+  const istSec   = tSec + IST_OFFSET_SEC;
+  const dayStart = istSec - (istSec % 86400);   // IST-naive midnight (shifted secs)
+  const minOfDay = Math.floor((istSec % 86400) / 60);
+
+  if (minOfDay >= SESSION_START && minOfDay < SESSION_END) return tSec; // inside session — untouched
+
+  const dayStartMs = dayStart * 1000;
+  if (minOfDay < SESSION_START && _isTradingDay(dayStartMs)) {
+    // Spilled before today's open, but today IS a trading day → this day's 9:15
+    return Math.round((dayStart - IST_OFFSET_SEC) + SESSION_START * 60);
+  }
+  // Spilled past today's close (or before-open on a non-trading day) →
+  // next trading day's 9:15
+  const nextDayIstMs = _nextTradingDayStart(dayStartMs);
+  return Math.round((nextDayIstMs / 1000 - IST_OFFSET_SEC) + SESSION_START * 60);
+}
+
 // ── Ek SV2 cell ke liye Multi-TF SR compute karo ──────────────────────────
 function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
   try {
@@ -10674,12 +10606,16 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
     const cellTFMin = _parseTFMin(tfLabel) || 5;
     const allLines  = [];
+    const isBN      = (assetKey === 'bn');   // session clamp applies to BN only
 
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
       swingCompute(dataCur, cellTFMin)
-        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+        .forEach(l => {
+          if (!l.isInfinite) l.endTime = _sv2SessionClamp(l.endTime, isBN);
+          if (cellTFMin <= l.levelTf) allLines.push(l);
+        });
     }
 
     // Step 2: SWING_TF_LIST se enabled higher TFs
@@ -10693,7 +10629,10 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
         swingCompute(data, tf.min)
-          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+          .forEach(l => {
+            if (!l.isInfinite) l.endTime = _sv2SessionClamp(l.endTime, isBN);
+            if (cellTFMin <= l.levelTf) allLines.push(l);
+          });
       }
     }
 
