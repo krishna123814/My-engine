@@ -4040,61 +4040,28 @@ function _buildStack2CellChart(idx) {
       window._SV2_RAW_DATA[idx] = data;
 
       // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep (WHITESPACE-based): candles AT/AFTER rng.from are
-      // NOT deleted — they're swapped for "whitespace" points ({time} only,
-      // no OHLC), same trick TradingView's own Bar Replay uses. Nothing is
-      // drawn for those candles (visually still hidden), but their time
-      // slots stay on the axis. This keeps the timeScale fully continuous,
-      // so indicator lines (S&R/Swing) that extend endTime into the future
-      // land on real, already-existing grid points instead of forcing the
-      // axis to invent odd extra labels (e.g. 3:35pm/3:45pm) — which is what
-      // caused the gap/glitch when the old delete-based approach was used.
+      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
+      // (not just hidden visually) so that timeScale shows a genuine gap —
+      // this is the empty space future Bar Replay will fill in one at a time.
       // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Step-forward later reveals these whitespace slots with
-      // real OHLC one at a time (via setData — see _sv2RevealBar below;
-      // NOT series.update(), which can't touch a non-last point once the
-      // whole future is pre-loaded as whitespace).
+      // history). Candles AFTER the range are also dropped for now, since
+      // they'd represent "the future" relative to the replay starting point.
       let dataToShow = data;
-      let _replayFromIdx = -1;
       const rng = window._SV2_DATE_RANGE;
-      if (rng && typeof rng.from === 'number') {
-        dataToShow = data.map(bar => (bar.time < rng.from) ? bar : { time: bar.time });
-        _replayFromIdx = data.findIndex(bar => bar.time >= rng.from);
-        _dbg.push('rangeFilter(whitespace) from='+rng.fromStr+' to='+(rng.toStr||'')+' realKept='+_replayFromIdx+'/'+data.length);
+      if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
+        dataToShow = data.filter(bar => bar.time < rng.from);
+        _dbg.push('rangeFilter from='+rng.fromStr+' to='+rng.toStr+' kept='+dataToShow.length+'/'+data.length);
       }
-      // Keep a mutable reference to what's actually loaded in this cell's
-      // series. Bar-Replay reveals a hidden (whitespace) bar by mutating
-      // this array in place and re-calling series.setData() on it — NOT
-      // series.update(), because update() only accepts a time >= the
-      // series' current LAST point. Since whitespace already pre-loads the
-      // entire future, the "last" point is far ahead in time, so update()
-      // on an earlier (just-being-revealed) bar is silently rejected —
-      // that's what caused "candle show nahi ho rahi" after switching to
-      // whitespace-based replay. setData() has no such restriction.
-      c._sv2FullData = dataToShow;
 
       const CHUNK = 500;
       let offset = 0;
-      function _positionAfterLoad() {
-        if (_replayFromIdx >= 0) {
-          // Bar-Replay: park the view with rng.from near the right edge —
-          // a little whitespace visible to the right, like real TV replay —
-          // instead of scrollToRealTime() which would now scroll all the
-          // way to the (blank) present since the axis is continuous.
-          try {
-            const barsVisible = 100;
-            const toLogical   = _replayFromIdx + 5;
-            const fromLogical = Math.max(0, _replayFromIdx - barsVisible);
-            c.chart.timeScale().setVisibleLogicalRange({ from: fromLogical, to: toLogical });
-          } catch(_) {}
-        } else {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-        }
-      }
       function feedChunk() {
         if (!c.series) return;
         const slice = dataToShow.slice(offset, offset + CHUNK);
-        if (!slice.length) { _positionAfterLoad(); return; }
+        if (!slice.length) {
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          return;
+        }
         try {
           if (offset === 0) { c.series.setData(slice); }
           else { slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} }); }
@@ -4104,7 +4071,7 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { _positionAfterLoad(); }
+        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -4882,34 +4849,6 @@ function ss2ApplyAndClose() {
     return Math.floor(tSec / sec) * sec;
   }
 
-  // ── Reveal/update a bar inside a cell's whitespace-loaded series ──────────
-  // series.update() ONLY accepts a time >= the series' current last point.
-  // Our whitespace pre-load pushes the "last" point far into the future, so
-  // update() can't touch an earlier (currently-being-revealed) bar — it's
-  // silently rejected (candle never shows). setData() has no such
-  // restriction: we mutate the stored full array in place and re-supply it.
-  function _sv2RevealBar(cell, bar) {
-    if (!cell || !cell._sv2FullData || !cell.series) return false;
-    var arr = cell._sv2FullData;
-    // Binary search (arr is time-ascending)
-    var lo = 0, hi = arr.length - 1, idx = -1;
-    while (lo <= hi) {
-      var mid = (lo + hi) >> 1;
-      if (arr[mid].time === bar.time) { idx = mid; break; }
-      else if (arr[mid].time < bar.time) lo = mid + 1;
-      else hi = mid - 1;
-    }
-    if (idx === -1) return false;   // bar.time not on this cell's grid — skip
-    arr[idx] = bar;
-    try { cell.series.setData(arr); } catch(_) { return false; }
-    return true;
-  }
-
-  // Throttle setData calls during the ~1s animation (setData rebuilds the
-  // whole series internally — fine at ~20fps, wasteful at a full 60fps).
-  var _lastRevealMs = 0;
-  var _REVEAL_THROTTLE_MS = 45;
-
   // ── Animate one candle: interpolate OHLC over _ANIM_MS ────────────────────
   // For each STACK2_CELL, find its current bucket bar from already-loaded data,
   // then animate the partial candle contribution on top.
@@ -4927,8 +4866,6 @@ function ss2ApplyAndClose() {
       var t = Math.min(1, (now - startMs) / _ANIM_MS);
       // Easing: ease-out cubic
       var e = 1 - Math.pow(1 - t, 3);
-      var _doReveal = (t >= 1) || (now - _lastRevealMs >= _REVEAL_THROTTLE_MS);
-      if (_doReveal) _lastRevealMs = now;
 
       // For each STACK2_CELL: compute partial candle and animate
       if (typeof STACK2_CELLS !== 'undefined') {
@@ -4972,7 +4909,7 @@ function ss2ApplyAndClose() {
             low:   animL,
             close: animC,
           };
-          if (_doReveal) _sv2RevealBar(cell, animBar);
+          try { cell.series.update(animBar); } catch(_) {}
         }
       }
 
@@ -6003,35 +5940,12 @@ function isCryptoSymbol(asset) {
          s.includes('BNB')  || s.includes('BUSD') || s.includes('USDC');
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// CENTRAL VIRTUAL CLOCK
-// ────────────────────────────────────────────────────────────────────────────
-// Poore chart mein "abhi kya time hai" ka EK hi source of truth.
-// Live mode: real Date.now().
-// Bar Replay ke dauran: replay jahan tak pahuncha hai wahi "abhi" hota hai
-// (window._REPLAY_VIRTUAL_NOW_SEC set hota hai sv2SwingInit se, per-step).
-//
-// Kisi bhi jagah jo "current real-world time" janna chahti ho (forming-
-// candle check, market-open/closed, countdown, session boundaries) usko
-// seedha Date.now()/new Date() ki jagah _getNow()/_getNowSec() use karna
-// chahiye — taaki Bar Replay automatically "live jaisa" behave kare, bina
-// har function ko manually replay-aware banaye. Naya code likhte waqt bhi
-// yahi rule follow karo.
-// ════════════════════════════════════════════════════════════════════════════
-window._REPLAY_VIRTUAL_NOW_SEC = null;  // null = live mode; number = replay's virtual "abhi" (epoch seconds)
-function _getNow() {
-  return (typeof window._REPLAY_VIRTUAL_NOW_SEC === 'number')
-    ? window._REPLAY_VIRTUAL_NOW_SEC * 1000
-    : Date.now();
-}
-function _getNowSec() { return Math.floor(_getNow() / 1000); }
-
 // NSE/BSE cash-market trading session: Mon–Fri, 09:15–15:30 IST,
 // excluding declared NSE holidays (NSE_HOLIDAYS above).
 // Crypto (BTC/USDT etc.) trades 24/7 → always "open".
 function _isMarketOpen(asset) {
   if (isCryptoSymbol(asset !== undefined ? asset : S.asset)) return true;
-  const now   = new Date(_getNow());
+  const now   = new Date();
   // Fixed +5:30 IST offset — NO getTimezoneOffset() to avoid double-shift
   const istMs = now.getTime() + 5.5 * 3600000;
   const ist   = new Date(istMs);
@@ -10128,7 +10042,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin) {
+function swingCompute(bars, tfMin, simulatedNow) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // CANDLE H/L RULES (kind:'ch'|'cl'):
@@ -10141,6 +10055,17 @@ function swingCompute(bars, tfMin) {
   //   prevGreen→currRed  → Swing High (resistance)
   //   prevRed→currGreen  → Swing Low  (support)
   //   Infinite right-edge extension. Latest 5 lines shown.
+  //
+  // simulatedNow (optional): SV2 replay ke liye. Jab diya jaaye, "abhi kaunsa
+  // bar forming hai" ka check real Date.now() ki jagah is simulated replay-time
+  // se hota hai — kyunki SV2 ka data pehle se hi fully-resampled historical
+  // snapshot hai (koi bar data me genuinely adhoora nahi hota jaisa live feed
+  // mein hota hai). Bina iske, historical bars ke liye Date.now() hamesha bahut
+  // aage hota hai, isliye forming-check kabhi trigger hi nahi hota — jisse
+  // ek abhi-forming higher-TF bucket (jiska store-data poora hai kyunki wo
+  // real history se aaya) apna FINAL High/Low SR mein leak kar deta hai,
+  // replay ke us point se aage ka "future" reveal karke. Live SV1 path is
+  // param ko pass hi nahi karta, isliye uska behaviour bilkul unchanged hai.
 
   if (!bars || bars.length < 2) return [];
 
@@ -10162,17 +10087,11 @@ function swingCompute(bars, tfMin) {
     const prev = raw[raw.length - 2];
     // Pure time-based check — market open/close pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
-    // "Abhi" ka time _getNowSec() se aata hai — live mode mein real time,
-    // Bar Replay ke dauran replay ka virtual "abhi" (central clock, upar
-    // dekho). Pehle yeh seedha Date.now() use karta tha, jo replay ke data
-    // (jo hamesha aaj se purana hota hai) ke liye hamesha TRUE (bar ka
-    // duration already beet chuka) nikalta — matlab last bar hamesha
-    // "closed" maan liya jaata, chahe replay usse abhi tak reach na hua ho.
-    // Isi wajah se SR validation rules forming candle par bhi turant fire
-    // ho jaate the — sabhi TF par, kyunki yeh function har TF ke liye
-    // shared hai.
+    // "Abhi" ka reference: replay mode mein simulatedNow (SV2 cutoff se aaya),
+    // warna real wall-clock Date.now() (SV1 live, bilkul purana behaviour).
+    // Agar us "abhi" ke hisaab se hum last bar ki window ke andar hain → still forming → exclude.
     const barDuration = last.time - prev.time;
-    const nowSec = _getNowSec();
+    const nowSec = (typeof simulatedNow === 'number') ? simulatedNow : Math.floor(Date.now() / 1000);
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
@@ -10683,11 +10602,17 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
     const cellTFMin = _parseTFMin(tfLabel) || 5;
     const allLines  = [];
+    // Replay-time reference for the forming-candle check inside swingCompute.
+    // cutoffTime hi yahan "replay ke is point tak ka simulated abhi" hai —
+    // sirf tab pass karo jab range/replay active ho (cutoffTime number ho).
+    // Warna (normal SV2 view, no range) swingCompute apna purana real
+    // Date.now()-based default hi use karega — bilkul unchanged behaviour.
+    const simulatedNow = (typeof cutoffTime === 'number') ? cutoffTime : undefined;
 
     // Step 1: Cell ka apna TF
     const dataCur = _sv2DataForTF(assetKey, tfLabel, cutoffTime);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin)
+      swingCompute(dataCur, cellTFMin, simulatedNow)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -10701,7 +10626,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!label) continue;
       const data = _sv2DataForTF(assetKey, label, cutoffTime);
       if (data.length >= 3) {
-        swingCompute(data, tf.min)
+        swingCompute(data, tf.min, simulatedNow)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
@@ -10750,19 +10675,9 @@ function sv2SwingInit(cutoffTime) {
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
   const assetKey = (typeof _stackKeyForAsset === 'function')
                     ? _stackKeyForAsset(S.asset) : 'bn';
-  // Bar-Replay: iss poore loop ke liye chart ka "abhi" replay ka virtual
-  // cutoff bana do (central clock — dekho _getNow() upar). Isse forming-
-  // candle / market-open jaise saare real-time-dependent checks replay ke
-  // hisaab se sahi chalte hain, bina har function ko alag se batana pade.
-  // cutoffTime null ho (poora .gz data / replay off) to live mode par wapas.
-  window._REPLAY_VIRTUAL_NOW_SEC = (typeof cutoffTime === 'number') ? cutoffTime : null;
-  try {
-    for (let i = 0; i < STACK2_CELLS.length; i++) {
-      const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-      _sv2ApplyCellSR(i, lines);
-    }
-  } finally {
-    window._REPLAY_VIRTUAL_NOW_SEC = null;
+  for (let i = 0; i < STACK2_CELLS.length; i++) {
+    const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
+    _sv2ApplyCellSR(i, lines);
   }
 }
 
@@ -11147,7 +11062,7 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
     if(!raw.length||raw.length<2) return false;
     const last=raw[raw.length-1]; const prev=raw[raw.length-2];
     const nDays=tfMin>1440?Math.round(tfMin/1440):0;
-    if(nDays>=2){ const bd=last.time-prev.time; const nowSec=_getNowSec(); return nowSec<(last.time+bd); }
+    if(nDays>=2){ const bd=last.time-prev.time; const nowSec=Math.floor(Date.now()/1000); return nowSec<(last.time+bd); }
     return _isMarketOpen();
   })();
   const data=(raw.length>1&&_isLastBarForming2)?raw.slice(0,-1):raw;
