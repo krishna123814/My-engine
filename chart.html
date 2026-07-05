@@ -10999,11 +10999,18 @@ window._SR_DEBUG = window._SR_DEBUG || { enabled: false, log: [], prevByCell: {}
 // ── Debug LOG FILTERS — yahan se control karo ke log mein kya dikhna hai ──
 //   cellIdx      : sirf is cell ka data dikhao. 0 = Cell 1 (5m), 1 = Cell 2 (15m), ...
 //                  null karo agar sab cells chahiye.
-//   onlyNew      : true → sirf "NEW ... starting length" lines (TOUCH/DELETED hide)
+//   kinds        : kaunse line-types dikhaane hain. 'ch'=HIGH, 'cl'=LOW,
+//                  'sh'=SWING-HIGH, 'sl'=SWING-LOW. null karo agar sab chahiye.
+//   showNew      : true → "NEW ... starting length" lines dikhao
+//   showTouch    : true → "TOUCH ... extended length" lines dikhao
+//   showDeleted  : true → "DELETED" lines dikhao
 //   onlyReplayDay: true → sirf jo din abhi replay ho raha hai (purani dates hide)
 window._SR_DEBUG_FILTER = {
   cellIdx:       0,
-  onlyNew:       true,
+  kinds:         ['ch', 'cl'],
+  showNew:       true,
+  showTouch:     true,
+  showDeleted:   false,
   onlyReplayDay: true
 };
 
@@ -11043,6 +11050,9 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
   // ── Cell filter — sirf configured cell (default: Cell 1 / 5m) ───────────
   if (F.cellIdx !== null && F.cellIdx !== undefined && cellIdx !== F.cellIdx) return;
 
+  // ── Kind filter — e.g. sirf 'ch'/'cl' (candle HIGH/LOW), swing 'sh'/'sl' allowed nahi
+  const kindOk = (k) => !F.kinds || F.kinds.includes(k);
+
   // ── Replay-day filter — sirf jo IST calendar-day abhi replay ho raha hai ──
   const IST_OFFSET_SEC = 5.5 * 3600;
   const _dayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
@@ -11057,11 +11067,12 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
     const period = l.periodSec || ((l.levelTf || 1) * 60);
     const lenP   = (l.endTime - l.startTime) / period;
     newMap.set(key, l);
+    if (!kindOk(l.kind)) continue;
     const prev    = prevMap.get(key);
     const onReplayDay = (replayDayKey === null) || (_dayKey(l.startTime) === replayDayKey);
 
     if (!prev) {
-      if (onReplayDay) {
+      if (F.showNew && onReplayDay) {
         _srDebugAppend(
           '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
           _srDebugKindLabel(l.kind) + ' @ ' + l.price +
@@ -11069,18 +11080,19 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
           'sv2-dbg-new'
         );
       }
-    } else if (!F.onlyNew && Math.abs(l.endTime - prev.endTime) > 0.001 && onReplayDay) {
+    } else if (F.showTouch && Math.abs(l.endTime - prev.endTime) > 0.001 && onReplayDay) {
       const prevLenP = (prev.endTime - prev.startTime) / period;
       _srDebugAppend(
         '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
         _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-        ' | length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period',
+        ' | extended length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period',
         'sv2-dbg-ext'
       );
     }
   }
-  if (!F.onlyNew) {
+  if (F.showDeleted) {
     for (const [key, prev] of prevMap.entries()) {
+      if (!kindOk(prev.kind)) continue;
       if (!newMap.has(key)) {
         const period   = prev.periodSec || ((prev.levelTf || 1) * 60);
         const prevLenP = (prev.endTime - prev.startTime) / period;
