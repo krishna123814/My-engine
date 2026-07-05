@@ -4927,17 +4927,20 @@ function ss2ApplyAndClose() {
     var fab = document.getElementById('sv2-drng-fab');
     if (!fab) return;
     var r = fab.getBoundingClientRect();
+    // Teeno buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
+    // same left, top badhta jaata hai — pehle galti se left badhta jaa
+    // raha tha (horizontal row), jisse chart ke upar overlap ho raha tha.
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
       _playBtn.style.top  = (r.bottom + 8) + 'px';
     }
     if (_onestepBtn) {
-      _onestepBtn.style.left = (r.left + 58) + 'px';
-      _onestepBtn.style.top  = (r.bottom + 8) + 'px';
+      _onestepBtn.style.left = r.left + 'px';
+      _onestepBtn.style.top  = (r.bottom + 8 + 58) + 'px';
     }
     if (_resetBtn) {
-      _resetBtn.style.left = (r.left + 108) + 'px';
-      _resetBtn.style.top  = (r.bottom + 8) + 'px';
+      _resetBtn.style.left = r.left + 'px';
+      _resetBtn.style.top  = (r.bottom + 8 + 58 + 58) + 'px';
     }
   }
 
