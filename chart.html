@@ -10182,12 +10182,19 @@ function swingCompute(bars, tfMin, nowSec) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    // Pure time-based check — market open/close ya replay mode pe depend nahi.
+    // Pure time-based check — market open/close pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
     // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
+    // VIRTUAL-CLOCK FIX: replay mein `nowSec` param hi asli "current time" hai —
+    // real Date.now() replay ke saath koi rishta nahi rakhta (.gz data purane/
+    // recent kisi bhi date ka ho sakta hai). Pehle ye hardcoded Date.now() use
+    // karta tha, jo replay mode mein galat trigger ho sakta tha aur ek already
+    // -closed candle ko bhi (replay position se independent) exclude/include
+    // kar sakta tha. Ab: agar caller ne virtual clock (nowSec) diya hai to
+    // wahi use karo, warna hi asli live/static mode ke liye Date.now() fallback.
     const barDuration = last.time - prev.time;
-    const nowSec = Math.floor(Date.now() / 1000);
-    return nowSec < (last.time + barDuration);
+    const _clockSec = (typeof nowSec === 'number') ? nowSec : Math.floor(Date.now() / 1000);
+    return _clockSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
 
