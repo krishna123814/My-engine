@@ -10455,6 +10455,24 @@ function swingCompute(bars, tfMin, nowSec) {
     for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
     for (const l of aSup) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
   }
+
+  // ── Candle H/L STARTING-length virtual-clock extension (swing-jaisa) ───
+  // Sirf STARTING length ke liye — bilkul upar wale swing floor jaisa hi
+  // mechanism, candle H/L ke liye. CH_START_MULT abhi bhi 4 hi rehta hai,
+  // koi change nahi. Sirf abhi-abhi (isi last processed candle par) bani
+  // aur ABHI TAK ek baar bhi validate na hui lines (creationIndex === last
+  // index) ko replay ke virtual clock (nowSec) tak floor tak extend karo,
+  // taaki starting length replay ke waiting period mein bhi sahi dikhe.
+  // validateLines() ka touch → CH_EXTEND_MULT wala extend aur no-touch →
+  // delete wala rule bilkul yahan se untouched hai — sirf starting length
+  // par asar hai, kuch aur nahi cheda gaya.
+  if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
+    const _chFloor  = nowSec + CH_START_MULT * _defaultPeriodSec;
+    const _lastIdx  = data.length - 1;
+    for (const l of chLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
+    for (const l of clLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
+  }
+
   const lastTime = (typeof nowSec === 'number') ? Math.max(lastClosedTime, nowSec) : lastClosedTime;
 
   // Swing SR lines — finite, latest 5
