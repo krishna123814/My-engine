@@ -10227,13 +10227,21 @@ function swingCompute(bars, tfMin, nowSec) {
 
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
-    // Actual candle duration from real data — fixes synthetic TFs like 135m
-    // where tfMin*60 may not match actual candle boundaries after resampling
-    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
     const isSessionGap = tfMin < 1440 && i >= 1 &&
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
+    // Actual candle duration from real data — fixes synthetic TFs like 135m
+    // where tfMin*60 may not match actual candle boundaries after resampling.
+    // FIX: session-gap (overnight) candle par raw gap use nahi karte — warna
+    // periodSec 16-18 ghante ban jaata hai (previous din ke last candle se
+    // gap), aur Step 4 mein CH_START_MULT * periodSec us gap ki duration se
+    // multiply ho ke ek bahut lambi/galat "Start length" line bana deta —
+    // jiska CH_START_MULT setting se koi practical rishta nahi dikhta.
+    // Aise candle par TF ka apna default period use karo.
+    const periodSec = (i >= 1 && !isSessionGap)
+      ? (cur.time - data[i-1].time)
+      : _defaultPeriodSec;
 
     // ── Step 1: Candle lines validate (touch = extend, no touch = delete) ──
     const validateLines = (arr) => {
