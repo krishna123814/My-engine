@@ -10322,17 +10322,32 @@ function swingCompute(bars, tfMin, nowSec) {
 
   // ── Replay virtual-clock extension (NO new pivots/lines created here) ──
   // Agar replay abhi bhi is TF ka agla bucket close hone ka wait kar raha
-  // hai (nowSec > lastClosedTime), to already-existing lines ko replay ki
-  // asli current position (nowSec) tak "alive/visible" rakho — warna line
+  // hai (nowSec > lastClosedTime), to already-existing SWING lines ko replay
+  // ki asli current position (nowSec) tak "alive/visible" rakho — warna line
   // ka endTime purane closed-candle ke hisaab se hi reh jaata aur replay
   // aage badhte hi line beech mein hi gayab ho jaati (gap). Yeh sirf
   // extension hai — koi naya pivot ya candle H/L is candle se nahi banta.
+  //
+  // FIX: Candle H/L lines (chLines/clLines) ko yahan se exclude kiya gaya
+  // hai. Pehle inhe bhi `nowSec` tak force-stretch kiya jaata tha, jo
+  // CH_START_MULT/CH_EXTEND_MULT se calculate hui endTime ko har replay
+  // step par turant overwrite kar deta tha — isliye settings ka koi visible
+  // effect hi nahi hota tha replay mein (chahe multiplier 0.5 ho ya 10).
+  // Candle H/L lines ko is extension ki zaroorat nahi — inki apni
+  // validate/delete cycle (touch = extend by CH_EXTEND_MULT, no-touch =
+  // turant delete) already har naye candle par chalti hai, gap ka risk
+  // nahi hai. Ab inka lifespan sirf CH_START_MULT/CH_EXTEND_MULT se decide
+  // hota hai — replay ho ya static view, dono mein same.
+  //
+  // Swing lines ke floor ka multiplier ab max(SW_START_MULT, SW_SLIDE_MULT)
+  // hai (pehle sirf SW_SLIDE_MULT tha) — taaki agar Start length, Slide
+  // length se bada rakha ho, to floor us bade window ko replay aage
+  // badhte hi turant chhota karke overwrite na kare.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _swingFloor = nowSec + SW_SLIDE_MULT * swingDuration(tfMin);
-    for (const l of aRes)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
-    for (const l of aSup)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
-    for (const l of chLines) if (l.endTime < nowSec)       l.endTime = nowSec;
-    for (const l of clLines) if (l.endTime < nowSec)       l.endTime = nowSec;
+    const _swingFloorMult = Math.max(SW_START_MULT, SW_SLIDE_MULT);
+    const _swingFloor = nowSec + _swingFloorMult * swingDuration(tfMin);
+    for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    for (const l of aSup) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
   }
   const lastTime = (typeof nowSec === 'number') ? Math.max(lastClosedTime, nowSec) : lastClosedTime;
 
