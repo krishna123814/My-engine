@@ -2484,7 +2484,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Candle H/L — Start length (× candle)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-start-mult" type="number" value="4" min="0.5" max="10" step="0.5"
+            <input class="ind-len" id="ch-start-mult" type="number" value="16" min="0.5" max="50" step="0.5"
               title="Candle high/low line ki starting length (candle-period ka multiple)"
               onchange="setChStartMult(+this.value)">
           </div>
@@ -2492,7 +2492,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Candle H/L — Extend on touch (× candle)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-extend-mult" type="number" value="4" min="0.5" max="10" step="0.5"
+            <input class="ind-len" id="ch-extend-mult" type="number" value="8" min="0.5" max="30" step="0.5"
               title="Agli candle touch kare to line kitna aage badhe (candle-period ka multiple)"
               onchange="setChExtendMult(+this.value)">
           </div>
@@ -9866,8 +9866,10 @@ function setSwingLineWidth(w) {
 
 // ── Line-length multipliers (user-configurable, persisted) ────────────────
 // Candle H/L lines: length = multiplier × candle's own period.
-//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai
-//   CH_EXTEND_MULT → jab agli candle isko touch kare to kitna aage badhe
+//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai (16×period)
+//   CH_EXTEND_MULT → har touch par kitna ADD hota hai total length mein (cumulative, 8×period/touch)
+//                    e.g. 16 → touch1: 16+8=24 → touch2: 24+8=32 → touch3: 32+8=40 → touch4: 40+8=48 ...
+//                    Touch nahi hui to line turant delete (koi extend nahi).
 // Swing SR lines: length = multiplier × swingDuration(tf).
 //   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
 //   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
@@ -9875,18 +9877,18 @@ const _CH_START_KEY  = 'chStartMult1';
 const _CH_EXTEND_KEY = 'chExtendMult1';
 const _SW_START_KEY  = 'swStartMult1';
 const _SW_SLIDE_KEY  = 'swSlideMult1';
-let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 4);
-let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 4);
+let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 16);
+let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 8);
 let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
 let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
 function setChStartMult(v) {
-  CH_START_MULT = Math.max(0.5, Math.min(10, +v || 4));
+  CH_START_MULT = Math.max(0.5, Math.min(50, +v || 16));
   try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
   const inp = document.getElementById('ch-start-mult'); if (inp) inp.value = CH_START_MULT;
   _swingRefresh();
 }
 function setChExtendMult(v) {
-  CH_EXTEND_MULT = Math.max(0.5, Math.min(10, +v || 4));
+  CH_EXTEND_MULT = Math.max(0.5, Math.min(30, +v || 8));
   try { _LS.setItem(_CH_EXTEND_KEY, CH_EXTEND_MULT); } catch(_) {}
   const inp = document.getElementById('ch-extend-mult'); if (inp) inp.value = CH_EXTEND_MULT;
   _swingRefresh();
@@ -10243,10 +10245,10 @@ function swingCompute(bars, tfMin, nowSec) {
   // fall behind the replay's actual position and the line disappears too
   // early, leaving a visual gap until the next bucket finally closes.
   // CANDLE H/L RULES (kind:'ch'|'cl'):
-  //   Candle 1 closes → High & Low lines created (endTime = +2×period)
-  //   Candle 2 (validator): Low ≤ price ≤ High → TOUCHED → extend to +3×period
-  //                         Not touched         → DELETED immediately
-  //   Max lifespan: end of Candle 3. Latest 2 lines shown at any time.
+  //   Candle closes → High & Low lines created, starting length = CH_START_MULT×period (16×period)
+  //   Next candle (validator): Low ≤ price ≤ High → TOUCHED → total length +CH_EXTEND_MULT×period (cumulative)
+  //                                                     e.g. 16→24→32→40→48... (+8 every touch)
+  //                            Not touched              → DELETED immediately (no extend)
   //
   // SWING H/L RULES (kind:'sh'|'sl') — untouched, independent:
   //   prevGreen→currRed  → Swing High (resistance)
@@ -10348,7 +10350,9 @@ function swingCompute(bars, tfMin, nowSec) {
         if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
         const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         if (isTouched) {
-          ln.endTime = cur.time + CH_EXTEND_MULT * periodSec;
+          // Cumulative extend: total length badhti hai +CH_EXTEND_MULT×period
+          // har touch par (16 → 24 → 32 → 40 → 48 ...), reset nahi hota.
+          ln.endTime = ln.endTime + CH_EXTEND_MULT * periodSec;
         } else {
           arr.splice(j, 1);
         }
@@ -10458,8 +10462,9 @@ function swingCompute(bars, tfMin, nowSec) {
 
   // ── Candle H/L STARTING-length virtual-clock extension (swing-jaisa) ───
   // Sirf STARTING length ke liye — bilkul upar wale swing floor jaisa hi
-  // mechanism, candle H/L ke liye. CH_START_MULT abhi bhi 4 hi rehta hai,
-  // koi change nahi. Sirf abhi-abhi (isi last processed candle par) bani
+  // mechanism, candle H/L ke liye. CH_START_MULT abhi bhi apni configured
+  // value (default 16) hi rehta hai, koi change nahi. Sirf abhi-abhi (isi
+  // last processed candle par) bani
   // aur ABHI TAK ek baar bhi validate na hui lines (creationIndex === last
   // index) ko replay ke virtual clock (nowSec) tak floor tak extend karo,
   // taaki starting length replay ke waiting period mein bhi sahi dikhe.
