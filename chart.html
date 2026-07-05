@@ -2404,7 +2404,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Candle H/L — Start length (× candle)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
+            <input class="ind-len" id="ch-start-mult" type="number" value="4" min="0.5" max="10" step="0.5"
               title="Candle high/low line ki starting length (candle-period ka multiple)"
               onchange="setChStartMult(+this.value)">
           </div>
@@ -2412,7 +2412,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Candle H/L — Extend on touch (× candle)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-extend-mult" type="number" value="2" min="0.5" max="10" step="0.5"
+            <input class="ind-len" id="ch-extend-mult" type="number" value="6" min="0.5" max="10" step="0.5"
               title="Agli candle touch kare to line kitna aage badhe (candle-period ka multiple)"
               onchange="setChExtendMult(+this.value)">
           </div>
@@ -9786,18 +9786,18 @@ const _CH_START_KEY  = 'chStartMult1';
 const _CH_EXTEND_KEY = 'chExtendMult1';
 const _SW_START_KEY  = 'swStartMult1';
 const _SW_SLIDE_KEY  = 'swSlideMult1';
-let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 2);
-let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 2);
+let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 4);
+let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 6);
 let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
 let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
 function setChStartMult(v) {
-  CH_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
+  CH_START_MULT = Math.max(0.5, Math.min(10, +v || 4));
   try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
   const inp = document.getElementById('ch-start-mult'); if (inp) inp.value = CH_START_MULT;
   _swingRefresh();
 }
 function setChExtendMult(v) {
-  CH_EXTEND_MULT = Math.max(0.5, Math.min(10, +v || 2));
+  CH_EXTEND_MULT = Math.max(0.5, Math.min(10, +v || 6));
   try { _LS.setItem(_CH_EXTEND_KEY, CH_EXTEND_MULT); } catch(_) {}
   const inp = document.getElementById('ch-extend-mult'); if (inp) inp.value = CH_EXTEND_MULT;
   _swingRefresh();
