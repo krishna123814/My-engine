@@ -851,6 +851,74 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   cursor:not-allowed;
 }
 
+/* ── SR Debug Log button + panel ─────────────────────────────────────── */
+#sv2-debug-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:40px;height:40px;
+  border-radius:50%;
+  background:#1e222d;
+  border:2px solid #ff9800;
+  box-shadow:0 4px 16px #0007;
+  font-size:17px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  color:#ff9800;
+}
+#sv2-debug-btn.visible{ display:flex; }
+#sv2-debug-btn.active{
+  background:#ff9800;
+  color:#1e222d;
+}
+#sv2-debug-panel{
+  display:none;
+  position:fixed;
+  z-index:9500;
+  right:12px;
+  bottom:12px;
+  width:min(420px, calc(100vw - 24px));
+  height:min(360px, calc(100vh - 120px));
+  background:#131722;
+  border:1px solid #2a2e3e;
+  border-radius:12px;
+  box-shadow:0 8px 32px #000a;
+  flex-direction:column;
+  overflow:hidden;
+}
+#sv2-debug-panel.open{ display:flex; }
+#sv2-debug-hdr{
+  display:flex;align-items:center;gap:8px;
+  padding:8px 10px;
+  background:#1e222d;
+  border-bottom:1px solid #2a2e3e;
+  flex-shrink:0;
+}
+#sv2-debug-title{
+  color:#d1d4dc;font-size:12px;font-weight:700;flex:1;
+}
+.sv2-debug-btn-sm{
+  background:#2a2e3e;color:#d1d4dc;border:none;border-radius:6px;
+  font-size:11px;padding:5px 9px;cursor:pointer;
+}
+.sv2-debug-btn-sm.copied{ background:#26a69a; color:#fff; }
+#sv2-debug-log{
+  flex:1;overflow-y:auto;
+  padding:8px 10px;
+  font-family:'SF Mono',Consolas,monospace;
+  font-size:10.5px;
+  line-height:1.5;
+  color:#c7cbe0;
+  white-space:pre-wrap;
+  word-break:break-word;
+}
+#sv2-debug-log .sv2-dbg-new  { color:#26a69a; }
+#sv2-debug-log .sv2-dbg-ext  { color:#2196f3; }
+#sv2-debug-log .sv2-dbg-del  { color:#ef5350; }
+
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
   display:none;
@@ -2198,6 +2266,18 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
+<button id="sv2-debug-btn" title="SR Length Debug Log" onclick="_srDebugToggle()">🐞</button>
+
+<!-- ═══ SR DEBUG LOG PANEL ═══════════════════════════════════════════════ -->
+<div id="sv2-debug-panel">
+  <div id="sv2-debug-hdr">
+    <span id="sv2-debug-title">🐞 SR Length Debug Log</span>
+    <button class="sv2-debug-btn-sm" id="sv2-debug-copy-btn" onclick="_srDebugCopyLog()">📋 Copy Log</button>
+    <button class="sv2-debug-btn-sm" onclick="_srDebugClear()">🗑 Clear</button>
+    <button class="sv2-debug-btn-sm" onclick="_srDebugClosePanel()">✕</button>
+  </div>
+  <div id="sv2-debug-log"></div>
+</div>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -4897,6 +4977,7 @@ function ss2ApplyAndClose() {
   var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
+  var _debugBtn  = null;   // #sv2-debug-btn (SR length debug log toggle)
   var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
   var _running   = false;
   var TICK_MS    = 2000;   // virtual-clock parameter: 2 real sec = 1 candle
@@ -4909,7 +4990,8 @@ function ss2ApplyAndClose() {
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
-    if (!show) _pause();
+    if (_debugBtn)    _debugBtn.classList.toggle('visible', show);
+    if (!show) { _pause(); try { _srDebugClosePanel(); } catch(_) {} }
     _renderPlayIcon();
     _syncPos();
   }
@@ -4932,6 +5014,10 @@ function ss2ApplyAndClose() {
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
       _resetBtn.style.top  = (r.bottom + 8 + 58 + 58) + 'px';
+    }
+    if (_debugBtn) {
+      _debugBtn.style.left = r.left + 'px';
+      _debugBtn.style.top  = (r.bottom + 8 + 58 + 58 + 58) + 'px';
     }
   }
 
@@ -5027,6 +5113,7 @@ function ss2ApplyAndClose() {
     live.revealIdx = live.startIdx;
     _rebuildAllCells();
     _renderPlayIcon();
+    try { _srDebugClear(); } catch(_) {}
   }
 
   // Keep old global names working (HTML onclick + external callers use these)
@@ -5038,6 +5125,7 @@ function ss2ApplyAndClose() {
   document.addEventListener('sv2DateRangeApplied', function() {
     _pause();
     _syncControls();
+    try { _srDebugClear(); } catch(_) {}
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
@@ -5059,6 +5147,7 @@ function ss2ApplyAndClose() {
     _playBtn    = document.getElementById('sv2-step-btn');
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
+    _debugBtn   = document.getElementById('sv2-debug-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     _syncControls();
     _watchFabPos();
@@ -10252,19 +10341,14 @@ function swingCompute(bars, tfMin, nowSec) {
       ? (cur.time - data[i-1].time)
       : _defaultPeriodSec;
 
-    // ── Step 1: Candle lines validate (touch = extend CUMULATIVELY, no touch = delete) ──
-    // Touch har baar endTime ko CH_EXTEND_MULT*periodSec se AAGE badhata hai
-    // (existing endTime par add — reset nahi karta). Isliye lagataar touches
-    // par length compound hoti hai: start 4× → touch 1 → 8× → touch 2 → 12× →
-    // touch 3 → 16× ... (CH_START_MULT/CH_EXTEND_MULT dono 4 hone par).
-    // Ek hi missed touch par turant delete — koi partial credit nahi.
+    // ── Step 1: Candle lines validate (touch = extend, no touch = delete) ──
     const validateLines = (arr) => {
       for (let j = arr.length - 1; j >= 0; j--) {
         const ln = arr[j];
         if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
         const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         if (isTouched) {
-          ln.endTime = ln.endTime + CH_EXTEND_MULT * periodSec;
+          ln.endTime = cur.time + CH_EXTEND_MULT * periodSec;
         } else {
           arr.splice(j, 1);
         }
@@ -10862,6 +10946,7 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
+    try { _srDebugCapture(i, lines); } catch(_) {}
     _sv2ApplyCellSR(i, lines);
   }
 }
@@ -10893,6 +10978,164 @@ function sv2SwingClear() {
       }
     } catch(_) {}
   }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SR LENGTH DEBUG LOG — Candle H/L line ki starting/extended length track karo
+// ────────────────────────────────────────────────────────────────────────────
+// Har `sv2SwingInit` pass ke baad (jo replay ke har step par chalta hai),
+// har cell ke liye ye naya `lines` array ko PICHLE pass ke saved snapshot se
+// compare karta hai (price+kind ko unique key maan ke). Farak milne par:
+//   - Nayi line mili           → "NEW"     (starting length)
+//   - Existing line ka endTime
+//     badla (bada ya chota)    → "TOUCH"   (extended/updated length)
+//   - Pehle thi, ab nahi hai   → "DELETED" (no-touch → removed)
+// Sirf jab replay LIVE hai (window._SV2_LIVE set) tab hi meaningful hai —
+// static/non-replay view mein bhi chalega par usually ek hi baar sab "NEW"
+// dikhega (initial load), jo theek hai.
+// ════════════════════════════════════════════════════════════════════════════
+window._SR_DEBUG = window._SR_DEBUG || { enabled: false, log: [], prevByCell: {} };
+
+function _srDebugCellLabel(cellIdx) {
+  try {
+    const assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    const cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+    const tfLabel  = (cfg2.tfs && cfg2.tfs[cellIdx]) || ('#' + cellIdx);
+    return 'Cell ' + (cellIdx + 1) + ' (' + tfLabel + ')';
+  } catch(_) { return 'Cell ' + (cellIdx + 1); }
+}
+
+function _srDebugKindLabel(kind) {
+  if (kind === 'ch') return 'HIGH';
+  if (kind === 'cl') return 'LOW';
+  if (kind === 'sh') return 'SWING-HIGH';
+  if (kind === 'sl') return 'SWING-LOW';
+  return kind;
+}
+
+// IST-formatted HH:MM:SS for a given epoch-seconds timestamp
+function _srDebugFmtTime(tSec) {
+  try {
+    const d = new Date(tSec * 1000);
+    return d.toLocaleString('en-IN', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      day: '2-digit', month: '2-digit',
+      hour12: false, timeZone: 'Asia/Kolkata'
+    });
+  } catch(_) { return String(tSec); }
+}
+
+function _srDebugCapture(cellIdx, lines) {
+  if (!window._SR_DEBUG.enabled) return;
+  const prevMap = window._SR_DEBUG.prevByCell[cellIdx] || new Map();
+  const newMap  = new Map();
+  const label   = _srDebugCellLabel(cellIdx);
+
+  for (const l of lines) {
+    const key    = l.kind + ':' + l.price;
+    const period = l.periodSec || ((l.levelTf || 1) * 60);
+    const lenP   = (l.endTime - l.startTime) / period;
+    newMap.set(key, l);
+    const prev = prevMap.get(key);
+    if (!prev) {
+      _srDebugAppend(
+        '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
+        _srDebugKindLabel(l.kind) + ' @ ' + l.price +
+        ' | starting length = ' + lenP.toFixed(2) + '×period (' + period + 's/period)',
+        'sv2-dbg-new'
+      );
+    } else if (Math.abs(l.endTime - prev.endTime) > 0.001) {
+      const prevLenP = (prev.endTime - prev.startTime) / period;
+      _srDebugAppend(
+        '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
+        _srDebugKindLabel(l.kind) + ' @ ' + l.price +
+        ' | length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period',
+        'sv2-dbg-ext'
+      );
+    }
+  }
+  for (const [key, prev] of prevMap.entries()) {
+    if (!newMap.has(key)) {
+      const period   = prev.periodSec || ((prev.levelTf || 1) * 60);
+      const prevLenP = (prev.endTime - prev.startTime) / period;
+      _srDebugAppend(
+        label + ' — DELETED ' + _srDebugKindLabel(prev.kind) + ' @ ' + prev.price +
+        ' | was ' + prevLenP.toFixed(2) + '×period (no-touch)',
+        'sv2-dbg-del'
+      );
+    }
+  }
+  window._SR_DEBUG.prevByCell[cellIdx] = newMap;
+}
+
+function _srDebugAppend(text, cls) {
+  window._SR_DEBUG.log.push({ text, cls });
+  if (window._SR_DEBUG.log.length > 800) window._SR_DEBUG.log.shift();  // memory cap
+  _srDebugRender();
+}
+
+function _srDebugRender() {
+  const el = document.getElementById('sv2-debug-log');
+  if (!el) return;
+  el.innerHTML = window._SR_DEBUG.log
+    .map(l => '<div class="' + l.cls + '">' + l.text.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</div>')
+    .join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function _srDebugToggle() {
+  const panel = document.getElementById('sv2-debug-panel');
+  const btn   = document.getElementById('sv2-debug-btn');
+  const opening = !(panel && panel.classList.contains('open'));
+  if (panel) panel.classList.toggle('open', opening);
+  if (btn)   btn.classList.toggle('active', opening);
+  window._SR_DEBUG.enabled = opening;
+  if (opening) _srDebugRender();
+}
+
+function _srDebugClosePanel() {
+  const panel = document.getElementById('sv2-debug-panel');
+  const btn   = document.getElementById('sv2-debug-btn');
+  if (panel) panel.classList.remove('open');
+  if (btn)   btn.classList.remove('active');
+  window._SR_DEBUG.enabled = false;
+}
+
+function _srDebugClear() {
+  window._SR_DEBUG.log = [];
+  window._SR_DEBUG.prevByCell = {};
+  _srDebugRender();
+}
+
+function _srDebugCopyLog() {
+  const text = window._SR_DEBUG.log.map(l => l.text).join('\n');
+  const btn  = document.getElementById('sv2-debug-copy-btn');
+  function _showCopied() {
+    if (!btn) return;
+    const old = btn.textContent;
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 1200);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(_showCopied).catch(() => _srDebugFallbackCopy(text, _showCopied));
+  } else {
+    _srDebugFallbackCopy(text, _showCopied);
+  }
+}
+
+function _srDebugFallbackCopy(text, cb) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (cb) cb();
+  } catch(_) {}
 }
 
 // ── Date Range events sunna ─────────────────────────────────────────────────
