@@ -809,6 +809,32 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-reset-btn.visible{
   display:flex;
 }
+#sv2-onestep-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:40px;height:40px;
+  border-radius:50%;
+  background:#1e222d;
+  border:2px solid #2196f3;
+  box-shadow:0 4px 16px #0007;
+  font-size:17px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  color:#2196f3;
+}
+#sv2-onestep-btn.visible{
+  display:flex;
+}
+#sv2-onestep-btn.disabled{
+  opacity:.3;
+  border-color:#555;
+  color:#555;
+  cursor:not-allowed;
+}
 #sv2-step-btn.animating{
   opacity:.45;
   border-color:#555;
@@ -2219,6 +2245,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 <!-- ═══ SV2 LIVE REPLAY CONTROLS (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
+<button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
@@ -4876,19 +4903,21 @@ function ss2ApplyAndClose() {
 // ════════════════════════════════════════════════════════════════════════════
 (function(){
 
-  var _playBtn   = null;   // #sv2-step-btn (repurposed as Play/Pause)
+  var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
+  var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
   var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
   var _running   = false;
-  var TICK_MS    = 1000;   // virtual-clock parameter: 1 real sec = 1 candle
+  var TICK_MS    = 2000;   // virtual-clock parameter: 2 real sec = 1 candle
 
   // ── Show / hide controls based on whether a replay range is active ───────
   function _syncControls() {
     var rangeActive = !!(window._SV2_DATE_RANGE && typeof window._SV2_DATE_RANGE.from === 'number');
     var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
     var show = rangeActive && stack2On;
-    if (_playBtn)  _playBtn.classList.toggle('visible', show);
-    if (_resetBtn) _resetBtn.classList.toggle('visible', show);
+    if (_playBtn)     _playBtn.classList.toggle('visible', show);
+    if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
+    if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
     if (!show) _pause();
     _renderPlayIcon();
     _syncPos();
@@ -4902,8 +4931,12 @@ function ss2ApplyAndClose() {
       _playBtn.style.left = r.left + 'px';
       _playBtn.style.top  = (r.bottom + 8) + 'px';
     }
+    if (_onestepBtn) {
+      _onestepBtn.style.left = (r.left + 58) + 'px';
+      _onestepBtn.style.top  = (r.bottom + 8) + 'px';
+    }
     if (_resetBtn) {
-      _resetBtn.style.left = (r.left + 58) + 'px';
+      _resetBtn.style.left = (r.left + 108) + 'px';
       _resetBtn.style.top  = (r.bottom + 8) + 'px';
     }
   }
@@ -4914,6 +4947,9 @@ function ss2ApplyAndClose() {
     var done = !!(live && live.baseBars && live.revealIdx >= live.baseBars.length);
     _playBtn.classList.toggle('done', done);
     _playBtn.textContent = done ? '\u2713' : (_running ? '\u23f8' : '\u25b6');
+    // Step button: replay chalte hue (continuous play) ya khatam ho chuke
+    // data par manual step allow nahi — warna dono controls tussle karenge.
+    if (_onestepBtn) _onestepBtn.classList.toggle('disabled', done || _running);
   }
 
   // Resolve a cell's real TF in minutes from its label (cell.tf is unused/hardcoded)
@@ -4982,6 +5018,14 @@ function ss2ApplyAndClose() {
     if (_running) _pause(); else _play();
   }
 
+  // ── Manual STEP: reveal exactly ONE candle (all TFs sync), then stop ────
+  // Continuous auto-play (_play/_pause) ke saath tussle na ho isliye agar
+  // auto-play chal raha ho to pehle usko pause kar do, phir ek hi _tick().
+  function _stepOnce() {
+    if (_running) _pause();
+    _tick();
+  }
+
   function _reset() {
     _pause();
     var live = window._SV2_LIVE;
@@ -4993,6 +5037,7 @@ function ss2ApplyAndClose() {
 
   // Keep old global names working (HTML onclick + external callers use these)
   window._sv2StepForward = _togglePlay;
+  window._sv2StepOnce    = _stepOnce;
   window._sv2LiveReset   = _reset;
   window._sv2StepSyncBtn = _syncControls;
 
@@ -5017,8 +5062,9 @@ function ss2ApplyAndClose() {
   }
 
   function _init() {
-    _playBtn  = document.getElementById('sv2-step-btn');
-    _resetBtn = document.getElementById('sv2-reset-btn');
+    _playBtn    = document.getElementById('sv2-step-btn');
+    _onestepBtn = document.getElementById('sv2-onestep-btn');
+    _resetBtn   = document.getElementById('sv2-reset-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     _syncControls();
     _watchFabPos();
