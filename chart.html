@@ -10252,14 +10252,19 @@ function swingCompute(bars, tfMin, nowSec) {
       ? (cur.time - data[i-1].time)
       : _defaultPeriodSec;
 
-    // ── Step 1: Candle lines validate (touch = extend, no touch = delete) ──
+    // ── Step 1: Candle lines validate (touch = extend CUMULATIVELY, no touch = delete) ──
+    // Touch har baar endTime ko CH_EXTEND_MULT*periodSec se AAGE badhata hai
+    // (existing endTime par add — reset nahi karta). Isliye lagataar touches
+    // par length compound hoti hai: start 4× → touch 1 → 8× → touch 2 → 12× →
+    // touch 3 → 16× ... (CH_START_MULT/CH_EXTEND_MULT dono 4 hone par).
+    // Ek hi missed touch par turant delete — koi partial credit nahi.
     const validateLines = (arr) => {
       for (let j = arr.length - 1; j >= 0; j--) {
         const ln = arr[j];
         if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
         const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         if (isTouched) {
-          ln.endTime = cur.time + CH_EXTEND_MULT * periodSec;
+          ln.endTime = ln.endTime + CH_EXTEND_MULT * periodSec;
         } else {
           arr.splice(j, 1);
         }
