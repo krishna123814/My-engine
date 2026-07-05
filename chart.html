@@ -11043,6 +11043,30 @@ function _srDebugFmtTime(tSec) {
   } catch(_) { return String(tSec); }
 }
 
+// ── REAL-DRAW CHECK — chart ke actual pixels se line ki length nikaalo ────
+// timeToCoordinate() chart ke current time-scale se startTime/endTime ka
+// asli pixel-x deta hai (chahe line abhi tak render na hui ho — ye sirf
+// time→pixel mapping hai, kisi series par depend nahi karta). barSpacing
+// se pata chalta hai ek period asal mein kitne pixels ka hai chart par.
+// Isse "intended" (seconds se calculate) vs "actually drawn" (pixel se
+// measure) — dono ko compare kiya ja sakta hai, taaki pata chale rendering
+// mein koi mismatch to nahi.
+function _srDebugActualPeriods(cellIdx, startTime, endTime, periodSec) {
+  try {
+    const cellObj = (typeof STACK2_CELLS !== 'undefined') ? STACK2_CELLS[cellIdx] : null;
+    if (!cellObj || !cellObj.chart) return null;
+    const ts = cellObj.chart.timeScale();
+    const x1 = ts.timeToCoordinate(startTime);
+    const x2 = ts.timeToCoordinate(endTime);
+    const barSpacing = ts.options().barSpacing;
+    if (x1 === null || x2 === null || !barSpacing) return null;
+    // Ek bar/candle ka pixel-width barSpacing hota hai; humara "period"
+    // (periodSec) usi ek candle ke barabar hai — isliye pixel-length ko
+    // seedha barSpacing se divide karke "kitne periods draw hue" milta hai.
+    return (x2 - x1) / barSpacing;
+  } catch (_) { return null; }
+}
+
 function _srDebugCapture(cellIdx, lines, cutoffTime) {
   if (!window._SR_DEBUG.enabled) return;
   const F = window._SR_DEBUG_FILTER || {};
@@ -11073,19 +11097,31 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
 
     if (!prev) {
       if (F.showNew && onReplayDay) {
+        const actualP = _srDebugActualPeriods(cellIdx, l.startTime, l.endTime, period);
+        const actualStr = (actualP === null)
+          ? ' | drawn = N/A (out of view)'
+          : ' | drawn = ' + actualP.toFixed(2) + '×period' +
+            (Math.abs(actualP - lenP) > 0.15 ? ' ❌ MISMATCH' : ' ✅');
         _srDebugAppend(
           '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
           _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-          ' | starting length = ' + lenP.toFixed(2) + '×period (' + period + 's/period)',
+          ' | starting length = ' + lenP.toFixed(2) + '×period (' + period + 's/period)' +
+          actualStr,
           'sv2-dbg-new'
         );
       }
     } else if (F.showTouch && Math.abs(l.endTime - prev.endTime) > 0.001 && onReplayDay) {
       const prevLenP = (prev.endTime - prev.startTime) / period;
+      const actualP = _srDebugActualPeriods(cellIdx, l.startTime, l.endTime, period);
+      const actualStr = (actualP === null)
+        ? ' | drawn = N/A (out of view)'
+        : ' | drawn = ' + actualP.toFixed(2) + '×period' +
+          (Math.abs(actualP - lenP) > 0.15 ? ' ❌ MISMATCH' : ' ✅');
       _srDebugAppend(
         '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
         _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-        ' | extended length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period',
+        ' | extended length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period' +
+        actualStr,
         'sv2-dbg-ext'
       );
     }
