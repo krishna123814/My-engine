@@ -10946,8 +10946,8 @@ function sv2SwingInit(cutoffTime) {
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    try { _srDebugCapture(i, lines, cutoffTime); } catch(_) {}
     _sv2ApplyCellSR(i, lines);
+    try { _srDebugCapture(i, lines, cutoffTime); } catch(_) {}
   }
 }
 
