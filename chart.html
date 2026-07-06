@@ -10493,12 +10493,20 @@ function swingCompute(bars, tfMin, nowSec) {
     // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
     // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
     const _swBars = swingBarCount(tfMin);
+    // FIX: pehle yahan endIndex UNCONDITIONALLY overwrite hota tha
+    // (i + SW_SLIDE_MULT*_swBars), chahe pehle se set (SW_START_MULT-based)
+    // length usse bada ho — isse naya-bana swing line agli hi candle par
+    // apni starting length se CHHOTA ho jaata tha (SW_SLIDE_MULT < SW_START_MULT
+    // hone par). Ab Math.max() se sirf tabhi aage badhta hai jab naya
+    // slide-target purane se bada ho — line kabhi apni set length se
+    // shrink nahi hogi, sirf grow (ya same rahegi) jab tak naya extreme
+    // (Step 2/3 ka filter) usse replace na kar de.
     for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endIndex = i + SW_SLIDE_MULT * _swBars;
+      aRes[j].endIndex = Math.max(aRes[j].endIndex, i + SW_SLIDE_MULT * _swBars);
       aRes[j].endTime  = _indexToTime(data, aRes[j].endIndex, tfMin, _defaultPeriodSec);
     }
     for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endIndex = i + SW_SLIDE_MULT * _swBars;
+      aSup[j].endIndex = Math.max(aSup[j].endIndex, i + SW_SLIDE_MULT * _swBars);
       aSup[j].endTime  = _indexToTime(data, aSup[j].endIndex, tfMin, _defaultPeriodSec);
     }
 
@@ -11320,63 +11328,55 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) 
   const prevMap = window._SR_DEBUG.prevByCell[srcKey] || new Map();
   const newMap  = new Map();
 
-  // SET (intended, seconds/index math se calculate) vs DRAWN (chart ke
-  // actual loaded pixels se, index-fixed method — wahi math jo
-  // _bnBuildSRNative() rendering ke waqt use karta hai) — dono compare
-  // karke pata chalta hai ki jo length humne "set" ki thi wahi chart par
-  // "draw" bhi ho rahi hai ya nahi. (Purana raw timeToCoordinate(endTime)
-  // wala measurement hata diya gaya hai — wo sparse/out-of-range data par
-  // unreliable extrapolate karta tha aur galat signal deta tha.)
-  const _drawnStr = (l, lenP) => {
-    if (!cellTFMin) return ' | drawn = N/A (no TF)';
-    const drawnP = _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
-    const drawnStr = (drawnP === null)
-      ? 'N/A (start point abhi chart ke loaded range se bahar hai)'
-      : drawnP.toFixed(2) + '×period ' + (Math.abs(drawnP - lenP) > 0.15 ? '❌ MISMATCH' : '✅ match');
-    return ' | drawn = ' + drawnStr;
+  // DRAWN — chart ke actual loaded pixels se measure ki gayi length (wahi
+  // index-fixed math jo _bnBuildSRNative() rendering ke waqt use karta hai).
+  // Ab sirf yehi dikhaya jaata hai — "set/intended" value hata di gayi hai,
+  // kyunki wo sirf humara calculation tha, chart par asal mein kya render
+  // ho raha hai wahi yahan chahiye tha.
+  const _measureDrawn = (l) => {
+    if (!cellTFMin) return null;
+    return _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
   };
+  const _drawnLabel = (p) => (p === null)
+    ? 'N/A (start point abhi chart ke loaded range se bahar hai)'
+    : p.toFixed(2) + '×period';
 
   for (const l of lines) {
-    const key    = l.kind + ':' + l.price;
-    const period = l.periodSec || ((l.levelTf || 1) * 60);
-    const lenP   = (l.endTime - l.startTime) / period;
-    newMap.set(key, l);
+    const key     = l.kind + ':' + l.price;
+    const drawnP  = _measureDrawn(l);
+    newMap.set(key, { line: l, drawnP });
     if (!kindOk(l.kind)) continue;
-    const prev    = prevMap.get(key);
-    const onReplayDay = (replayDayKey === null) || (_dayKey(l.startTime) === replayDayKey);
+    const prevEntry    = prevMap.get(key);
+    const onReplayDay  = (replayDayKey === null) || (_dayKey(l.startTime) === replayDayKey);
 
-    if (!prev) {
+    if (!prevEntry) {
       if (F.showNew && onReplayDay) {
         _srDebugAppend(
           '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
           _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-          ' | set = ' + lenP.toFixed(2) + '×period (' + period + 's/period)' +
-          _drawnStr(l, lenP),
+          ' | drawn = ' + _drawnLabel(drawnP),
           'sv2-dbg-new'
         );
       }
-    } else if (F.showTouch && Math.abs(l.endTime - prev.endTime) > 0.001 && onReplayDay) {
-      const prevLenP = (prev.endTime - prev.startTime) / period;
+    } else if (F.showTouch && Math.abs(l.endTime - prevEntry.line.endTime) > 0.001 && onReplayDay) {
       _srDebugAppend(
         '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
         _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-        ' | set ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period' +
-        _drawnStr(l, lenP),
+        ' | drawn ' + _drawnLabel(prevEntry.drawnP) + ' → ' + _drawnLabel(drawnP),
         'sv2-dbg-ext'
       );
     }
   }
   if (F.showDeleted) {
-    for (const [key, prev] of prevMap.entries()) {
+    for (const [key, prevEntry] of prevMap.entries()) {
+      const prev = prevEntry.line;
       if (!kindOk(prev.kind)) continue;
       if (!newMap.has(key)) {
-        const period   = prev.periodSec || ((prev.levelTf || 1) * 60);
-        const prevLenP = (prev.endTime - prev.startTime) / period;
         const onReplayDay = (replayDayKey === null) || (_dayKey(prev.startTime) === replayDayKey);
         if (onReplayDay) {
           _srDebugAppend(
             label + ' — DELETED ' + _srDebugKindLabel(prev.kind) + ' @ ' + prev.price +
-            ' | was ' + prevLenP.toFixed(2) + '×period (no-touch)',
+            ' | was drawn ' + _drawnLabel(prevEntry.drawnP) + ' (no-touch)',
             'sv2-dbg-del'
           );
         }
