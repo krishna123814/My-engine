@@ -6052,10 +6052,9 @@ const NSE_HOLIDAYS = new Set([
   '2025-02-26','2025-03-14','2025-03-31','2025-04-10','2025-04-14',
   '2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02',
   '2025-10-21','2025-10-22','2025-11-05','2025-12-25',
-  // 2026 (confirmed from official NSE circular CMTR71775, Dec 2025)
-  '2026-01-26','2026-03-03','2026-03-26','2026-03-31','2026-04-03',
-  '2026-04-14','2026-05-01','2026-05-28','2026-06-26','2026-09-14',
-  '2026-10-02','2026-10-20','2026-11-10','2026-11-24','2026-12-25',
+  // 2026 (provisional — verify from NSE circular in Jan 2026)
+  '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01',
+  '2026-08-15','2026-10-02','2026-11-25','2026-12-25',
 ]);
 
 // Helper: "YYYY-MM-DD" from a UTC timestamp (seconds)
@@ -9890,10 +9889,9 @@ function setSwingLineWidth(w) {
 //   CH_EXTEND_MULT → har touch par kitna ADD hota hai total length mein (cumulative, 1×period/touch)
 //                    e.g. 16 → touch1: 16+8=24 → touch2: 24+8=32 → touch3: 32+8=40 → touch4: 40+8=48 ...
 //                    Touch nahi hui to line turant delete (koi extend nahi).
-// Swing SR lines: length = multiplier × 1 bar (pure index-based, koi per-TF
-// duration table nahi — 15m ka multiplier "2" = 2 bars, 1D ka "2" bhi 2 bars).
-//   SW_START_MULT  → starting length (bars) jab swing pehli baar create hoti hai
-//   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window (bars)
+// Swing SR lines: length = multiplier × swingDuration(tf).
+//   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
+//   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
 const _CH_START_KEY  = 'chStartMult2';
 const _CH_EXTEND_KEY = 'chExtendMult2';
 const _SW_START_KEY  = 'swStartMult1';
@@ -10408,12 +10406,26 @@ function swingCompute(bars, tfMin, nowSec) {
     const t1 = _timeAt(lo + 1);
     return t0 + (t1 - t0) * frac;
   }
-  // Pure index-based swing length — koi per-TF duration table nahi.
-  // Base unit = 1 bar. Actual length SW_START_MULT / SW_SLIDE_MULT se
-  // seedha bars mein control hoti hai (neeche dekho), TF se independent —
-  // 15m ka "2" bhi 2 bars, 1D ka "2" bhi 2 bars.
+  // swingDuration() ka bar-count equivalent — index-based length ke liye.
+  // Same "intended visual length" jo pehle swingDuration(tfMin) seconds ke
+  // roop mein tha, ab utne hi "bars" ke roop mein — resolve _indexToTime()
+  // se hota hai taaki real bar timestamps use hon, gap-seconds se nahi.
   function swingBarCount(tf) {
-    return 1;
+    return swingDuration(tf) / ((tf || 1) * 60);
+  }
+
+  // ── Custom swing line duration per TF (seconds) ──────────────────────────
+  // Har naye candle pe endTime = cur.time + swingDuration → sliding window.
+  // Koi infinity nahi — line hamesha latest candle se fixed duration aage.
+  function swingDuration(tf) {
+    if (tf <= 5)     return 3600;      // 5m  → 1 hour
+    if (tf <= 15)    return 7200;      // 15m → 2 hours
+    if (tf <= 45)    return 28800;     // 45m → 8 hours
+    if (tf <= 135)   return 259200;    // 135m → 3 days
+    if (tf <= 1440)  return 518400;    // 1D  → 6 days
+    if (tf <= 4320)  return 777600;    // 3D  → 9 days
+    if (tf <= 12960) return 2592000;   // 9D  → 1 month
+    return 7776000;                    // 27D → 3 months
   }
 
   let aRes     = [];  // swing highs  { price, startTime, endTime, creationIndex, kind:'sh', periodSec }
@@ -10588,7 +10600,7 @@ function swingCompute(bars, tfMin, nowSec) {
   // badhte hi turant chhota karke overwrite na kare.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
     const _swingFloorMult = Math.max(SW_START_MULT, SW_SLIDE_MULT);
-    const _swingFloor = _advanceTradingSeconds(nowSec, _swingFloorMult * swingBarCount(tfMin) * (tfMin || 1) * 60, tfMin);
+    const _swingFloor = _advanceTradingSeconds(nowSec, _swingFloorMult * swingDuration(tfMin), tfMin);
     for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
     for (const l of aSup) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
   }
@@ -11770,7 +11782,7 @@ function _btc2ComputeMultiTF(asset, currentTf) {
   const _btcSwingByPrice  = new Map();
   const _btcCandleByPrice = new Map();
   for (const line of allLines) {
-    if (line.kind === 'sh' || line.kind === 'sl') {
+    if (line.isInfinite) {
       const ex = _btcSwingByPrice.get(line.price);
       if (!ex || line.levelTf > ex.levelTf)
         _btcSwingByPrice.set(line.price, line);
@@ -11788,11 +11800,6 @@ function _btc2ComputeMultiTF(asset, currentTf) {
   return [...Array.from(_btcSwingByPrice.values()), ...Array.from(_btcCandleByPrice.values())];
 }
 function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
-  // BTC (24x7, no session gaps) — ab BankNifty jaisa hi FINITE swing H/L:
-  // Start length = SW_START_MULT × bar, Slide length = SW_SLIDE_MULT × bar
-  // (same shared settings jo Swing SR panel se control hote hain).
-  // No more isInfinite:true / endTime:null — koi bhi line ab screen ke
-  // aakhir tak infinite nahi jaati, sabki ek finite endTime hoti hai.
   if(!bars||bars.length<2) return [];
   const periodSec=(tfMin||1)*60;
   const WIN=300;
@@ -11810,49 +11817,41 @@ function _swingComputeWithColors(bars, tfMin, srColorFn, candleColorFn) {
   for(let i=0;i<data.length;i++){
     const cur=data[i];
     const curGreen=cur.close>cur.open, curRed=cur.close<cur.open;
-    // Actual bar-to-bar gap (fixes any synthetic/resampled TF mismatch)
-    const _periodSec=(i>=1)?(cur.time-data[i-1].time):periodSec;
     const validateLines=(arr)=>{
       for(let j=arr.length-1;j>=0;j--){
         const ln=arr[j];
         if(ln.creationIndex>=i) continue;
-        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+2*ln.periodSec;}
+        if(cur.low<=ln.price&&cur.high>=ln.price){ln.endTime=cur.time+2*periodSec;}
         else{arr.splice(j,1);}
       }
     };
     validateLines(chLines); validateLines(clLines);
-
-    // Swing H/L — har naye candle par slide karo (Start length se chhota kabhi nahi,
-    // sirf grow ya same rahe jab tak naya extreme replace na kare) — BankNifty jaisa hi.
-    for(let j=0;j<aRes.length;j++){ aRes[j].endTime=Math.max(aRes[j].endTime, cur.time+SW_SLIDE_MULT*_periodSec); }
-    for(let j=0;j<aSup.length;j++){ aSup[j].endTime=Math.max(aSup[j].endTime, cur.time+SW_SLIDE_MULT*_periodSec); }
-
     if(i>=1&&pGreen&&curRed){
       const rPrice=Math.max(pHigh,cur.high);
       const rTime=pHigh>=cur.high?data[i-1].time:cur.time;
       aRes=aRes.filter(l=>l.price<=rPrice); aSup=aSup.filter(l=>l.price<=rPrice);
-      aRes.push({price:rPrice,startTime:rTime,endTime:cur.time+SW_START_MULT*_periodSec,creationIndex:i,kind:'sh',periodSec:_periodSec});
+      aRes.push({price:rPrice,startTime:rTime,kind:'sh'});
     }
     if(i>=1&&pRed&&curGreen){
       const sPrice=Math.min(pLow,cur.low);
       const sTime=pLow<=cur.low?data[i-1].time:cur.time;
       aSup=aSup.filter(l=>l.price>=sPrice); aRes=aRes.filter(l=>l.price>=sPrice);
-      aSup.push({price:sPrice,startTime:sTime,endTime:cur.time+SW_START_MULT*_periodSec,creationIndex:i,kind:'sl',periodSec:_periodSec});
+      aSup.push({price:sPrice,startTime:sTime,kind:'sl'});
     }
     // Agar candle high/low price kisi active swing H/L se match kare → push mat karo
     const _btcSwingPrices=new Set([...aRes.map(l=>l.price),...aSup.map(l=>l.price)]);
-    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*_periodSec,creationIndex:i,kind:'ch',periodSec:_periodSec});}
-    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*_periodSec,creationIndex:i,kind:'cl',periodSec:_periodSec});}
+    if(!_btcSwingPrices.has(cur.high)){chLines.push({price:cur.high,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'ch',periodSec});}
+    if(!_btcSwingPrices.has(cur.low)){clLines.push({price:cur.low,startTime:cur.time,endTime:cur.time+2*periodSec,creationIndex:i,kind:'cl',periodSec});}
     pGreen=curGreen; pRed=curRed; pHigh=cur.high; pLow=cur.low;
   }
   const out=[];
   const srColor=srColorFn(tfMin);
-  const lastTime=data.length?data[data.length-1].time:0;
-  const allSwings=[...aRes,...aSup].filter(l=>l.endTime>lastTime).sort((a,b)=>b.startTime-a.startTime).slice(0,5);
+  const allSwings=[...aRes,...aSup].sort((a,b)=>b.startTime-a.startTime).slice(0,5);
   for(const sw of allSwings){
-    out.push({price:sw.price,startTime:sw.startTime,endTime:sw.endTime,kind:sw.kind,color:srColor,isInfinite:false,periodSec:sw.periodSec,levelTf:tfMin});
+    out.push({price:sw.price,startTime:sw.startTime,endTime:null,kind:sw.kind,color:srColor,isInfinite:true,levelTf:tfMin});
   }
   const _cndClr=candleColorFn(tfMin);
+  const lastTime=data.length?data[data.length-1].time:0;
   const allCandles=[...chLines,...clLines].filter(l=>l.endTime>lastTime);
   for(const l of allCandles){
     out.push({price:l.price,startTime:l.startTime,endTime:l.endTime,kind:l.kind,color:_cndClr,isInfinite:false,periodSec:l.periodSec,levelTf:tfMin});
