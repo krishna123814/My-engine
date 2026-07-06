@@ -10564,16 +10564,15 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
       const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
-      // FIX: sirf 2 points (start,end) dene se lightweight-charts ka time-scale
-      // union-of-all-series-timestamps se apna logical index banata hai — agar
-      // beech mein koi aur point na ho, to chart is pure gap ko sirf EK logical
-      // step maan leta hai (chahe gap 16 period ka ho ya 568 period ka), jisse
-      // line hamesha chhoti dikhti thi jab endTime last real candle se bahut
-      // aage hota. Fix: har periodSec par ek intermediate waypoint daalo, taaki
-      // time-scale ko sahi step-count pata chale aur line poori real length
-      // tak sahi se render ho. Points count ko 2000 tak cap kiya hai perf ke liye.
+      // Lightweight fix: sirf 2 points dene se time-scale poore future gap ko
+      // 1 hi logical step maan leta tha (line chhoti dikhti thi). Ab har
+      // 2×periodSec par ek waypoint — pehle wale 2000-point version se bahut
+      // lighter (hang wapas nahi aata), aur ye function har tick pe re-run
+      // hoti hai isliye touch/extend hone par bhi naye endTime ke hisaab se
+      // waypoints khud-ba-khud update ho jaate hain, alag se kuch nahi karna.
+      const stepSec = 2 * _periodSec;
       const totalSpan = endT - ln.startTime;
-      const stepCount = Math.min(2000, Math.max(1, Math.round(totalSpan / _periodSec)));
+      const stepCount = Math.min(300, Math.max(1, Math.round(totalSpan / stepSec)));
       const step = totalSpan / stepCount;
       const pts = [];
       for (let k = 0; k <= stepCount; k++) {
