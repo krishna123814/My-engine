@@ -2500,16 +2500,16 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Swing SR — Start length (× swing duration)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="sw-start-mult" type="number" value="568" min="0.5" max="1000" step="0.5"
+            <input class="ind-len" id="sw-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
               title="Swing SR line ki starting length (per-TF swing-duration ka multiple)"
               onchange="setSwStartMult(+this.value)">
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Swing SR — Extend per candle (× swing duration, cumulative)</span>
+          <span class="ind-name">Swing SR — Slide length (× swing duration)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="sw-slide-mult" type="number" value="8" min="0.5" max="30" step="0.5"
-              title="Har naye candle par total length mein kitna ADD ho (cumulative — jab tak swing zinda hai)"
+            <input class="ind-len" id="sw-slide-mult" type="number" value="1" min="0.5" max="10" step="0.5"
+              title="Har naye candle par sliding window (per-TF swing-duration ka multiple)"
               onchange="setSwSlideMult(+this.value)">
           </div>
         </div>
@@ -9871,17 +9871,16 @@ function setSwingLineWidth(w) {
 //                    e.g. 16 → touch1: 16+8=24 → touch2: 24+8=32 → touch3: 32+8=40 → touch4: 40+8=48 ...
 //                    Touch nahi hui to line turant delete (koi extend nahi).
 // Swing SR lines: length = multiplier × swingDuration(tf).
-//   SW_START_MULT  → starting length jab swing pehli baar create hoti hai (568×swingDuration)
-//   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) total length mein kitna ADD
-//                    hota hai — cumulative, 8×swingDuration/candle (568→576→584→592...)
+//   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
+//   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
 const _CH_START_KEY  = 'chStartMult1';
 const _CH_EXTEND_KEY = 'chExtendMult1';
-const _SW_START_KEY  = 'swStartMult2';
-const _SW_SLIDE_KEY  = 'swSlideMult2';
+const _SW_START_KEY  = 'swStartMult1';
+const _SW_SLIDE_KEY  = 'swSlideMult1';
 let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 16);
 let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 8);
-let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 568);
-let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 8);
+let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
+let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
 function setChStartMult(v) {
   CH_START_MULT = Math.max(0.5, Math.min(50, +v || 16));
   try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
@@ -9895,13 +9894,13 @@ function setChExtendMult(v) {
   _swingRefresh();
 }
 function setSwStartMult(v) {
-  SW_START_MULT = Math.max(0.5, Math.min(1000, +v || 568));
+  SW_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
   try { _LS.setItem(_SW_START_KEY, SW_START_MULT); } catch(_) {}
   const inp = document.getElementById('sw-start-mult'); if (inp) inp.value = SW_START_MULT;
   _swingRefresh();
 }
 function setSwSlideMult(v) {
-  SW_SLIDE_MULT = Math.max(0.5, Math.min(30, +v || 8));
+  SW_SLIDE_MULT = Math.max(0.5, Math.min(10, +v || 1));
   try { _LS.setItem(_SW_SLIDE_KEY, SW_SLIDE_MULT); } catch(_) {}
   const inp = document.getElementById('sw-slide-mult'); if (inp) inp.value = SW_SLIDE_MULT;
   _swingRefresh();
@@ -10364,14 +10363,14 @@ function swingCompute(bars, tfMin, nowSec) {
       validateLines(clLines);
     }
 
-    // ── Step 1b: Swing lines — har naye candle pe total length mein +8 add ──
-    // Cumulative — reset nahi hota, jaisa candle H/L extend karta hai.
-    // (568 → 576 → 584 → 592 ... har naye candle par jab tak line zinda hai)
+    // ── Step 1b: Swing lines — har naye candle pe endTime slide karo ────────
+    // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
+    // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
     for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endTime = aRes[j].endTime + SW_SLIDE_MULT * swingDuration(tfMin);
+      aRes[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
     }
     for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endTime = aSup[j].endTime + SW_SLIDE_MULT * swingDuration(tfMin);
+      aSup[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
     }
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
@@ -10564,21 +10563,10 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
       const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
-      // Lightweight fix: sirf 2 points dene se time-scale poore future gap ko
-      // 1 hi logical step maan leta tha (line chhoti dikhti thi). Ab har
-      // 2×periodSec par ek waypoint — pehle wale 2000-point version se bahut
-      // lighter (hang wapas nahi aata), aur ye function har tick pe re-run
-      // hoti hai isliye touch/extend hone par bhi naye endTime ke hisaab se
-      // waypoints khud-ba-khud update ho jaate hain, alag se kuch nahi karna.
-      const stepSec = 2 * _periodSec;
-      const totalSpan = endT - ln.startTime;
-      const stepCount = Math.min(300, Math.max(1, Math.round(totalSpan / stepSec)));
-      const step = totalSpan / stepCount;
-      const pts = [];
-      for (let k = 0; k <= stepCount; k++) {
-        pts.push({ time: Math.round(ln.startTime + k * step), value: ln.price });
-      }
-      s.setData(pts);
+      s.setData([
+        { time: ln.startTime, value: ln.price },
+        { time: endT,         value: ln.price },
+      ]);
       created.push(s);
     } catch (_) {}
   }
