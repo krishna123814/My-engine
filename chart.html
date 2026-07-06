@@ -9876,8 +9876,8 @@ function setSwingLineWidth(w) {
 //                    hota hai — cumulative, 8×swingDuration/candle (568→576→584→592...)
 const _CH_START_KEY  = 'chStartMult1';
 const _CH_EXTEND_KEY = 'chExtendMult1';
-const _SW_START_KEY  = 'swStartMult1';
-const _SW_SLIDE_KEY  = 'swSlideMult1';
+const _SW_START_KEY  = 'swStartMult2';
+const _SW_SLIDE_KEY  = 'swSlideMult2';
 let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 16);
 let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 8);
 let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 568);
@@ -10564,10 +10564,22 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
       const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
-      s.setData([
-        { time: ln.startTime, value: ln.price },
-        { time: endT,         value: ln.price },
-      ]);
+      // FIX: sirf 2 points (start,end) dene se lightweight-charts ka time-scale
+      // union-of-all-series-timestamps se apna logical index banata hai — agar
+      // beech mein koi aur point na ho, to chart is pure gap ko sirf EK logical
+      // step maan leta hai (chahe gap 16 period ka ho ya 568 period ka), jisse
+      // line hamesha chhoti dikhti thi jab endTime last real candle se bahut
+      // aage hota. Fix: har periodSec par ek intermediate waypoint daalo, taaki
+      // time-scale ko sahi step-count pata chale aur line poori real length
+      // tak sahi se render ho. Points count ko 2000 tak cap kiya hai perf ke liye.
+      const totalSpan = endT - ln.startTime;
+      const stepCount = Math.min(2000, Math.max(1, Math.round(totalSpan / _periodSec)));
+      const step = totalSpan / stepCount;
+      const pts = [];
+      for (let k = 0; k <= stepCount; k++) {
+        pts.push({ time: Math.round(ln.startTime + k * step), value: ln.price });
+      }
+      s.setData(pts);
       created.push(s);
     } catch (_) {}
   }
