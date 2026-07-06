@@ -10257,7 +10257,7 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, nowSec) {
+function swingCompute(bars, tfMin, nowSec, _is24x7) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
   // nowSec (optional): replay/live VIRTUAL clock — the time of the latest
@@ -10367,7 +10367,42 @@ function swingCompute(bars, tfMin, nowSec) {
   // ko skip karke). tfMin >= 1440 (daily+) ke liye purana raw-add behaviour
   // hi rakha hai (unchanged scope).
   function _advanceTradingSeconds(fromSec, deltaSec, tfMin) {
-    if (tfMin >= 1440) return fromSec + deltaSec;
+    if (_is24x7) return fromSec + deltaSec;
+    if (tfMin >= 1440) {
+      // Daily+ non-crypto (BankNifty): skip weekends so endTimes land on
+      // real Mon-Fri trading days. Without this, Friday + 2*86400 = Sunday
+      // (no chart bar), and LW interpolates the endpoint wrongly between
+      // Friday and Monday → line appears shorter than configured.
+      let t = fromSec, remaining = deltaSec, guard = 0;
+      while (remaining > 1e-9 && guard++ < 2000) {
+        const istSec   = t + _IST_OFF;
+        const dayStart = Math.floor(istSec / 86400) * 86400;
+        // DOW FIX: dayStart is an IST-shifted value (not real UTC), so
+        // new Date(dayStart*1000) lands at (IST-midnight - 5.5h) = previous
+        // UTC day → getUTCDay() returns the WRONG day (e.g. IST Monday → UTC
+        // Sunday = 0 → treated as weekend → Monday skipped!).
+        // Fix: use istSec directly — new Date(istSec*1000).getUTCDay() reads
+        // the calendar day in the IST-shifted frame, which is the IST weekday.
+        const dow      = new Date(istSec * 1000).getUTCDay();
+        if (dow === 0 || dow === 6) {
+          t = (dayStart + (dow === 6 ? 2 : 1) * 86400) - _IST_OFF;
+          continue;
+        }
+        const untilDayEnd = (dayStart + 86400) - istSec;
+        if (remaining < untilDayEnd) { t += remaining; remaining = 0; }
+        else                         { t += untilDayEnd; remaining -= untilDayEnd; }
+      }
+      // Loop may exit at a weekend boundary — push forward to Monday
+      for (let g = 0; g < 3; g++) {
+        const istSec   = t + _IST_OFF;
+        const dayStart = Math.floor(istSec / 86400) * 86400;
+        const dow      = new Date(istSec * 1000).getUTCDay();  // IST weekday (see DOW FIX above)
+        if (dow === 0 || dow === 6) t = (dayStart + (dow === 6 ? 2 : 1) * 86400) - _IST_OFF;
+        else break;
+      }
+      return t;
+    }
+    // Intraday: skip overnight + weekend gaps (unchanged)
     let t = fromSec, remaining = deltaSec;
     let guard = 0;
     while (remaining > 1e-6 && guard++ < 5000) {
@@ -10777,7 +10812,23 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
             const ratio = (ln.levelTf || cellTFMin) / cellTFMin;
             const x1 = x0 + lenBars * _frozenBS * ratio;
             const t1 = _frozenTS.coordinateToTime(x1);
-            if (t1 != null) endT = t1;
+            if (t1 != null) {
+              endT = t1;
+            } else if (_frozenBS > 0) {
+              // x1 is off-screen (future bars beyond loaded data).
+              // coordinateToTime can't resolve it — use visible range's
+              // sec-per-bar ratio instead. This ratio is derived from the
+              // ACTUAL loaded data (including BankNifty weekend gaps, BTC
+              // 24x7 etc.) so it self-corrects for any asset/session.
+              try {
+                const _vr  = _frozenTS.getVisibleRange();
+                const _vlr = _frozenTS.getVisibleLogicalRange();
+                if (_vr && _vlr && (_vlr.to - _vlr.from) > 1e-6) {
+                  const _secPerBar = (_vr.to - _vr.from) / (_vlr.to - _vlr.from);
+                  endT = ln.startTime + lenBars * ratio * _secPerBar;
+                }
+              } catch(_) {}
+            }
 
             if (_dbgOn) {
               try { _srDebugTrackBarSpacing(_dbgLabel, _dbgSeq, ln, _dbgBaseline, _frozenBS, x0, lenBars, ratio, _frozenTS); } catch(_) {}
@@ -10917,12 +10968,16 @@ document.addEventListener('touchend',   _scheduleSwingRedraw, { passive: true })
 // Each level gets its own srColor so lines are visually distinct.
 function swingComputeMultiTF(asset, currentTf) {
   const allLines = [];
+  // 24x7 detection — BTC/crypto assets trade continuously (no session gaps)
+  const _isCrypto = !!(asset && (String(asset).toUpperCase().includes('BTC') ||
+                                  String(asset).toUpperCase().includes('ETH') ||
+                                  String(asset).toUpperCase().includes('USDT')));
 
   // Step 1: Always compute for the current chart's own TF
   const rawCur  = _baseDataFor(asset, currentTf);
   const dataCur = resampleForTF(rawCur, currentTf, asset);
   if (dataCur.length >= 3) {
-      const curLines = swingCompute(dataCur, currentTf);
+      const curLines = swingCompute(dataCur, currentTf, null, _isCrypto);
       // Strict rule check: Current_Chart_TF <= Level_TF
       const validCurLines = curLines.filter(line => currentTf <= line.levelTf);
       allLines.push(...validCurLines);
@@ -10938,7 +10993,7 @@ function swingComputeMultiTF(asset, currentTf) {
     const raw  = _baseDataFor(asset, tf.min);
     const data = resampleForTF(raw, tf.min, asset);
     if (data.length >= 3) {
-        const htfLines = swingCompute(data, tf.min);
+        const htfLines = swingCompute(data, tf.min, null, _isCrypto);
         // Strict rule check: Current_Chart_TF <= Level_TF
         const validHtfLines = htfLines.filter(line => currentTf <= line.levelTf);
         allLines.push(...validHtfLines);
@@ -10987,7 +11042,7 @@ function initSwingIndicator() {
   let _mainPreRange = null;
   try { _mainPreRange = chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
   _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
-  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange, false, null, 'sv1-main');
+  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange, false, S.tf, 'sv1-main');
 
   // ── SR debug log — SV1 Main chart (LIVE, koi replay/cutoff nahi) ────────
   // cutoffTime = null → onlyReplayDay filter automatically skip ho jaata
@@ -11020,7 +11075,7 @@ function buildCellSwing(idx) {
 
   // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
   // canvas nahi, koi coordinate-limit ka sawaal nahi.
-  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange, false, null, 'sv1-cell-' + idx);
+  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange, false, c.tf, 'sv1-cell-' + idx);
 
   // ── SR debug log — SV1 grid cell (LIVE, koi replay/cutoff nahi) ─────────
   try {
@@ -11108,6 +11163,9 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
     const cellTFMin = _parseTFMin(tfLabel) || 5;
     const allLines  = [];
+    // BTC/crypto cells: _is24x7 must be true so swingCompute skips NSE
+    // weekend logic (BTC trades 24x7 — no session gaps at all).
+    const _isCrypto = isCryptoSymbol(assetKey);
 
     const live       = window._SV2_LIVE;
     const isLiveMode = !!(live && Array.isArray(live.baseBars));
@@ -11138,7 +11196,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     // Step 1: Cell ka apna TF
     const dataCur = _dataForTFAny(cellTFMin, tfLabel);
     if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin, liveNowSec)
+      swingCompute(dataCur, cellTFMin, liveNowSec, _isCrypto)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
@@ -11150,7 +11208,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     for (const tf of enabledHTFs) {
       const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
-        swingCompute(data, tf.min, liveNowSec)
+        swingCompute(data, tf.min, liveNowSec, _isCrypto)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
