@@ -10380,6 +10380,40 @@ function swingCompute(bars, tfMin, nowSec) {
     return t;
   }
 
+  // ── Index-based endTime resolver ─────────────────────────────────────────
+  // CH_START/EXTEND aur SW_START/SLIDE ab "kitne bars aage" (fractional
+  // allowed) represent karte hain, seconds ki jagah. Target bar index agar
+  // already `data` mein exist karta hai to uski REAL timestamp use hoti hai
+  // (exact, gap-proof). Agar target abhi tak available data se aage hai
+  // (replay ka wait period, jab TF ka agla bucket close nahi hua), to sirf
+  // tab tak trading-seconds se extrapolate hota hai — jaise hi asli bar
+  // aata hai, agli swingCompute() call par turant real value se replace ho
+  // jaata hai (self-correcting, koi permanent drift nahi). Isse periodSec
+  // ke real-gap se derive hone wali seconds-arithmetic drift (jo "1x se 2x
+  // jump" jaisa visual bug deti thi) khatam ho jaati hai.
+  function _indexToTime(data, idxFloat, tfMin, defaultPeriodSec) {
+    const lastIdx = data.length - 1;
+    if (lastIdx < 0) return 0;
+    const _timeAt = (k) => {
+      if (k <= lastIdx) return data[Math.max(0, k)].time;
+      const extraBars = k - lastIdx;
+      return _advanceTradingSeconds(data[lastIdx].time, extraBars * defaultPeriodSec, tfMin);
+    };
+    const lo = Math.floor(idxFloat);
+    const frac = idxFloat - lo;
+    if (frac < 1e-9) return _timeAt(lo);
+    const t0 = _timeAt(lo);
+    const t1 = _timeAt(lo + 1);
+    return t0 + (t1 - t0) * frac;
+  }
+  // swingDuration() ka bar-count equivalent — index-based length ke liye.
+  // Same "intended visual length" jo pehle swingDuration(tfMin) seconds ke
+  // roop mein tha, ab utne hi "bars" ke roop mein — resolve _indexToTime()
+  // se hota hai taaki real bar timestamps use hon, gap-seconds se nahi.
+  function swingBarCount(tf) {
+    return swingDuration(tf) / ((tf || 1) * 60);
+  }
+
   // ── Custom swing line duration per TF (seconds) ──────────────────────────
   // Har naye candle pe endTime = cur.time + swingDuration → sliding window.
   // Koi infinity nahi — line hamesha latest candle se fixed duration aage.
@@ -10439,9 +10473,12 @@ function swingCompute(bars, tfMin, nowSec) {
         if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
         const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         if (isTouched) {
-          // Cumulative extend: total length badhti hai +CH_EXTEND_MULT×period
-          // har touch par (16 → 24 → 32 → 40 → 48 ...), reset nahi hota.
-          ln.endTime = _advanceTradingSeconds(ln.endTime, CH_EXTEND_MULT * periodSec, tfMin);
+          // Cumulative extend: total length (bar-count) badhti hai
+          // +CH_EXTEND_MULT bars har touch par (16 → 24 → 32 → 40 → 48 ...),
+          // reset nahi hota. Index-based — endTime real bar timestamp se
+          // resolve hoti hai, seconds-arithmetic se nahi.
+          ln.endIndex = (ln.endIndex != null ? ln.endIndex : ln.creationIndex + CH_START_MULT) + CH_EXTEND_MULT;
+          ln.endTime  = _indexToTime(data, ln.endIndex, tfMin, _defaultPeriodSec);
         } else {
           arr.splice(j, 1);
         }
@@ -10455,11 +10492,14 @@ function swingCompute(bars, tfMin, nowSec) {
     // ── Step 1b: Swing lines — har naye candle pe endTime slide karo ────────
     // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
     // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
+    const _swBars = swingBarCount(tfMin);
     for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endTime = _advanceTradingSeconds(cur.time, SW_SLIDE_MULT * swingDuration(tfMin), tfMin);
+      aRes[j].endIndex = i + SW_SLIDE_MULT * _swBars;
+      aRes[j].endTime  = _indexToTime(data, aRes[j].endIndex, tfMin, _defaultPeriodSec);
     }
     for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endTime = _advanceTradingSeconds(cur.time, SW_SLIDE_MULT * swingDuration(tfMin), tfMin);
+      aSup[j].endIndex = i + SW_SLIDE_MULT * _swBars;
+      aSup[j].endTime  = _indexToTime(data, aSup[j].endIndex, tfMin, _defaultPeriodSec);
     }
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
@@ -10469,10 +10509,12 @@ function swingCompute(bars, tfMin, nowSec) {
       // Deletion: purane swings jo naye se upar hain → hata do
       aRes = aRes.filter(l => l.price <= rPrice);
       aSup = aSup.filter(l => l.price <= rPrice);
-      // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
-      aRes.push({ price: rPrice, startTime: rTime,
-                  endTime: _advanceTradingSeconds(cur.time, swingDuration(tfMin) * SW_START_MULT, tfMin),
-                  creationIndex: i, kind: 'sh', periodSec });
+      // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
+      { const _shEndIdx = i + SW_START_MULT * _swBars;
+        aRes.push({ price: rPrice, startTime: rTime,
+                    endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec),
+                    endIndex: _shEndIdx,
+                    creationIndex: i, kind: 'sh', periodSec }); }
     }
 
     // ── Step 3: Swing Low (prevRed → currGreen) ─────────────────────────
@@ -10482,10 +10524,12 @@ function swingCompute(bars, tfMin, nowSec) {
       // Deletion: purane swings jo naye se neeche hain → hata do
       aSup = aSup.filter(l => l.price >= sPrice);
       aRes = aRes.filter(l => l.price >= sPrice);
-      // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
-      aSup.push({ price: sPrice, startTime: sTime,
-                  endTime: _advanceTradingSeconds(cur.time, swingDuration(tfMin) * SW_START_MULT, tfMin),
-                  creationIndex: i, kind: 'sl', periodSec });
+      // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
+      { const _slEndIdx = i + SW_START_MULT * _swBars;
+        aSup.push({ price: sPrice, startTime: sTime,
+                    endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec),
+                    endIndex: _slEndIdx,
+                    creationIndex: i, kind: 'sl', periodSec }); }
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
@@ -10496,13 +10540,17 @@ function swingCompute(bars, tfMin, nowSec) {
       ...aSup.map(l => l.price)
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
+      const _chEndIdx = i + CH_START_MULT;
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: _advanceTradingSeconds(cur.time, CH_START_MULT * periodSec, tfMin),
+                     endTime: _indexToTime(data, _chEndIdx, tfMin, _defaultPeriodSec),
+                     endIndex: _chEndIdx,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
+      const _clEndIdx = i + CH_START_MULT;
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: _advanceTradingSeconds(cur.time, CH_START_MULT * periodSec, tfMin),
+                     endTime: _indexToTime(data, _clEndIdx, tfMin, _defaultPeriodSec),
+                     endIndex: _clEndIdx,
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
