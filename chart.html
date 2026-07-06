@@ -10600,15 +10600,30 @@ function swingCompute(bars, tfMin, nowSec) {
   // nahi hai. Ab inka lifespan sirf CH_START_MULT/CH_EXTEND_MULT se decide
   // hota hai — replay ho ya static view, dono mein same.
   //
-  // Swing lines ke floor ka multiplier ab max(SW_START_MULT, SW_SLIDE_MULT)
-  // hai (pehle sirf SW_SLIDE_MULT tha) — taaki agar Start length, Slide
-  // length se bada rakha ho, to floor us bade window ko replay aage
-  // badhte hi turant chhota karke overwrite na kare.
+  // FIX: Pehle yeh floor har active swing line (purani ho ya nayi) par
+  // blindly max(SW_START_MULT, SW_SLIDE_MULT)*duration, nowSec se aage,
+  // laga deta tha. Jab SW_START_MULT > SW_SLIDE_MULT (default hi 2>1 hai),
+  // to ek PURANI line jo abhi apne starting-length plateau mein hai (uska
+  // endIndex abhi tak slide se overtake nahi hua — creation-based value hi
+  // bada hai) — us plateau ki asli/frozen endTime se yeh floor (jo nowSec,
+  // yaani abhi ke time, se calculate hoti hai) hamesha bada nikalta tha.
+  // Isse line replay-wait ke dauraan galat aage stretch ho jaati thi, aur
+  // agla real candle close hote hi endTime endIndex se dobara resolve
+  // hoti (jo floor ne chua hi nahi tha) — line achanak PEECHE snap-back/
+  // shrink hoti dikhti thi. Candle H/L wale floor (neeche) mein yeh bug
+  // nahi tha kyunki wo sirf abhi-abhi bani (creationIndex===lastIdx) lines
+  // ko chhuta hai — yahan bhi wahi tarah sirf un lines ko floor do jo
+  // ABHI slide-phase mein hain (matlab unka endIndex slide ke natural
+  // target se aage nahi hai) — plateau wali (start-mult-driven) lines ko
+  // bilkul mat chhuo, wo apni already-correct frozen endTime par rahen.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _swingFloorMult = Math.max(SW_START_MULT, SW_SLIDE_MULT);
-    const _swingFloor = _advanceTradingSeconds(nowSec, _swingFloorMult * swingDuration(tfMin), tfMin);
-    for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
-    for (const l of aSup) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    const _lastIdx     = data.length - 1;
+    const _swBarsPost  = swingBarCount(tfMin);
+    const _naturalIdx  = _lastIdx + SW_SLIDE_MULT * _swBarsPost;  // agla real candle Step1b jo target deta
+    const _slideFloor  = _advanceTradingSeconds(nowSec, SW_SLIDE_MULT * swingDuration(tfMin), tfMin);
+    const _inSlidePhase = (l) => l.endIndex <= _naturalIdx + 1e-9;  // start-mult se overtake ho chuka
+    for (const l of aRes) if (_inSlidePhase(l) && l.endTime < _slideFloor) l.endTime = _slideFloor;
+    for (const l of aSup) if (_inSlidePhase(l) && l.endTime < _slideFloor) l.endTime = _slideFloor;
   }
 
   // ── Candle H/L STARTING-length virtual-clock extension (swing-jaisa) ───
