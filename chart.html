@@ -868,6 +868,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   user-select:none;
   -webkit-user-select:none;
   color:#ff9800;
+  /* Default/fallback spot — SV1 (live) mein SV2 ka date-range FAB exist
+     nahi karta, isliye JS wahan is button ko reposition nahi karta aur
+     ye yahi default fixed spot par dikhta hai. SV2 replay active hote
+     waqt JS ise FAB ke neeche move kar deta hai (see _syncPos). */
+  right:12px;
+  bottom:64px;
+  left:auto;
+  top:auto;
 }
 #sv2-debug-btn.visible{ display:flex; }
 #sv2-debug-btn.active{
@@ -4990,15 +4998,26 @@ function ss2ApplyAndClose() {
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
-    if (_debugBtn)    _debugBtn.classList.toggle('visible', show);
-    if (!show) { _pause(); try { _srDebugClosePanel(); } catch(_) {} }
+    // Debug button ab replay-range se independent — SV1 (live) aur SV2
+    // (live ya replay) dono mein hamesha visible rahega, taaki live
+    // BTC/BankNifty charts par bhi SR length debug log use ho sake.
+    if (_debugBtn)    _debugBtn.classList.toggle('visible', true);
+    if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
   }
 
   function _syncPos() {
     var fab = document.getElementById('sv2-drng-fab');
-    if (!fab) return;
+    if (!fab) {
+      // SV1 mein FAB exist nahi karta — agar pehle SV2 visit kiya tha aur
+      // JS ne debug button par inline left/top set kar diya tha, wo yahan
+      // clear karo taaki CSS ka default fixed spot (right/bottom) wapas
+      // apply ho, warna button SV2 ki purani (ab invalid) position par
+      // stuck reh jaata — SV1 mein invisible/galat jagah dikhta.
+      if (_debugBtn) { _debugBtn.style.left = ''; _debugBtn.style.top = ''; }
+      return;
+    }
     var r = fab.getBoundingClientRect();
     // Teeno buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
     // same left, top badhta jaata hai — pehle galti se left badhta jaa
