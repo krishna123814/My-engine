@@ -10737,6 +10737,21 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
   }
   let _dbgSeq = 0;
 
+  // ── barSpacing FREEZE — loop se pehle ek baar (TradingView-style) ─────────
+  // TradingView: lines bar_index se define hoti hain → zoom-independent.
+  // LightweightCharts: timestamp use karta hai → future endTime ke liye
+  // chart extrapolate karta hai, aur jaise-jaise live bars add hoti hain
+  // barSpacing change hota hai → visual length fluctuate karti hai.
+  // Fix: barSpacing ko loop ke bahar ek baar freeze karo — kisi bhi
+  // addLineSeries/setData call se PEHLE. Loop ke andar har line ke baad
+  // chart state change hoti thi → baad ki lines ko chhota barSpacing milta
+  // tha → inconsistent lengths. Ab sabhi lines ek hi frozen scale se
+  // measure hoti hain — TradingView ke bar_index behavior ke equivalent.
+  let _frozenTS = null;
+  let _frozenBS = null;
+  try { _frozenTS = chartObj.timeScale(); } catch(_) {}
+  try { _frozenBS = _frozenTS ? _frozenTS.options().barSpacing : null; } catch(_) {}
+
   for (const ln of lines) {
     _dbgSeq++;
     try {
@@ -10751,44 +10766,21 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
       let endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
 
-      // ── Index-based end-point override (replay-safe rendering) ──────────
-      // ln.endTime timeToCoordinate() ko seedha diya jaaye to LightweightCharts
-      // apna INTERNAL time→pixel extrapolation use karta hai jab wo time abhi
-      // is chart ke loaded bar-range se bahar ho (replay ke shuru mein sirf
-      // 1-2 bars loaded hote hain) — us extrapolation ka result bahut off/
-      // compressed aa sakta hai (settings ka koi asar nahi dikhta). Fix: yahan
-      // se seedha "kitne bars aage" (lenBars, humare apne index-based
-      // calculation se already exact) ko is CHART ke apne current barSpacing
-      // (pixels/bar, ratio-adjusted agar line kisi higher TF ki hai) se
-      // pixel-offset mein convert karo, aur wahan se coordinateToTime() se
-      // wapas ek time nikaalo. Ye humesha exact N-bars lambi line render
-      // karta hai, chahe kitna bhi kam data loaded ho — kyunki hum chart ke
-      // APNE hi coordinate-space mein kaam kar rahe hain, uske time-based
-      // extrapolation par depend nahi kar rahe.
-      if (!ln.isInfinite && cellTFMin) {
+      // ── barSpacing-based endT (frozen, consistent across all lines) ──────
+      if (!ln.isInfinite && cellTFMin && _frozenTS && _frozenBS) {
         try {
-          const ts0 = chartObj.timeScale();
-          const x0  = ts0.timeToCoordinate(ln.startTime);
-          const barSpacing = ts0.options().barSpacing;
-          if (x0 != null && barSpacing) {
-            // Index-based lenBars: endIndex/creationIndex already carry the
-            // exact bar-count (same unit CH_START_MULT/CH_EXTEND_MULT and
-            // SW_START_MULT/SW_SLIDE_MULT were set in) — no periodSec
-            // division involved, so no unit-mismatch with the
-            // _defaultPeriodSec used to originally build endTime via
-            // _indexToTime(). Falls back to the old time/periodSec method
-            // only if index fields are missing (e.g. older cached objects).
+          const x0 = _frozenTS.timeToCoordinate(ln.startTime);
+          if (x0 != null) {
             const lenBars = (ln.endIndex != null && ln.creationIndex != null)
               ? (ln.endIndex - ln.creationIndex)
               : (ln.endTime - ln.startTime) / _periodSec;
-            const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
-            const x1 = x0 + lenBars * barSpacing * ratio;
-            const t1 = ts0.coordinateToTime(x1);
+            const ratio = (ln.levelTf || cellTFMin) / cellTFMin;
+            const x1 = x0 + lenBars * _frozenBS * ratio;
+            const t1 = _frozenTS.coordinateToTime(x1);
             if (t1 != null) endT = t1;
 
-            // ── DEBUG: is exact line ka barSpacing baseline se compare karo
             if (_dbgOn) {
-              try { _srDebugTrackBarSpacing(_dbgLabel, _dbgSeq, ln, _dbgBaseline, barSpacing, x0, lenBars, ratio, ts0); } catch(_) {}
+              try { _srDebugTrackBarSpacing(_dbgLabel, _dbgSeq, ln, _dbgBaseline, _frozenBS, x0, lenBars, ratio, _frozenTS); } catch(_) {}
             }
           }
         } catch(_) {}
