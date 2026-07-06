@@ -10763,6 +10763,14 @@ function initSwingIndicator() {
   try { _mainPreRange = chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
   _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
   _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange);
+
+  // ── SR debug log — SV1 Main chart (LIVE, koi replay/cutoff nahi) ────────
+  // cutoffTime = null → onlyReplayDay filter automatically skip ho jaata
+  // hai, isliye purani/aaj sab din ka NEW/TOUCH/DELETED dikhega jab tak
+  // window._SR_DEBUG.enabled = true kiya jaaye.
+  try {
+    _srDebugCapture('sv1-main', 'SV1 Main (' + S.asset + ' ' + S.tf + ')', chart, _swingLines, null);
+  } catch(_) {}
 }
 
 function buildCellSwing(idx) {
@@ -10788,6 +10796,11 @@ function buildCellSwing(idx) {
   // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
   // canvas nahi, koi coordinate-limit ka sawaal nahi.
   c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange);
+
+  // ── SR debug log — SV1 grid cell (LIVE, koi replay/cutoff nahi) ─────────
+  try {
+    _srDebugCapture('sv1-cell-' + idx, 'SV1 Cell ' + (idx + 1) + ' (' + c.asset + ' ' + c.tf + ')', c.chart, lines, null);
+  } catch(_) {}
 }
 
 function swingAfterRebuild() {
@@ -10970,7 +10983,10 @@ function sv2SwingInit(cutoffTime) {
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
     _sv2ApplyCellSR(i, lines);
-    try { _srDebugCapture(i, lines, cutoffTime); } catch(_) {}
+    try {
+      const _c = STACK2_CELLS[i];
+      _srDebugCapture('sv2-cell-' + i, _srDebugCellLabel(i), _c && _c.chart, lines, cutoffTime);
+    } catch(_) {}
   }
 }
 
@@ -11020,14 +11036,20 @@ function sv2SwingClear() {
 window._SR_DEBUG = window._SR_DEBUG || { enabled: false, log: [], prevByCell: {} };
 
 // ── Debug LOG FILTERS — yahan se control karo ke log mein kya dikhna hai ──
-//   cellIdx      : sirf is cell ka data dikhao. 0 = Cell 1 (5m), 1 = Cell 2 (15m), ...
-//                  null karo agar sab cells chahiye.
+//   cellIdx      : sirf ek source ka data dikhao.
+//                  Number (0,1,2..) = legacy, matlab SV2 cell N ('sv2-cell-N').
+//                  String  = seedha source key do: 'sv1-main' (SV1 single
+//                  chart), 'sv1-cell-0'/'sv1-cell-1'... (SV1 grid cells),
+//                  ya 'sv2-cell-0'/'sv2-cell-1'... (SV2 cells).
+//                  null karo agar SV1 + SV2 dono ke sab sources chahiye.
 //   kinds        : kaunse line-types dikhaane hain. 'ch'=HIGH, 'cl'=LOW,
 //                  'sh'=SWING-HIGH, 'sl'=SWING-LOW. null karo agar sab chahiye.
 //   showNew      : true → "NEW ... starting length" lines dikhao
 //   showTouch    : true → "TOUCH ... extended length" lines dikhao
 //   showDeleted  : true → "DELETED" lines dikhao
-//   onlyReplayDay: true → sirf jo din abhi replay ho raha hai (purani dates hide)
+//   onlyReplayDay: true → sirf jo din abhi replay ho raha hai (purani dates
+//                  hide). SV1 (live) is filter se affect nahi hota kyunki
+//                  cutoffTime=null bheja jaata hai.
 window._SR_DEBUG_FILTER = {
   cellIdx:       null,
   kinds:         ['ch', 'cl', 'sh', 'sl'],
@@ -11074,11 +11096,10 @@ function _srDebugFmtTime(tSec) {
 // Isse "intended" (seconds se calculate) vs "actually drawn" (pixel se
 // measure) — dono ko compare kiya ja sakta hai, taaki pata chale rendering
 // mein koi mismatch to nahi.
-function _srDebugActualPeriods(cellIdx, startTime, endTime, periodSec) {
+function _srDebugActualPeriods(chartObj, startTime, endTime, periodSec) {
   try {
-    const cellObj = (typeof STACK2_CELLS !== 'undefined') ? STACK2_CELLS[cellIdx] : null;
-    if (!cellObj || !cellObj.chart) return null;
-    const ts = cellObj.chart.timeScale();
+    if (!chartObj) return null;
+    const ts = chartObj.timeScale();
     const x1 = ts.timeToCoordinate(startTime);
     const x2 = ts.timeToCoordinate(endTime);
     const barSpacing = ts.options().barSpacing;
@@ -11090,24 +11111,31 @@ function _srDebugActualPeriods(cellIdx, startTime, endTime, periodSec) {
   } catch (_) { return null; }
 }
 
-function _srDebugCapture(cellIdx, lines, cutoffTime) {
+function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime) {
   if (!window._SR_DEBUG.enabled) return;
   const F = window._SR_DEBUG_FILTER || {};
 
-  // ── Cell filter — sirf configured cell (default: Cell 1 / 5m) ───────────
-  if (F.cellIdx !== null && F.cellIdx !== undefined && cellIdx !== F.cellIdx) return;
+  // ── Cell filter — sirf configured source ka data dikhao. Numeric (0,1,2..)
+  // ab bhi legacy SV2 cells ko refer karta hai ('sv2-cell-0' etc). SV1 ke
+  // liye string key seedha do: 'sv1-main' ya 'sv1-cell-0'/'sv1-cell-1'...
+  // null karo agar sab sources (SV1 + SV2) chahiye.
+  if (F.cellIdx !== null && F.cellIdx !== undefined) {
+    const want = (typeof F.cellIdx === 'number') ? ('sv2-cell-' + F.cellIdx) : F.cellIdx;
+    if (srcKey !== want) return;
+  }
 
   // ── Kind filter — e.g. sirf 'ch'/'cl' (candle HIGH/LOW), swing 'sh'/'sl' allowed nahi
   const kindOk = (k) => !F.kinds || F.kinds.includes(k);
 
   // ── Replay-day filter — sirf jo IST calendar-day abhi replay ho raha hai ──
+  // SV1 (live, no replay) cutoffTime=null bhejta hai, isliye ye filter
+  // automatically skip ho jaata hai (replayDayKey null → onReplayDay hamesha true).
   const IST_OFFSET_SEC = 5.5 * 3600;
   const _dayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
   const replayDayKey = (F.onlyReplayDay && cutoffTime) ? _dayKey(cutoffTime) : null;
 
-  const prevMap = window._SR_DEBUG.prevByCell[cellIdx] || new Map();
+  const prevMap = window._SR_DEBUG.prevByCell[srcKey] || new Map();
   const newMap  = new Map();
-  const label   = _srDebugCellLabel(cellIdx);
 
   for (const l of lines) {
     const key    = l.kind + ':' + l.price;
@@ -11120,7 +11148,7 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
 
     if (!prev) {
       if (F.showNew && onReplayDay) {
-        const actualP = _srDebugActualPeriods(cellIdx, l.startTime, l.endTime, period);
+        const actualP = _srDebugActualPeriods(chartObj, l.startTime, l.endTime, period);
         const actualStr = (actualP === null)
           ? ' | drawn = N/A (out of view)'
           : ' | drawn = ' + actualP.toFixed(2) + '×period' +
@@ -11135,7 +11163,7 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
       }
     } else if (F.showTouch && Math.abs(l.endTime - prev.endTime) > 0.001 && onReplayDay) {
       const prevLenP = (prev.endTime - prev.startTime) / period;
-      const actualP = _srDebugActualPeriods(cellIdx, l.startTime, l.endTime, period);
+      const actualP = _srDebugActualPeriods(chartObj, l.startTime, l.endTime, period);
       const actualStr = (actualP === null)
         ? ' | drawn = N/A (out of view)'
         : ' | drawn = ' + actualP.toFixed(2) + '×period' +
@@ -11166,7 +11194,7 @@ function _srDebugCapture(cellIdx, lines, cutoffTime) {
       }
     }
   }
-  window._SR_DEBUG.prevByCell[cellIdx] = newMap;
+  window._SR_DEBUG.prevByCell[srcKey] = newMap;
 }
 
 function _srDebugAppend(text, cls) {
