@@ -930,6 +930,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-debug-log .sv2-dbg-warn { color:#ff9800; font-weight:600; }
 #sv2-debug-log .sv2-dbg-err  { color:#ff1744; font-weight:700; background:#3a0d13; padding:1px 3px; border-radius:3px; }
 #sv2-debug-log .sv2-dbg-sum  { color:#e0e3eb; font-weight:700; border-top:1px dashed #2a2e3e; margin-top:4px; padding-top:4px; display:block; }
+#sv2-debug-log .sv2-dbg-drift{ color:#e040fb; font-weight:600; }
 
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
@@ -10691,7 +10692,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin) {
+function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin, srcLabel) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10703,7 +10704,26 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
     try { _savedRange = chartObj.timeScale().getVisibleLogicalRange(); } catch(_) {}
   }
 
+  // ── DEBUG INSTRUMENTATION — barSpacing drift tracker ─────────────────────
+  // Sirf jab debug panel ON hai tab hi chalta hai (zero overhead jab OFF hai,
+  // normal rendering bilkul untouched rehti hai). Ye track karta hai ki is
+  // hi function-call ke ANDAR, ek line se dusri line process hote hue,
+  // `barSpacing` (jise har naye line ke liye chart se dobara poocha jaata
+  // hai) kahin badal to nahi raha — kyunki agar badalta hai, to jo lines
+  // BAAD mein is loop mein process hoti hain (usually candle H/L, jo array
+  // mein swings ke baad aati hain) galat/drifted scale par measure ho jaati
+  // hain, jabki unki apni setting (CH_START_MULT) bilkul nahi chhedi gayi thi.
+  const _dbgLabel = srcLabel || 'unlabeled-cell';
+  const _dbgOn = !!(window._SR_DEBUG && window._SR_DEBUG.enabled);
+  let _dbgBaseline = null;
+  if (_dbgOn) {
+    try { _dbgBaseline = chartObj.timeScale().options().barSpacing; } catch(_) {}
+    try { _srDebugPassStart(_dbgLabel, lines.length, _dbgBaseline); } catch(_) {}
+  }
+  let _dbgSeq = 0;
+
   for (const ln of lines) {
+    _dbgSeq++;
     try {
       const s = chartObj.addLineSeries({
         color: ln.color,
@@ -10750,6 +10770,11 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
             const x1 = x0 + lenBars * barSpacing * ratio;
             const t1 = ts0.coordinateToTime(x1);
             if (t1 != null) endT = t1;
+
+            // ── DEBUG: is exact line ka barSpacing baseline se compare karo
+            if (_dbgOn) {
+              try { _srDebugTrackBarSpacing(_dbgLabel, _dbgSeq, ln, _dbgBaseline, barSpacing, x0, lenBars, ratio, ts0); } catch(_) {}
+            }
           }
         } catch(_) {}
       }
@@ -10761,6 +10786,8 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
       created.push(s);
     } catch (_) {}
   }
+
+  if (_dbgOn) { try { _srDebugPassEnd(_dbgLabel); } catch(_) {} }
 
   // TimeScale range wapas restore karo
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
@@ -10953,7 +10980,7 @@ function initSwingIndicator() {
   let _mainPreRange = null;
   try { _mainPreRange = chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
   _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
-  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange);
+  _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange, false, null, 'sv1-main');
 
   // ── SR debug log — SV1 Main chart (LIVE, koi replay/cutoff nahi) ────────
   // cutoffTime = null → onlyReplayDay filter automatically skip ho jaata
@@ -10986,7 +11013,7 @@ function buildCellSwing(idx) {
 
   // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
   // canvas nahi, koi coordinate-limit ka sawaal nahi.
-  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange);
+  c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange, false, null, 'sv1-cell-' + idx);
 
   // ── SR debug log — SV1 grid cell (LIVE, koi replay/cutoff nahi) ─────────
   try {
@@ -11161,7 +11188,7 @@ function _sv2ApplyCellSR(cellIdx, lines) {
     // Cell ka apna TF nikaalo — index-based end-point rendering ke liye
     // (_bnBuildSRNative ka cellTFMin param) chahiye.
     const _cellTFMin = _srDebugCellTFMin(cellIdx);
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true, _cellTFMin);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true, _cellTFMin, 'sv2-cell-' + cellIdx);
   } catch(_) {}
 }
 
@@ -11602,6 +11629,123 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) 
   }
 }
 
+// ── BARSPACING DRIFT TRACKER ──────────────────────────────────────────────
+// Direct answer to: "swing length badhane par candle H/L chhoti kyun ho
+// jaati hai". Theory: _bnBuildSRNative() ek hi chart par saari lines
+// (swings PEHLE, candles BAAD mein — swingComputeMultiTF() ka return order)
+// ek hi for-loop mein sequentially render karta hai, aur har line ke liye
+// `barSpacing` chart se DOBARA (fresh) poocha jaata hai. Agar ek swing line
+// ka target bahut door (loaded range se bahar) hai, uska off-grid far-future
+// time jab us line-series mein set hota hai, chart ka shared timeScale
+// thoda perturb ho sakta hai — jisse LOOP ke BAAD ki lines (candles) ek
+// badle hue (chhote) barSpacing par measure hoti hain, chahe unki apni
+// setting (CH_START_MULT) bilkul na chhedi ho.
+// Ye tracker HAR line ke barSpacing ko is call ke SABSE PEHLE (baseline)
+// wale barSpacing se compare karta hai aur jahan bhi farak aata hai wahin
+// se flag karta hai — is se theory confirm/reject dono ho sakti hai,
+// guesswork ki zaroorat nahi rehti.
+function _srDebugPassStart(label, totalLines, baseline) {
+  try {
+    window._SR_DEBUG._pass = {
+      label, totalLines,
+      baseline: Number.isFinite(baseline) ? baseline : null,
+      minBs: Number.isFinite(baseline) ? baseline : null,
+      maxBs: Number.isFinite(baseline) ? baseline : null,
+      firstDriftAtSeq: null,
+      firstDriftKind: null,
+    };
+  } catch(_) {}
+}
+
+function _srDebugTrackBarSpacing(label, seq, ln, baseline, current, x0, lenBars, ratio, ts0) {
+  try {
+    const P = window._SR_DEBUG._pass;
+    if (!P) return;
+
+    if (Number.isFinite(current)) {
+      if (P.minBs == null || current < P.minBs) P.minBs = current;
+      if (P.maxBs == null || current > P.maxBs) P.maxBs = current;
+    }
+
+    if (!Number.isFinite(baseline) || !Number.isFinite(current)) {
+      _srDebugAppend(
+        '[DRIFT-CHECK #' + seq + '] ' + label + ' — barSpacing measure nahi ho paya (baseline=' + baseline + ', current=' + current + ') — is line ki drift-tracking skip hui',
+        'sv2-dbg-err'
+      );
+      return;
+    }
+
+    const delta = current - baseline;
+    if (Math.abs(delta) < 1e-6) return;  // koi drift nahi is line tak — chup raho, log clutter mat karo
+
+    if (P.firstDriftAtSeq == null) {
+      P.firstDriftAtSeq = seq;
+      P.firstDriftKind   = _srDebugKindLabel(ln.kind);
+    }
+
+    const kindLbl    = _srDebugKindLabel(ln.kind);
+    const pctChange  = (delta / baseline) * 100;
+
+    // "What-if" — same line ko UNDRIFTED (baseline) barSpacing se measure
+    // karke dikhao ki bina is drift ke iski length kitni hoti — seedha
+    // proof ki drift hi wajah hai, koi aur cheez nahi.
+    let whatIf = '';
+    try {
+      if (x0 != null && Number.isFinite(lenBars) && Number.isFinite(ratio) && ts0) {
+        const x1_baseline = x0 + lenBars * baseline * ratio;
+        const x1_current  = x0 + lenBars * current  * ratio;
+        const t1_baseline = ts0.coordinateToTime(x1_baseline);
+        const t1_current  = ts0.coordinateToTime(x1_current);
+        if (t1_baseline != null && t1_current != null) {
+          const period = ln.periodSec || ((ln.levelTf || 1) * 60);
+          const barsDiff = (t1_current - t1_baseline) / period;
+          if (Number.isFinite(barsDiff) && Math.abs(barsDiff) > 0.01) {
+            whatIf = ' | drift ke bina length ~' + Math.abs(barsDiff).toFixed(2) + ' bars ' +
+                     (barsDiff < 0 ? 'ZYADA' : 'KAM') + ' hoti (drift ' + (barsDiff < 0 ? 'shrink' : 'expand') + ' kar raha hai is line ko)';
+          }
+        }
+      }
+    } catch(_) {}
+
+    _srDebugAppend(
+      '[DRIFT #' + seq + '/' + P.totalLines + '] ' + label + ' — barSpacing ' + baseline.toFixed(4) + ' → ' + current.toFixed(4) +
+      ' (Δ' + (pctChange >= 0 ? '+' : '') + pctChange.toFixed(1) + '%) jab tak ' + kindLbl + ' @ ' + ln.price + ' render ho rahi thi' +
+      ' — pehli ' + (seq - 1) + ' lines ke insertion se scale pehle hi perturb ho chuka tha' + whatIf,
+      'sv2-dbg-drift'
+    );
+  } catch (e) {
+    try {
+      _srDebugAppend(label + ' — DRIFT-TRACK EXCEPTION on line #' + seq + ': ' + (e && e.message ? e.message : String(e)), 'sv2-dbg-err');
+    } catch(_) {}
+  }
+}
+
+function _srDebugPassEnd(label) {
+  try {
+    const P = window._SR_DEBUG._pass;
+    if (!P) { window._SR_DEBUG._pass = null; return; }
+
+    if (P.firstDriftAtSeq != null && P.baseline != null && P.minBs != null && P.maxBs != null) {
+      const shrinkPct = ((P.minBs - P.baseline) / P.baseline) * 100;
+      const growPct   = ((P.maxBs - P.baseline) / P.baseline) * 100;
+      _srDebugAppend(
+        '[PASS SUMMARY] ' + label + ' — ' + P.totalLines + ' lines is pass mein | barSpacing: baseline=' + P.baseline.toFixed(4) +
+        ', range dekha gaya [' + P.minBs.toFixed(4) + ' .. ' + P.maxBs.toFixed(4) + ']' +
+        ' | DRIFT CONFIRMED — line #' + P.firstDriftAtSeq + ' (' + P.firstDriftKind + ') se shuru hui' +
+        ' | max shrink ' + shrinkPct.toFixed(1) + '%, max grow ' + growPct.toFixed(1) + '%' +
+        ' → is line ke baad wali sabhi lines potentially wrong (chhoti/badi) render hui hongi, chahe unki apni length-setting na badli ho',
+        'sv2-dbg-sum'
+      );
+    } else if (P.totalLines > 0) {
+      _srDebugAppend(
+        '[PASS SUMMARY] ' + label + ' — ' + P.totalLines + ' lines, koi barSpacing drift NAHI dekha gaya is pass mein (scale poori tarah stable rahi — cross-contamination theory yahan reject ho rahi hai is pass ke liye).',
+        'sv2-dbg-sum'
+      );
+    }
+    window._SR_DEBUG._pass = null;
+  } catch(_) { window._SR_DEBUG._pass = null; }
+}
+
 // ── SUMMARY — ek tap mein poora health-check: kitni lines full length dikha
 // rahi hain, kitni incomplete hain, kitni error state mein hain, aur sabse
 // zyada incomplete konsi hain. Ye button click par log ke end mein ek block
@@ -11676,6 +11820,7 @@ function _srDebugClear() {
   window._SR_DEBUG.prevByCell = {};
   window._SR_DEBUG.stats = { ok: 0, short: 0, long: 0, unknown: 0, err: 0, total: 0 };
   window._SR_DEBUG.worst = [];
+  window._SR_DEBUG._pass = null;
   _srDebugRender();
 }
 
