@@ -10634,7 +10634,8 @@ function swingCompute(bars, tfMin, nowSec) {
   for (const sw of allSwings) {
     out.push({ price: sw.price, startTime: sw.startTime, endTime: sw.endTime,
                kind: sw.kind, color: srColor, isInfinite: false,
-               periodSec: sw.periodSec, levelTf: tfMin });
+               periodSec: sw.periodSec, levelTf: tfMin,
+               endIndex: sw.endIndex, creationIndex: sw.creationIndex });
   }
 
   // Candle lines — all valid surviving lines
@@ -10646,7 +10647,8 @@ function swingCompute(bars, tfMin, nowSec) {
   for (const l of allCandles) {
     out.push({ price: l.price, startTime: l.startTime, endTime: l.endTime,
                kind: l.kind, color: l.color, isInfinite: false,
-               periodSec: l.periodSec, levelTf: tfMin });
+               periodSec: l.periodSec, levelTf: tfMin,
+               endIndex: l.endIndex, creationIndex: l.creationIndex });
   }
 
   return out;
@@ -10729,7 +10731,16 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
           const x0  = ts0.timeToCoordinate(ln.startTime);
           const barSpacing = ts0.options().barSpacing;
           if (x0 != null && barSpacing) {
-            const lenBars = (ln.endTime - ln.startTime) / _periodSec;
+            // Index-based lenBars: endIndex/creationIndex already carry the
+            // exact bar-count (same unit CH_START_MULT/CH_EXTEND_MULT and
+            // SW_START_MULT/SW_SLIDE_MULT were set in) — no periodSec
+            // division involved, so no unit-mismatch with the
+            // _defaultPeriodSec used to originally build endTime via
+            // _indexToTime(). Falls back to the old time/periodSec method
+            // only if index fields are missing (e.g. older cached objects).
+            const lenBars = (ln.endIndex != null && ln.creationIndex != null)
+              ? (ln.endIndex - ln.creationIndex)
+              : (ln.endTime - ln.startTime) / _periodSec;
             const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
             const x1 = x0 + lenBars * barSpacing * ratio;
             const t1 = ts0.coordinateToTime(x1);
