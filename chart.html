@@ -10380,33 +10380,6 @@ function swingCompute(bars, tfMin, nowSec) {
     return t;
   }
 
-  // fromSec → toSec ke beech ACTUAL trading-seconds kitni guzri (band-market
-  // ghanto ko na ginte hue) — ye _advanceTradingSeconds() ka ULTA hai.
-  // Isi se "nowSec abhi kitne BARS aage hai" nikalta hai (seconds ki jagah
-  // pure index-arithmetic ke liye), _advanceTradingSeconds jaisa hi
-  // session-skip-aware, bas direction reverse.
-  function _tradingSecondsElapsed(fromSec, toSec, tfMin) {
-    if (tfMin >= 1440) return toSec - fromSec;
-    if (toSec <= fromSec) return 0;
-    let t = fromSec, elapsed = 0, guard = 0;
-    while (t < toSec && guard++ < 5000) {
-      const istSec      = t + _IST_OFF;
-      const dayStart    = Math.floor(istSec / 86400) * 86400;
-      const sessStartAbs = dayStart + _SESS_START_SEC - _IST_OFF;
-      const sessEndAbs   = dayStart + _SESS_END_SEC   - _IST_OFF;
-      const dow = new Date(dayStart * 1000).getUTCDay();
-      if (dow === 0 || dow === 6 || t < sessStartAbs || t >= sessEndAbs) {
-        t = _nextSessionOpen(t);
-        continue;
-      }
-      const segEnd = Math.min(toSec, sessEndAbs);
-      elapsed += segEnd - t;
-      t = segEnd;
-      if (t >= sessEndAbs) t = _nextSessionOpen(t);
-    }
-    return elapsed;
-  }
-
   // ── Index-based endTime resolver ─────────────────────────────────────────
   // CH_START/EXTEND aur SW_START/SLIDE ab "kitne bars aage" (fractional
   // allowed) represent karte hain, seconds ki jagah. Target bar index agar
@@ -10643,21 +10616,9 @@ function swingCompute(bars, tfMin, nowSec) {
   // validateLines() ka touch → CH_EXTEND_MULT wala extend aur no-touch →
   // delete wala rule bilkul yahan se untouched hai — sirf starting length
   // par asar hai, kuch aur nahi cheda gaya.
-  //
-  // PURE INDEX-BASED FIX: pehle yahan seedha _advanceTradingSeconds(nowSec, ...)
-  // se ek independent seconds-arithmetic floor banta tha — jiska anchor
-  // (nowSec) aur measurement-unit (raw seconds) dono hi endIndex/_indexToTime
-  // wale index-pipeline se ALAG the. Ab "nowSec abhi lastClosedTime se kitne
-  // BARS (fractional) aage hai" nikalte hain (_tradingSecondsElapsed / period),
-  // us par CH_START_MULT bars jodte hain, aur wahi ek _indexToTime() se resolve
-  // karte hain — bilkul wahi function jo line-creation ke waqt endTime banata
-  // hai. Ab floor aur creation dono EK hi index-math se aate hain, koi
-  // parallel seconds-based calculation nahi bacha.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _lastIdx      = data.length - 1;
-    const _nowIdxOffset = _tradingSecondsElapsed(lastClosedTime, nowSec, tfMin) / _defaultPeriodSec;
-    const _chFloorIdx   = _lastIdx + _nowIdxOffset + CH_START_MULT;
-    const _chFloor       = _indexToTime(data, _chFloorIdx, tfMin, _defaultPeriodSec);
+    const _chFloor  = _advanceTradingSeconds(nowSec, CH_START_MULT * _defaultPeriodSec, tfMin);
+    const _lastIdx  = data.length - 1;
     for (const l of chLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
     for (const l of clLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
   }
@@ -10716,43 +10677,6 @@ function swingRemoveCanvas() {
   if (swingCanvas) { swingCanvas.remove(); swingCanvas = null; swingCtx = null; }
 }
 
-// ── Pure index-based time → logical-position resolver ──────────────────────
-// timeToCoordinate(startTime) replay ke shuru mein (thin/sparse loaded data)
-// bahut baar `null` de deta hai, kyunki wo internally us exact bar ko
-// dhoondhta/interpolate karta hai apne LOADED range ke andar. logicalToCoordinate()
-// iske ulat — sirf ek NUMBER (bar-position) leta hai aur seedha barSpacing se
-// pixel nikaal deta hai, kabhi null nahi deta, chahe wo position abhi tak
-// "loaded" na bhi ho. Yahan cellData (cell ke apne TF ka bar-array, ascending
-// time-sorted) mein binary-search karke startTime ka fractional logical index
-// nikalte hain — taaki x0 bhi ab time-lookup ki jagah pure index-arithmetic
-// se resolve ho, bilkul lenBars/endIndex jaisa hi.
-function _timeToLogicalIndex(cellData, t) {
-  if (!Array.isArray(cellData) || !cellData.length) return null;
-  const n = cellData.length;
-  if (t <= cellData[0].time) {
-    // Pehle bar se pehle ka time — piche ki taraf extrapolate karo
-    const p = n > 1 ? (cellData[1].time - cellData[0].time) : 60;
-    return p ? (t - cellData[0].time) / p : 0;
-  }
-  const last = cellData[n - 1];
-  if (t >= last.time) {
-    if (t === last.time) return n - 1;
-    const p = n > 1 ? (last.time - cellData[n - 2].time) : 60;
-    return p ? (n - 1) + (t - last.time) / p : n - 1;
-  }
-  // Binary search: sabse chhota index jiska time >= t
-  let lo = 0, hi = n - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (cellData[mid].time < t) lo = mid + 1; else hi = mid;
-  }
-  if (cellData[lo].time === t) return lo;
-  const i0 = lo - 1, i1 = lo;
-  const t0 = cellData[i0].time, t1 = cellData[i1].time;
-  const span = t1 - t0;
-  return span ? i0 + (t - t0) / span : i0;
-}
-
 // ── BankNifty-only: REAL native plotting (no overlay canvas) ───────────────
 // Har SR line ko ek asli chart line-series ke roop mein plot karte hain
 // (bilkul jaise TradingView par manual trendline draw karne par hota hai) —
@@ -10760,12 +10684,7 @@ function _timeToLogicalIndex(cellData, t) {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-// `cellData` (optional) — cell ke apne TF ka bar-array. Diya jaaye to x0
-// (starting point) bhi endpoint jaisa hi pure index-based nikalta hai
-// (_timeToLogicalIndex + logicalToCoordinate), timeToCoordinate() ke null
-// fallback wale purane behavior par nahi girta. Na diya jaaye to purana
-// (time-based) tarika hi chalta hai — backward compatible.
-function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin, cellData) {
+function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10807,40 +10726,14 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
       if (!ln.isInfinite && cellTFMin) {
         try {
           const ts0 = chartObj.timeScale();
-          const lenBars = (ln.endTime - ln.startTime) / _periodSec;
-          const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
-
-          // ── x0 (starting point) — index-based agar cellData mila ────────
-          // logicalToCoordinate() kabhi null nahi deta (pure math), isliye
-          // ye timeToCoordinate() ke "thin data → null" fallback ko replace
-          // karta hai. cellData na mile to purana time-based x0 use hota hai.
-          let x0 = null, usedLogical = null;
-          if (Array.isArray(cellData) && cellData.length) {
-            const li0 = _timeToLogicalIndex(cellData, ln.startTime);
-            if (li0 != null) {
-              const xc = ts0.logicalToCoordinate(li0);
-              if (xc != null) { x0 = xc; usedLogical = li0; }
-            }
-          }
-          if (x0 == null) x0 = ts0.timeToCoordinate(ln.startTime);
-
-          if (x0 != null) {
-            let x1;
-            // Agar x0 khud logical-index se mila hai, to endpoint bhi
-            // logicalToCoordinate se hi nikalo — ek hi coordinate-space,
-            // barSpacing snapshot mismatch ka koi risk nahi.
-            if (usedLogical != null) {
-              const xEnd = ts0.logicalToCoordinate(usedLogical + lenBars * ratio);
-              x1 = (xEnd != null) ? xEnd : null;
-            }
-            if (x1 == null) {
-              const barSpacing = ts0.options().barSpacing;
-              if (barSpacing) x1 = x0 + lenBars * barSpacing * ratio;
-            }
-            if (x1 != null) {
-              const t1 = ts0.coordinateToTime(x1);
-              if (t1 != null) endT = t1;
-            }
+          const x0  = ts0.timeToCoordinate(ln.startTime);
+          const barSpacing = ts0.options().barSpacing;
+          if (x0 != null && barSpacing) {
+            const lenBars = (ln.endTime - ln.startTime) / _periodSec;
+            const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
+            const x1 = x0 + lenBars * barSpacing * ratio;
+            const t1 = ts0.coordinateToTime(x1);
+            if (t1 != null) endT = t1;
           }
         } catch(_) {}
       }
@@ -11226,13 +11119,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       }
     }
     for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
-    const _out = [..._swingByPrice.values(), ..._candleByPrice.values()];
-    // cell ke apne-TF ka bar-array piggyback karo (array par extra property —
-    // existing .length/.forEach/debug-capture code par koi asar nahi) taaki
-    // _sv2ApplyCellSR → _bnBuildSRNative tak index-based x0 resolve ke liye
-    // pahunch sake, timeToCoordinate() ke null-fallback wale bina.
-    _out._cellData = dataCur;
-    return _out;
+    return [..._swingByPrice.values(), ..._candleByPrice.values()];
   } catch(_) { return []; }
 }
 
@@ -11258,7 +11145,7 @@ function _sv2ApplyCellSR(cellIdx, lines) {
     // Cell ka apna TF nikaalo — index-based end-point rendering ke liye
     // (_bnBuildSRNative ka cellTFMin param) chahiye.
     const _cellTFMin = _srDebugCellTFMin(cellIdx);
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true, _cellTFMin, lines._cellData || null);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true, _cellTFMin);
   } catch(_) {}
 }
 
