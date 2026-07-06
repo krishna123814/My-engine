@@ -10676,7 +10676,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
+function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10699,7 +10699,37 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+      let endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
+
+      // ── Index-based end-point override (replay-safe rendering) ──────────
+      // ln.endTime timeToCoordinate() ko seedha diya jaaye to LightweightCharts
+      // apna INTERNAL time→pixel extrapolation use karta hai jab wo time abhi
+      // is chart ke loaded bar-range se bahar ho (replay ke shuru mein sirf
+      // 1-2 bars loaded hote hain) — us extrapolation ka result bahut off/
+      // compressed aa sakta hai (settings ka koi asar nahi dikhta). Fix: yahan
+      // se seedha "kitne bars aage" (lenBars, humare apne index-based
+      // calculation se already exact) ko is CHART ke apne current barSpacing
+      // (pixels/bar, ratio-adjusted agar line kisi higher TF ki hai) se
+      // pixel-offset mein convert karo, aur wahan se coordinateToTime() se
+      // wapas ek time nikaalo. Ye humesha exact N-bars lambi line render
+      // karta hai, chahe kitna bhi kam data loaded ho — kyunki hum chart ke
+      // APNE hi coordinate-space mein kaam kar rahe hain, uske time-based
+      // extrapolation par depend nahi kar rahe.
+      if (!ln.isInfinite && cellTFMin) {
+        try {
+          const ts0 = chartObj.timeScale();
+          const x0  = ts0.timeToCoordinate(ln.startTime);
+          const barSpacing = ts0.options().barSpacing;
+          if (x0 != null && barSpacing) {
+            const lenBars = (ln.endTime - ln.startTime) / _periodSec;
+            const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
+            const x1 = x0 + lenBars * barSpacing * ratio;
+            const t1 = ts0.coordinateToTime(x1);
+            if (t1 != null) endT = t1;
+          }
+        } catch(_) {}
+      }
+
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -11104,7 +11134,10 @@ function _sv2ApplyCellSR(cellIdx, lines) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true);
+    // Cell ka apna TF nikaalo — index-based end-point rendering ke liye
+    // (_bnBuildSRNative ka cellTFMin param) chahiye.
+    const _cellTFMin = _srDebugCellTFMin(cellIdx);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true, _cellTFMin);
   } catch(_) {}
 }
 
@@ -11122,7 +11155,7 @@ function sv2SwingInit(cutoffTime) {
     _sv2ApplyCellSR(i, lines);
     try {
       const _c = STACK2_CELLS[i];
-      _srDebugCapture('sv2-cell-' + i, _srDebugCellLabel(i), _c && _c.chart, lines, cutoffTime);
+      _srDebugCapture('sv2-cell-' + i, _srDebugCellLabel(i), _c && _c.chart, lines, cutoffTime, _srDebugCellTFMin(i));
     } catch(_) {}
   }
 }
@@ -11205,6 +11238,17 @@ function _srDebugCellLabel(cellIdx) {
   } catch(_) { return 'Cell ' + (cellIdx + 1); }
 }
 
+// SV2 cell ka apna TF (minutes mein) — index-based rendering/debug ke liye
+// (_bnBuildSRNative cellTFMin param, aur debug ka drawn-length measurement).
+function _srDebugCellTFMin(cellIdx) {
+  try {
+    const assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    const cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
+    const tfLabel  = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
+    return _parseTFMin(tfLabel) || null;
+  } catch(_) { return null; }
+}
+
 function _srDebugKindLabel(kind) {
   if (kind === 'ch') return 'HIGH';
   if (kind === 'cl') return 'LOW';
@@ -11233,6 +11277,15 @@ function _srDebugFmtTime(tSec) {
 // Isse "intended" (seconds se calculate) vs "actually drawn" (pixel se
 // measure) — dono ko compare kiya ja sakta hai, taaki pata chale rendering
 // mein koi mismatch to nahi.
+//
+// NOTE: Ye OLD (pre-index-fix) measurement hai — seedha ln.endTime ko
+// timeToCoordinate() deta hai, jo agar endTime abhi loaded bar-range se
+// bahar ho to LightweightCharts ke apne (sparse-data mein unreliable)
+// internal time→pixel extrapolation par depend karta hai. Isliye replay
+// ke shuru mein (kam bars loaded) ye galat/compressed number de sakta hai
+// — chahe humara endTime calculation khud bilkul sahi ho. Diagnostic ke
+// liye rakha gaya hai, taaki "purana measurement vs naya index-fixed
+// measurement" compare kiya ja sake.
 function _srDebugActualPeriods(chartObj, startTime, endTime, periodSec) {
   try {
     if (!chartObj) return null;
@@ -11248,7 +11301,32 @@ function _srDebugActualPeriods(chartObj, startTime, endTime, periodSec) {
   } catch (_) { return null; }
 }
 
-function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime) {
+// ── INDEX-BASED REAL-DRAW CHECK — wahi math jo _bnBuildSRNative() actual
+// rendering ke waqt use karta hai (startTime se pixel-offset via barSpacing,
+// phir coordinateToTime() se wapas time). Isse pata chalta hai ki FIX lagne
+// ke baad line asal mein kitni lambi render hogi — agar ye lenP (intended)
+// ke kareeb aaye to fix kaam kar raha hai; agar phir bhi door ho to
+// rendering mein koi aur cheez culprit hai.
+function _srDebugActualPeriodsIndexed(chartObj, ln, cellTFMin) {
+  try {
+    if (!chartObj || !cellTFMin) return null;
+    const ts = chartObj.timeScale();
+    const x0 = ts.timeToCoordinate(ln.startTime);
+    const barSpacing = ts.options().barSpacing;
+    if (x0 == null || !barSpacing) return null;
+    const period  = ln.periodSec || ((ln.levelTf || 1) * 60);
+    const lenBars = (ln.endTime - ln.startTime) / period;
+    const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
+    const x1 = x0 + lenBars * barSpacing * ratio;
+    const t1 = ts.coordinateToTime(x1);
+    if (t1 == null) return null;
+    const x2 = ts.timeToCoordinate(t1);
+    if (x2 == null) return null;
+    return (x2 - x0) / (barSpacing * ratio);
+  } catch (_) { return null; }
+}
+
+function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) {
   if (!window._SR_DEBUG.enabled) return;
   const F = window._SR_DEBUG_FILTER || {};
 
@@ -11274,6 +11352,27 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime) {
   const prevMap = window._SR_DEBUG.prevByCell[srcKey] || new Map();
   const newMap  = new Map();
 
+  // Dono measurement ek jagah se banao — OLD (raw timeToCoordinate(endTime),
+  // sparse-data mein LightweightCharts ke apne extrapolation par depend
+  // karta hai) aur INDEX-FIXED (wahi math jo _bnBuildSRNative() actual
+  // rendering ke waqt use karta hai). Dono ko compare karke pata chalta hai
+  // ki fix kaam kar raha hai ya nahi.
+  const _drawnStr = (l, period, lenP) => {
+    const oldP = _srDebugActualPeriods(chartObj, l.startTime, l.endTime, period);
+    const oldStr = (oldP === null)
+      ? 'N/A'
+      : oldP.toFixed(2) + '×' + (Math.abs(oldP - lenP) > 0.15 ? '❌' : '✅');
+    let out = ' | drawn(old) = ' + oldStr;
+    if (cellTFMin) {
+      const idxP = _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
+      const idxStr = (idxP === null)
+        ? 'N/A'
+        : idxP.toFixed(2) + '×' + (Math.abs(idxP - lenP) > 0.15 ? '❌' : '✅');
+      out += ' | drawn(idx-fix) = ' + idxStr;
+    }
+    return out;
+  };
+
   for (const l of lines) {
     const key    = l.kind + ':' + l.price;
     const period = l.periodSec || ((l.levelTf || 1) * 60);
@@ -11285,31 +11384,21 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime) {
 
     if (!prev) {
       if (F.showNew && onReplayDay) {
-        const actualP = _srDebugActualPeriods(chartObj, l.startTime, l.endTime, period);
-        const actualStr = (actualP === null)
-          ? ' | drawn = N/A (out of view)'
-          : ' | drawn = ' + actualP.toFixed(2) + '×period' +
-            (Math.abs(actualP - lenP) > 0.15 ? ' ❌ MISMATCH' : ' ✅');
         _srDebugAppend(
           '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
           _srDebugKindLabel(l.kind) + ' @ ' + l.price +
           ' | starting length = ' + lenP.toFixed(2) + '×period (' + period + 's/period)' +
-          actualStr,
+          _drawnStr(l, period, lenP),
           'sv2-dbg-new'
         );
       }
     } else if (F.showTouch && Math.abs(l.endTime - prev.endTime) > 0.001 && onReplayDay) {
       const prevLenP = (prev.endTime - prev.startTime) / period;
-      const actualP = _srDebugActualPeriods(chartObj, l.startTime, l.endTime, period);
-      const actualStr = (actualP === null)
-        ? ' | drawn = N/A (out of view)'
-        : ' | drawn = ' + actualP.toFixed(2) + '×period' +
-          (Math.abs(actualP - lenP) > 0.15 ? ' ❌ MISMATCH' : ' ✅');
       _srDebugAppend(
         '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
         _srDebugKindLabel(l.kind) + ' @ ' + l.price +
         ' | extended length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period' +
-        actualStr,
+        _drawnStr(l, period, lenP),
         'sv2-dbg-ext'
       );
     }
