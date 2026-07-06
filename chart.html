@@ -9885,29 +9885,29 @@ function setSwingLineWidth(w) {
 
 // ── Line-length multipliers (user-configurable, persisted) ────────────────
 // Candle H/L lines: length = multiplier × candle's own period.
-//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai (16×period)
-//   CH_EXTEND_MULT → har touch par kitna ADD hota hai total length mein (cumulative, 8×period/touch)
+//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai (2×period)
+//   CH_EXTEND_MULT → har touch par kitna ADD hota hai total length mein (cumulative, 1×period/touch)
 //                    e.g. 16 → touch1: 16+8=24 → touch2: 24+8=32 → touch3: 32+8=40 → touch4: 40+8=48 ...
 //                    Touch nahi hui to line turant delete (koi extend nahi).
 // Swing SR lines: length = multiplier × swingDuration(tf).
 //   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
 //   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
-const _CH_START_KEY  = 'chStartMult1';
-const _CH_EXTEND_KEY = 'chExtendMult1';
+const _CH_START_KEY  = 'chStartMult2';
+const _CH_EXTEND_KEY = 'chExtendMult2';
 const _SW_START_KEY  = 'swStartMult1';
 const _SW_SLIDE_KEY  = 'swSlideMult1';
-let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 16);
-let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 8);
+let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 2);
+let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 1);
 let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
 let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
 function setChStartMult(v) {
-  CH_START_MULT = Math.max(0.5, Math.min(50, +v || 16));
+  CH_START_MULT = Math.max(0.5, Math.min(50, +v || 2));
   try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
   const inp = document.getElementById('ch-start-mult'); if (inp) inp.value = CH_START_MULT;
   _swingRefresh();
 }
 function setChExtendMult(v) {
-  CH_EXTEND_MULT = Math.max(0.5, Math.min(30, +v || 8));
+  CH_EXTEND_MULT = Math.max(0.5, Math.min(30, +v || 1));
   try { _LS.setItem(_CH_EXTEND_KEY, CH_EXTEND_MULT); } catch(_) {}
   const inp = document.getElementById('ch-extend-mult'); if (inp) inp.value = CH_EXTEND_MULT;
   _swingRefresh();
@@ -10264,7 +10264,7 @@ function swingCompute(bars, tfMin, nowSec) {
   // fall behind the replay's actual position and the line disappears too
   // early, leaving a visual gap until the next bucket finally closes.
   // CANDLE H/L RULES (kind:'ch'|'cl'):
-  //   Candle closes → High & Low lines created, starting length = CH_START_MULT×period (16×period)
+  //   Candle closes → High & Low lines created, starting length = CH_START_MULT×period (2×period)
   //   Next candle (validator): Low ≤ price ≤ High → TOUCHED → total length +CH_EXTEND_MULT×period (cumulative)
   //                                                     e.g. 16→24→32→40→48... (+8 every touch)
   //                            Not touched              → DELETED immediately (no extend)
