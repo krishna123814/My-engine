@@ -10310,6 +10310,76 @@ function swingCompute(bars, tfMin, nowSec) {
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
 
+  // ── Trading-calendar-aware forward stepping (FIX for seconds-based ─────
+  // endTime causing visual compression) ───────────────────────────────────
+  // PURANA (buggy) tareeka: endTime = fromSec + N (raw seconds add) — ye
+  // maan leta tha ki trading CONTINUOUS hai (24x7). BankNifty sirf 9:15–
+  // 15:30 IST, Mon–Fri trade hota hai. Jab bhi ek line ki N-second window
+  // market-close (15:30) ke aage nikal jaati, wo saara "band market" time
+  // (raat + weekend) bhi seconds mein gin liya jaata — jabki chart ke
+  // time-axis par us gap ka koi bar/candle exist hi nahi karta (chart use
+  // visually skip kar deta hai). Result: chart internally us bade seconds-
+  // gap ko apne loaded bars ke AVERAGE spacing se estimate/extrapolate
+  // karta — jisme overnight/weekend gaps shaamil hone ki wajah se average
+  // asli 1-bar-spacing se kaafi bada ban jaata — aur line visually
+  // intended se bahut CHHOTI (compressed) dikhti, chahe live ho ya replay.
+  //
+  // NAYA (fix) tareeka: seconds sirf TRADING HOURS ke andar hi gine jaate
+  // hain — jaise hi 15:30 (session close) aata hai, baaki bacha hua time
+  // agle trading day ke 9:15 (session open) se continue hota hai (Sat/Sun
+  // skip karke). Isse jo bhi endTime nikalta hai, wo hamesha ek "real
+  // trading second" par hota hai — chart ki internal extrapolation ab
+  // saari bandh-market ki seconds ko nahi ginegi, aur "intended" length ==
+  // "drawn" length match karega.
+  //
+  // NOTE: Sirf INTRADAY TFs (5m/15m/45m/135m) ke liye trading-hours skip
+  // apply hota hai. Daily+ TFs (1D/3D/9D/27D) ka behaviour bilkul UNCHANGED
+  // hai (unka multi-day duration already calendar-based hai, aur wahan
+  // gap-compression ka mismatch practically nahi dekha gaya) — sirf
+  // intraday TFs is fix se touch hote hain.
+  const _SESS_START_SEC = 9 * 3600 + 15 * 60;   // 09:15 IST
+  const _SESS_END_SEC   = 15 * 3600 + 30 * 60;  // 15:30 IST
+  const _IST_OFF        = 5.5 * 3600;
+
+  // Agle trading-session ka OPEN timestamp (real epoch seconds) do, jo
+  // fromSec ke turant baad aata hai. Weekends (Sat/Sun) automatically skip.
+  function _nextSessionOpen(fromSec) {
+    const istSec = fromSec + _IST_OFF;
+    let dayStart = Math.floor(istSec / 86400) * 86400;
+    let openIst  = dayStart + _SESS_START_SEC;
+    if (openIst <= istSec) { dayStart += 86400; openIst = dayStart + _SESS_START_SEC; }
+    let dow = new Date(dayStart * 1000).getUTCDay();   // dayStart IST-shifted hai, isliye getUTCDay = IST weekday
+    while (dow === 0 || dow === 6) {                    // 0=Sun, 6=Sat
+      dayStart += 86400;
+      openIst   = dayStart + _SESS_START_SEC;
+      dow = new Date(dayStart * 1000).getUTCDay();
+    }
+    return openIst - _IST_OFF;
+  }
+
+  // fromSec se deltaSec "trading seconds" aage badhao (market-band ghanto
+  // ko skip karke). tfMin >= 1440 (daily+) ke liye purana raw-add behaviour
+  // hi rakha hai (unchanged scope).
+  function _advanceTradingSeconds(fromSec, deltaSec, tfMin) {
+    if (tfMin >= 1440) return fromSec + deltaSec;
+    let t = fromSec, remaining = deltaSec;
+    let guard = 0;
+    while (remaining > 1e-6 && guard++ < 5000) {
+      const istSec  = t + _IST_OFF;
+      const dayStart = Math.floor(istSec / 86400) * 86400;
+      const sessEndAbs = dayStart + _SESS_END_SEC;
+      const untilClose = sessEndAbs - istSec;
+      if (untilClose <= 0) { t = _nextSessionOpen(t); continue; }
+      if (remaining <= untilClose) {
+        t += remaining; remaining = 0;
+      } else {
+        remaining -= untilClose;
+        t = _nextSessionOpen(t + untilClose);
+      }
+    }
+    return t;
+  }
+
   // ── Custom swing line duration per TF (seconds) ──────────────────────────
   // Har naye candle pe endTime = cur.time + swingDuration → sliding window.
   // Koi infinity nahi — line hamesha latest candle se fixed duration aage.
@@ -10371,7 +10441,7 @@ function swingCompute(bars, tfMin, nowSec) {
         if (isTouched) {
           // Cumulative extend: total length badhti hai +CH_EXTEND_MULT×period
           // har touch par (16 → 24 → 32 → 40 → 48 ...), reset nahi hota.
-          ln.endTime = ln.endTime + CH_EXTEND_MULT * periodSec;
+          ln.endTime = _advanceTradingSeconds(ln.endTime, CH_EXTEND_MULT * periodSec, tfMin);
         } else {
           arr.splice(j, 1);
         }
@@ -10386,10 +10456,10 @@ function swingCompute(bars, tfMin, nowSec) {
     // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
     // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
     for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
+      aRes[j].endTime = _advanceTradingSeconds(cur.time, SW_SLIDE_MULT * swingDuration(tfMin), tfMin);
     }
     for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
+      aSup[j].endTime = _advanceTradingSeconds(cur.time, SW_SLIDE_MULT * swingDuration(tfMin), tfMin);
     }
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
@@ -10401,7 +10471,7 @@ function swingCompute(bars, tfMin, nowSec) {
       aSup = aSup.filter(l => l.price <= rPrice);
       // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
       aRes.push({ price: rPrice, startTime: rTime,
-                  endTime: cur.time + swingDuration(tfMin) * SW_START_MULT,
+                  endTime: _advanceTradingSeconds(cur.time, swingDuration(tfMin) * SW_START_MULT, tfMin),
                   creationIndex: i, kind: 'sh', periodSec });
     }
 
@@ -10414,7 +10484,7 @@ function swingCompute(bars, tfMin, nowSec) {
       aRes = aRes.filter(l => l.price >= sPrice);
       // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
       aSup.push({ price: sPrice, startTime: sTime,
-                  endTime: cur.time + swingDuration(tfMin) * SW_START_MULT,
+                  endTime: _advanceTradingSeconds(cur.time, swingDuration(tfMin) * SW_START_MULT, tfMin),
                   creationIndex: i, kind: 'sl', periodSec });
     }
 
@@ -10427,12 +10497,12 @@ function swingCompute(bars, tfMin, nowSec) {
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + CH_START_MULT * periodSec,
+                     endTime: _advanceTradingSeconds(cur.time, CH_START_MULT * periodSec, tfMin),
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + CH_START_MULT * periodSec,
+                     endTime: _advanceTradingSeconds(cur.time, CH_START_MULT * periodSec, tfMin),
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
@@ -10474,7 +10544,7 @@ function swingCompute(bars, tfMin, nowSec) {
   // badhte hi turant chhota karke overwrite na kare.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
     const _swingFloorMult = Math.max(SW_START_MULT, SW_SLIDE_MULT);
-    const _swingFloor = nowSec + _swingFloorMult * swingDuration(tfMin);
+    const _swingFloor = _advanceTradingSeconds(nowSec, _swingFloorMult * swingDuration(tfMin), tfMin);
     for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
     for (const l of aSup) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
   }
@@ -10491,7 +10561,7 @@ function swingCompute(bars, tfMin, nowSec) {
   // delete wala rule bilkul yahan se untouched hai — sirf starting length
   // par asar hai, kuch aur nahi cheda gaya.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _chFloor  = nowSec + CH_START_MULT * _defaultPeriodSec;
+    const _chFloor  = _advanceTradingSeconds(nowSec, CH_START_MULT * _defaultPeriodSec, tfMin);
     const _lastIdx  = data.length - 1;
     for (const l of chLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
     for (const l of clLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
