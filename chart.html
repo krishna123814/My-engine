@@ -11269,38 +11269,6 @@ function _srDebugFmtTime(tSec) {
   } catch(_) { return String(tSec); }
 }
 
-// ── REAL-DRAW CHECK — chart ke actual pixels se line ki length nikaalo ────
-// timeToCoordinate() chart ke current time-scale se startTime/endTime ka
-// asli pixel-x deta hai (chahe line abhi tak render na hui ho — ye sirf
-// time→pixel mapping hai, kisi series par depend nahi karta). barSpacing
-// se pata chalta hai ek period asal mein kitne pixels ka hai chart par.
-// Isse "intended" (seconds se calculate) vs "actually drawn" (pixel se
-// measure) — dono ko compare kiya ja sakta hai, taaki pata chale rendering
-// mein koi mismatch to nahi.
-//
-// NOTE: Ye OLD (pre-index-fix) measurement hai — seedha ln.endTime ko
-// timeToCoordinate() deta hai, jo agar endTime abhi loaded bar-range se
-// bahar ho to LightweightCharts ke apne (sparse-data mein unreliable)
-// internal time→pixel extrapolation par depend karta hai. Isliye replay
-// ke shuru mein (kam bars loaded) ye galat/compressed number de sakta hai
-// — chahe humara endTime calculation khud bilkul sahi ho. Diagnostic ke
-// liye rakha gaya hai, taaki "purana measurement vs naya index-fixed
-// measurement" compare kiya ja sake.
-function _srDebugActualPeriods(chartObj, startTime, endTime, periodSec) {
-  try {
-    if (!chartObj) return null;
-    const ts = chartObj.timeScale();
-    const x1 = ts.timeToCoordinate(startTime);
-    const x2 = ts.timeToCoordinate(endTime);
-    const barSpacing = ts.options().barSpacing;
-    if (x1 === null || x2 === null || !barSpacing) return null;
-    // Ek bar/candle ka pixel-width barSpacing hota hai; humara "period"
-    // (periodSec) usi ek candle ke barabar hai — isliye pixel-length ko
-    // seedha barSpacing se divide karke "kitne periods draw hue" milta hai.
-    return (x2 - x1) / barSpacing;
-  } catch (_) { return null; }
-}
-
 // ── INDEX-BASED REAL-DRAW CHECK — wahi math jo _bnBuildSRNative() actual
 // rendering ke waqt use karta hai (startTime se pixel-offset via barSpacing,
 // phir coordinateToTime() se wapas time). Isse pata chalta hai ki FIX lagne
@@ -11352,25 +11320,20 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) 
   const prevMap = window._SR_DEBUG.prevByCell[srcKey] || new Map();
   const newMap  = new Map();
 
-  // Dono measurement ek jagah se banao — OLD (raw timeToCoordinate(endTime),
-  // sparse-data mein LightweightCharts ke apne extrapolation par depend
-  // karta hai) aur INDEX-FIXED (wahi math jo _bnBuildSRNative() actual
-  // rendering ke waqt use karta hai). Dono ko compare karke pata chalta hai
-  // ki fix kaam kar raha hai ya nahi.
-  const _drawnStr = (l, period, lenP) => {
-    const oldP = _srDebugActualPeriods(chartObj, l.startTime, l.endTime, period);
-    const oldStr = (oldP === null)
-      ? 'N/A'
-      : oldP.toFixed(2) + '×' + (Math.abs(oldP - lenP) > 0.15 ? '❌' : '✅');
-    let out = ' | drawn(old) = ' + oldStr;
-    if (cellTFMin) {
-      const idxP = _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
-      const idxStr = (idxP === null)
-        ? 'N/A'
-        : idxP.toFixed(2) + '×' + (Math.abs(idxP - lenP) > 0.15 ? '❌' : '✅');
-      out += ' | drawn(idx-fix) = ' + idxStr;
-    }
-    return out;
+  // SET (intended, seconds/index math se calculate) vs DRAWN (chart ke
+  // actual loaded pixels se, index-fixed method — wahi math jo
+  // _bnBuildSRNative() rendering ke waqt use karta hai) — dono compare
+  // karke pata chalta hai ki jo length humne "set" ki thi wahi chart par
+  // "draw" bhi ho rahi hai ya nahi. (Purana raw timeToCoordinate(endTime)
+  // wala measurement hata diya gaya hai — wo sparse/out-of-range data par
+  // unreliable extrapolate karta tha aur galat signal deta tha.)
+  const _drawnStr = (l, lenP) => {
+    if (!cellTFMin) return ' | drawn = N/A (no TF)';
+    const drawnP = _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
+    const drawnStr = (drawnP === null)
+      ? 'N/A (start point abhi chart ke loaded range se bahar hai)'
+      : drawnP.toFixed(2) + '×period ' + (Math.abs(drawnP - lenP) > 0.15 ? '❌ MISMATCH' : '✅ match');
+    return ' | drawn = ' + drawnStr;
   };
 
   for (const l of lines) {
@@ -11387,8 +11350,8 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) 
         _srDebugAppend(
           '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
           _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-          ' | starting length = ' + lenP.toFixed(2) + '×period (' + period + 's/period)' +
-          _drawnStr(l, period, lenP),
+          ' | set = ' + lenP.toFixed(2) + '×period (' + period + 's/period)' +
+          _drawnStr(l, lenP),
           'sv2-dbg-new'
         );
       }
@@ -11397,8 +11360,8 @@ function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) 
       _srDebugAppend(
         '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
         _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-        ' | extended length ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period' +
-        _drawnStr(l, period, lenP),
+        ' | set ' + prevLenP.toFixed(2) + '×period → ' + lenP.toFixed(2) + '×period' +
+        _drawnStr(l, lenP),
         'sv2-dbg-ext'
       );
     }
