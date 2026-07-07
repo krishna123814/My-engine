@@ -851,82 +851,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   cursor:not-allowed;
 }
 
-/* ── SR Debug Log button + panel ─────────────────────────────────────── */
-#sv2-debug-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:40px;height:40px;
-  border-radius:50%;
-  background:#1e222d;
-  border:2px solid #ff9800;
-  box-shadow:0 4px 16px #0007;
-  font-size:17px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  color:#ff9800;
-  /* Default/fallback spot — SV1 (live) mein SV2 ka date-range FAB exist
-     nahi karta, isliye JS wahan is button ko reposition nahi karta aur
-     ye yahi default fixed spot par dikhta hai. SV2 replay active hote
-     waqt JS ise FAB ke neeche move kar deta hai (see _syncPos). */
-  right:12px;
-  bottom:64px;
-  left:auto;
-  top:auto;
-}
-#sv2-debug-btn.visible{ display:flex; }
-#sv2-debug-btn.active{
-  background:#ff9800;
-  color:#1e222d;
-}
-#sv2-debug-panel{
-  display:none;
-  position:fixed;
-  z-index:9500;
-  right:12px;
-  bottom:12px;
-  width:min(420px, calc(100vw - 24px));
-  height:min(360px, calc(100vh - 120px));
-  background:#131722;
-  border:1px solid #2a2e3e;
-  border-radius:12px;
-  box-shadow:0 8px 32px #000a;
-  flex-direction:column;
-  overflow:hidden;
-}
-#sv2-debug-panel.open{ display:flex; }
-#sv2-debug-hdr{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 10px;
-  background:#1e222d;
-  border-bottom:1px solid #2a2e3e;
-  flex-shrink:0;
-}
-#sv2-debug-title{
-  color:#d1d4dc;font-size:12px;font-weight:700;flex:1;
-}
-.sv2-debug-btn-sm{
-  background:#2a2e3e;color:#d1d4dc;border:none;border-radius:6px;
-  font-size:11px;padding:5px 9px;cursor:pointer;
-}
-.sv2-debug-btn-sm.copied{ background:#26a69a; color:#fff; }
-#sv2-debug-log{
-  flex:1;overflow-y:auto;
-  padding:8px 10px;
-  font-family:'SF Mono',Consolas,monospace;
-  font-size:10.5px;
-  line-height:1.5;
-  color:#c7cbe0;
-  white-space:pre-wrap;
-  word-break:break-word;
-}
-#sv2-debug-log .sv2-dbg-new  { color:#26a69a; }
-#sv2-debug-log .sv2-dbg-ext  { color:#2196f3; }
-#sv2-debug-log .sv2-dbg-del  { color:#ef5350; }
-
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
   display:none;
@@ -2274,18 +2198,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
-<button id="sv2-debug-btn" title="SR Length Debug Log" onclick="_srDebugToggle()">🐞</button>
-
-<!-- ═══ SR DEBUG LOG PANEL ═══════════════════════════════════════════════ -->
-<div id="sv2-debug-panel">
-  <div id="sv2-debug-hdr">
-    <span id="sv2-debug-title">🐞 SR Length Debug Log</span>
-    <button class="sv2-debug-btn-sm" id="sv2-debug-copy-btn" onclick="_srDebugCopyLog()">📋 Copy Log</button>
-    <button class="sv2-debug-btn-sm" onclick="_srDebugClear()">🗑 Clear</button>
-    <button class="sv2-debug-btn-sm" onclick="_srDebugClosePanel()">✕</button>
-  </div>
-  <div id="sv2-debug-log"></div>
-</div>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -2492,7 +2404,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Candle H/L — Start length (× candle)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-start-mult" type="number" value="16" min="0.5" max="50" step="0.5"
+            <input class="ind-len" id="ch-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
               title="Candle high/low line ki starting length (candle-period ka multiple)"
               onchange="setChStartMult(+this.value)">
           </div>
@@ -2500,7 +2412,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Candle H/L — Extend on touch (× candle)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-extend-mult" type="number" value="8" min="0.5" max="30" step="0.5"
+            <input class="ind-len" id="ch-extend-mult" type="number" value="2" min="0.5" max="10" step="0.5"
               title="Agli candle touch kare to line kitna aage badhe (candle-period ka multiple)"
               onchange="setChExtendMult(+this.value)">
           </div>
@@ -4985,7 +4897,6 @@ function ss2ApplyAndClose() {
   var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
-  var _debugBtn  = null;   // #sv2-debug-btn (SR length debug log toggle)
   var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
   var _running   = false;
   var TICK_MS    = 2000;   // virtual-clock parameter: 2 real sec = 1 candle
@@ -4998,26 +4909,14 @@ function ss2ApplyAndClose() {
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
-    // Debug button ab replay-range se independent — SV1 (live) aur SV2
-    // (live ya replay) dono mein hamesha visible rahega, taaki live
-    // BTC/BankNifty charts par bhi SR length debug log use ho sake.
-    if (_debugBtn)    _debugBtn.classList.toggle('visible', true);
-    if (!show) { _pause(); }
+    if (!show) _pause();
     _renderPlayIcon();
     _syncPos();
   }
 
   function _syncPos() {
     var fab = document.getElementById('sv2-drng-fab');
-    if (!fab) {
-      // SV1 mein FAB exist nahi karta — agar pehle SV2 visit kiya tha aur
-      // JS ne debug button par inline left/top set kar diya tha, wo yahan
-      // clear karo taaki CSS ka default fixed spot (right/bottom) wapas
-      // apply ho, warna button SV2 ki purani (ab invalid) position par
-      // stuck reh jaata — SV1 mein invisible/galat jagah dikhta.
-      if (_debugBtn) { _debugBtn.style.left = ''; _debugBtn.style.top = ''; }
-      return;
-    }
+    if (!fab) return;
     var r = fab.getBoundingClientRect();
     // Teeno buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
     // same left, top badhta jaata hai — pehle galti se left badhta jaa
@@ -5033,10 +4932,6 @@ function ss2ApplyAndClose() {
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
       _resetBtn.style.top  = (r.bottom + 8 + 58 + 58) + 'px';
-    }
-    if (_debugBtn) {
-      _debugBtn.style.left = r.left + 'px';
-      _debugBtn.style.top  = (r.bottom + 8 + 58 + 58 + 58) + 'px';
     }
   }
 
@@ -5132,7 +5027,6 @@ function ss2ApplyAndClose() {
     live.revealIdx = live.startIdx;
     _rebuildAllCells();
     _renderPlayIcon();
-    try { _srDebugClear(); } catch(_) {}
   }
 
   // Keep old global names working (HTML onclick + external callers use these)
@@ -5144,7 +5038,6 @@ function ss2ApplyAndClose() {
   document.addEventListener('sv2DateRangeApplied', function() {
     _pause();
     _syncControls();
-    try { _srDebugClear(); } catch(_) {}
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
@@ -5166,7 +5059,6 @@ function ss2ApplyAndClose() {
     _playBtn    = document.getElementById('sv2-step-btn');
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
-    _debugBtn   = document.getElementById('sv2-debug-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     _syncControls();
     _watchFabPos();
@@ -9885,29 +9777,27 @@ function setSwingLineWidth(w) {
 
 // ── Line-length multipliers (user-configurable, persisted) ────────────────
 // Candle H/L lines: length = multiplier × candle's own period.
-//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai (2×period)
-//   CH_EXTEND_MULT → har touch par kitna ADD hota hai total length mein (cumulative, 1×period/touch)
-//                    e.g. 16 → touch1: 16+8=24 → touch2: 24+8=32 → touch3: 32+8=40 → touch4: 40+8=48 ...
-//                    Touch nahi hui to line turant delete (koi extend nahi).
+//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai
+//   CH_EXTEND_MULT → jab agli candle isko touch kare to kitna aage badhe
 // Swing SR lines: length = multiplier × swingDuration(tf).
 //   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
 //   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
-const _CH_START_KEY  = 'chStartMult2';
-const _CH_EXTEND_KEY = 'chExtendMult2';
+const _CH_START_KEY  = 'chStartMult1';
+const _CH_EXTEND_KEY = 'chExtendMult1';
 const _SW_START_KEY  = 'swStartMult1';
 const _SW_SLIDE_KEY  = 'swSlideMult1';
 let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 2);
-let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 1);
+let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 2);
 let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
 let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
 function setChStartMult(v) {
-  CH_START_MULT = Math.max(0.5, Math.min(50, +v || 2));
+  CH_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
   try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
   const inp = document.getElementById('ch-start-mult'); if (inp) inp.value = CH_START_MULT;
   _swingRefresh();
 }
 function setChExtendMult(v) {
-  CH_EXTEND_MULT = Math.max(0.5, Math.min(30, +v || 1));
+  CH_EXTEND_MULT = Math.max(0.5, Math.min(10, +v || 2));
   try { _LS.setItem(_CH_EXTEND_KEY, CH_EXTEND_MULT); } catch(_) {}
   const inp = document.getElementById('ch-extend-mult'); if (inp) inp.value = CH_EXTEND_MULT;
   _swingRefresh();
@@ -10264,10 +10154,10 @@ function swingCompute(bars, tfMin, nowSec) {
   // fall behind the replay's actual position and the line disappears too
   // early, leaving a visual gap until the next bucket finally closes.
   // CANDLE H/L RULES (kind:'ch'|'cl'):
-  //   Candle closes → High & Low lines created, starting length = CH_START_MULT×period (2×period)
-  //   Next candle (validator): Low ≤ price ≤ High → TOUCHED → total length +CH_EXTEND_MULT×period (cumulative)
-  //                                                     e.g. 16→24→32→40→48... (+8 every touch)
-  //                            Not touched              → DELETED immediately (no extend)
+  //   Candle 1 closes → High & Low lines created (endTime = +2×period)
+  //   Candle 2 (validator): Low ≤ price ≤ High → TOUCHED → extend to +3×period
+  //                         Not touched         → DELETED immediately
+  //   Max lifespan: end of Candle 3. Latest 2 lines shown at any time.
   //
   // SWING H/L RULES (kind:'sh'|'sl') — untouched, independent:
   //   prevGreen→currRed  → Swing High (resistance)
@@ -10295,124 +10185,11 @@ function swingCompute(bars, tfMin, nowSec) {
     // Pure time-based check — market open/close ya replay mode pe depend nahi.
     // Last bar ki actual duration = last.time - prev.time (real measured gap).
     // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
-    // NOTE: yahan jaanbujh kar Date.now() hi use hota hai, `nowSec` (virtual
-    // replay clock) nahi — kyunki `nowSec` yahan last CLOSED candle ke
-    // startTime ke barabar ho sakta hai (uske endTime ke nahi), jisse ye check
-    // hamesha true aa jaata aur ek already-closed candle ko bhi dobara "forming"
-    // maan ke strip kar deta (candle complete hote hi uska SR ban na paana).
-    // Line/candle CREATION kabhi bhi nowSec par depend nahi karni chahiye —
-    // sirf real closed bars par. Replay ke liye forming-bar exclusion already
-    // upstream (_liveAggregateTF ka structural _formingLast flag) se ho chuka
-    // hota hai, isliye yahan tak pahunchne wala data already replay-safe hai.
     const barDuration = last.time - prev.time;
     const nowSec = Math.floor(Date.now() / 1000);
     return nowSec < (last.time + barDuration);
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
-
-  // ── Trading-calendar-aware forward stepping (FIX for seconds-based ─────
-  // endTime causing visual compression) ───────────────────────────────────
-  // PURANA (buggy) tareeka: endTime = fromSec + N (raw seconds add) — ye
-  // maan leta tha ki trading CONTINUOUS hai (24x7). BankNifty sirf 9:15–
-  // 15:30 IST, Mon–Fri trade hota hai. Jab bhi ek line ki N-second window
-  // market-close (15:30) ke aage nikal jaati, wo saara "band market" time
-  // (raat + weekend) bhi seconds mein gin liya jaata — jabki chart ke
-  // time-axis par us gap ka koi bar/candle exist hi nahi karta (chart use
-  // visually skip kar deta hai). Result: chart internally us bade seconds-
-  // gap ko apne loaded bars ke AVERAGE spacing se estimate/extrapolate
-  // karta — jisme overnight/weekend gaps shaamil hone ki wajah se average
-  // asli 1-bar-spacing se kaafi bada ban jaata — aur line visually
-  // intended se bahut CHHOTI (compressed) dikhti, chahe live ho ya replay.
-  //
-  // NAYA (fix) tareeka: seconds sirf TRADING HOURS ke andar hi gine jaate
-  // hain — jaise hi 15:30 (session close) aata hai, baaki bacha hua time
-  // agle trading day ke 9:15 (session open) se continue hota hai (Sat/Sun
-  // skip karke). Isse jo bhi endTime nikalta hai, wo hamesha ek "real
-  // trading second" par hota hai — chart ki internal extrapolation ab
-  // saari bandh-market ki seconds ko nahi ginegi, aur "intended" length ==
-  // "drawn" length match karega.
-  //
-  // NOTE: Sirf INTRADAY TFs (5m/15m/45m/135m) ke liye trading-hours skip
-  // apply hota hai. Daily+ TFs (1D/3D/9D/27D) ka behaviour bilkul UNCHANGED
-  // hai (unka multi-day duration already calendar-based hai, aur wahan
-  // gap-compression ka mismatch practically nahi dekha gaya) — sirf
-  // intraday TFs is fix se touch hote hain.
-  const _SESS_START_SEC = 9 * 3600 + 15 * 60;   // 09:15 IST
-  const _SESS_END_SEC   = 15 * 3600 + 30 * 60;  // 15:30 IST
-  const _IST_OFF        = 5.5 * 3600;
-
-  // Agle trading-session ka OPEN timestamp (real epoch seconds) do, jo
-  // fromSec ke turant baad aata hai. Weekends (Sat/Sun) automatically skip.
-  function _nextSessionOpen(fromSec) {
-    const istSec = fromSec + _IST_OFF;
-    let dayStart = Math.floor(istSec / 86400) * 86400;
-    let openIst  = dayStart + _SESS_START_SEC;
-    if (openIst <= istSec) { dayStart += 86400; openIst = dayStart + _SESS_START_SEC; }
-    let dow = new Date(dayStart * 1000).getUTCDay();   // dayStart IST-shifted hai, isliye getUTCDay = IST weekday
-    while (dow === 0 || dow === 6) {                    // 0=Sun, 6=Sat
-      dayStart += 86400;
-      openIst   = dayStart + _SESS_START_SEC;
-      dow = new Date(dayStart * 1000).getUTCDay();
-    }
-    return openIst - _IST_OFF;
-  }
-
-  // fromSec se deltaSec "trading seconds" aage badhao (market-band ghanto
-  // ko skip karke). tfMin >= 1440 (daily+) ke liye purana raw-add behaviour
-  // hi rakha hai (unchanged scope).
-  function _advanceTradingSeconds(fromSec, deltaSec, tfMin) {
-    if (tfMin >= 1440) return fromSec + deltaSec;
-    let t = fromSec, remaining = deltaSec;
-    let guard = 0;
-    while (remaining > 1e-6 && guard++ < 5000) {
-      const istSec  = t + _IST_OFF;
-      const dayStart = Math.floor(istSec / 86400) * 86400;
-      const sessEndAbs = dayStart + _SESS_END_SEC;
-      const untilClose = sessEndAbs - istSec;
-      if (untilClose <= 0) { t = _nextSessionOpen(t); continue; }
-      if (remaining <= untilClose) {
-        t += remaining; remaining = 0;
-      } else {
-        remaining -= untilClose;
-        t = _nextSessionOpen(t + untilClose);
-      }
-    }
-    return t;
-  }
-
-  // ── Index-based endTime resolver ─────────────────────────────────────────
-  // CH_START/EXTEND aur SW_START/SLIDE ab "kitne bars aage" (fractional
-  // allowed) represent karte hain, seconds ki jagah. Target bar index agar
-  // already `data` mein exist karta hai to uski REAL timestamp use hoti hai
-  // (exact, gap-proof). Agar target abhi tak available data se aage hai
-  // (replay ka wait period, jab TF ka agla bucket close nahi hua), to sirf
-  // tab tak trading-seconds se extrapolate hota hai — jaise hi asli bar
-  // aata hai, agli swingCompute() call par turant real value se replace ho
-  // jaata hai (self-correcting, koi permanent drift nahi). Isse periodSec
-  // ke real-gap se derive hone wali seconds-arithmetic drift (jo "1x se 2x
-  // jump" jaisa visual bug deti thi) khatam ho jaati hai.
-  function _indexToTime(data, idxFloat, tfMin, defaultPeriodSec) {
-    const lastIdx = data.length - 1;
-    if (lastIdx < 0) return 0;
-    const _timeAt = (k) => {
-      if (k <= lastIdx) return data[Math.max(0, k)].time;
-      const extraBars = k - lastIdx;
-      return _advanceTradingSeconds(data[lastIdx].time, extraBars * defaultPeriodSec, tfMin);
-    };
-    const lo = Math.floor(idxFloat);
-    const frac = idxFloat - lo;
-    if (frac < 1e-9) return _timeAt(lo);
-    const t0 = _timeAt(lo);
-    const t1 = _timeAt(lo + 1);
-    return t0 + (t1 - t0) * frac;
-  }
-  // swingDuration() ka bar-count equivalent — index-based length ke liye.
-  // Same "intended visual length" jo pehle swingDuration(tfMin) seconds ke
-  // roop mein tha, ab utne hi "bars" ke roop mein — resolve _indexToTime()
-  // se hota hai taaki real bar timestamps use hon, gap-seconds se nahi.
-  function swingBarCount(tf) {
-    return swingDuration(tf) / ((tf || 1) * 60);
-  }
 
   // ── Custom swing line duration per TF (seconds) ──────────────────────────
   // Har naye candle pe endTime = cur.time + swingDuration → sliding window.
@@ -10450,21 +10227,13 @@ function swingCompute(bars, tfMin, nowSec) {
 
   for (let i = 0; i < data.length; i++) {
     const cur      = data[i];
+    // Actual candle duration from real data — fixes synthetic TFs like 135m
+    // where tfMin*60 may not match actual candle boundaries after resampling
+    const periodSec = (i >= 1) ? (cur.time - data[i-1].time) : _defaultPeriodSec;
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
     const isSessionGap = tfMin < 1440 && i >= 1 &&
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
-    // Actual candle duration from real data — fixes synthetic TFs like 135m
-    // where tfMin*60 may not match actual candle boundaries after resampling.
-    // FIX: session-gap (overnight) candle par raw gap use nahi karte — warna
-    // periodSec 16-18 ghante ban jaata hai (previous din ke last candle se
-    // gap), aur Step 4 mein CH_START_MULT * periodSec us gap ki duration se
-    // multiply ho ke ek bahut lambi/galat "Start length" line bana deta —
-    // jiska CH_START_MULT setting se koi practical rishta nahi dikhta.
-    // Aise candle par TF ka apna default period use karo.
-    const periodSec = (i >= 1 && !isSessionGap)
-      ? (cur.time - data[i-1].time)
-      : _defaultPeriodSec;
 
     // ── Step 1: Candle lines validate (touch = extend, no touch = delete) ──
     const validateLines = (arr) => {
@@ -10473,12 +10242,7 @@ function swingCompute(bars, tfMin, nowSec) {
         if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
         const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
         if (isTouched) {
-          // Cumulative extend: total length (bar-count) badhti hai
-          // +CH_EXTEND_MULT bars har touch par (16 → 24 → 32 → 40 → 48 ...),
-          // reset nahi hota. Index-based — endTime real bar timestamp se
-          // resolve hoti hai, seconds-arithmetic se nahi.
-          ln.endIndex = (ln.endIndex != null ? ln.endIndex : ln.creationIndex + CH_START_MULT) + CH_EXTEND_MULT;
-          ln.endTime  = _indexToTime(data, ln.endIndex, tfMin, _defaultPeriodSec);
+          ln.endTime = cur.time + CH_EXTEND_MULT * periodSec;
         } else {
           arr.splice(j, 1);
         }
@@ -10492,22 +10256,11 @@ function swingCompute(bars, tfMin, nowSec) {
     // ── Step 1b: Swing lines — har naye candle pe endTime slide karo ────────
     // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
     // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
-    const _swBars = swingBarCount(tfMin);
-    // FIX: pehle yahan endIndex UNCONDITIONALLY overwrite hota tha
-    // (i + SW_SLIDE_MULT*_swBars), chahe pehle se set (SW_START_MULT-based)
-    // length usse bada ho — isse naya-bana swing line agli hi candle par
-    // apni starting length se CHHOTA ho jaata tha (SW_SLIDE_MULT < SW_START_MULT
-    // hone par). Ab Math.max() se sirf tabhi aage badhta hai jab naya
-    // slide-target purane se bada ho — line kabhi apni set length se
-    // shrink nahi hogi, sirf grow (ya same rahegi) jab tak naya extreme
-    // (Step 2/3 ka filter) usse replace na kar de.
     for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endIndex = Math.max(aRes[j].endIndex, i + SW_SLIDE_MULT * _swBars);
-      aRes[j].endTime  = _indexToTime(data, aRes[j].endIndex, tfMin, _defaultPeriodSec);
+      aRes[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
     }
     for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endIndex = Math.max(aSup[j].endIndex, i + SW_SLIDE_MULT * _swBars);
-      aSup[j].endTime  = _indexToTime(data, aSup[j].endIndex, tfMin, _defaultPeriodSec);
+      aSup[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
     }
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
@@ -10517,12 +10270,10 @@ function swingCompute(bars, tfMin, nowSec) {
       // Deletion: purane swings jo naye se upar hain → hata do
       aRes = aRes.filter(l => l.price <= rPrice);
       aSup = aSup.filter(l => l.price <= rPrice);
-      // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
-      { const _shEndIdx = i + SW_START_MULT * _swBars;
-        aRes.push({ price: rPrice, startTime: rTime,
-                    endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec),
-                    endIndex: _shEndIdx,
-                    creationIndex: i, kind: 'sh', periodSec }); }
+      // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
+      aRes.push({ price: rPrice, startTime: rTime,
+                  endTime: cur.time + swingDuration(tfMin) * SW_START_MULT,
+                  creationIndex: i, kind: 'sh', periodSec });
     }
 
     // ── Step 3: Swing Low (prevRed → currGreen) ─────────────────────────
@@ -10532,12 +10283,10 @@ function swingCompute(bars, tfMin, nowSec) {
       // Deletion: purane swings jo naye se neeche hain → hata do
       aSup = aSup.filter(l => l.price >= sPrice);
       aRes = aRes.filter(l => l.price >= sPrice);
-      // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
-      { const _slEndIdx = i + SW_START_MULT * _swBars;
-        aSup.push({ price: sPrice, startTime: sTime,
-                    endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec),
-                    endIndex: _slEndIdx,
-                    creationIndex: i, kind: 'sl', periodSec }); }
+      // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
+      aSup.push({ price: sPrice, startTime: sTime,
+                  endTime: cur.time + swingDuration(tfMin) * SW_START_MULT,
+                  creationIndex: i, kind: 'sl', periodSec });
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
@@ -10548,17 +10297,13 @@ function swingCompute(bars, tfMin, nowSec) {
       ...aSup.map(l => l.price)
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
-      const _chEndIdx = i + CH_START_MULT;
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: _indexToTime(data, _chEndIdx, tfMin, _defaultPeriodSec),
-                     endIndex: _chEndIdx,
+                     endTime: cur.time + CH_START_MULT * periodSec,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
-      const _clEndIdx = i + CH_START_MULT;
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: _indexToTime(data, _clEndIdx, tfMin, _defaultPeriodSec),
-                     endIndex: _clEndIdx,
+                     endTime: cur.time + CH_START_MULT * periodSec,
                      creationIndex: i, kind: 'cl', periodSec });
     }
 
@@ -10577,52 +10322,18 @@ function swingCompute(bars, tfMin, nowSec) {
 
   // ── Replay virtual-clock extension (NO new pivots/lines created here) ──
   // Agar replay abhi bhi is TF ka agla bucket close hone ka wait kar raha
-  // hai (nowSec > lastClosedTime), to already-existing SWING lines ko replay
-  // ki asli current position (nowSec) tak "alive/visible" rakho — warna line
+  // hai (nowSec > lastClosedTime), to already-existing lines ko replay ki
+  // asli current position (nowSec) tak "alive/visible" rakho — warna line
   // ka endTime purane closed-candle ke hisaab se hi reh jaata aur replay
   // aage badhte hi line beech mein hi gayab ho jaati (gap). Yeh sirf
   // extension hai — koi naya pivot ya candle H/L is candle se nahi banta.
-  //
-  // FIX: Candle H/L lines (chLines/clLines) ko yahan se exclude kiya gaya
-  // hai. Pehle inhe bhi `nowSec` tak force-stretch kiya jaata tha, jo
-  // CH_START_MULT/CH_EXTEND_MULT se calculate hui endTime ko har replay
-  // step par turant overwrite kar deta tha — isliye settings ka koi visible
-  // effect hi nahi hota tha replay mein (chahe multiplier 0.5 ho ya 10).
-  // Candle H/L lines ko is extension ki zaroorat nahi — inki apni
-  // validate/delete cycle (touch = extend by CH_EXTEND_MULT, no-touch =
-  // turant delete) already har naye candle par chalti hai, gap ka risk
-  // nahi hai. Ab inka lifespan sirf CH_START_MULT/CH_EXTEND_MULT se decide
-  // hota hai — replay ho ya static view, dono mein same.
-  //
-  // Swing lines ke floor ka multiplier ab max(SW_START_MULT, SW_SLIDE_MULT)
-  // hai (pehle sirf SW_SLIDE_MULT tha) — taaki agar Start length, Slide
-  // length se bada rakha ho, to floor us bade window ko replay aage
-  // badhte hi turant chhota karke overwrite na kare.
   if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _swingFloorMult = Math.max(SW_START_MULT, SW_SLIDE_MULT);
-    const _swingFloor = _advanceTradingSeconds(nowSec, _swingFloorMult * swingDuration(tfMin), tfMin);
-    for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
-    for (const l of aSup) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    const _swingFloor = nowSec + SW_SLIDE_MULT * swingDuration(tfMin);
+    for (const l of aRes)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    for (const l of aSup)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
+    for (const l of chLines) if (l.endTime < nowSec)       l.endTime = nowSec;
+    for (const l of clLines) if (l.endTime < nowSec)       l.endTime = nowSec;
   }
-
-  // ── Candle H/L STARTING-length virtual-clock extension (swing-jaisa) ───
-  // Sirf STARTING length ke liye — bilkul upar wale swing floor jaisa hi
-  // mechanism, candle H/L ke liye. CH_START_MULT abhi bhi apni configured
-  // value (default 16) hi rehta hai, koi change nahi. Sirf abhi-abhi (isi
-  // last processed candle par) bani
-  // aur ABHI TAK ek baar bhi validate na hui lines (creationIndex === last
-  // index) ko replay ke virtual clock (nowSec) tak floor tak extend karo,
-  // taaki starting length replay ke waiting period mein bhi sahi dikhe.
-  // validateLines() ka touch → CH_EXTEND_MULT wala extend aur no-touch →
-  // delete wala rule bilkul yahan se untouched hai — sirf starting length
-  // par asar hai, kuch aur nahi cheda gaya.
-  if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _chFloor  = _advanceTradingSeconds(nowSec, CH_START_MULT * _defaultPeriodSec, tfMin);
-    const _lastIdx  = data.length - 1;
-    for (const l of chLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
-    for (const l of clLines) if (l.creationIndex === _lastIdx && l.endTime < _chFloor) l.endTime = _chFloor;
-  }
-
   const lastTime = (typeof nowSec === 'number') ? Math.max(lastClosedTime, nowSec) : lastClosedTime;
 
   // Swing SR lines — finite, latest 5
@@ -10684,7 +10395,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin) {
+function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10707,37 +10418,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
         autoscaleInfoProvider: () => null,
       });
       const _periodSec = ln.isInfinite ? (ln.levelTf || 1) * 60 : (ln.periodSec || 60);
-      let endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
-
-      // ── Index-based end-point override (replay-safe rendering) ──────────
-      // ln.endTime timeToCoordinate() ko seedha diya jaaye to LightweightCharts
-      // apna INTERNAL time→pixel extrapolation use karta hai jab wo time abhi
-      // is chart ke loaded bar-range se bahar ho (replay ke shuru mein sirf
-      // 1-2 bars loaded hote hain) — us extrapolation ka result bahut off/
-      // compressed aa sakta hai (settings ka koi asar nahi dikhta). Fix: yahan
-      // se seedha "kitne bars aage" (lenBars, humare apne index-based
-      // calculation se already exact) ko is CHART ke apne current barSpacing
-      // (pixels/bar, ratio-adjusted agar line kisi higher TF ki hai) se
-      // pixel-offset mein convert karo, aur wahan se coordinateToTime() se
-      // wapas ek time nikaalo. Ye humesha exact N-bars lambi line render
-      // karta hai, chahe kitna bhi kam data loaded ho — kyunki hum chart ke
-      // APNE hi coordinate-space mein kaam kar rahe hain, uske time-based
-      // extrapolation par depend nahi kar rahe.
-      if (!ln.isInfinite && cellTFMin) {
-        try {
-          const ts0 = chartObj.timeScale();
-          const x0  = ts0.timeToCoordinate(ln.startTime);
-          const barSpacing = ts0.options().barSpacing;
-          if (x0 != null && barSpacing) {
-            const lenBars = (ln.endTime - ln.startTime) / _periodSec;
-            const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
-            const x1 = x0 + lenBars * barSpacing * ratio;
-            const t1 = ts0.coordinateToTime(x1);
-            if (t1 != null) endT = t1;
-          }
-        } catch(_) {}
-      }
-
+      const endT = ln.isInfinite ? (ln.startTime + _periodSec * 100) : ln.endTime;
       s.setData([
         { time: ln.startTime, value: ln.price },
         { time: endT,         value: ln.price },
@@ -10938,14 +10619,6 @@ function initSwingIndicator() {
   try { _mainPreRange = chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
   _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
   _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange);
-
-  // ── SR debug log — SV1 Main chart (LIVE, koi replay/cutoff nahi) ────────
-  // cutoffTime = null → onlyReplayDay filter automatically skip ho jaata
-  // hai, isliye purani/aaj sab din ka NEW/TOUCH/DELETED dikhega jab tak
-  // window._SR_DEBUG.enabled = true kiya jaaye.
-  try {
-    _srDebugCapture('sv1-main', 'SV1 Main (' + S.asset + ' ' + S.tf + ')', chart, _swingLines, null);
-  } catch(_) {}
 }
 
 function buildCellSwing(idx) {
@@ -10971,11 +10644,6 @@ function buildCellSwing(idx) {
   // Real native plot ab har asset ke liye (BankNifty + BTC) — koi overlay
   // canvas nahi, koi coordinate-limit ka sawaal nahi.
   c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange);
-
-  // ── SR debug log — SV1 grid cell (LIVE, koi replay/cutoff nahi) ─────────
-  try {
-    _srDebugCapture('sv1-cell-' + idx, 'SV1 Cell ' + (idx + 1) + ' (' + c.asset + ' ' + c.tf + ')', c.chart, lines, null);
-  } catch(_) {}
 }
 
 function swingAfterRebuild() {
@@ -11142,10 +10810,7 @@ function _sv2ApplyCellSR(cellIdx, lines) {
       _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
     }
     if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
-    // Cell ka apna TF nikaalo — index-based end-point rendering ke liye
-    // (_bnBuildSRNative ka cellTFMin param) chahiye.
-    const _cellTFMin = _srDebugCellTFMin(cellIdx);
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true, _cellTFMin);
+    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true);
   } catch(_) {}
 }
 
@@ -11161,10 +10826,6 @@ function sv2SwingInit(cutoffTime) {
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
     _sv2ApplyCellSR(i, lines);
-    try {
-      const _c = STACK2_CELLS[i];
-      _srDebugCapture('sv2-cell-' + i, _srDebugCellLabel(i), _c && _c.chart, lines, cutoffTime, _srDebugCellTFMin(i));
-    } catch(_) {}
   }
 }
 
@@ -11195,265 +10856,6 @@ function sv2SwingClear() {
       }
     } catch(_) {}
   }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// SR LENGTH DEBUG LOG — Candle H/L line ki starting/extended length track karo
-// ────────────────────────────────────────────────────────────────────────────
-// Har `sv2SwingInit` pass ke baad (jo replay ke har step par chalta hai),
-// har cell ke liye ye naya `lines` array ko PICHLE pass ke saved snapshot se
-// compare karta hai (price+kind ko unique key maan ke). Farak milne par:
-//   - Nayi line mili           → "NEW"     (starting length)
-//   - Existing line ka endTime
-//     badla (bada ya chota)    → "TOUCH"   (extended/updated length)
-//   - Pehle thi, ab nahi hai   → "DELETED" (no-touch → removed)
-// Sirf jab replay LIVE hai (window._SV2_LIVE set) tab hi meaningful hai —
-// static/non-replay view mein bhi chalega par usually ek hi baar sab "NEW"
-// dikhega (initial load), jo theek hai.
-// ════════════════════════════════════════════════════════════════════════════
-window._SR_DEBUG = window._SR_DEBUG || { enabled: false, log: [], prevByCell: {} };
-
-// ── Debug LOG FILTERS — yahan se control karo ke log mein kya dikhna hai ──
-//   cellIdx      : sirf ek source ka data dikhao.
-//                  Number (0,1,2..) = legacy, matlab SV2 cell N ('sv2-cell-N').
-//                  String  = seedha source key do: 'sv1-main' (SV1 single
-//                  chart), 'sv1-cell-0'/'sv1-cell-1'... (SV1 grid cells),
-//                  ya 'sv2-cell-0'/'sv2-cell-1'... (SV2 cells).
-//                  null karo agar SV1 + SV2 dono ke sab sources chahiye.
-//   kinds        : kaunse line-types dikhaane hain. 'ch'=HIGH, 'cl'=LOW,
-//                  'sh'=SWING-HIGH, 'sl'=SWING-LOW. null karo agar sab chahiye.
-//   showNew      : true → "NEW ... starting length" lines dikhao
-//   showTouch    : true → "TOUCH ... extended length" lines dikhao
-//   showDeleted  : true → "DELETED" lines dikhao
-//   onlyReplayDay: true → sirf jo din abhi replay ho raha hai (purani dates
-//                  hide). SV1 (live) is filter se affect nahi hota kyunki
-//                  cutoffTime=null bheja jaata hai.
-window._SR_DEBUG_FILTER = {
-  cellIdx:       null,
-  kinds:         ['ch', 'cl', 'sh', 'sl'],
-  showNew:       true,
-  showTouch:     true,
-  showDeleted:   false,
-  onlyReplayDay: true
-};
-
-function _srDebugCellLabel(cellIdx) {
-  try {
-    const assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    const cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-    const tfLabel  = (cfg2.tfs && cfg2.tfs[cellIdx]) || ('#' + cellIdx);
-    return 'Cell ' + (cellIdx + 1) + ' (' + tfLabel + ')';
-  } catch(_) { return 'Cell ' + (cellIdx + 1); }
-}
-
-// SV2 cell ka apna TF (minutes mein) — index-based rendering/debug ke liye
-// (_bnBuildSRNative cellTFMin param, aur debug ka drawn-length measurement).
-function _srDebugCellTFMin(cellIdx) {
-  try {
-    const assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    const cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-    const tfLabel  = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
-    return _parseTFMin(tfLabel) || null;
-  } catch(_) { return null; }
-}
-
-function _srDebugKindLabel(kind) {
-  if (kind === 'ch') return 'HIGH';
-  if (kind === 'cl') return 'LOW';
-  if (kind === 'sh') return 'SWING-HIGH';
-  if (kind === 'sl') return 'SWING-LOW';
-  return kind;
-}
-
-// IST-formatted HH:MM:SS for a given epoch-seconds timestamp
-function _srDebugFmtTime(tSec) {
-  try {
-    const d = new Date(tSec * 1000);
-    return d.toLocaleString('en-IN', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
-      day: '2-digit', month: '2-digit',
-      hour12: false, timeZone: 'Asia/Kolkata'
-    });
-  } catch(_) { return String(tSec); }
-}
-
-// ── INDEX-BASED REAL-DRAW CHECK — wahi math jo _bnBuildSRNative() actual
-// rendering ke waqt use karta hai (startTime se pixel-offset via barSpacing,
-// phir coordinateToTime() se wapas time). Isse pata chalta hai ki FIX lagne
-// ke baad line asal mein kitni lambi render hogi — agar ye lenP (intended)
-// ke kareeb aaye to fix kaam kar raha hai; agar phir bhi door ho to
-// rendering mein koi aur cheez culprit hai.
-function _srDebugActualPeriodsIndexed(chartObj, ln, cellTFMin) {
-  try {
-    if (!chartObj || !cellTFMin) return null;
-    const ts = chartObj.timeScale();
-    const x0 = ts.timeToCoordinate(ln.startTime);
-    const barSpacing = ts.options().barSpacing;
-    if (x0 == null || !barSpacing) return null;
-    const period  = ln.periodSec || ((ln.levelTf || 1) * 60);
-    const lenBars = (ln.endTime - ln.startTime) / period;
-    const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
-    const x1 = x0 + lenBars * barSpacing * ratio;
-    const t1 = ts.coordinateToTime(x1);
-    if (t1 == null) return null;
-    const x2 = ts.timeToCoordinate(t1);
-    if (x2 == null) return null;
-    return (x2 - x0) / (barSpacing * ratio);
-  } catch (_) { return null; }
-}
-
-function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) {
-  if (!window._SR_DEBUG.enabled) return;
-  const F = window._SR_DEBUG_FILTER || {};
-
-  // ── Cell filter — sirf configured source ka data dikhao. Numeric (0,1,2..)
-  // ab bhi legacy SV2 cells ko refer karta hai ('sv2-cell-0' etc). SV1 ke
-  // liye string key seedha do: 'sv1-main' ya 'sv1-cell-0'/'sv1-cell-1'...
-  // null karo agar sab sources (SV1 + SV2) chahiye.
-  if (F.cellIdx !== null && F.cellIdx !== undefined) {
-    const want = (typeof F.cellIdx === 'number') ? ('sv2-cell-' + F.cellIdx) : F.cellIdx;
-    if (srcKey !== want) return;
-  }
-
-  // ── Kind filter — e.g. sirf 'ch'/'cl' (candle HIGH/LOW), swing 'sh'/'sl' allowed nahi
-  const kindOk = (k) => !F.kinds || F.kinds.includes(k);
-
-  // ── Replay-day filter — sirf jo IST calendar-day abhi replay ho raha hai ──
-  // SV1 (live, no replay) cutoffTime=null bhejta hai, isliye ye filter
-  // automatically skip ho jaata hai (replayDayKey null → onReplayDay hamesha true).
-  const IST_OFFSET_SEC = 5.5 * 3600;
-  const _dayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
-  const replayDayKey = (F.onlyReplayDay && cutoffTime) ? _dayKey(cutoffTime) : null;
-
-  const prevMap = window._SR_DEBUG.prevByCell[srcKey] || new Map();
-  const newMap  = new Map();
-
-  // DRAWN — chart ke actual loaded pixels se measure ki gayi length (wahi
-  // index-fixed math jo _bnBuildSRNative() rendering ke waqt use karta hai).
-  // Ab sirf yehi dikhaya jaata hai — "set/intended" value hata di gayi hai,
-  // kyunki wo sirf humara calculation tha, chart par asal mein kya render
-  // ho raha hai wahi yahan chahiye tha.
-  const _measureDrawn = (l) => {
-    if (!cellTFMin) return null;
-    return _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
-  };
-  const _drawnLabel = (p) => (p === null)
-    ? 'N/A (start point abhi chart ke loaded range se bahar hai)'
-    : p.toFixed(2) + '×period';
-
-  for (const l of lines) {
-    const key     = l.kind + ':' + l.price;
-    const drawnP  = _measureDrawn(l);
-    newMap.set(key, { line: l, drawnP });
-    if (!kindOk(l.kind)) continue;
-    const prevEntry    = prevMap.get(key);
-    const onReplayDay  = (replayDayKey === null) || (_dayKey(l.startTime) === replayDayKey);
-
-    if (!prevEntry) {
-      if (F.showNew && onReplayDay) {
-        _srDebugAppend(
-          '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
-          _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-          ' | drawn = ' + _drawnLabel(drawnP),
-          'sv2-dbg-new'
-        );
-      }
-    } else if (F.showTouch && Math.abs(l.endTime - prevEntry.line.endTime) > 0.001 && onReplayDay) {
-      _srDebugAppend(
-        '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
-        _srDebugKindLabel(l.kind) + ' @ ' + l.price +
-        ' | drawn ' + _drawnLabel(prevEntry.drawnP) + ' → ' + _drawnLabel(drawnP),
-        'sv2-dbg-ext'
-      );
-    }
-  }
-  if (F.showDeleted) {
-    for (const [key, prevEntry] of prevMap.entries()) {
-      const prev = prevEntry.line;
-      if (!kindOk(prev.kind)) continue;
-      if (!newMap.has(key)) {
-        const onReplayDay = (replayDayKey === null) || (_dayKey(prev.startTime) === replayDayKey);
-        if (onReplayDay) {
-          _srDebugAppend(
-            label + ' — DELETED ' + _srDebugKindLabel(prev.kind) + ' @ ' + prev.price +
-            ' | was drawn ' + _drawnLabel(prevEntry.drawnP) + ' (no-touch)',
-            'sv2-dbg-del'
-          );
-        }
-      }
-    }
-  }
-  window._SR_DEBUG.prevByCell[srcKey] = newMap;
-}
-
-function _srDebugAppend(text, cls) {
-  window._SR_DEBUG.log.push({ text, cls });
-  if (window._SR_DEBUG.log.length > 800) window._SR_DEBUG.log.shift();  // memory cap
-  _srDebugRender();
-}
-
-function _srDebugRender() {
-  const el = document.getElementById('sv2-debug-log');
-  if (!el) return;
-  el.innerHTML = window._SR_DEBUG.log
-    .map(l => '<div class="' + l.cls + '">' + l.text.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</div>')
-    .join('');
-  el.scrollTop = el.scrollHeight;
-}
-
-function _srDebugToggle() {
-  const panel = document.getElementById('sv2-debug-panel');
-  const btn   = document.getElementById('sv2-debug-btn');
-  const opening = !(panel && panel.classList.contains('open'));
-  if (panel) panel.classList.toggle('open', opening);
-  if (btn)   btn.classList.toggle('active', opening);
-  window._SR_DEBUG.enabled = opening;
-  if (opening) _srDebugRender();
-}
-
-function _srDebugClosePanel() {
-  const panel = document.getElementById('sv2-debug-panel');
-  const btn   = document.getElementById('sv2-debug-btn');
-  if (panel) panel.classList.remove('open');
-  if (btn)   btn.classList.remove('active');
-  window._SR_DEBUG.enabled = false;
-}
-
-function _srDebugClear() {
-  window._SR_DEBUG.log = [];
-  window._SR_DEBUG.prevByCell = {};
-  _srDebugRender();
-}
-
-function _srDebugCopyLog() {
-  const text = window._SR_DEBUG.log.map(l => l.text).join('\n');
-  const btn  = document.getElementById('sv2-debug-copy-btn');
-  function _showCopied() {
-    if (!btn) return;
-    const old = btn.textContent;
-    btn.textContent = '✓ Copied';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 1200);
-  }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(_showCopied).catch(() => _srDebugFallbackCopy(text, _showCopied));
-  } else {
-    _srDebugFallbackCopy(text, _showCopied);
-  }
-}
-
-function _srDebugFallbackCopy(text, cb) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    if (cb) cb();
-  } catch(_) {}
 }
 
 // ── Date Range events sunna ─────────────────────────────────────────────────
