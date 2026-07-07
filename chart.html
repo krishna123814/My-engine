@@ -168,7 +168,6 @@
   Line  248   TF Menu Button + TF Dropdown
   Line  308   Timeframe Bar (#tf-bar, .tf-btn)
   Line  330   Layout Dropdown Menu (#layout-menu)
-  Line  383   Broker / Fyers Panel (#broker-panel)
   Line  444   Workspace + Chart Area + Legend (#legend)
   Line  468   Bottom Bar (#bottom-bar)
   Line  494   Grid Layout Picker (#grid-picker)
@@ -186,7 +185,6 @@
   Line 1439   Drawing Tools Panel
   Line 1513   Floating Favourite Bar
   Line 1522   Drawing Settings Modal + Float Toolbar
-  Line 1584   Broker (Fyers) Panel
   Line 1641   Single-Chart Workspace + Legend
   Line 1663   Grid View container
   Line 1668   Bottom Bar (Indicators, Grid buttons)
@@ -204,7 +202,6 @@
   Line 2066   Save / Restore State — saveState() [key: btcDashState2]
   Line 2102   Layout Presets — 5 named slots [key: tvWorkspaces5]
                 saveToActiveLayout(), newLayout(), loadFromSlot(), _deleteLayout()
-  Line 2356   Broker / Fyers Panel — bkConnect(), bkTotpLogin(), toggleBrokerPanel()
   Line 2541   Grid Cells Array (CELLS[]) + LAYOUTS definitions
   Line 2628   Sync-in-layout flags (SYNC — crosshair, TF sync)
   Line 2655   Timeframes — parse, label, fav/hidden, rebuildTfBar(), applyTF()
@@ -504,67 +501,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   transition:border-color .15s,color .15s;
 }
 .lm-new-btn:hover{color:#d1d4dc;border-color:#555}
-
-/* ── Broker (Fyers) Panel ────────────────────────────────────────── */
-#broker-btn{
-  height:18px;padding:0 7px;background:transparent;border:1px solid #2a2e39;
-  border-radius:3px;color:#9598a1;font-size:11px;line-height:18px;
-  cursor:pointer;white-space:nowrap;flex-shrink:0;
-}
-#broker-btn:active{background:#2a2e39}
-#broker-btn.bk-live{border-color:#26a69a;color:#26a69a}
-#broker-btn.bk-dead{border-color:#ef5350;color:#ef5350}
-#broker-panel{
-  display:none;position:fixed;top:28px;right:6px;z-index:9500;
-  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
-  width:min(320px,96vw);box-shadow:0 8px 32px #000b;overflow:hidden;
-}
-#broker-panel.open{display:block}
-.bk-hdr{
-  display:flex;align-items:center;padding:10px 12px 8px;
-  border-bottom:1px solid #2a2e39;gap:6px;
-}
-.bk-hdr-title{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
-.bk-status-dot{width:7px;height:7px;border-radius:50%;background:#555;flex-shrink:0}
-.bk-status-dot.live{background:#26a69a;box-shadow:0 0 5px #26a69a}
-.bk-status-dot.dead{background:#ef5350}
-.bk-status-txt{font-size:10px;color:#787b86}
-.bk-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
-.bk-close:hover{color:#d1d4dc}
-.bk-body{padding:10px 12px 12px}
-.bk-row{display:flex;flex-direction:column;gap:3px;margin-bottom:8px}
-.bk-lbl{font-size:10px;color:#787b86;font-weight:600}
-.bk-inp{
-  height:28px;background:#131722;border:1px solid #363c4e;border-radius:4px;
-  color:#d1d4dc;font-size:11px;padding:0 8px;outline:none;width:100%;
-  -webkit-user-select:auto;user-select:auto;
-}
-.bk-inp:focus{border-color:#2962ff}
-.bk-inp.bk-url{height:34px;font-size:10px}
-.bk-row2{display:flex;gap:6px;margin-bottom:8px}
-.bk-row2 .bk-row{flex:1;margin-bottom:0}
-.bk-link{
-  display:block;margin-bottom:8px;padding:8px;
-  background:#162044;border:1px solid #2962ff44;border-radius:4px;
-  color:#5b9cf6;font-size:11px;text-align:center;cursor:pointer;text-decoration:none;
-}
-.bk-link:hover{background:#1a2a55;border-color:#2962ff}
-.bk-divider{height:1px;background:#2a2e39;margin:8px 0}
-.bk-hint{font-size:10px;color:#555;margin-bottom:6px}
-.bk-connect-btn{
-  width:100%;height:34px;background:#2962ff;border:none;border-radius:5px;
-  color:#fff;font-size:12px;font-weight:700;cursor:pointer;margin-top:4px;
-}
-.bk-connect-btn:active{background:#1a53e0}
-.bk-connect-btn:disabled{background:#363c4e;color:#555;cursor:not-allowed}
-.bk-msg{font-size:11px;margin-top:6px;text-align:center;min-height:16px}
-.bk-msg.ok{color:#26a69a} .bk-msg.err{color:#ef5350}
-/* ── Broker panel tabs ── */
-.bk-tabs{display:flex;border-bottom:1px solid #2a2e39;margin-bottom:10px;gap:2px}
-.bk-tab-btn{flex:1;height:26px;background:transparent;border:none;border-bottom:2px solid transparent;color:#787b86;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:.3px}
-.bk-tab-btn.active{color:#2962ff;border-bottom-color:#2962ff}
-.bk-tab-pane{display:none}
-.bk-tab-pane.active{display:block}
 
 /* ── Workspace ───────────────────────────────────────────────────── */
 #workspace{flex:1;display:flex;overflow:hidden;min-height:0}
@@ -1945,7 +1881,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
     <button class="hdr-icon-btn" id="layout-btn" onclick="toggleLayoutMenu(event)" title="Layouts">⊟</button>
-    <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
     <span id="ws-status"><span id="ws-dot"></span></span>
@@ -2123,63 +2058,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       </div>
 
       <button id="dt-set-save" onclick="_dtsApply()">✓ Apply</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ BROKER (FYERS) PANEL ════════════════════════════════════════════ -->
-<div id="broker-panel">
-  <div class="bk-hdr">
-    <span class="bk-status-dot" id="bk-dot"></span>
-    <span class="bk-hdr-title">🔑 Fyers Broker</span>
-    <span class="bk-status-txt" id="bk-status-txt">Checking…</span>
-    <button class="bk-close" onclick="toggleBrokerPanel()">✕</button>
-  </div>
-  <div class="bk-body">
-    <!-- Shared: App ID + Secret -->
-    <div class="bk-row2">
-      <div class="bk-row">
-        <span class="bk-lbl">APP ID</span>
-        <input class="bk-inp" id="bk-app-id" value="__FYERS_APP_ID__" placeholder="XXXXXXXX-100">
-      </div>
-      <div class="bk-row">
-        <span class="bk-lbl">SECRET KEY</span>
-        <input class="bk-inp" id="bk-secret" value="__FYERS_SECRET__" placeholder="XXXXXXXXXX">
-      </div>
-    </div>
-
-    <!-- Tab buttons -->
-    <div class="bk-tabs">
-      <button class="bk-tab-btn active" onclick="bkSwitchTab('manual',this)">🔗 Google URL</button>
-      <button class="bk-tab-btn" onclick="bkSwitchTab('totp',this)">🤖 TOTP Auto</button>
-    </div>
-
-    <!-- Tab 1: Manual Google URL -->
-    <div class="bk-tab-pane active" id="bk-pane-manual">
-      <div class="bk-lbl" style="margin-bottom:4px">STEP 1 — Fyers login link kholo</div>
-      <a id="bk-login-link" class="bk-link" href="#" target="_blank" onclick="bkOpenLogin(event)">
-        👉 Fyers Login Link Open Karo (new tab)
-      </a>
-      <div class="bk-divider"></div>
-      <div class="bk-lbl" style="margin-bottom:4px">STEP 2 — Google URL ya auth_code paste karo</div>
-      <div class="bk-hint">Login ke baad Google page aayega → poora URL paste karo</div>
-      <div class="bk-row">
-        <input class="bk-inp bk-url" id="bk-url-inp" placeholder="https://www.google.com/?s=ok&auth_code=eyJ…" oninput="bkOnUrlInput(this)">
-      </div>
-      <div id="bk-code-preview" style="font-size:9px;color:#555;margin:-4px 0 6px;word-break:break-all;min-height:12px"></div>
-      <button class="bk-connect-btn" id="bk-conn-btn" onclick="bkConnect()" disabled>⚡ Connect</button>
-      <div class="bk-msg" id="bk-msg"></div>
-    </div>
-
-    <!-- Tab 2: TOTP Auto Login -->
-    <div class="bk-tab-pane" id="bk-pane-totp">
-      <div class="bk-lbl" style="margin-bottom:4px">TOTP Secret (32-char key — ek baar daalo)</div>
-      <div class="bk-hint">Google Authenticator / Authy mein Fyers ka backup key</div>
-      <div class="bk-row">
-        <input class="bk-inp" id="bk-totp-secret" type="password" placeholder="JBSWY3DPEHPK3PXP…" style="letter-spacing:1px">
-      </div>
-      <button class="bk-connect-btn" id="bk-totp-btn" onclick="bkTotpLogin()" style="margin-top:4px">🚀 Auto Login (TOTP)</button>
-      <div class="bk-msg" id="bk-totp-msg"></div>
     </div>
   </div>
 </div>
@@ -3273,182 +3151,8 @@ function toggleLayoutMenu(e) {
   }, 0);
 }
 
-// ══ BROKER (FYERS) PANEL LOGIC ═══════════════════════════════════════════════
-const _BK_STATUS = '__FYERS_STATUS__'; // injected by Python: 'connected' | 'disconnected'
-const _API_PORT  = __API_PORT__;       // injected by Python: side HTTP server port (e.g. 8502), 0 = not ready
-
-function _bkInitStatus() {
-  const dot  = document.getElementById('bk-dot');
-  const txt  = document.getElementById('bk-status-txt');
-  const btn  = document.getElementById('broker-btn');
-  const live = _BK_STATUS === 'connected';
-  if (dot) { dot.className = 'bk-status-dot ' + (live ? 'live' : 'dead'); }
-  if (txt) { txt.textContent = live ? '● Live' : '○ Not connected'; }
-  if (btn) { btn.className = live ? 'bk-live' : 'bk-dead'; }
-}
-
-let _bkOutsideHandler = null;
-function toggleBrokerPanel(e) {
-  if (e) e.stopPropagation();
-  const panel = document.getElementById('broker-panel');
-  if (!panel) return;
-  const isOpen = panel.classList.contains('open');
-  if (isOpen) {
-    panel.classList.remove('open');
-    if (_bkOutsideHandler) { document.removeEventListener('click', _bkOutsideHandler, true); _bkOutsideHandler = null; }
-    return;
-  }
-  panel.classList.add('open');
-  _bkInitStatus();
-  _bkUpdateLoginLink();
-  // Close on outside click
-  setTimeout(() => {
-    _bkOutsideHandler = function _bkOut(ev) {
-      const b = document.getElementById('broker-btn');
-      if (!panel.contains(ev.target) && ev.target !== b && !(b && b.contains(ev.target))) {
-        panel.classList.remove('open');
-        document.removeEventListener('click', _bkOut, true);
-        _bkOutsideHandler = null;
-      }
-    };
-    document.addEventListener('click', _bkOutsideHandler, { capture: true });
-  }, 0);
-}
-
-function _bkUpdateLoginLink() {
-  const appId  = (document.getElementById('bk-app-id')  || {value:''}).value.trim() || '__FYERS_APP_ID__';
-  const link   = document.getElementById('bk-login-link');
-  if (!link) return;
-  const url = 'https://api-t1.fyers.in/api/v3/generate-authcode'
-    + '?client_id=' + encodeURIComponent(appId)
-    + '&redirect_uri=https%3A%2F%2Fwww.google.com'
-    + '&response_type=code&state=None';
-  link.href = url;
-}
-
-function bkOpenLogin(e) {
-  _bkUpdateLoginLink();
-  // allow default <a href> open
-}
-
-function _bkExtractCode(raw) {
-  raw = (raw || '').trim();
-  if (!raw) return '';
-  if (raw.startsWith('http')) {
-    try {
-      const u = new URL(raw);
-      return u.searchParams.get('auth_code') || '';
-    } catch(_) { return ''; }
-  }
-  // raw code pasted directly
-  return raw.length > 10 ? raw : '';
-}
-
-function bkOnUrlInput(inp) {
-  const code = _bkExtractCode(inp.value);
-  const preview = document.getElementById('bk-code-preview');
-  const connBtn = document.getElementById('bk-conn-btn');
-  if (preview) {
-    preview.textContent = code ? ('✓ Code: ' + code.slice(0, 28) + '…') : '';
-    preview.style.color = code ? '#26a69a' : '#555';
-  }
-  if (connBtn) connBtn.disabled = !code;
-}
-
-function bkConnect() {
-  const appId  = (document.getElementById('bk-app-id')  || {value:''}).value.trim();
-  const secret = (document.getElementById('bk-secret')  || {value:''}).value.trim();
-  const urlRaw = (document.getElementById('bk-url-inp') || {value:''}).value.trim();
-  const code   = _bkExtractCode(urlRaw);
-  const msg    = document.getElementById('bk-msg');
-
-  if (!code) {
-    if (msg) { msg.textContent = '❌ Valid URL ya auth_code paste karo'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (!appId || !secret) {
-    if (msg) { msg.textContent = '❌ App ID aur Secret fill karo'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (msg) { msg.textContent = '⏳ Connecting…'; msg.className = 'bk-msg'; }
-
-  // Streamlit iframe sandbox blocks window.parent.location.href assignment.
-  // Workaround: create a GET form in the PARENT document and submit it —
-  // parent-document forms are not subject to the child-frame sandbox.
-  try {
-    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-    const pdoc = window.parent.document;
-
-    const form = pdoc.createElement('form');
-    form.method = 'GET';
-    form.action = parentUrl;
-
-    const addHidden = (name, val) => {
-      const el = pdoc.createElement('input');
-      el.type = 'hidden'; el.name = name; el.value = val;
-      form.appendChild(el);
-    };
-    addHidden('fyers_app_id', appId);
-    addHidden('fyers_secret',  secret);
-    addHidden('fyers_code',    code);
-
-    pdoc.body.appendChild(form);
-    form.submit();
-  } catch(err) {
-    if (msg) { msg.textContent = '❌ Error: ' + err.message; msg.className = 'bk-msg err'; }
-  }
-}
-
-// ── Tab switching ─────────────────────────────────────────────────────────────
-function bkSwitchTab(name, btn) {
-  ['manual','totp'].forEach(t => {
-    const pane = document.getElementById('bk-pane-' + t);
-    if (pane) pane.classList.toggle('active', t === name);
-  });
-  document.querySelectorAll('.bk-tab-btn').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-}
-
-// ── TOTP Auto Login ───────────────────────────────────────────────────────────
-function bkTotpLogin() {
-  const secret = (document.getElementById('bk-totp-secret') || {value:''}).value.trim();
-  const appId  = (document.getElementById('bk-app-id')     || {value:''}).value.trim();
-  const sec    = (document.getElementById('bk-secret')     || {value:''}).value.trim();
-  const msg    = document.getElementById('bk-totp-msg');
-  const btn    = document.getElementById('bk-totp-btn');
-
-  if (!secret) {
-    if (msg) { msg.textContent = '❌ TOTP secret daalo pehle'; msg.className = 'bk-msg err'; }
-    return;
-  }
-  if (msg) { msg.textContent = '⏳ Logging in… (Steps 1→5)'; msg.className = 'bk-msg'; }
-  if (btn) btn.disabled = true;
-
-  try {
-    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
-    const pdoc = window.parent.document;
-    const form = pdoc.createElement('form');
-    form.method = 'GET';
-    form.action = parentUrl;
-    const h = (name, val) => {
-      const el = pdoc.createElement('input');
-      el.type = 'hidden'; el.name = name; el.value = val;
-      form.appendChild(el);
-    };
-    h('totp_trigger', '1');
-    h('totp_secret',  secret);
-    h('fyers_app_id', appId);
-    h('fyers_secret', sec);
-    pdoc.body.appendChild(form);
-    form.submit();
-  } catch(err) {
-    if (msg) { msg.textContent = '❌ ' + err.message; msg.className = 'bk-msg err'; }
-    if (btn) btn.disabled = false;
-  }
-}
-
-document.addEventListener('DOMContentLoaded', _bkInitStatus);
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Side API port (used by history endpoint below; no broker login needed) ───
+const _API_PORT  = __API_PORT__;       // injected by Python: side HTTP server port, 0 = not ready
 
 function _flashBtn(id, msg) {
   const btn = document.getElementById(id);
