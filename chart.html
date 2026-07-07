@@ -250,11 +250,8 @@
                 Tools: trendline, hline, vline, ray, extended, arrow, rect, text
                 _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
   Line 8540   TF Chips in Drawing Settings Modal
-  (removed)   Google Drive sync, GitHub Gist sync, server-side chart-state
-                auto-restore — all deleted. localStorage khud persist karta
-                hai; SS module ab sirf manual JSON Download/Restore-from-file
-                deta hai (no auto-apply, so settings kabhi silently revert
-                nahi hote).
+  Line 8727   Google Cloud Sync (Google Drive appDataFolder)
+                GD.init(), GD.push(), GD.pull(), GD.signIn()
   Line 9038   Keep-Alive ping (har 4 min → Streamlit /_stcore/health)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -723,258 +720,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
    this element. We deliberately do NOT set touch-action:none here, because
    that would also interfere with the chart library's own pan/zoom touch
    handling inside the candle area, making drag/pinch-zoom feel jerky. */
-
-/* ── Stack View 2 (independent copy, empty chart, no live/historical data) ── */
-#stack-view-2{display:none;flex:1;overflow:hidden;min-height:0;}
-#stack-view-2.active{display:flex;flex-direction:column}
-#stack-container-2{
-  flex:1;display:flex;flex-direction:column;
-  background:#2a2e39;overflow-y:auto;min-height:0;
-  touch-action:none;
-}
-.stack2-cell{
-  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
-  position:relative;
-  display:flex;flex-direction:column;
-}
-.stack2-cell .cell-overlay{
-  pointer-events:none;
-  min-height:28px;
-}
-.stack2-cell .cell-overlay > *{ pointer-events:none; }
-
-/* ── Date Range Selector — Floating Icon ─────────────────────────────── */
-#sv2-drng-fab{
-  display:none;                          /* sirf stack2 active hone par dikhega */
-  position:fixed;
-  z-index:8500;
-  width:48px;height:48px;
-  border-radius:50%;
-  background:#1e222d;
-  border:2px solid #2962ff;
-  box-shadow:0 4px 16px #0007;
-  font-size:22px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:none;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s;
-}
-#sv2-drng-fab.active-range{
-  background:#2962ff22;
-  border-color:#26a69a;
-}
-#sv2-drng-fab.dragging{
-  opacity:.85;
-  box-shadow:0 8px 32px #0009;
-}
-
-/* ── SV2 Step / Replay Button ────────────────────────────────────────── */
-#sv2-step-btn{
-  display:none;                          /* sirf active-range mein dikhega */
-  position:fixed;
-  z-index:8499;                          /* FAB ke theek neeche */
-  width:48px;height:48px;
-  border-radius:50%;
-  background:#1e222d;
-  border:2px solid #26a69a;
-  box-shadow:0 4px 16px #0007;
-  font-size:20px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, opacity .2s;
-  color:#26a69a;
-}
-#sv2-step-btn.visible{
-  display:flex;
-}
-#sv2-reset-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:40px;height:40px;
-  border-radius:50%;
-  background:#1e222d;
-  border:2px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:17px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  color:#787b86;
-}
-#sv2-reset-btn.visible{
-  display:flex;
-}
-#sv2-onestep-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:40px;height:40px;
-  border-radius:50%;
-  background:#1e222d;
-  border:2px solid #2196f3;
-  box-shadow:0 4px 16px #0007;
-  font-size:17px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  color:#2196f3;
-}
-#sv2-onestep-btn.visible{
-  display:flex;
-}
-#sv2-onestep-btn.disabled{
-  opacity:.3;
-  border-color:#555;
-  color:#555;
-  cursor:not-allowed;
-}
-#sv2-step-btn.animating{
-  opacity:.45;
-  border-color:#555;
-  color:#555;
-  cursor:not-allowed;
-}
-#sv2-step-btn.done{
-  opacity:.3;
-  border-color:#555;
-  color:#555;
-  cursor:not-allowed;
-}
-
-/* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
-#sv2-drng-sheet{
-  display:none;
-  position:fixed;
-  bottom:0;left:0;right:0;
-  z-index:9500;
-  background:#1e222d;
-  border-radius:16px 16px 0 0;
-  border-top:1px solid #2a2e39;
-  box-shadow:0 -8px 40px #000a;
-  padding-bottom:env(safe-area-inset-bottom,0px);
-  transform:translateY(100%);
-  transition:transform .28s cubic-bezier(.32,.72,0,1);
-}
-#sv2-drng-sheet.open{
-  display:block;
-  transform:translateY(0);
-}
-#sv2-drng-sheet-inner{
-  max-height:88vh;
-  overflow-y:auto;
-  padding:0 0 12px;
-}
-
-/* Sheet handle bar */
-#sv2-drng-handle{
-  width:36px;height:4px;
-  background:#363c4e;border-radius:2px;
-  margin:10px auto 4px;
-}
-
-/* Sheet header */
-#sv2-drng-hdr{
-  display:flex;align-items:center;
-  padding:8px 16px 10px;
-  border-bottom:1px solid #2a2e39;
-  gap:8px;
-}
-#sv2-drng-title{
-  flex:1;font-size:13px;font-weight:700;color:#d1d4dc;
-}
-#sv2-drng-clear{
-  font-size:11px;color:#ef5350;background:none;border:none;
-  padding:4px 8px;cursor:pointer;border-radius:4px;
-}
-#sv2-drng-clear:active{background:#ef535022}
-#sv2-drng-close{
-  width:26px;height:26px;border-radius:50%;
-  background:#2a2e39;border:none;color:#d1d4dc;
-  font-size:15px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-}
-
-/* Start / End date selector tabs */
-#sv2-drng-tabs{
-  display:flex;gap:0;padding:10px 16px 0;
-}
-.sv2-drng-tab{
-  flex:1;padding:7px 4px;font-size:11px;font-weight:600;
-  background:#131722;border:1px solid #2a2e39;color:#787b86;
-  cursor:pointer;text-align:center;
-}
-.sv2-drng-tab:first-child{border-radius:6px 0 0 6px;border-right:none}
-.sv2-drng-tab:last-child{ border-radius:0 6px 6px 0}
-.sv2-drng-tab.active{background:#2962ff;border-color:#2962ff;color:#fff}
-.sv2-drng-tab-lbl{font-size:9px;opacity:.7;display:block}
-.sv2-drng-tab-val{font-size:12px;font-weight:700;margin-top:1px;display:block}
-
-/* Calendar nav */
-#sv2-cal-nav{
-  display:flex;align-items:center;
-  padding:10px 16px 4px;gap:4px;
-}
-#sv2-cal-prev,#sv2-cal-next{
-  width:34px;height:34px;border-radius:50%;
-  background:#2a2e39;border:none;color:#d1d4dc;
-  font-size:16px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-#sv2-cal-prev:active,#sv2-cal-next:active{background:#363c4e}
-#sv2-cal-month-label{
-  flex:1;text-align:center;font-size:13px;font-weight:700;color:#d1d4dc;
-}
-
-/* Calendar grid */
-#sv2-cal-grid{
-  padding:4px 10px 8px;
-  display:grid;grid-template-columns:repeat(7,1fr);gap:2px;
-}
-.sv2-cal-dow{
-  text-align:center;font-size:9px;color:#555;font-weight:700;
-  padding:4px 0;text-transform:uppercase;
-}
-.sv2-cal-day{
-  text-align:center;font-size:12px;color:#d1d4dc;
-  height:34px;line-height:34px;border-radius:6px;
-  cursor:pointer;position:relative;
-  transition:background .12s;
-}
-.sv2-cal-day:active{background:#363c4e}
-.sv2-cal-day.other-month{color:#333;pointer-events:none}
-.sv2-cal-day.today{color:#f0b429;font-weight:700}
-.sv2-cal-day.sel-start{background:#2962ff;color:#fff;font-weight:700;border-radius:6px 0 0 6px}
-.sv2-cal-day.sel-end  {background:#2962ff;color:#fff;font-weight:700;border-radius:0 6px 6px 0}
-.sv2-cal-day.sel-start.sel-end{border-radius:6px}
-.sv2-cal-day.in-range {background:#2962ff22;color:#d1d4dc;border-radius:0}
-.sv2-cal-day.disabled {color:#333;pointer-events:none}
-
-/* Apply button */
-#sv2-drng-apply{
-  display:block;width:calc(100% - 32px);margin:8px 16px 4px;
-  height:44px;border-radius:8px;
-  background:#26a69a;border:none;color:#fff;
-  font-size:14px;font-weight:700;cursor:pointer;
-}
-#sv2-drng-apply:active{background:#1d8a80}
-#sv2-drng-apply:disabled{background:#2a2e39;color:#555;cursor:not-allowed}
-
-/* Sheet backdrop */
-#sv2-drng-backdrop{
-  display:none;position:fixed;inset:0;z-index:9499;
-  background:#0006;
-}
-#sv2-drng-backdrop.open{display:block}
 /* Top strip — reuses the existing symbol/TF/letter overlay line.
    Purely visual now: pointer-events:none so touches pass straight through
    to the chart underneath (no more touch capture / drag-to-scroll here). */
@@ -1872,6 +1617,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
+    <button class="hdr-icon-btn" id="gh-save-btn" 
+      onclick="GH.push(true)" 
+      oncontextmenu="event.preventDefault(); GH.reset();"
+      ontouchstart="this._ghLong=setTimeout(()=>GH.reset(),1000)"
+      ontouchend="clearTimeout(this._ghLong)"
+      title="Save to GitHub (Long-press to reset token)" 
+      style="background:#24292f;color:#fff;border-radius:4px;margin-left:4px;display:flex;align-items:center;justify-content:center;padding:0;width:24px;height:24px;">
+      <svg height="16" viewBox="0 0 16 16" version="1.1" width="16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path></svg>
+    </button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
@@ -1899,7 +1653,50 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="lm-close" onclick="toggleLayoutMenu(event)">✕</button>
   </div>
   <button class="lm-save-btn" id="lm-save-btn" onclick="saveToActiveLayout()">💾 Save Layout</button>
+  
+  <!-- GitHub Sync Buttons (Moved to Top) -->
+  <div style="display:flex;gap:6px;padding:10px;background:#24292f11;border:1px solid #24292f33;border-radius:8px;margin-top:8px;align-items:center;">
+    <span style="font:700 12px sans-serif;color:#24292f;flex:1;">🐙 GitHub</span>
+    <button onclick="GH.pull((f,c)=>{ if(f) { if(c) { alert('Cloud data restored! Reloading...'); location.reload(); } else alert('Already up to date'); } else alert('No data on GitHub'); })" 
+      style="background:#26a69a;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 14px;cursor:pointer;">
+      PULL (Restore)
+    </button>
+    <button onclick="GH.reset()" 
+      style="background:#ef5350;color:#fff;border:none;border-radius:6px;font:700 11px sans-serif;padding:8px 10px;cursor:pointer;">
+      Reset
+    </button>
+  </div>
 
+  <div id="gd-row" style="display:flex;align-items:center;justify-content:space-between;gap:6px;padding:8px 10px;margin-top:6px;background:rgba(41,98,255,0.08);border-radius:8px;">
+    <span id="gd-status" style="font:600 11px sans-serif;color:#787b86;flex:1;line-height:1.3;">☁ Cloud: checking…</span>
+    <!-- Auto-save toggle -->
+    <button id="gd-autosave-btn" onclick="gdAutoSaveToggle()"
+      style="background:#1e222d;border:1px solid #2a2e3e;border-radius:6px;
+             color:#787b86;font:600 10px sans-serif;padding:4px 7px;
+             cursor:pointer;white-space:nowrap;min-height:28px;line-height:1.2;"
+      title="Auto-save on/off">⚡ Auto</button>
+    <!-- Cloud on/off toggle -->
+    <button id="gd-toggle" onclick="gdToggle()"
+      style="background:none;border:none;font-size:16px;cursor:pointer;padding:4px 4px;
+             line-height:1;border-radius:6px;min-width:28px;min-height:28px;"
+      title="Cloud sync on/off">🟢</button>
+    <button id="gd-btn" onclick="gdSignInClick()" style="display:none;background:#2962ff;color:#fff;border:none;border-radius:6px;padding:8px 12px;font:600 12px sans-serif;min-height:36px;cursor:pointer;">Sign in</button>
+  </div>
+
+  <!-- Manual token paste — popup URL copy karke yahan paste karo -->
+  <div id="gd-manual-row" style="display:none;padding:6px 10px 8px;border-top:1px solid #2a2e3e;">
+    <div style="font:500 10px sans-serif;color:#787b86;margin-bottom:4px;">Popup ka poora URL paste karo:</div>
+    <div style="display:flex;gap:6px;">
+      <input id="gd-token-inp" type="text" placeholder="localhost:8501/?gd_cb=1#access_token=ya29..."
+        style="flex:1;background:#1e222d;border:1px solid #363c4e;border-radius:6px;color:#d1d4dc;
+               font-size:11px;padding:6px 8px;outline:none;min-width:0;">
+      <button onclick="gdManualToken()"
+        style="background:#26a69a;color:#fff;border:none;border-radius:6px;
+               padding:6px 10px;font:600 11px sans-serif;cursor:pointer;white-space:nowrap;">
+        ✓ OK
+      </button>
+    </div>
+  </div>
   <!-- ss-status hidden — sirf internal use -->
   <span id="ss-status" style="display:none;"></span>
   <div class="lm-divider"></div>
@@ -2140,11 +1937,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="stack-container"></div>
 </div>
 
-<!-- ═══ STACK VIEW 2 (independent copy, empty chart, no live/historical data) ═ -->
-<div id="stack-view-2">
-  <div id="stack-container-2"></div>
-</div>
-
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
@@ -2156,8 +1948,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
-  <button id="stack2-up-btn" onclick="_stack2StepJump(-1)" title="Stack2: Scroll up" style="display:none">▲②</button>
-  <button id="stack2-down-btn" onclick="_stack2StepJump(1)" title="Stack2: Scroll down" style="display:none">▼②</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -2191,55 +1981,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 </div><!-- #app -->
 
-<!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
-<button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
-
-<!-- ═══ SV2 LIVE REPLAY CONTROLS (FAB ke neeche, sirf active-range mein) ══ -->
-<button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
-<button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
-<button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
-
-<!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
-<div id="sv2-drng-backdrop"></div>
-
-<!-- ═══ SV2 DATE RANGE — Bottom Sheet ═══════════════════════════════════ -->
-<div id="sv2-drng-sheet">
-  <div id="sv2-drng-sheet-inner">
-    <div id="sv2-drng-handle"></div>
-    <div id="sv2-drng-hdr">
-      <span id="sv2-drng-title">📅 Replay Date</span>
-      <button id="sv2-drng-clear" onclick="_sv2DrngClear()">✕ Clear</button>
-      <button id="sv2-drng-close" onclick="_sv2DrngClose()">✕</button>
-    </div>
-
-    <!-- Single date tab — us date tak ka data dikhega, uske baad replay shuru -->
-    <div id="sv2-drng-tabs">
-      <div class="sv2-drng-tab active" id="sv2-tab-start" style="width:100%;border-radius:8px;">
-        <span class="sv2-drng-tab-lbl">HISTORY CUTOFF DATE</span>
-        <span class="sv2-drng-tab-val" id="sv2-tab-start-val">-- Date chuniye --</span>
-      </div>
-      <!-- End tab hidden — single-date mode -->
-      <div id="sv2-tab-end" style="display:none"></div>
-    </div>
-    <div style="font-size:10px;color:#848da0;text-align:center;padding:4px 0 0 0;margin-top:-4px;">
-      ← Is date tak ka data dikhega · Uske baad Replay ▶ shuru hoga
-    </div>
-
-    <!-- Calendar nav row -->
-    <div id="sv2-cal-nav">
-      <button id="sv2-cal-prev" onclick="_sv2CalPrev()">‹</button>
-      <span id="sv2-cal-month-label">-- --</span>
-      <button id="sv2-cal-next" onclick="_sv2CalNext()">›</button>
-    </div>
-
-    <!-- Calendar grid (days-of-week header + date cells, built by JS) -->
-    <div id="sv2-cal-grid"></div>
-
-    <!-- Apply -->
-    <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply &amp; Start Replay</button>
-  </div>
-</div>
-
 <!-- ═══ FULLSCREEN RESTORE BANNER ═══════════════════════════════════════ -->
 <div id="fs-restore" onclick="restoreFS()">
   ⛶ &nbsp;Tap here to restore fullscreen &nbsp;⛶
@@ -2254,12 +1995,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <span class="gp-stack-label">Stack View (scrollable)</span>
       <button class="gp-stack-gear" onclick="event.stopPropagation(); openStackSettings()">⚙</button>
       <button id="gp-stack-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStackOnOff()"></button>
-    </div>
-    <div id="gp-stack2-row" class="gp-stack-row" style="background:rgba(41,98,255,0.06);">
-      <span class="gp-stack-icon">📋</span>
-      <span class="gp-stack-label">Stack View 2 (empty)</span>
-      <button class="gp-stack-gear" onclick="event.stopPropagation(); openStack2Settings()">⚙</button>
-      <button id="gp-stack2-switch" class="gp-switch" onclick="event.stopPropagation(); toggleStack2OnOff()"></button>
     </div>
     <div class="gp-divider"></div>
     <div class="gp-section-title">Chart layout</div>
@@ -2313,41 +2048,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button class="ss-done-btn" onclick="ssApplyAndClose()">Done</button>
 </div>
 
-<!-- ═══ STACK VIEW 2 SETTINGS PANEL ═════════════════════════════════════════ -->
-<div id="stack2-settings-panel" style="display:none;position:fixed;z-index:10100;top:50%;left:50%;transform:translate(-50%,-50%);background:#1e222d;border:1px solid #363c4e;border-radius:12px;padding:16px 14px 14px;box-shadow:0 8px 32px #0009;min-width:260px;max-width:94vw;max-height:80vh;overflow-y:auto;">
-  <div class="ss-title" style="display:flex;align-items:center;justify-content:space-between;font:700 13px sans-serif;color:#d1d4dc;margin-bottom:12px;">
-    <span>📋 Stack View 2 Settings</span>
-    <button onclick="closeStack2Settings()" style="background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;">✕</button>
-  </div>
-  <div style="font-size:11px;color:#787b86;margin-bottom:10px;">Asset ke hisab se alag cells — BTC (6 cells) / BankNifty (8 cells)</div>
-  <!-- Asset Tabs -->
-  <div style="display:flex;gap:8px;margin-bottom:12px;">
-    <button id="ss2-tab-btc" class="ss-asset-tab active" onclick="ss2SwitchAssetTab('btc')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #2962ff;background:#2962ff22;color:#2962ff;font-size:12px;font-weight:600;cursor:pointer;">₿ BTC</button>
-    <button id="ss2-tab-bn" class="ss-asset-tab" onclick="ss2SwitchAssetTab('bn')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">📊 BankNifty</button>
-    <button id="ss2-tab-3" class="ss-asset-tab" onclick="ss2SwitchAssetTab('third')" style="flex:1;padding:6px 0;border-radius:8px;border:1px solid #363c4e;background:transparent;color:#787b86;font-size:12px;font-weight:600;cursor:pointer;">+ 3rd</button>
-  </div>
-  <div class="ss-section">
-    <div class="ss-section-title">SCREENS</div>
-    <div class="ss-row">
-      <span>Total screens</span>
-      <input type="number" id="ss2-total-count" min="1" max="16" value="6" oninput="ss2OnTotalChange()">
-    </div>
-    <div class="ss-row">
-      <span>Visible at once</span>
-      <input type="number" id="ss2-visible-count" min="1" max="8" value="4">
-    </div>
-    <div class="ss-row">
-      <span>Step count (per drag)</span>
-      <input type="number" id="ss2-step-count" min="1" max="4" value="1">
-    </div>
-  </div>
-  <div class="ss-section">
-    <div class="ss-section-title">TIMEFRAME PER SLOT</div>
-    <div class="ss-tf-grid" id="ss2-tf-grid"><!-- filled by JS --></div>
-  </div>
-  <button class="ss-done-btn" onclick="ss2ApplyAndClose()">Done</button>
-</div>
-
 
 
 <!-- ═══ TF DROPDOWN ══════════════════════════════════════════════════════ -->
@@ -2399,38 +2099,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
             <input class="ind-len" id="swing-line-width" type="number" value="1" min="0.5" max="4" step="0.5"
               title="S/R line thickness"
               onchange="setSwingLineWidth(+this.value)">
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Candle H/L — Start length (× candle)</span>
-          <div class="ind-ctrl">
-            <input class="ind-len" id="ch-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
-              title="Candle high/low line ki starting length (candle-period ka multiple)"
-              onchange="setChStartMult(+this.value)">
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Candle H/L — Extend on touch (× candle)</span>
-          <div class="ind-ctrl">
-            <input class="ind-len" id="ch-extend-mult" type="number" value="2" min="0.5" max="10" step="0.5"
-              title="Agli candle touch kare to line kitna aage badhe (candle-period ka multiple)"
-              onchange="setChExtendMult(+this.value)">
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Swing SR — Start length (× swing duration)</span>
-          <div class="ind-ctrl">
-            <input class="ind-len" id="sw-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
-              title="Swing SR line ki starting length (per-TF swing-duration ka multiple)"
-              onchange="setSwStartMult(+this.value)">
-          </div>
-        </div>
-        <div class="ind-row">
-          <span class="ind-name">Swing SR — Slide length (× swing duration)</span>
-          <div class="ind-ctrl">
-            <input class="ind-len" id="sw-slide-mult" type="number" value="1" min="0.5" max="10" step="0.5"
-              title="Har naye candle par sliding window (per-TF swing-duration ka multiple)"
-              onchange="setSwSlideMult(+this.value)">
           </div>
         </div>
         <!-- TF list — always visible -->
@@ -2645,138 +2313,8 @@ const BN_15M      = __BN_15M__;
 const BN_45M      = __BN_45M__;
 
 const BN_DAILY    = __BN_DAILY__;
-
-// ── Stack View 2: pre-resampled data from .gz files (injected by Python) ────
-// BN: 5m, 15m, 45m, 135m, 1D, 3D, 9D, 27D  |  BTC: 160m, 8H, 1D, 3D, 9D, 27D
-// Each value is an array of {time,open,high,low,close} objects (LWC format).
-// Chunks of last ~3000 candles per TF so mobile doesn't hang.
-const SV2_BN = {
-  '5m':   __SV2_BN_5M__,
-  '15m':  __SV2_BN_15M__,
-  '45m':  __SV2_BN_45M__,
-  '135m': __SV2_BN_135M__,
-  '1D':   __SV2_BN_1D__,
-  '3D':   __SV2_BN_3D__,
-  '9D':   __SV2_BN_9D__,
-  '27D':  __SV2_BN_27D__,
-};
-const SV2_BTC = {
-  '160m': __SV2_BTC_160M__,
-  '8H':   __SV2_BTC_8H__,
-  '1D':   __SV2_BTC_1D__,
-  '3D':   __SV2_BTC_3D__,
-  '9D':   __SV2_BTC_9D__,
-  '27D':  __SV2_BTC_27D__,
-};
-
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
-
-// ════════════════════════════════════════════════════════════════════════════
-// LIVE BAR-REPLAY: bottom-up TF aggregation (NO server pre-resample used)
-// ────────────────────────────────────────────────────────────────────────────
-// Used ONLY during an active Live Replay session. Every timeframe candle
-// (closed or currently forming) is built purely from base bars
-// (BN = 5m, BTC = 160m) that have been "revealed" so far — exactly like a
-// real live feed builds higher timeframes up from the base tick/candle data.
-// Normal (non-replay) Stack View 2 is untouched and keeps using the
-// pre-resampled SV2_BN / SV2_BTC store.
-// NOTE: for tfMin >= 1440 (1D/3D/9D/27D) this buckets by single calendar day
-// only (matches the existing step-engine bucket logic) — true N-day grouping
-// for 3D/9D/27D is a known simplification, same as before.
-// ════════════════════════════════════════════════════════════════════════════
-function _liveGetBucketTime(tSec, tfMin, isBN) {
-  if (tfMin >= 1440) {
-    return Math.floor(tSec / 86400) * 86400;
-  }
-  if (isBN) {
-    var IST = 5.5 * 3600;
-    var istSec   = tSec + IST;
-    var dayStart = istSec - (istSec % 86400);
-    var minOfDay = Math.floor((istSec % 86400) / 60);
-    var SESSION_START = 9 * 60 + 15;   // 555
-    var minSinceOpen  = minOfDay - SESSION_START;
-    if (minSinceOpen < 0) minSinceOpen = 0;
-    var bucketIdx      = Math.floor(minSinceOpen / tfMin);
-    var bucketStartMin = SESSION_START + bucketIdx * tfMin;
-    return (dayStart - IST) + bucketStartMin * 60;
-  }
-  var sec = tfMin * 60;
-  return Math.floor(tSec / sec) * sec;
-}
-
-// Structural (NOT wall-clock) bucket-completion boundary for a given bucket.
-// Ye batata hai ki ye bucket kab "poora" maana jayega — sirf iski apni
-// duration + (BN ke liye) session-end se, real Date.now() se bilkul nahi.
-//   - Daily/multi-day (tfMin>=1440): agla calendar day shuru hote hi complete.
-//   - BN intraday: naturalEnd = bucketStart + tfMin*60, LEKIN agar session
-//     (15:30 IST) usse pehle khatam ho jati hai (jaise din ka last bucket,
-//     e.g. 135m ka aakhri bucket sirf 90 min ka hota hai), to sessionEnd hi
-//     asli boundary hai — jo bhi pehle aaye.
-//   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
-function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
-  if (tfMin >= 1440) {
-    return bucketTime + 86400; // next calendar day boundary
-  }
-  var naturalEnd = bucketTime + tfMin * 60;
-  if (!isBN) return naturalEnd;
-  var IST = 5.5 * 3600;
-  var istSec       = bucketTime + IST;
-  var dayStart     = istSec - (istSec % 86400);
-  var SESSION_END  = 15 * 60 + 30;                 // 15:30 IST in minutes
-  var sessionEndUtc = (dayStart + SESSION_END * 60) - IST;
-  return Math.min(naturalEnd, sessionEndUtc);
-}
-
-// baseBars: full ordered array of base-TF candles (5m for BN / 160m for BTC)
-// revealCount: how many of those base bars are "known" right now (from index 0)
-// Returns an ordered array of aggregated candles for tfMin — last entry may
-// still be a forming (incomplete) bucket, exactly like a real live chart.
-//
-// out._formingLast flag (structural, replay-clock-safe): true if the LAST
-// candle in `out` has not yet received enough revealed base-bars to cover
-// its own bucket window (or the session-end, whichever comes first). This
-// replaces any real-clock (Date.now()) based "is it still forming" check —
-// during replay the wall-clock is irrelevant; only how many base bars have
-// been revealed matters. Consumers that feed this into SR/swing computation
-// (which shouldn't repaint off an incomplete candle) should drop the last
-// element whenever out._formingLast is true.
-function _liveAggregateTF(baseBars, revealCount, tfMin, isBN) {
-  var out = [];
-  var curBucket = null, o = null, h = -Infinity, l = Infinity, c = null;
-  var lastBarTime = null;
-  var n = Math.min(revealCount, baseBars.length);
-  // Base-bar spacing (5m→300s for BN, 160m→9600s for BTC) — used only to
-  // know how much of the bucket window the last revealed base-bar covers.
-  var baseDurSec = (baseBars.length > 1) ? (baseBars[1].time - baseBars[0].time) : 300;
-  for (var i = 0; i < n; i++) {
-    var bar = baseBars[i];
-    var bt  = _liveGetBucketTime(bar.time, tfMin, isBN);
-    if (curBucket === null) {
-      curBucket = bt; o = bar.open; h = bar.high; l = bar.low; c = bar.close;
-      lastBarTime = bar.time;
-      continue;
-    }
-    if (bt === curBucket) {
-      if (bar.high > h) h = bar.high;
-      if (bar.low  < l) l = bar.low;
-      c = bar.close;
-      lastBarTime = bar.time;
-    } else {
-      out.push({ time: curBucket, open: o, high: h, low: l, close: c });
-      curBucket = bt; o = bar.open; h = bar.high; l = bar.low; c = bar.close;
-      lastBarTime = bar.time;
-    }
-  }
-  var formingLast = false;
-  if (curBucket !== null) {
-    var expectedEnd = _liveBucketExpectedEnd(curBucket, tfMin, isBN);
-    formingLast = (lastBarTime + baseDurSec) < expectedEnd;
-    out.push({ time: curBucket, open: o, high: h, low: l, close: c });
-  }
-  out._formingLast = formingLast;
-  return out;
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // STATE
@@ -2922,10 +2460,6 @@ function _currentSnapshot(name) {
     indBTC2:     BTC2_SWING_STATE.visible,
     swingLineW:  SWING_LINE_WIDTH,
     swingTFList: JSON.parse(JSON.stringify(SWING_TF_LIST || [])),
-    chStartMult:  CH_START_MULT,
-    chExtendMult: CH_EXTEND_MULT,
-    swStartMult:  SW_START_MULT,
-    swSlideMult:  SW_SLIDE_MULT,
     tfColors:    JSON.parse(JSON.stringify(_TF_COLORS || {})),
   };
 }
@@ -3118,10 +2652,6 @@ function loadFromSlot(idx) {
     if (ckBTC2) ckBTC2.checked = slot.indBTC2;
   }
   if (slot.swingLineW) setSwingLineWidth(slot.swingLineW);
-  if (slot.chStartMult)  setChStartMult(slot.chStartMult);
-  if (slot.chExtendMult) setChExtendMult(slot.chExtendMult);
-  if (slot.swStartMult)  setSwStartMult(slot.swStartMult);
-  if (slot.swSlideMult)  setSwSlideMult(slot.swSlideMult);
   if (slot.swingTFList && Array.isArray(slot.swingTFList)) {
     SWING_TF_LIST = JSON.parse(JSON.stringify(slot.swingTFList));
     try { _LS.setItem(_SWING_STORE_KEY, JSON.stringify(SWING_TF_LIST)); } catch(_) {}
@@ -3766,1338 +3296,6 @@ function destroyStackCells() {
   if (sc) sc.innerHTML = '';
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// STACK VIEW 2 — Independent copy of Stack View, empty charts (no live/historical data)
-// ════════════════════════════════════════════════════════════════════════════
-const STACK2_CELLS = [];      // independent CELLS array for Stack View 2
-let _stack2Active  = false;
-let _stack2OnOff   = false;
-let _stack2ResizeObs = null;
-let _stack2ScrollAnim = null;
-
-const _STACK2_ONOFF_KEY = 'btcStack2OnOff1';
-const _STACK2_CFG_KEY   = 'btcStack2Cfg1';
-
-function _loadStack2OnOff() {
-  try { const r = _LS.getItem(_STACK2_ONOFF_KEY); return r === '1'; } catch(_) { return false; }
-}
-function _saveStack2OnOff(on) {
-  try { _LS.setItem(_STACK2_ONOFF_KEY, on ? '1' : '0'); } catch(_) {}
-}
-_stack2OnOff = _loadStack2OnOff();
-
-function _stack2DefaultCfg() {
-  return {
-    btc: {
-      total:   6,
-      visible: 4,
-      step:    1,
-      tfs: ['160m', '8H', '1D', '3D', '9D', '27D'],
-    },
-    bn: {
-      total:   8,
-      visible: 4,
-      step:    1,
-      tfs: ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
-    },
-    third: {
-      total:   0,
-      visible: 4,
-      step:    1,
-      tfs: [],
-      symbolName: '',
-    },
-  };
-}
-
-function _loadStack2Cfg() {
-  try {
-    const raw = _LS.getItem(_STACK2_CFG_KEY);
-    if (!raw) return _stack2DefaultCfg();
-    const parsed = JSON.parse(raw);
-    // If old format (flat: total/visible/step/labels), migrate to new asset-wise format
-    if (parsed && typeof parsed.btc === 'undefined') {
-      // legacy flat format — ignore and use defaults
-      return _stack2DefaultCfg();
-    }
-    const def = _stack2DefaultCfg();
-    return {
-      btc:   Object.assign({}, def.btc,   parsed.btc   || {}),
-      bn:    Object.assign({}, def.bn,    parsed.bn    || {}),
-      third: Object.assign({}, def.third, parsed.third || {}),
-    };
-  } catch(_) { return _stack2DefaultCfg(); }
-}
-function _saveStack2Cfg(cfg) {
-  try { _LS.setItem(_STACK2_CFG_KEY, JSON.stringify(cfg)); } catch(_) {}
-}
-
-let _stack2Cfg = _loadStack2Cfg();
-
-function _renderStack2Switch() {
-  const btn = document.getElementById('gp-stack2-switch');
-  if (btn) btn.classList.toggle('on', _stack2OnOff);
-}
-
-function toggleStack2OnOff() {
-  _stack2OnOff = !_stack2OnOff;
-  _saveStack2OnOff(_stack2OnOff);
-  _renderStack2Switch();
-  if (_stack2OnOff) {
-    selectStack2View();
-  } else {
-    // Deactivate Stack View 2 → go back to 1x1
-    _deactivateStack2();
-    setLayout('1x1', null);
-  }
-}
-
-function _deactivateStack2() {
-  _stack2Active = false;
-  _stack2OnOff  = false;
-  _saveStack2OnOff(false);
-  _renderStack2Switch();
-  const row = document.getElementById('gp-stack2-row');
-  if (row) row.classList.remove('active');
-  const sv2 = document.getElementById('stack-view-2');
-  if (sv2) sv2.classList.remove('active');
-  destroyStack2Cells();
-  // hide Stack2 scroll buttons
-  const u = document.getElementById('stack2-up-btn');
-  const d = document.getElementById('stack2-down-btn');
-  if (u) u.style.display = 'none';
-  if (d) d.style.display = 'none';
-}
-
-// ── Stack View 2 Debug overlay — sirf idx=0 cell pe ek compact overlay ──────
-let _sv2DbgLog = [];   // sabhi cells ka log ek jagah collect karo
-function _sv2DebugShow(idx, reason, lines) {
-  try {
-    console.warn('[SV2 idx='+idx+'] '+reason, lines);
-    // Collect all logs
-    _sv2DbgLog.push('── Cell ' + idx + ' [' + reason + '] ──');
-    lines.forEach(l => _sv2DbgLog.push(l));
-
-    // Sirf idx=0 pe overlay dikhao (ek hi screen)
-    if (idx !== 0) return;
-
-    // Remove all existing overlays from all stack2 cells
-    document.querySelectorAll('._sv2dbg').forEach(el => el.remove());
-
-    const el = document.getElementById('stack2-chart-0');
-    if (!el) return;
-    el.style.position = 'relative';
-
-    const box = document.createElement('div');
-    box.className = '_sv2dbg';
-    box.style.cssText = [
-      'position:absolute','top:4px','left:4px','right:68px',
-      'background:rgba(20,5,5,0.95)','color:#ff6b6b',
-      'font-size:10px','font-family:monospace','padding:6px 8px',
-      'border-radius:6px','z-index:9999','overflow-y:auto',
-      'max-height:180px','white-space:pre-wrap',
-    ].join(';');
-
-    // Copy button
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = '📋 Copy';
-    copyBtn.style.cssText = [
-      'position:absolute','top:4px','right:4px',
-      'background:#2962ff','color:#fff','border:none',
-      'border-radius:5px','padding:4px 8px','font-size:11px',
-      'cursor:pointer','z-index:10000',
-    ].join(';');
-    copyBtn.onclick = function(e) {
-      e.stopPropagation();
-      // Collect fresh full log at copy time
-      const full = _sv2DbgLog.join('\n');
-      navigator.clipboard.writeText(full).then(function() {
-        copyBtn.textContent = '✅ Copied!';
-        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
-      }).catch(function() {
-        // Fallback: select text
-        const ta = document.createElement('textarea');
-        ta.value = full;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        copyBtn.textContent = '✅ Copied!';
-        setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 2000);
-      });
-    };
-
-    const fullText = _sv2DbgLog.join('\n');
-    box.textContent = fullText;
-    el.appendChild(box);
-    el.appendChild(copyBtn);
-  } catch(_) {}
-}
-
-function destroyStack2Cells() {
-  if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
-  STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} });
-  STACK2_CELLS.length = 0;
-  const sc = document.getElementById('stack-container-2');
-  if (sc) sc.innerHTML = '';
-}
-
-function selectStack2View() {
-  // Deactivate Stack View 1 if active
-  if (_stackActive) {
-    _stackActive = false;
-    _stackOnOff  = false;
-    _saveStackOnOff(false);
-    _renderStackSwitch();
-    const row1 = document.getElementById('gp-stack-row');
-    if (row1) row1.classList.remove('active');
-    destroyStackCells();
-  }
-
-  // Deactivate normal grid/1x1
-  destroyCharts();
-  destroyGridCells();
-
-  document.getElementById('grid-picker').classList.remove('open');
-  document.querySelectorAll('.gp-layout').forEach(b => b.classList.remove('active'));
-  const row2 = document.getElementById('gp-stack2-row');
-  if (row2) row2.classList.add('active');
-
-  _stack2Active = true;
-  _stack2OnOff  = true;
-  _saveStack2OnOff(true);
-  _renderStack2Switch();
-  S.layout = 'stack2';
-  try { _LS.setItem('tvLayout', 'stack2'); } catch(_) {}
-
-  const wsEl = document.getElementById('workspace');
-  const gv   = document.getElementById('grid-view');
-  const sv   = document.getElementById('stack-view');
-  const sv2  = document.getElementById('stack-view-2');
-  const cmBtn = document.getElementById('cell-maximize-btn');
-
-  wsEl.style.display = 'none';
-  gv.classList.remove('active');
-  if (sv) sv.classList.remove('active');
-  if (sv2) sv2.classList.add('active');
-  document.getElementById('grid-btn').classList.add('active');
-  if (cmBtn) cmBtn.style.display = 'none';
-
-  // Show Stack2 scroll buttons, hide Stack1 buttons
-  const su = document.getElementById('stack-up-btn');
-  const sd = document.getElementById('stack-down-btn');
-  const s2u = document.getElementById('stack2-up-btn');
-  const s2d = document.getElementById('stack2-down-btn');
-  if (su) su.style.display = 'none';
-  if (sd) sd.style.display = 'none';
-  if (s2u) s2u.style.display = '';
-  if (s2d) s2d.style.display = '';
-
-  buildStack2();
-  setTimeout(_startCellTimers, 200);
-  setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-}
-
-function buildStack2() {
-  destroyStack2Cells();
-  _stack2Cfg = _loadStack2Cfg();
-  // Pick config for current asset (same logic as Stack View 1)
-  const assetKey = _stackKeyForAsset(S.asset);
-  const cfg = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-  const total   = Math.max(1, cfg.total   || 6);
-  const visible = Math.max(1, cfg.visible || 4);
-  const sc = document.getElementById('stack-container-2');
-  if (!sc) return;
-  sc.innerHTML = '';
-
-  for (let i = 0; i < total; i++) {
-    const label = (cfg.tfs && cfg.tfs[i]) || (STACK_LETTERS[i] || (i+1));
-    const cellObj = {
-      asset: S.asset, tf: 1440, chart: null, series: null, el: null, vLine: null,
-      _stack2: true,   // marker so buildCellChart2 is used instead
-    };
-    STACK2_CELLS.push(cellObj);
-
-    const cell = document.createElement('div');
-    cell.className = 'stack2-cell grid-cell';
-    cell.dataset.idx2 = i;
-    cell.style.height = 'calc(100% / ' + Math.max(1, visible) + ')';
-
-    const overlay = document.createElement('div');
-    overlay.className = 'cell-overlay';
-    overlay.innerHTML =
-      '<span class="co-sym">📋</span>'+
-      '<span class="co-tf"> · ' + label + '</span>'+
-      '<span class="co-price up">--</span>'+
-      '<span class="co-chg" style="color:#555">--</span>'+
-      '<span class="co-ohlc-grp">'+
-        '<span class="co-o">O <b class="co-ov">--</b></span> '+
-        '<span class="co-h">H <b class="co-hv">--</b></span> '+
-        '<span class="co-l">L <b class="co-lv">--</b></span> '+
-        '<span class="co-c">C <b class="co-cv">--</b></span>'+
-      '</span>';
-
-    const chartDiv = document.createElement('div');
-    chartDiv.className = 'cell-chart';
-    chartDiv.id = 'stack2-chart-' + i;
-    chartDiv.style.position = 'relative';
-
-    // Settings gear button
-    const csetBtn = document.createElement('button');
-    csetBtn.className = 'cell-settings-btn';
-    csetBtn.title = 'Cell Settings';
-    csetBtn.textContent = '⚙';
-    csetBtn.onclick = function(e){ _openStack2CellSettings(i, csetBtn); e.stopPropagation(); };
-    cell.appendChild(csetBtn);
-
-    // Screen badge
-    const screenBadge = document.createElement('span');
-    screenBadge.className = 'cell-screen-badge';
-    screenBadge.textContent = (i+1) + ':' + total;
-    cell.appendChild(screenBadge);
-
-    // Go-to-latest button
-    const gotoBtn = document.createElement('button');
-    gotoBtn.className = 'cell-goto-btn';
-    gotoBtn.title = 'Go to latest candle';
-    gotoBtn.textContent = '⏭';
-    gotoBtn.onclick = function(e){
-      const c2 = STACK2_CELLS[i];
-      if (c2 && c2.chart) try{ c2.chart.timeScale().scrollToRealTime(); }catch(_){}
-      e.stopPropagation();
-    };
-
-    cell.appendChild(overlay);
-    cell.appendChild(chartDiv);
-    cell.appendChild(gotoBtn);
-    sc.appendChild(cell);
-    cellObj.el = chartDiv;
-
-    // Build empty chart for this cell
-    _buildStack2CellChart(i);
-  }
-
-  // Resize observer
-  if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} }
-  _stack2ResizeObs = new ResizeObserver(() => {
-    STACK2_CELLS.forEach((c, i) => {
-      if (!c.chart) return;
-      const el = document.getElementById('stack2-chart-' + i);
-      if (!el) return;
-      c.chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-    });
-  });
-  _stack2ResizeObs.observe(sc);
-
-  // After all cells built, refresh idx=0 overlay with complete log (all cells info)
-  setTimeout(function() {
-    if (_sv2DbgLog.length > 0) {
-      const el0 = document.getElementById('stack2-chart-0');
-      if (el0) {
-        const box = el0.querySelector('._sv2dbg');
-        if (box) box.textContent = _sv2DbgLog.join('\n');
-      }
-    }
-  }, 500);
-
-  // SV2 Swing S&R — cells settle hone ke baad SR lagao
-  // Date range active hai to sirf historical (< rng.from), warna full .gz data
-  setTimeout(function() {
-    try {
-      const _rng2 = window._SV2_DATE_RANGE;
-      const _co   = (_rng2 && typeof _rng2.from === 'number') ? _rng2.from : null;
-      sv2SwingInit(_co);
-    } catch(_) {}
-  }, 650);
-}
-
-// ── SV2: Date select karne se pehle chart pe hint dikhao ──────────────────
-function _sv2ShowNoPeriodHint(idx, el) {
-  if (!el) return;
-  // Purani hint hato
-  var old = el.querySelector('._sv2-nohint');
-  if (old) return;   // already shown
-  el.style.position = 'relative';
-  var hint = document.createElement('div');
-  hint.className = '_sv2-nohint';
-  hint.style.cssText = [
-    'position:absolute','inset:0','display:flex','flex-direction:column',
-    'align-items:center','justify-content:center',
-    'background:rgba(19,23,34,0.96)','color:#848da0',
-    'font-size:12px','text-align:center','padding:16px','z-index:20','gap:6px',
-    'border-radius:4px','pointer-events:none'
-  ].join(';');
-  var isFirst = (idx === 0);
-  hint.innerHTML = (isFirst
-    ? '<div style="font-size:22px">📅</div>'
-      + '<div style="color:#c4cad4;font-weight:600;font-size:13px">Date chuniye → Apply karo</div>'
-      + '<div style="font-size:10px;margin-top:2px">Bottom-right 📅 button tap karo</div>'
-      + '<div style="font-size:9px;color:#4a5068;margin-top:4px">Us date tak ka BankNifty data dikhega<br>Uske baad Live Replay ▶ shuru hoga</div>'
-    : '<div style="font-size:16px">📅</div>'
-      + '<div style="font-size:10px;color:#4a5068">Date select karo</div>'
-  );
-  el.appendChild(hint);
-}
-
-function _buildStack2CellChart(idx) {
-  const c = STACK2_CELLS[idx];
-  const el = document.getElementById('stack2-chart-' + idx);
-  if (!el || !c) return;
-  if (c.chart) { try{ c.chart.remove(); }catch(_){} c.chart = null; c.series = null; }
-
-  c.chart = LightweightCharts.createChart(el, {
-    width:  el.clientWidth  || 200,
-    height: el.clientHeight || 200,
-    layout: { background: { type:'solid', color: S.bgColor }, textColor: S.textColor, fontSize: 7 },
-    grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
-    crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
-    rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
-    localization: {
-      timeFormatter: (t) => fmtChartTime(t),
-      priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
-    },
-    handleScroll: { mouseWheel:true, pressedMouseMove:true, horzTouchDrag:true, vertTouchDrag:true },
-    handleScale:  { axisPressedMouseMove:true, mouseWheel:true, pinch:true },
-    kineticScroll: { mouse:true, touch:true },
-  });
-
-  c.series = c.chart.addCandlestickSeries({
-    upColor: S.upColor, downColor: S.dnColor,
-    borderUpColor: S.upColor, borderDownColor: S.dnColor,
-    wickUpColor: S.upColor, wickDownColor: S.dnColor,
-    priceLineVisible: false,
-  });
-
-  // ── Load pre-resampled data from gz-based SV2_BN / SV2_BTC ──────────────
-  (function _sv2LoadData() {
-    // ── Date range select nahi hui abhi → sirf hint dikhao, koi data nahi ──
-    // User ko pehle 📅 se date chunni hogi.
-    // Jab _sv2DrngApply() call hoga, buildStack2() phir se run hoga
-    // aur tab _SV2_DATE_RANGE set hoga → yahan bypass nahi hoga.
-    if (!window._SV2_DATE_RANGE) {
-      _sv2ShowNoPeriodHint(idx, el);
-      return;
-    }
-    const _dbg = [];
-    try {
-      const assetKey2 = _stackKeyForAsset(S.asset);
-      _dbg.push('idx='+idx+' asset='+S.asset+' assetKey='+assetKey2);
-
-      const cfg2 = (_stack2Cfg[assetKey2] || _stack2Cfg.btc);
-      const tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
-      _dbg.push('tfLabel="'+tfLabel+'" tfs='+JSON.stringify(cfg2.tfs));
-      if (!tfLabel) { _sv2DebugShow(idx,'NO_TFLABEL',_dbg); return; }
-
-      const bnOk  = (typeof SV2_BN  !== 'undefined');
-      const btcOk = (typeof SV2_BTC !== 'undefined');
-      _dbg.push('SV2_BN='+bnOk+' SV2_BTC='+btcOk);
-      if (!bnOk || !btcOk) { _sv2DebugShow(idx,'SV2_MISSING',_dbg); return; }
-
-      const store = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
-      const storeKeys = Object.keys(store);
-      _dbg.push('storeKeys='+JSON.stringify(storeKeys));
-
-      let data = null;
-      const keyLower = tfLabel.toLowerCase();
-      for (const k of storeKeys) {
-        if (k.toLowerCase() === keyLower) { data = store[k]; break; }
-      }
-      const dataInfo = Array.isArray(data) ? ('len='+data.length) : ('type='+typeof data);
-      _dbg.push('lookup="'+keyLower+'" '+dataInfo);
-
-      if (!Array.isArray(data) || !data.length) {
-        // Also show Python-side debug info if available
-        try {
-          if (window.__SV2_DEBUG) _dbg.push('PY_DEBUG: '+window.__SV2_DEBUG);
-        } catch(_) {}
-        _sv2DebugShow(idx,'NO_DATA',_dbg); return;
-      }
-
-      _dbg.push('first='+JSON.stringify(data[0]));
-
-      // ── Store the RAW (unfiltered) data so Clear can restore it instantly
-      // without needing to re-read SV2_BN/SV2_BTC or rebuild from scratch. ──
-      window._SV2_RAW_DATA = window._SV2_RAW_DATA || {};
-      window._SV2_RAW_DATA[idx] = data;
-
-      // ── Apply date-range filter if a range is currently active ──────────
-      // Bar-Replay prep: candles INSIDE [from, to] are removed entirely
-      // (not just hidden visually) so that timeScale shows a genuine gap —
-      // this is the empty space future Bar Replay will fill in one at a time.
-      // Candles BEFORE the range stay untouched (S&R indicator needs that
-      // history). Candles AFTER the range are also dropped for now, since
-      // they'd represent "the future" relative to the replay starting point.
-      let dataToShow = data;
-      const rng = window._SV2_DATE_RANGE;
-      if (rng && typeof rng.from === 'number' && typeof rng.to === 'number') {
-        // ── LIVE REPLAY ARMED: no pre-resampled shortcut, AT ALL ─────────
-        // History shown here must be built bottom-up from the base bars
-        // (5m for BN / 160m for BTC) — same function the live tick loop
-        // will keep using — so there's zero seam between "history" and
-        // "live forming" candles once replay starts. (Normal static view,
-        // i.e. no range active, still uses pre-resampled `data` above.)
-        const baseKeyLive   = (assetKey2 === 'bn') ? '5m' : '160m';
-        const baseStoreLive = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
-        const baseBarsLive  = baseStoreLive[baseKeyLive] || [];
-        const tfMinCell     = _parseTFMin(tfLabel) || 5;
-        let revealCount = 0;
-        for (let bi = 0; bi < baseBarsLive.length; bi++) {
-          if (baseBarsLive[bi].time < rng.from) revealCount = bi + 1; else break;
-        }
-        dataToShow = _liveAggregateTF(baseBarsLive, revealCount, tfMinCell, assetKey2 === 'bn');
-
-        // Stash for the live-replay engine (shared base array + start point)
-        window._SV2_LIVE = window._SV2_LIVE || {};
-        window._SV2_LIVE.baseBars  = baseBarsLive;
-        window._SV2_LIVE.isBN      = (assetKey2 === 'bn');
-        window._SV2_LIVE.startIdx  = revealCount;
-        window._SV2_LIVE.revealIdx = revealCount;
-
-        _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
-      }
-
-      const CHUNK = 500;
-      let offset = 0;
-      function feedChunk() {
-        if (!c.series) return;
-        const slice = dataToShow.slice(offset, offset + CHUNK);
-        if (!slice.length) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          return;
-        }
-        try {
-          if (offset === 0) { c.series.setData(slice); }
-          else { slice.forEach(bar => { try { c.series.update(bar); } catch(_) {} }); }
-        } catch(e) {
-          _dbg.push('setData ERR offset='+offset+': '+e.message);
-          _sv2DebugShow(idx,'SETDATA_ERR',_dbg); return;
-        }
-        offset += CHUNK;
-        if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
-      }
-      setTimeout(feedChunk, idx * 30);
-    } catch(e) {
-      _dbg.push('EXCEPTION: '+e.message);
-      _sv2DebugShow(idx,'EXCEPTION',_dbg);
-    }
-  })();
-
-  // Drawing tools support (same as grid cells — uses existing _DT system)
-  if (typeof _dtRegisterChart === 'function') {
-    try { _dtRegisterChart('stack2-' + idx, c.chart, c.series, el); } catch(_) {}
-  }
-  // Mobile touch UX
-  if (typeof attachMobileTouchUX === 'function') {
-    try { attachMobileTouchUX(el, c.chart, () => c.series); } catch(_) {}
-  }
-}
-
-function _openStack2CellSettings(idx, anchorEl) {
-  // Reuse existing cell settings panel if available
-  if (typeof _openCellSettings === 'function') {
-    // Temporarily patch CELLS[idx] to point to STACK2_CELLS[idx] for the modal
-    // Since _openCellSettings uses CELLS[idx], we do a safe redirect
-    const tmpOld = CELLS[idx];
-    CELLS[idx] = STACK2_CELLS[idx];
-    try { _openCellSettings(idx, anchorEl); } catch(_) {}
-    // Restore (the panel will operate on the cell object directly via reference)
-  }
-}
-
-// Stack View 2 scroll helpers
-function _stack2EaseOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-
-function _stack2AnimateScrollTo(containerEl, targetTop, durationMs) {
-  if (_stack2ScrollAnim) { cancelAnimationFrame(_stack2ScrollAnim.raf); _stack2ScrollAnim = null; }
-  const startTop = containerEl.scrollTop;
-  const delta = targetTop - startTop;
-  if (Math.abs(delta) < 0.5) { containerEl.scrollTop = targetTop; return; }
-  const startTime = performance.now();
-  const anim = { raf: 0 };
-  const step = (now) => {
-    const elapsed = now - startTime;
-    const t = Math.min(1, elapsed / durationMs);
-    containerEl.scrollTop = startTop + delta * _stack2EaseOutCubic(t);
-    if (t < 1) { anim.raf = requestAnimationFrame(step); }
-    else { containerEl.scrollTop = targetTop; _stack2ScrollAnim = null; }
-  };
-  anim.raf = requestAnimationFrame(step);
-  _stack2ScrollAnim = anim;
-}
-
-function _stack2StepJump(dir) {
-  const containerEl = document.getElementById('stack-container-2');
-  if (!containerEl) return;
-  const first = containerEl.querySelector('.stack2-cell');
-  const chartH = first ? first.getBoundingClientRect().height : containerEl.clientHeight;
-  if (!chartH) return;
-  const assetKey2 = _stackKeyForAsset(S.asset);
-  const step = Math.max(1, ((_stack2Cfg[assetKey2] || _stack2Cfg.btc).step) || 1);
-  const nearest = Math.round(containerEl.scrollTop / chartH);
-  const target = (nearest + dir * step) * chartH;
-  const max = containerEl.scrollHeight - containerEl.clientHeight;
-  _stack2AnimateScrollTo(containerEl, Math.max(0, Math.min(max, target)), 280);
-}
-
-// Stack View 2 Settings — asset tab currently being edited
-let _ss2Tab = 'btc';
-
-function ss2SwitchAssetTab(tab) {
-  _ss2Tab = tab;
-  document.querySelectorAll('#stack2-settings-panel .ss-asset-tab').forEach(el => {
-    el.classList.remove('active');
-    el.style.borderColor = '#363c4e';
-    el.style.background  = 'transparent';
-    el.style.color       = '#787b86';
-  });
-  const map = { btc: 'ss2-tab-btc', bn: 'ss2-tab-bn', third: 'ss2-tab-3' };
-  const el = document.getElementById(map[tab]);
-  if (el) {
-    el.classList.add('active');
-    el.style.borderColor = '#2962ff';
-    el.style.background  = '#2962ff22';
-    el.style.color       = '#2962ff';
-  }
-  _ss2RenderForTab();
-}
-
-function _ss2RenderForTab() {
-  const cfg = _stack2Cfg[_ss2Tab] || _stack2Cfg.btc;
-  document.getElementById('ss2-total-count').value   = cfg.total   ?? 6;
-  document.getElementById('ss2-visible-count').value = cfg.visible ?? 4;
-  document.getElementById('ss2-step-count').value    = cfg.step    ?? 1;
-  _ss2RenderTfGrid(cfg);
-}
-
-function _ss2RenderTfGrid(cfg) {
-  const grid = document.getElementById('ss2-tf-grid');
-  if (!grid) return;
-  grid.innerHTML = '';
-  const total = Math.max(1, Math.min(16, parseInt(cfg.total, 10) || 0));
-  for (let i = 0; i < total; i++) {
-    const letter = STACK_LETTERS[i];
-    const tfVal  = (cfg.tfs && cfg.tfs[i] != null) ? cfg.tfs[i] : '';
-    const row = document.createElement('div');
-    row.className = 'ss-tf-slot';
-    row.innerHTML =
-      '<span class="ss-tf-letter">' + letter + '</span>' +
-      '<input type="text" data-s2-slot-idx="' + i + '" value="' + tfVal + '" placeholder="e.g. 15m, 1D, 3D">';
-    grid.appendChild(row);
-  }
-}
-
-function ss2OnTotalChange() {
-  const cfg = _stack2Cfg[_ss2Tab] || _stack2Cfg.btc;
-  const newTotal = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10) || cfg.total));
-  const existing = _ss2ReadTfInputs();
-  const newTfs = [];
-  for (let i = 0; i < newTotal; i++) newTfs.push(existing[i] || '');
-  const fakeCfg = Object.assign({}, cfg, { total: newTotal, tfs: newTfs });
-  _ss2RenderTfGrid(fakeCfg);
-}
-
-function _ss2ReadTfInputs() {
-  const tfs = [];
-  document.querySelectorAll('#ss2-tf-grid input[data-s2-slot-idx]').forEach(inp => {
-    tfs[parseInt(inp.getAttribute('data-s2-slot-idx'), 10)] = inp.value.trim();
-  });
-  return tfs;
-}
-
-// Stack View 2 Settings
-function openStack2Settings() {
-  _stack2Cfg = _loadStack2Cfg();
-  _ss2Tab = _stackKeyForAsset(S.asset);  // open on current asset tab
-  // Reset tab styles then activate current
-  document.querySelectorAll('#stack2-settings-panel .ss-asset-tab').forEach(el => {
-    el.classList.remove('active');
-    el.style.borderColor = '#363c4e';
-    el.style.background  = 'transparent';
-    el.style.color       = '#787b86';
-  });
-  const tabMap = { btc: 'ss2-tab-btc', bn: 'ss2-tab-bn', third: 'ss2-tab-3' };
-  const activeTab = document.getElementById(tabMap[_ss2Tab] || 'ss2-tab-btc');
-  if (activeTab) {
-    activeTab.classList.add('active');
-    activeTab.style.borderColor = '#2962ff';
-    activeTab.style.background  = '#2962ff22';
-    activeTab.style.color       = '#2962ff';
-  }
-  _ss2RenderForTab();
-  document.getElementById('stack2-settings-panel').style.display = '';
-  const gp = document.getElementById('grid-picker');
-  if (gp) gp.classList.remove('open');
-}
-
-function closeStack2Settings() {
-  document.getElementById('stack2-settings-panel').style.display = 'none';
-}
-
-function _ss2RenderLabelGrid() { _ss2RenderForTab(); }  // backward compat shim
-
-function ss2ApplyAndClose() {
-  const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 6));
-  const visible = Math.max(1, Math.min(total, parseInt(document.getElementById('ss2-visible-count').value, 10) || 4));
-  const step    = Math.max(1, Math.min(4,     parseInt(document.getElementById('ss2-step-count').value, 10)  || 1));
-  const tfs = _ss2ReadTfInputs();
-  _stack2Cfg[_ss2Tab] = Object.assign({}, _stack2Cfg[_ss2Tab] || {}, { total, visible, step, tfs });
-  _saveStack2Cfg(_stack2Cfg);
-  closeStack2Settings();
-  if (_stack2Active) {
-    buildStack2();
-    setTimeout(_startCellTimers, 200);
-    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-  }
-}
-// ════════════════════════════════════════════════════════════════════════════
-// END STACK VIEW 2
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
-// SV2 DATE RANGE SELECTOR
-// — Floating 📅 icon (draggable, corner-snapping)
-// — Bottom-sheet calendar (month-grid, start+end date)
-// — Result: window._SV2_DATE_RANGE = {from, to, fromStr, toStr}
-// ════════════════════════════════════════════════════════════════════════════
-;(function(){
-
-  // ── State ─────────────────────────────────────────────────────────────────
-  var _fab       = null;   // the floating button element
-  var _sheet     = null;   // bottom sheet element
-  var _backdrop  = null;
-
-  var _activeTab = 'start';   // 'start' | 'end'
-  var _selStart  = null;      // Date object or null
-  var _selEnd    = null;      // Date object or null
-  var _calYear   = 0;
-  var _calMonth  = 0;         // 0-indexed (0=Jan)
-
-  // Month names
-  var MONTHS = ['January','February','March','April','May','June',
-                'July','August','September','October','November','December'];
-  var DOW    = ['Mo','Tu','We','Th','Fr','Sa','Su'];
-
-  // ── Show / Hide FAB based on Stack View 2 state ───────────────────────────
-  function _sv2DrngSyncFab() {
-    if (!_fab) return;
-    var show = (typeof _stack2Active !== 'undefined') && _stack2Active;
-    _fab.style.display = show ? 'flex' : 'none';
-  }
-
-  // Called by selectStack2View and _deactivateStack2 patches below
-  window._sv2DrngOnActivate   = function(){
-    _sv2DrngSyncFab();
-    // Agar koi date range set nahi hai to calendar auto-open karo
-    if (!window._SV2_DATE_RANGE) {
-      setTimeout(function(){ try { _sv2DrngOpen(); } catch(_){} }, 450);
-    }
-  };
-  window._sv2DrngOnDeactivate = function(){
-    _sv2DrngSyncFab();
-    _sv2DrngClose();   // close sheet if open when SV2 exits
-  };
-
-  // ── Corner snap logic ─────────────────────────────────────────────────────
-  // Snaps to whichever of 4 corners the button centre is nearest to.
-  // Margins keep it inside safe viewport.
-  var _SNAP_MARGIN = 12;   // px from screen edge
-
-  function _snapToCorner(x, y) {
-    var W = window.innerWidth, H = window.innerHeight;
-    var cx = (x < W / 2) ? _SNAP_MARGIN : W - 48 - _SNAP_MARGIN;
-    var cy = (y < H / 2) ? _SNAP_MARGIN + 44 : H - 48 - 44 - _SNAP_MARGIN;
-    // 44 = top bar height allowance; 44 bottom = bottom bar
-    return { left: cx, top: cy };
-  }
-
-  function _saveFabPos(left, top) {
-    try { localStorage.setItem('sv2DrngFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
-  }
-  function _loadFabPos() {
-    try {
-      var raw = localStorage.getItem('sv2DrngFabPos');
-      if (raw) return JSON.parse(raw);
-    } catch(_){}
-    // Default: bottom-right corner
-    return _snapToCorner(window.innerWidth, window.innerHeight);
-  }
-
-  function _applyFabPos(pos) {
-    if (!_fab) return;
-    _fab.style.left = pos.left + 'px';
-    _fab.style.top  = pos.top  + 'px';
-  }
-
-  // ── Drag: touch-only (primary), mouse fallback ────────────────────────────
-  function _wireDrag() {
-    if (!_fab) return;
-
-    var _dragging = false, _startTX = 0, _startTY = 0;
-    var _origLeft = 0, _origTop = 0;
-    var _moved = false;
-
-    function _onStart(cx, cy) {
-      _dragging = true;
-      _moved    = false;
-      _startTX  = cx;
-      _startTY  = cy;
-      var r = _fab.getBoundingClientRect();
-      _origLeft = r.left;
-      _origTop  = r.top;
-      _fab.classList.add('dragging');
-    }
-
-    function _onMove(cx, cy) {
-      if (!_dragging) return;
-      var dx = cx - _startTX, dy = cy - _startTY;
-      if (Math.abs(dx) + Math.abs(dy) > 4) _moved = true;
-      var nl = _origLeft + dx, nt = _origTop + dy;
-      // Clamp to viewport
-      nl = Math.max(0, Math.min(window.innerWidth - 48, nl));
-      nt = Math.max(0, Math.min(window.innerHeight - 48, nt));
-      _fab.style.left = nl + 'px';
-      _fab.style.top  = nt + 'px';
-    }
-
-    function _onEnd(cx, cy) {
-      if (!_dragging) return;
-      _dragging = false;
-      _fab.classList.remove('dragging');
-      var r = _fab.getBoundingClientRect();
-      var cx2 = r.left + 24, cy2 = r.top + 24;
-      var snapped = _snapToCorner(cx2, cy2);
-      _applyFabPos(snapped);
-      _saveFabPos(snapped.left, snapped.top);
-      // If barely moved → treat as tap (open sheet)
-      if (!_moved) {
-        _sv2DrngOpen();
-      }
-    }
-
-    // Touch
-    _fab.addEventListener('touchstart', function(e){
-      if (!e.touches.length) return;
-      _onStart(e.touches[0].clientX, e.touches[0].clientY);
-    }, {passive:true});
-
-    _fab.addEventListener('touchmove', function(e){
-      if (!e.touches.length) return;
-      e.preventDefault();
-      _onMove(e.touches[0].clientX, e.touches[0].clientY);
-    }, {passive:false});
-
-    _fab.addEventListener('touchend', function(e){
-      var t = e.changedTouches[0];
-      _onEnd(t ? t.clientX : 0, t ? t.clientY : 0);
-    }, {passive:true});
-
-    // Mouse fallback
-    _fab.addEventListener('mousedown', function(e){
-      _onStart(e.clientX, e.clientY);
-      var mm = function(ev){ _onMove(ev.clientX, ev.clientY); };
-      var mu = function(ev){ _onEnd(ev.clientX, ev.clientY); document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); };
-      document.addEventListener('mousemove', mm);
-      document.addEventListener('mouseup', mu);
-    });
-  }
-
-  // ── Sheet open / close ────────────────────────────────────────────────────
-  function _sv2DrngOpen() {
-    if (!_sheet) return;
-    // Initialise calendar to today if nothing selected
-    var today = new Date();
-    _calYear  = today.getFullYear();
-    _calMonth = today.getMonth();
-    _activeTab = 'start';
-    _renderTabs();
-    _renderCal();
-    _updateApplyBtn();
-    _backdrop.classList.add('open');
-    _sheet.classList.add('open');
-  }
-
-  function _sv2DrngClose() {
-    if (!_sheet) return;
-    _sheet.classList.remove('open');
-    _backdrop.classList.remove('open');
-  }
-
-  window._sv2DrngClose = _sv2DrngClose;
-
-  function _sv2DrngClear() {
-    _selStart = null;
-    _selEnd   = null;
-    window._SV2_DATE_RANGE = null;
-    if (_fab) _fab.classList.remove('active-range');
-    _renderTabs();
-    _renderCal();
-    _updateApplyBtn();
-    // Dispatch event so future replay system can listen
-    try { document.dispatchEvent(new CustomEvent('sv2DateRangeCleared')); } catch(_){}
-    // Rebuild Stack View 2 immediately if it's currently the active layout —
-    // restores full data (S&R history + previously-hidden candles) right away.
-    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
-      try {
-        buildStack2();
-        setTimeout(_startCellTimers, 200);
-        setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-      } catch(_){}
-    }
-  }
-  window._sv2DrngClear = _sv2DrngClear;
-
-  // ── Tab switching ─────────────────────────────────────────────────────────
-  function _sv2DrngSwitchTab(tab) {
-    _activeTab = tab;
-    _renderTabs();
-    // Navigate cal to the already-selected date for this tab if set
-    var d = (tab === 'start') ? _selStart : _selEnd;
-    if (d) { _calYear = d.getFullYear(); _calMonth = d.getMonth(); }
-    _renderCal();
-  }
-  window._sv2DrngSwitchTab = _sv2DrngSwitchTab;
-
-  // ── Calendar navigation ───────────────────────────────────────────────────
-  function _sv2CalPrev() {
-    _calMonth--;
-    if (_calMonth < 0) { _calMonth = 11; _calYear--; }
-    _renderCal();
-  }
-  function _sv2CalNext() {
-    _calMonth++;
-    if (_calMonth > 11) { _calMonth = 0; _calYear++; }
-    _renderCal();
-  }
-  window._sv2CalPrev = _sv2CalPrev;
-  window._sv2CalNext = _sv2CalNext;
-
-  // ── Date helpers ──────────────────────────────────────────────────────────
-  function _dateToEpoch(d) {
-    // UTC midnight of the date (seconds)
-    return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 1000);
-  }
-  function _fmtDate(d) {
-    if (!d) return '-- Select --';
-    return d.getDate() + '-' + MONTHS[d.getMonth()].slice(0,3) + '-' + d.getFullYear();
-  }
-  function _isSameDay(a, b) {
-    return a && b && a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate();
-  }
-  function _dateObjOnly(y, m, d) {
-    return new Date(y, m, d);
-  }
-
-  // ── Render tabs — single-date mode ───────────────────────────────────────
-  function _renderTabs() {
-    var tsv = document.getElementById('sv2-tab-start-val');
-    if (tsv) tsv.textContent = _selStart ? _fmtDate(_selStart) : '-- Date chuniye --';
-    // End tab hidden in single-date mode — noop
-  }
-
-  // ── Render calendar grid ──────────────────────────────────────────────────
-  function _renderCal() {
-    var lbl = document.getElementById('sv2-cal-month-label');
-    var grid = document.getElementById('sv2-cal-grid');
-    if (!lbl || !grid) return;
-
-    lbl.textContent = MONTHS[_calMonth] + ' ' + _calYear;
-    grid.innerHTML = '';
-
-    // Day-of-week headers (Mo first)
-    DOW.forEach(function(d){
-      var el = document.createElement('div');
-      el.className = 'sv2-cal-dow';
-      el.textContent = d;
-      grid.appendChild(el);
-    });
-
-    // First day of this month (0=Sun … 6=Sat → convert to Mo-first: Mon=0)
-    var firstDay = new Date(_calYear, _calMonth, 1).getDay();
-    var moFirst = (firstDay + 6) % 7;   // 0=Mon … 6=Sun
-    var daysInMonth   = new Date(_calYear, _calMonth + 1, 0).getDate();
-    var daysInPrevMon = new Date(_calYear, _calMonth, 0).getDate();
-
-    var today = new Date();
-    var todayY = today.getFullYear(), todayM = today.getMonth(), todayD = today.getDate();
-
-    // Previous month fill
-    for (var p = 0; p < moFirst; p++) {
-      var el = document.createElement('div');
-      el.className = 'sv2-cal-day other-month';
-      el.textContent = daysInPrevMon - moFirst + 1 + p;
-      grid.appendChild(el);
-    }
-
-    // This month's days
-    for (var day = 1; day <= daysInMonth; day++) {
-      (function(d){
-        var el = document.createElement('div');
-        el.className = 'sv2-cal-day';
-        el.textContent = d;
-
-        var thisDate = _dateObjOnly(_calYear, _calMonth, d);
-
-        // Today highlight
-        if (_calYear === todayY && _calMonth === todayM && d === todayD) {
-          el.classList.add('today');
-        }
-
-        // Range highlight
-        var isStart = _isSameDay(thisDate, _selStart);
-        var isEnd   = _isSameDay(thisDate, _selEnd);
-        var inRange = _selStart && _selEnd && thisDate > _selStart && thisDate < _selEnd;
-
-        if (isStart) el.classList.add('sel-start');
-        if (isEnd)   el.classList.add('sel-end');
-        if (inRange) el.classList.add('in-range');
-
-        // Tap handler
-        el.addEventListener('touchend', function(e){
-          e.preventDefault();
-          _onDayTap(thisDate);
-        }, {passive:false});
-        el.addEventListener('click', function(){ _onDayTap(thisDate); });
-
-        grid.appendChild(el);
-      })(day);
-    }
-
-    // Next month fill (complete to 6 rows = 42 cells)
-    var total = moFirst + daysInMonth;
-    var remaining = (Math.ceil(total / 7) * 7) - total;
-    for (var n = 1; n <= remaining; n++) {
-      var el = document.createElement('div');
-      el.className = 'sv2-cal-day other-month';
-      el.textContent = n;
-      grid.appendChild(el);
-    }
-  }
-
-  // ── Day tap logic — single-date mode ─────────────────────────────────────
-  // Sirf ek date select hoti hai: history cutoff
-  // Us date tak ka data = history (seedha dikhega)
-  // Uske baad ka data = replay territory (ek ek karke reveal hoga)
-  function _onDayTap(date) {
-    _selStart = date;
-    _selEnd   = date;   // internally same, apply logic sirf _selStart use karta hai
-    _renderTabs();
-    _renderCal();
-    _updateApplyBtn();
-  }
-
-  // ── Apply button — single-date mode ──────────────────────────────────────
-  function _updateApplyBtn() {
-    var btn = document.getElementById('sv2-drng-apply');
-    if (!btn) return;
-    btn.disabled = !_selStart;   // sirf ek date chahiye
-  }
-
-  function _sv2DrngApply() {
-    if (!_selStart) return;
-
-    // ── Single-date replay logic ───────────────────────────────────────────
-    // Selected date D = "history cutoff"
-    // rng.from = UTC midnight of D+1  (exclusive boundary)
-    //   → sabhi candles jinka time < rng.from = Day D tak ka pura data
-    //     ye sab seedha dikhega (fully aggregated history)
-    //   → rng.from se aage ke candles = replay territory
-    //     ek ek karke reveal honge jab ▶ play hoga
-    // rng.to = Infinity  (no upper bound — replay sabhi future bars cover karta hai)
-    var cutEpoch = _dateToEpoch(_selStart) + 86400;   // Day D+1 UTC midnight
-
-    window._SV2_DATE_RANGE = {
-      from:    cutEpoch,
-      to:      Infinity,
-      fromStr: _fmtDate(_selStart),
-      toStr:   _fmtDate(_selStart),
-    };
-    if (_fab) _fab.classList.add('active-range');
-    // FAB label update — selected date dikhao
-    var fabLbl = document.getElementById('sv2-drng-fab');
-    if (fabLbl) fabLbl.title = 'Cutoff: ' + _fmtDate(_selStart) + '  (tap to change)';
-
-    _sv2DrngClose();
-
-    // Replay engine ko signal karo
-    try {
-      document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', {
-        detail: window._SV2_DATE_RANGE
-      }));
-    } catch(_){}
-    console.log('[SV2 Replay] Cutoff applied:', window._SV2_DATE_RANGE);
-
-    // SV2 rebuild karo — har cell apna data filter karega + replay arm hoga
-    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
-      // Hint overlays hatao (agar the)
-      document.querySelectorAll('._sv2-nohint').forEach(function(h){ h.remove(); });
-      try {
-        buildStack2();
-        setTimeout(_startCellTimers, 200);
-        setTimeout(function(){ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-      } catch(_){}
-    }
-  }
-  window._sv2DrngApply = _sv2DrngApply;
-
-  // ── Init (runs after DOM ready) ───────────────────────────────────────────
-  function _init() {
-    _fab      = document.getElementById('sv2-drng-fab');
-    _sheet    = document.getElementById('sv2-drng-sheet');
-    _backdrop = document.getElementById('sv2-drng-backdrop');
-    if (!_fab || !_sheet || !_backdrop) return;
-
-    // Restore last position
-    _applyFabPos(_loadFabPos());
-
-    // Wire drag
-    _wireDrag();
-
-    // Backdrop tap → close
-    _backdrop.addEventListener('touchend', function(e){
-      e.preventDefault();
-      _sv2DrngClose();
-    }, {passive:false});
-    _backdrop.addEventListener('click', _sv2DrngClose);
-
-    // Sync visibility immediately (in case SV2 already active on first load)
-    _sv2DrngSyncFab();
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _init);
-  } else {
-    _init();
-  }
-
-})();
-
-// ════════════════════════════════════════════════════════════════════════════
-// SV2 LIVE BAR-REPLAY ENGINE
-// ────────────────────────────────────────────────────────────────────────────
-// Behaves like a real live feed, but every bar comes from the .gz data:
-//   • Active only when a Date Range is selected (window._SV2_DATE_RANGE)
-//   • Base bars (BN=5m, BTC=160m) are revealed ONE AT A TIME, fully formed
-//     (no intra-candle animation) — a jump-reveal, not a gradual build.
-//   • Pace is driven by OUR OWN virtual-clock parameter (TICK_MS = 1 real
-//     second = 1 candle by default), NEVER by reading real wall-clock time
-//     to decide what should be visible. setInterval is only a metronome —
-//     a tick source — not a source of truth for "what time is it".
-//   • When the base array runs out for the day, the very next base bar in
-//     the array is automatically the next trading day's 9:15 bar — so
-//     "agle din 9:15 se continue" needs no special-case code, it just keeps
-//     stepping through the same array.
-//   • Every tick, ALL STACK2_CELLS are fully rebuilt bottom-up from the
-//     revealed base bars via _liveAggregateTF() — the pre-resampled
-//     SV2_BN/SV2_BTC store is never touched during a replay session.
-// ════════════════════════════════════════════════════════════════════════════
-(function(){
-
-  var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
-  var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
-  var _resetBtn  = null;   // #sv2-reset-btn
-  var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
-  var _running   = false;
-  var TICK_MS    = 2000;   // virtual-clock parameter: 2 real sec = 1 candle
-
-  // ── Show / hide controls based on whether a replay range is active ───────
-  function _syncControls() {
-    var rangeActive = !!(window._SV2_DATE_RANGE && typeof window._SV2_DATE_RANGE.from === 'number');
-    var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
-    var show = rangeActive && stack2On;
-    if (_playBtn)     _playBtn.classList.toggle('visible', show);
-    if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
-    if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
-    if (!show) _pause();
-    _renderPlayIcon();
-    _syncPos();
-  }
-
-  function _syncPos() {
-    var fab = document.getElementById('sv2-drng-fab');
-    if (!fab) return;
-    var r = fab.getBoundingClientRect();
-    // Teeno buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
-    // same left, top badhta jaata hai — pehle galti se left badhta jaa
-    // raha tha (horizontal row), jisse chart ke upar overlap ho raha tha.
-    if (_playBtn) {
-      _playBtn.style.left = r.left + 'px';
-      _playBtn.style.top  = (r.bottom + 8) + 'px';
-    }
-    if (_onestepBtn) {
-      _onestepBtn.style.left = r.left + 'px';
-      _onestepBtn.style.top  = (r.bottom + 8 + 58) + 'px';
-    }
-    if (_resetBtn) {
-      _resetBtn.style.left = r.left + 'px';
-      _resetBtn.style.top  = (r.bottom + 8 + 58 + 58) + 'px';
-    }
-  }
-
-  function _renderPlayIcon() {
-    if (!_playBtn) return;
-    var live = window._SV2_LIVE;
-    var done = !!(live && live.baseBars && live.revealIdx >= live.baseBars.length);
-    _playBtn.classList.toggle('done', done);
-    _playBtn.textContent = done ? '\u2713' : (_running ? '\u23f8' : '\u25b6');
-    // Step button: replay chalte hue (continuous play) ya khatam ho chuke
-    // data par manual step allow nahi — warna dono controls tussle karenge.
-    if (_onestepBtn) _onestepBtn.classList.toggle('disabled', done || _running);
-  }
-
-  // Resolve a cell's real TF in minutes from its label (cell.tf is unused/hardcoded)
-  function _getCellTFMinLive(idx) {
-    try {
-      var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-      var cfg2 = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-      var tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
-      var min = _parseTFMin(tfLabel);
-      if (min && min > 0) return min;
-    } catch(_) {}
-    return 5;
-  }
-
-  function _rebuildAllCells() {
-    var live = window._SV2_LIVE;
-    if (!live || typeof STACK2_CELLS === 'undefined') return;
-    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
-      var cell = STACK2_CELLS[ci];
-      if (!cell || !cell.series) continue;
-      var tfMin = _getCellTFMinLive(ci);
-      var agg = _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
-      // setData() poora series data replace karta hai — jiski wajah se
-      // Lightweight Charts apna visible time-range reset/re-fit kar deta
-      // hai (default rightOffset view par). Isse replay ke har tick par
-      // chart "right ki taraf bhaagta" dikhta tha. Fix: setData() se pehle
-      // current viewport save karo, baad mein wahi restore kar do — same
-      // pattern jo _sv2ApplyCellSR() SR lines ke liye already use karta hai.
-      var _preRange = null;
-      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_) {}
-      try { cell.series.setData(agg); } catch(_) {}
-      if (_preRange && cell.chart) {
-        try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
-      }
-    }
-  }
-
-  // ── One tick = reveal exactly ONE more base bar, then rebuild all cells ──
-  function _tick() {
-    var live = window._SV2_LIVE;
-    if (!live || !live.baseBars) { _pause(); return; }
-    if (live.revealIdx >= live.baseBars.length) { _pause(); _renderPlayIcon(); return; }
-
-    live.revealIdx++;
-    _rebuildAllCells();
-    try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
-    _renderPlayIcon();
-  }
-
-  function _play() {
-    if (_running) return;
-    var live = window._SV2_LIVE;
-    if (!live || !live.baseBars || live.revealIdx >= live.baseBars.length) return;
-    _running = true;
-    _timerId = setInterval(_tick, TICK_MS);   // our own paced metronome
-    _renderPlayIcon();
-  }
-
-  function _pause() {
-    _running = false;
-    if (_timerId) { clearInterval(_timerId); _timerId = null; }
-    _renderPlayIcon();
-  }
-
-  function _togglePlay() {
-    if (_running) _pause(); else _play();
-  }
-
-  // ── Manual STEP: reveal exactly ONE candle (all TFs sync), then stop ────
-  // Continuous auto-play (_play/_pause) ke saath tussle na ho isliye agar
-  // auto-play chal raha ho to pehle usko pause kar do, phir ek hi _tick().
-  function _stepOnce() {
-    if (_running) _pause();
-    _tick();
-  }
-
-  function _reset() {
-    _pause();
-    var live = window._SV2_LIVE;
-    if (!live) return;
-    live.revealIdx = live.startIdx;
-    _rebuildAllCells();
-    _renderPlayIcon();
-  }
-
-  // Keep old global names working (HTML onclick + external callers use these)
-  window._sv2StepForward = _togglePlay;
-  window._sv2StepOnce    = _stepOnce;
-  window._sv2LiveReset   = _reset;
-  window._sv2StepSyncBtn = _syncControls;
-
-  document.addEventListener('sv2DateRangeApplied', function() {
-    _pause();
-    _syncControls();
-  });
-
-  document.addEventListener('sv2DateRangeCleared', function() {
-    _pause();
-    window._SV2_LIVE = null;
-    _syncControls();
-  });
-
-  function _watchFabPos() {
-    var fab = document.getElementById('sv2-drng-fab');
-    if (!fab) return;
-    var obs = new MutationObserver(function(){
-      if (_playBtn && _playBtn.classList.contains('visible')) _syncPos();
-    });
-    obs.observe(fab, { attributes: true, attributeFilter: ['style'] });
-  }
-
-  function _init() {
-    _playBtn    = document.getElementById('sv2-step-btn');
-    _onestepBtn = document.getElementById('sv2-onestep-btn');
-    _resetBtn   = document.getElementById('sv2-reset-btn');
-    if (_resetBtn) _resetBtn.addEventListener('click', _reset);
-    _syncControls();
-    _watchFabPos();
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _init);
-  } else {
-    _init();
-  }
-
-})();
-
-// ── Patch selectStack2View and _deactivateStack2 to sync FAB ──────────────
-// (Run after both functions are defined — appended at end of SV2 block)
-(function(){
-  var _origActivate   = window.selectStack2View;
-  var _origDeactivate = window._deactivateStack2 || null;
-
-  window.selectStack2View = function(){
-    if (typeof _origActivate === 'function') _origActivate.apply(this, arguments);
-    try { if (typeof window._sv2DrngOnActivate === 'function') window._sv2DrngOnActivate(); } catch(_){}
-    try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
-  };
-
-  // _deactivateStack2 is a local function so we re-assign the global reference
-  // via a DOMContentLoaded hook (it's already defined above as a named function)
-  document.addEventListener('DOMContentLoaded', function(){
-    var _orig2 = window._deactivateStack2;
-    if (typeof _orig2 === 'function') {
-      window._deactivateStack2 = function(){
-        _orig2.apply(this, arguments);
-        try { if (typeof window._sv2DrngOnDeactivate === 'function') window._sv2DrngOnDeactivate(); } catch(_){}
-        try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
-      };
-    }
-  });
-})();
-
 // Activates Stack View as the current layout mode (parallel to setLayout('4-grid') etc.)
 function selectStackView() {
   document.getElementById('grid-picker').classList.remove('open');
@@ -5123,19 +3321,8 @@ function selectStackView() {
   document.getElementById('grid-btn').classList.add('active');
   if (cmBtn) cmBtn.style.display = 'none';   // per-cell fullscreen not wired for stack yet
 
-  // Show Stack1 buttons, hide Stack2 buttons
-  const _su = document.getElementById('stack-up-btn');
-  const _sd = document.getElementById('stack-down-btn');
-  const _s2u = document.getElementById('stack2-up-btn');
-  const _s2d = document.getElementById('stack2-down-btn');
-  if (_su) _su.style.display = '';
-  if (_sd) _sd.style.display = '';
-  if (_s2u) _s2u.style.display = 'none';
-  if (_s2d) _s2d.style.display = 'none';
-
   destroyCharts();
   destroyGridCells();
-  if (_stack2Active) _deactivateStack2();
   buildStack();
   setTimeout(_startCellTimers, 200);
   setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
@@ -7081,8 +5268,6 @@ function setLayout(key, btn) {
   const sv=document.getElementById('stack-view');
   if (sv) sv.classList.remove('active');
   destroyStackCells();
-  // Also deactivate Stack View 2 if active
-  if (_stack2Active) _deactivateStack2();
   S.layout = key;
   try{_LS.setItem('tvLayout',key);}catch(_){}
   const ws=document.getElementById('workspace');
@@ -8424,15 +6609,6 @@ function switchAsset(name) {
     if (name === BTC_ASSET) {
       if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     }
-  } else if (S.layout === 'stack2') {
-    // Stack View 2: symbol change → different cell count (BTC:6, BN:8)
-    // Rebuild entire stack2 so correct total/visible/tfs config is applied.
-    buildStack2();
-    setTimeout(_startCellTimers, 200);
-    setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
-    if (name === BTC_ASSET) {
-      if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
-    }
   } else {
     CELLS.forEach(c => c.asset = name);
     CELLS.forEach((_, i) => buildCellChart(i));
@@ -9668,17 +7844,11 @@ document.addEventListener('DOMContentLoaded', () => {
   { const h12=document.getElementById('s-hour12'); if(h12) h12.value=S.hour12?'12':'24'; }
   // Sync S/R line width input with saved value
   { const lw=document.getElementById('swing-line-width'); if(lw) lw.value=SWING_LINE_WIDTH; }
-  // Sync candle H/L and swing SR length-multiplier inputs with saved values
-  { const e=document.getElementById('ch-start-mult');  if(e) e.value=CH_START_MULT; }
-  { const e=document.getElementById('ch-extend-mult'); if(e) e.value=CH_EXTEND_MULT; }
-  { const e=document.getElementById('sw-start-mult');  if(e) e.value=SW_START_MULT; }
-  { const e=document.getElementById('sw-slide-mult');  if(e) e.value=SW_SLIDE_MULT; }
 
   // Render workspace slots bar
   _renderWsBar();
   // Sync Stack View ON/OFF switch visual with the loaded preference
   _renderStackSwitch();
-  _renderStack2Switch();
 
   // Rebuild TF bar with current S.tf and any favorited custom TFs
   rebuildTfBar();
@@ -9772,46 +7942,6 @@ function setSwingLineWidth(w) {
   try { _LS.setItem(_SW_WIDTH_KEY, SWING_LINE_WIDTH); } catch(_) {}
   const inp = document.getElementById('swing-line-width');
   if (inp) inp.value = SWING_LINE_WIDTH;
-  _swingRefresh();
-}
-
-// ── Line-length multipliers (user-configurable, persisted) ────────────────
-// Candle H/L lines: length = multiplier × candle's own period.
-//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai
-//   CH_EXTEND_MULT → jab agli candle isko touch kare to kitna aage badhe
-// Swing SR lines: length = multiplier × swingDuration(tf).
-//   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
-//   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
-const _CH_START_KEY  = 'chStartMult1';
-const _CH_EXTEND_KEY = 'chExtendMult1';
-const _SW_START_KEY  = 'swStartMult1';
-const _SW_SLIDE_KEY  = 'swSlideMult1';
-let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 2);
-let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 2);
-let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
-let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
-function setChStartMult(v) {
-  CH_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
-  try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
-  const inp = document.getElementById('ch-start-mult'); if (inp) inp.value = CH_START_MULT;
-  _swingRefresh();
-}
-function setChExtendMult(v) {
-  CH_EXTEND_MULT = Math.max(0.5, Math.min(10, +v || 2));
-  try { _LS.setItem(_CH_EXTEND_KEY, CH_EXTEND_MULT); } catch(_) {}
-  const inp = document.getElementById('ch-extend-mult'); if (inp) inp.value = CH_EXTEND_MULT;
-  _swingRefresh();
-}
-function setSwStartMult(v) {
-  SW_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
-  try { _LS.setItem(_SW_START_KEY, SW_START_MULT); } catch(_) {}
-  const inp = document.getElementById('sw-start-mult'); if (inp) inp.value = SW_START_MULT;
-  _swingRefresh();
-}
-function setSwSlideMult(v) {
-  SW_SLIDE_MULT = Math.max(0.5, Math.min(10, +v || 1));
-  try { _LS.setItem(_SW_SLIDE_KEY, SW_SLIDE_MULT); } catch(_) {}
-  const inp = document.getElementById('sw-slide-mult'); if (inp) inp.value = SW_SLIDE_MULT;
   _swingRefresh();
 }
 
@@ -10091,8 +8221,6 @@ function _swingRefresh() {
   if (!SWING_STATE.visible) return;
   if (S.layout === '1x1') { swingAfterRebuild(); }
   else { CELLS.forEach((_, i) => buildCellSwing(i)); }
-  // SV2 cells bhi refresh karo
-  try { sv2SwingRefresh(); } catch(_) {}
 }
 
 // Default palette: Pine Script TF → color
@@ -10141,18 +8269,9 @@ function _updateCurrentTfColorRow() {
                cnEl.onclick = (e) => { e.stopPropagation(); _openActiveTfColor(cnEl, 'candle', activeTf); }; }
 }
 
-function swingCompute(bars, tfMin, nowSec) {
+function swingCompute(bars, tfMin) {
   // ── Candle H/L + Swing H/L — two independent systems ───────────────────
   //
-  // nowSec (optional): replay/live VIRTUAL clock — the time of the latest
-  // revealed base bar (e.g. the just-revealed 5m candle), NOT Date.now().
-  // Pivot/line CREATION never uses this (still only real closed candles,
-  // see `data` below — no repaint). It is only used at the very end to
-  // keep already-existing lines visually extended/alive up to the replay's
-  // true current position while a higher-TF bucket is still forming —
-  // otherwise a line's endTime (computed off the last CLOSED bucket) can
-  // fall behind the replay's actual position and the line disappears too
-  // early, leaving a visual gap until the next bucket finally closes.
   // CANDLE H/L RULES (kind:'ch'|'cl'):
   //   Candle 1 closes → High & Low lines created (endTime = +2×period)
   //   Candle 2 (validator): Low ≤ price ≤ High → TOUCHED → extend to +3×period
@@ -10182,31 +8301,21 @@ function swingCompute(bars, tfMin, nowSec) {
     if (!raw.length || raw.length < 2) return false;
     const last = raw[raw.length - 1];
     const prev = raw[raw.length - 2];
-    // Pure time-based check — market open/close ya replay mode pe depend nahi.
-    // Last bar ki actual duration = last.time - prev.time (real measured gap).
-    // Agar current time abhi last bar ki window ke andar hai → still forming → exclude.
-    const barDuration = last.time - prev.time;
-    const nowSec = Math.floor(Date.now() / 1000);
-    return nowSec < (last.time + barDuration);
+    const nDays = tfMin > 1440 ? Math.round(tfMin / 1440) : 0;
+    if (nDays >= 2) {
+      // Last bar ki expected end = last.time + nDays * 86400 (approx, trading days)
+      // Simple check: agar current IST time last bar ke start aur prev bar ke
+      // gap-based expected-end ke beech hai → forming
+      const barDuration = last.time - prev.time; // actual measured duration
+      const nowSec = Math.floor(Date.now() / 1000);
+      return nowSec < (last.time + barDuration);
+    }
+    return _isMarketOpen(); // intraday/daily: existing logic
   })();
   const data = (raw.length > 1 && _isLastBarForming) ? raw.slice(0, -1) : raw;
 
-  // ── Custom swing line duration per TF (seconds) ──────────────────────────
-  // Har naye candle pe endTime = cur.time + swingDuration → sliding window.
-  // Koi infinity nahi — line hamesha latest candle se fixed duration aage.
-  function swingDuration(tf) {
-    if (tf <= 5)     return 3600;      // 5m  → 1 hour
-    if (tf <= 15)    return 7200;      // 15m → 2 hours
-    if (tf <= 45)    return 28800;     // 45m → 8 hours
-    if (tf <= 135)   return 259200;    // 135m → 3 days
-    if (tf <= 1440)  return 518400;    // 1D  → 6 days
-    if (tf <= 4320)  return 777600;    // 3D  → 9 days
-    if (tf <= 12960) return 2592000;   // 9D  → 1 month
-    return 7776000;                    // 27D → 3 months
-  }
-
-  let aRes     = [];  // swing highs  { price, startTime, endTime, creationIndex, kind:'sh', periodSec }
-  let aSup     = [];  // swing lows   { price, startTime, endTime, creationIndex, kind:'sl', periodSec }
+  let aRes     = [];  // swing highs  { price, startTime, kind:'sh' }
+  let aSup     = [];  // swing lows   { price, startTime, kind:'sl' }
   let chLines  = [];  // candle high lines (pending / validated)
   let clLines  = [];  // candle low  lines (pending / validated)
 
@@ -10235,15 +8344,20 @@ function swingCompute(bars, tfMin, nowSec) {
     const isSessionGap = tfMin < 1440 && i >= 1 &&
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
 
-    // ── Step 1: Candle lines validate (touch = extend, no touch = delete) ──
+    // ── Step 1: Validate ALL active candle lines with current bar ───────
     const validateLines = (arr) => {
       for (let j = arr.length - 1; j >= 0; j--) {
         const ln = arr[j];
         if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
-        const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
+        
+        // Strict Touch Logic
+        let isTouched = (cur.low <= ln.price && cur.high >= ln.price);
+        
         if (isTouched) {
-          ln.endTime = cur.time + CH_EXTEND_MULT * periodSec;
+          // TOUCHED — re-extend 1 candle ahead from the current bar
+          ln.endTime = cur.time + 2 * periodSec;
         } else {
+          // NOT TOUCHED — delete immediately
           arr.splice(j, 1);
         }
       }
@@ -10252,41 +8366,25 @@ function swingCompute(bars, tfMin, nowSec) {
       validateLines(chLines);
       validateLines(clLines);
     }
-
-    // ── Step 1b: Swing lines — har naye candle pe endTime slide karo ────────
-    // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
-    // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
-    for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
-    }
-    for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endTime = cur.time + SW_SLIDE_MULT * swingDuration(tfMin);
-    }
+    // isSessionGap === true: skip judging this round — lines carry forward
+    // untouched, to be validated against the next (intraday) candle instead.
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
     if (i >= 1 && pGreen && curRed) {
       const rPrice = Math.max(pHigh, cur.high);
       const rTime  = pHigh >= cur.high ? data[i - 1].time : cur.time;
-      // Deletion: purane swings jo naye se upar hain → hata do
       aRes = aRes.filter(l => l.price <= rPrice);
       aSup = aSup.filter(l => l.price <= rPrice);
-      // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
-      aRes.push({ price: rPrice, startTime: rTime,
-                  endTime: cur.time + swingDuration(tfMin) * SW_START_MULT,
-                  creationIndex: i, kind: 'sh', periodSec });
+      aRes.push({ price: rPrice, startTime: rTime, kind: 'sh' });
     }
 
     // ── Step 3: Swing Low (prevRed → currGreen) ─────────────────────────
     if (i >= 1 && pRed && curGreen) {
       const sPrice = Math.min(pLow, cur.low);
       const sTime  = pLow <= cur.low ? data[i - 1].time : cur.time;
-      // Deletion: purane swings jo naye se neeche hain → hata do
       aSup = aSup.filter(l => l.price >= sPrice);
       aRes = aRes.filter(l => l.price >= sPrice);
-      // Naya swing — endTime = cur.time + swingDuration * SW_START_MULT (starting length)
-      aSup.push({ price: sPrice, startTime: sTime,
-                  endTime: cur.time + swingDuration(tfMin) * SW_START_MULT,
-                  creationIndex: i, kind: 'sl', periodSec });
+      aSup.push({ price: sPrice, startTime: sTime, kind: 'sl' });
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
@@ -10298,14 +8396,16 @@ function swingCompute(bars, tfMin, nowSec) {
     ]);
     if (!_activeSwingPrices.has(cur.high)) {
       chLines.push({ price: cur.high, startTime: cur.time,
-                     endTime: cur.time + CH_START_MULT * periodSec,
+                     endTime: cur.time + 2 * periodSec,
                      creationIndex: i, kind: 'ch', periodSec });
     }
     if (!_activeSwingPrices.has(cur.low)) {
       clLines.push({ price: cur.low,  startTime: cur.time,
-                     endTime: cur.time + CH_START_MULT * periodSec,
+                     endTime: cur.time + 2 * periodSec,
                      creationIndex: i, kind: 'cl', periodSec });
     }
+
+    // DO NOT USE shift() here! We must not delete surviving lines artificially.
 
     // ── Step 5: Roll state forward ───────────────────────────────────────
     pGreen = curGreen;
@@ -10316,39 +8416,23 @@ function swingCompute(bars, tfMin, nowSec) {
 
   // ── Assemble output ─────────────────────────────────────────────────────
   const out = [];
-  const srColor  = _tfSrColor(tfMin);
-  const _cndClr  = _tfCandleColor(tfMin);
-  const lastClosedTime = data.length ? data[data.length - 1].time : 0;
+  const srColor = _tfSrColor(tfMin);
 
-  // ── Replay virtual-clock extension (NO new pivots/lines created here) ──
-  // Agar replay abhi bhi is TF ka agla bucket close hone ka wait kar raha
-  // hai (nowSec > lastClosedTime), to already-existing lines ko replay ki
-  // asli current position (nowSec) tak "alive/visible" rakho — warna line
-  // ka endTime purane closed-candle ke hisaab se hi reh jaata aur replay
-  // aage badhte hi line beech mein hi gayab ho jaati (gap). Yeh sirf
-  // extension hai — koi naya pivot ya candle H/L is candle se nahi banta.
-  if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
-    const _swingFloor = nowSec + SW_SLIDE_MULT * swingDuration(tfMin);
-    for (const l of aRes)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
-    for (const l of aSup)    if (l.endTime < _swingFloor) l.endTime = _swingFloor;
-    for (const l of chLines) if (l.endTime < nowSec)       l.endTime = nowSec;
-    for (const l of clLines) if (l.endTime < nowSec)       l.endTime = nowSec;
-  }
-  const lastTime = (typeof nowSec === 'number') ? Math.max(lastClosedTime, nowSec) : lastClosedTime;
-
-  // Swing SR lines — finite, latest 5
+  // Swing SR lines — infinite, latest 5
   const allSwings = [
-    ...aRes.filter(s => s.endTime > lastTime),
-    ...aSup.filter(s => s.endTime > lastTime),
+    ...aRes.map(s => ({ price: s.price, startTime: s.startTime, kind: 'sh' })),
+    ...aSup.map(s => ({ price: s.price, startTime: s.startTime, kind: 'sl' })),
   ].sort((a, b) => b.startTime - a.startTime).slice(0, 5);
 
   for (const sw of allSwings) {
-    out.push({ price: sw.price, startTime: sw.startTime, endTime: sw.endTime,
-               kind: sw.kind, color: srColor, isInfinite: false,
-               periodSec: sw.periodSec, levelTf: tfMin });
+    out.push({ price: sw.price, startTime: sw.startTime, endTime: null,
+               kind: sw.kind, color: srColor, isInfinite: true, levelTf: tfMin });
   }
 
-  // Candle lines — all valid surviving lines
+  // Candle lines — Return ALL valid surviving lines without slicing/capping to 5
+  // Use per-TF candle color (user-configurable); falls back to swing color.
+  const _cndClr = _tfCandleColor(tfMin);
+  const lastTime = data.length ? data[data.length - 1].time : 0;
   const allCandles = [
     ...chLines.map(l => ({ ...l, color: _cndClr })),
     ...clLines.map(l => ({ ...l, color: _cndClr })),
@@ -10356,8 +8440,7 @@ function swingCompute(bars, tfMin, nowSec) {
 
   for (const l of allCandles) {
     out.push({ price: l.price, startTime: l.startTime, endTime: l.endTime,
-               kind: l.kind, color: l.color, isInfinite: false,
-               periodSec: l.periodSec, levelTf: tfMin });
+               kind: l.kind, color: l.color, isInfinite: false, periodSec: l.periodSec, levelTf: tfMin });
   }
 
   return out;
@@ -10395,7 +8478,7 @@ function swingRemoveCanvas() {
 // engine khud responsible hota hai use har zoom/pan/resize par sahi jagah
 // render karne ke liye. Koi manual x/y pixel-calculation yahan nahi hota,
 // isliye coordinate-limit ka sawaal hi nahi aata.
-function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
+function _bnBuildSRNative(chartObj, lines, _preRange) {
   const created = [];
   if (!chartObj || !lines || !lines.length) return created;
 
@@ -10430,13 +8513,7 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll) {
   // TimeScale range wapas restore karo
   if (_savedRange && typeof _savedRange.from === 'number' && typeof _savedRange.to === 'number') {
     try { chartObj.timeScale().setVisibleLogicalRange(_savedRange); } catch(_) {}
-  } else if (!avoidAutoScroll) {
-    // Replay mode (avoidAutoScroll=true) mein ye kabhi nahi chalna chahiye —
-    // agar _preRange kisi wajah se null aa jaaye (e.g. sparse bars ke sath
-    // getVisibleLogicalRange() ka temporary glitch), to bhi chart ko
-    // forcibly right-scroll nahi karna — warna replay ke har tick par chart
-    // "bhaagta" dikhta hai. SV1/static SV2 (indicator ko pehli baar ON
-    // karna) ke liye ye fallback pehle jaisa hi rehta hai.
+  } else {
     try { chartObj.timeScale().scrollToRealTime(); } catch(_) {}
   }
 
@@ -10657,218 +8734,6 @@ function swingAfterRebuildBtc2() {
   btc2RemoveCanvas();
   setTimeout(() => { initBtc2Indicator(); }, 0);
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// SV2 SWING S&R INDICATOR
-// ────────────────────────────────────────────────────────────────────────────
-// Stack View 2 ke har cell par wahi Swing S&R lagata hai jo SV1 mein lagta hai.
-// Data source: SV2_BN / SV2_BTC (.gz pre-resampled) — Fyers API nahi.
-//
-// 3 modes:
-//   A) .gz full data:   sv2SwingInit(null)          — SV2 load/asset change par
-//   B) Date range set:  sv2SwingInit(rng.from)       — sirf historical candles
-//   C) Replay step ⏭:  sv2SwingOnStep(closedTime)   — har closed candle par
-//
-// Reused (zero change): swingCompute(), _bnBuildSRNative(), _bnClearSRNative(),
-//   SWING_TF_LIST, SWING_PRESETS, _TF_COLORS, SWING_LINE_WIDTH, SWING_STATE
-// ════════════════════════════════════════════════════════════════════════════
-
-// Per-cell SR series store — parallel index to STACK2_CELLS
-const _sv2SrSeries = [];
-
-// ── SV2 store se ek TF ka data lo, optional cutoff ke saath ─────────────────
-function _sv2DataForTF(assetKey, tfLabel, cutoffTime) {
-  try {
-    const store  = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
-    const keyLow = (tfLabel || '').toLowerCase();
-    let data = null;
-    for (const k in store) {
-      if (k.toLowerCase() === keyLow) { data = store[k]; break; }
-    }
-    if (!Array.isArray(data) || !data.length) return [];
-    return (typeof cutoffTime === 'number')
-      ? data.filter(b => b.time < cutoffTime)
-      : data;
-  } catch(_) { return []; }
-}
-
-// ── tf.min → SV2 store label map (e.g. 480 → '8H', 1440 → '1D') ──────────
-function _sv2FindTFLabel(assetKey, tfMin, hintLabel) {
-  try {
-    const store = (assetKey === 'bn') ? SV2_BN : SV2_BTC;
-    // 1. SWING_TF_LIST chip ka hint label try karo first
-    if (hintLabel) {
-      const h = hintLabel.toLowerCase();
-      for (const k in store) { if (k.toLowerCase() === h) return k; }
-    }
-    // 2. Minutes → canonical label convert karo
-    let lbl;
-    if      (tfMin >= 1440 && tfMin % 1440 === 0) lbl = (tfMin / 1440) + 'D';
-    else if (tfMin >= 60   && tfMin % 60   === 0) lbl = (tfMin / 60)   + 'H';
-    else                                           lbl = tfMin + 'm';
-    const low = lbl.toLowerCase();
-    for (const k in store) { if (k.toLowerCase() === low) return k; }
-  } catch(_) {}
-  return null;
-}
-
-// ── Ek SV2 cell ke liye Multi-TF SR compute karo ──────────────────────────
-// LIVE REPLAY FIX: jab ek replay session active hai (window._SV2_LIVE set
-// hai), SR kabhi bhi pre-resampled SV2_BN/SV2_BTC store se data nahi leta —
-// har TF (cell ka apna aur higher TFs, dono) sirf ab-tak-revealed base bars
-// (window._SV2_LIVE.revealIdx) se _liveAggregateTF() ke through banta hai.
-// Isse forming candle ka SR bhi sirf utne hi data se banta hai jitna abhi
-// tak "known" hai — koi future leak nahi. Normal (non-replay) static SR
-// abhi bhi purane _sv2DataForTF (pre-resampled) rasty se hi chalta hai.
-function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
-  try {
-    const cfg2      = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-    const tfLabel   = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
-    const cellTFMin = _parseTFMin(tfLabel) || 5;
-    const allLines  = [];
-
-    const live       = window._SV2_LIVE;
-    const isLiveMode = !!(live && Array.isArray(live.baseBars));
-    // Replay VIRTUAL clock — time of the latest revealed base bar (NOT
-    // Date.now()). Passed into swingCompute so already-existing SR/swing
-    // lines stay visually extended up to replay's true current position
-    // while a higher-TF bucket is still forming, instead of stalling at
-    // the last-closed-bucket time and creating a visual gap.
-    const liveNowSec = (isLiveMode && live.revealIdx > 0 && live.baseBars[live.revealIdx - 1])
-      ? live.baseBars[live.revealIdx - 1].time
-      : null;
-
-    function _dataForTFAny(tfMin, hintLabel) {
-      if (isLiveMode) {
-        // SR/swing calc ke liye kabhi bhi ek still-forming (incomplete)
-        // bucket use nahi karna — chahe wo tfMin cell ka apna TF ho ya koi
-        // higher TF. Completeness ab replay-clock-safe hai (structural
-        // bucket-window check _liveAggregateTF ke andar, real Date.now()
-        // pe depend nahi karta) — is fix ka effect isliye 5m/15m/45m/135m
-        // sab timeframes par ek hi jagah se automatically laagu ho jaata hai.
-        const arr = _liveAggregateTF(live.baseBars, live.revealIdx, tfMin, live.isBN);
-        return (arr._formingLast && arr.length) ? arr.slice(0, -1) : arr;
-      }
-      const label = _sv2FindTFLabel(assetKey, tfMin, hintLabel);
-      return label ? _sv2DataForTF(assetKey, label, cutoffTime) : [];
-    }
-
-    // Step 1: Cell ka apna TF
-    const dataCur = _dataForTFAny(cellTFMin, tfLabel);
-    if (dataCur.length >= 3) {
-      swingCompute(dataCur, cellTFMin, liveNowSec)
-        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
-    }
-
-    // Step 2: SWING_TF_LIST se enabled higher TFs
-    const enabledHTFs = (SWING_TF_LIST || [])
-      .filter(t => t.enabled && t.min > cellTFMin)
-      .sort((a, b) => a.min - b.min);
-
-    for (const tf of enabledHTFs) {
-      const data = _dataForTFAny(tf.min, tf.label);
-      if (data.length >= 3) {
-        swingCompute(data, tf.min, liveNowSec)
-          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
-      }
-    }
-
-    // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
-    // swing se upar priority do (SV1 swingComputeMultiTF ke saath identical)
-    const _swingByPrice  = new Map();
-    const _candleByPrice = new Map();
-    for (const line of allLines) {
-      if (line.isInfinite) {
-        const ex = _swingByPrice.get(line.price);
-        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
-      } else {
-        const ex = _candleByPrice.get(line.price);
-        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
-      }
-    }
-    for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
-    return [..._swingByPrice.values(), ..._candleByPrice.values()];
-  } catch(_) { return []; }
-}
-
-// ── SR lines ek SV2 cell par lagao ─────────────────────────────────────────
-function _sv2ApplyCellSR(cellIdx, lines) {
-  try {
-    const c = STACK2_CELLS[cellIdx];
-    if (!c || !c.chart) return;
-    // Range SABSE PEHLE save karo — purani SR series remove karne SE PEHLE.
-    // Pehle ye capture _bnClearSRNative() ke BAAD hoti thi — series remove
-    // karna kabhi-kabhi getVisibleLogicalRange() ko temporarily null/invalid
-    // bana deta hai (especially jab bars kam hon), jo _bnBuildSRNative() ke
-    // andar scrollToRealTime() fallback fire kara deta — har tick par chart
-    // right ki taraf snap ho jaata tha. Ab range removal se pehle hi capture
-    // ho jaati hai, jab chart abhi stable/valid state mein hota hai.
-    let _preRange = null;
-    try { _preRange = c.chart.timeScale().getVisibleLogicalRange(); } catch(_) {}
-    // Purani series hata do
-    if (_sv2SrSeries[cellIdx] && _sv2SrSeries[cellIdx].length) {
-      _sv2SrSeries[cellIdx] = _bnClearSRNative(c.chart, _sv2SrSeries[cellIdx]);
-    }
-    if (!SWING_STATE.visible || !lines || !lines.length) { _sv2SrSeries[cellIdx] = []; return; }
-    _sv2SrSeries[cellIdx] = _bnBuildSRNative(c.chart, lines, _preRange, true);
-  } catch(_) {}
-}
-
-// ── Sab SV2 cells initialize/refresh karo ──────────────────────────────────
-// cutoffTime = null → poora .gz data
-// cutoffTime = number → sirf bar.time < cutoffTime wale candles
-function sv2SwingInit(cutoffTime) {
-  if (!SWING_STATE.visible) return;
-  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
-  if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
-  const assetKey = (typeof _stackKeyForAsset === 'function')
-                    ? _stackKeyForAsset(S.asset) : 'bn';
-  for (let i = 0; i < STACK2_CELLS.length; i++) {
-    const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
-    _sv2ApplyCellSR(i, lines);
-  }
-}
-
-// ── Refresh — chip/preset/line-width/toggle change par ──────────────────────
-function sv2SwingRefresh() {
-  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
-  const rng    = window._SV2_DATE_RANGE;
-  const cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
-  sv2SwingInit(cutoff);
-}
-
-// ── Replay step: jab ek candle fully close ho tab SR update karo ─────────────
-function sv2SwingOnStep(closedCandleTime) {
-  if (!SWING_STATE.visible) return;
-  // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
-  sv2SwingInit(closedCandleTime + 1);
-}
-
-// ── Toggle OFF: sab SV2 SR series hata do ──────────────────────────────────
-function sv2SwingClear() {
-  if (typeof STACK2_CELLS === 'undefined') return;
-  for (let i = 0; i < STACK2_CELLS.length; i++) {
-    try {
-      const c = STACK2_CELLS[i];
-      if (!c || !c.chart) continue;
-      if (_sv2SrSeries[i] && _sv2SrSeries[i].length) {
-        _sv2SrSeries[i] = _bnClearSRNative(c.chart, _sv2SrSeries[i]);
-      }
-    } catch(_) {}
-  }
-}
-
-// ── Date Range events sunna ─────────────────────────────────────────────────
-document.addEventListener('sv2DateRangeApplied', function(e) {
-  const rng = e && e.detail;
-  if (rng && typeof rng.from === 'number') {
-    // buildStack2 ke baad settle hone ka time do (500ms)
-    setTimeout(() => sv2SwingInit(rng.from), 550);
-  }
-});
-document.addEventListener('sv2DateRangeCleared', function() {
-  setTimeout(() => sv2SwingInit(null), 550);
-});
 
 // ════════════════════════════════════════════════════════════════════════════
 // PARENT DOT SYSTEM  — 3× rule marker
@@ -11450,8 +9315,6 @@ function onSwingToggle(cb) {
     } else {
       CELLS.forEach((_, i) => buildCellSwing(i));
     }
-    // SV2 cells par bhi SR dikhao
-    try { sv2SwingRefresh(); } catch(_) {}
   } else {
     swingRemoveCanvas();
     _bnMainSrSeries = _bnClearSRNative(chart, _bnMainSrSeries);
@@ -11459,8 +9322,6 @@ function onSwingToggle(cb) {
       if (c.swing && c.swing.canvas) { try { c.swing.canvas.remove(); } catch(_) {} c.swing = null; }
       c.srSeries = _bnClearSRNative(c.chart, c.srSeries);
     });
-    // SV2 cells se bhi SR hatao
-    try { sv2SwingClear(); } catch(_) {}
   }
 }
 
@@ -12843,13 +10704,706 @@ document.getElementById('dt-settings-overlay')?.addEventListener('click', (e) =>
 
 
 // ════════════════════════════════════════════════════════════════════════════
-// LOCAL BACKUP  (manual only — no auto-restore, no server round-trip)
-// "Save Layout" / "New Layout" par ek JSON backup key localStorage mein rakhte
-// hain (SS.push), aur Download/Restore-from-file buttons se manual export/import
-// ho sakta hai. Koi bhi auto-apply-on-load nahi hota — is se live settings
-// (jaise indicator multipliers) kabhi silently revert nahi hongi.
+// GOOGLE CLOUD SYNC  (Google Drive appDataFolder)
+// Saves/restores ALL layouts + settings + drawings prefs to your Google account.
+// One sign-in → auto re-login → auto-save in background → manual save via 💾 icon.
+// ════════════════════════════════════════════════════════════════════════════
+const GD = (function () {
+  const CLIENT_ID = '585903901756-7eldm0nsmhnvomra9393qcjngjajvu92.apps.googleusercontent.com';
+  const SCOPE     = 'https://www.googleapis.com/auth/drive.appdata';
+  const FILE_NAME = 'banknifty-layout-sync.json';
+  const AUTH_FLAG = 'gdAuthed';
+
+  let tokenClient = null, accessToken = null, tokenExp = 0, fileId = null;
+  let _pending = null, _dirty = false, _pushTimer = null, _booted = false;
+
+  // ── UI helpers ────────────────────────────────────────────────────────────
+  function _setStatus(txt, color) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+  function _showBtn(label, show) {
+    const b = document.getElementById('gd-btn');
+    if (b) { if (label) b.textContent = label; b.style.display = show ? '' : 'none'; }
+    // Manual paste row bhi sign in button ke saath dikhao
+    const mr = document.getElementById('gd-manual-row');
+    if (mr) mr.style.display = show ? '' : 'none';
+  }
+  function _toast(msg, color) {
+    let t = document.getElementById('gd-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'gd-toast';
+      t.style.cssText = 'position:fixed;left:50%;top:14px;transform:translateX(-50%);' +
+        'background:#26a69a;color:#fff;padding:9px 18px;border-radius:9px;' +
+        'font:600 13px sans-serif;z-index:999999;box-shadow:0 6px 18px rgba(0,0,0,.35);' +
+        'transition:opacity .35s;pointer-events:none;max-width:90vw;text-align:center;';
+      document.body.appendChild(t);
+    }
+    t.style.background = color || '#26a69a';
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._iv);
+    t._iv = setTimeout(() => { t.style.opacity = '0'; }, 2400);
+  }
+  function _now() {
+    try {
+      return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } catch (_) { return ''; }
+  }
+
+  // ── localStorage snapshot / apply (captures every key = all features) ──────
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__' || k === AUTH_FLAG) continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (k === AUTH_FLAG) continue;
+        if (localStorage.getItem(k) !== data[k]) {
+          _origSetItem ? _origSetItem(k, data[k]) : localStorage.setItem(k, data[k]);
+          changed = true;
+        }
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  // ── OAuth token handling ───────────────────────────────────────────────────
+  function _onToken(resp) {
+    if (resp && resp.access_token) {
+      accessToken = resp.access_token;
+      tokenExp = Date.now() + ((resp.expires_in ? resp.expires_in * 1000 : 3600000) - 60000);
+      try { localStorage.setItem(AUTH_FLAG, '1'); } catch (_) {}
+      const cb = _pending; _pending = null; if (cb) cb(true);
+    } else {
+      const cb = _pending; _pending = null; if (cb) cb(false);
+    }
+  }
+  function _onTokenErr() {
+    const cb = _pending; _pending = null;
+    _setStatus('☁ Cloud: tap to sign in', '#f23645');
+    _showBtn('Sign in', true);
+    if (cb) cb(false);
+  }
+
+  // ── Popup-based OAuth (iframe-safe, callback page flow) ───────────────────
+  // Redirect URI dynamically detect hoti hai — Streamlit ya localhost dono pe kaam karta hai
+  // Google Cloud Console mein dono register honi chahiye:
+  //   https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1
+  //   http://localhost:8501/?gd_cb=1
+
+  function _getRedirectURI() {
+    // Parent window ka origin lo (chart iframe ke bahar Streamlit page)
+    try {
+      const origin = window.parent !== window
+        ? document.referrer
+          ? new URL(document.referrer).origin
+          : window.location.origin
+        : window.location.origin;
+      if (origin && origin !== 'null') return origin + '/?gd_cb=1';
+    } catch(_) {}
+    // Fallback: Streamlit URL
+    return 'https://mainpy-2orgxyfzohrzrytrf9f5sa.streamlit.app/?gd_cb=1';
+  }
+
+  let _popupWin = null, _popupTimer = null, _oauthCb = null, _lsPollIv = null;
+
+  // postMessage listener — callback page token bhejta hai yahan
+  window.addEventListener('message', function(e) {
+    try {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+      if (d && d.type === 'gd_oauth_token' && d.access_token) {
+        clearInterval(_popupTimer);
+        clearInterval(_lsPollIv);
+        try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
+        _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
+        if (_oauthCb) { const cb = _oauthCb; _oauthCb = null; cb(true); }
+      }
+    } catch(_) {}
+  });
+
+  // localStorage polling fallback (agar postMessage cross-origin block ho)
+  function _startLSPoll(cb) {
+    clearInterval(_lsPollIv);
+    _lsPollIv = setInterval(() => {
+      try {
+        const raw = localStorage.getItem('_gd_oauth_pending');
+        const ts  = parseInt(localStorage.getItem('_gd_oauth_ts') || '0', 10);
+        if (raw && (Date.now() - ts) < 60000) {
+          clearInterval(_lsPollIv);
+          try { localStorage.removeItem('_gd_oauth_pending'); localStorage.removeItem('_gd_oauth_ts'); } catch(_) {}
+          const d = JSON.parse(raw);
+          if (d && d.access_token) {
+            clearInterval(_popupTimer);
+            try { if (_popupWin && !_popupWin.closed) _popupWin.close(); } catch(_) {}
+            _onToken({ access_token: d.access_token, expires_in: d.expires_in || 3600 });
+            if (cb) cb(true);
+          }
+        }
+      } catch(_) {}
+    }, 800);
+    setTimeout(() => clearInterval(_lsPollIv), 120000);
+  }
+
+  function _openAuthPopup(cb) {
+    _oauthCb = cb;
+    const REDIRECT_URI = _getRedirectURI();
+
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+      client_id:              CLIENT_ID,
+      redirect_uri:           REDIRECT_URI,
+      response_type:          'token',
+      scope:                  SCOPE,
+      include_granted_scopes: 'true',
+      prompt:                 'consent',
+    });
+
+    const w = 480, h = 620;
+    const left = Math.max(0, (screen.width  - w) / 2);
+    const top  = Math.max(0, (screen.height - h) / 2);
+
+    _popupWin = window.open(
+      authUrl, 'gdauth',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=1,scrollbars=1`
+    );
+
+    if (!_popupWin || _popupWin.closed) {
+      _setStatus('☁ Popup block hua — browser mein allow karo', '#f23645');
+      _showBtn('Sign in', true);
+      _oauthCb = null;
+      if (cb) cb(false);
+      return;
+    }
+
+    _setStatus('☁ Google window mein sign in karo…', '#f0b429');
+
+    // localStorage fallback polling
+    _startLSPoll(ok => { _oauthCb = null; if (ok && cb) cb(true); });
+
+    // Popup URL poll — jab redirect_uri pe aaye, fragment read karo
+    clearInterval(_popupTimer);
+    _popupTimer = setInterval(() => {
+      try {
+        if (_popupWin && _popupWin.closed) {
+          clearInterval(_popupTimer);
+          setTimeout(() => {
+            if (_oauthCb) {
+              clearInterval(_lsPollIv);
+              _setStatus('☁ Sign-in cancel hua', '#f23645');
+              _showBtn('Sign in', true);
+              const cb2 = _oauthCb; _oauthCb = null; cb2(false);
+            }
+          }, 2000);
+          return;
+        }
+        // Same-origin check — jab popup redirect_uri pe aa jaaye
+        try {
+          const href = _popupWin.location.href;
+          const fragment = _popupWin.location.hash;
+          if (href && fragment && fragment.includes('access_token')) {
+            // Fragment mil gaya — Streamlit strip karne se pehle
+            clearInterval(_popupTimer);
+            clearInterval(_lsPollIv);
+            const p = new URLSearchParams(fragment.substring(1));
+            const token = p.get('access_token');
+            const exp   = parseInt(p.get('expires_in') || '3600', 10);
+            try { _popupWin.close(); } catch(_) {}
+            if (token) {
+              // localStorage mein bhi save karo backup ke liye
+              try {
+                const msg = JSON.stringify({ type: 'gd_oauth_token', access_token: token, expires_in: exp });
+                localStorage.setItem('_gd_oauth_pending', msg);
+                localStorage.setItem('_gd_oauth_ts', Date.now().toString());
+              } catch(_) {}
+              _onToken({ access_token: token, expires_in: exp });
+              if (_oauthCb) { const cb2 = _oauthCb; _oauthCb = null; cb2(true); }
+            }
+          }
+        } catch(crossOriginErr) {
+          // Popup abhi Google ke domain pe hai — normal, wait karo
+        }
+      } catch(_) {}
+    }, 300);
+  }
+
+  function _requestToken(interactive, cb) {
+    _pending = cb;
+    if (interactive) {
+      _openAuthPopup(ok => { _pending = null; if (cb) cb(ok); });
+      return;
+    }
+    // Silent refresh — popup nahi, sirf fail karo (user dobara sign in karega)
+    if (cb) cb(false);
+  }
+  function _withToken(cb) {
+    if (accessToken && Date.now() < tokenExp) { cb(true); return; }
+    _requestToken(false, cb);
+  }
+
+  // ── Drive REST helpers ──────────────────────────────────────────────────────
+  function _hdr() { return { Authorization: 'Bearer ' + accessToken }; }
+  function _findFile(cb) {
+    const url = 'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder' +
+      '&fields=' + encodeURIComponent('files(id,modifiedTime)') +
+      '&q=' + encodeURIComponent("name='" + FILE_NAME + "'");
+    fetch(url, { headers: _hdr() })
+      .then(r => r.json())
+      .then(j => { fileId = (j.files && j.files[0]) ? j.files[0].id : null; cb(fileId); })
+      .catch(() => cb(null));
+  }
+  function _download(cb) {
+    if (!fileId) { cb(null); return; }
+    fetch('https://www.googleapis.com/drive/v3/files/' + fileId + '?alt=media', { headers: _hdr() })
+      .then(r => r.json()).then(j => cb(j)).catch(() => cb(null));
+  }
+  function _uploadMedia(payload, cb) {
+    if (fileId) {
+      fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=media', {
+        method: 'PATCH',
+        headers: Object.assign(_hdr(), { 'Content-Type': 'application/json' }),
+        body: payload,
+      }).then(r => cb(r.ok)).catch(() => cb(false));
+    } else {
+      const boundary = 'gdsync' + Date.now();
+      const meta = { name: FILE_NAME, parents: ['appDataFolder'] };
+      const body =
+        '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
+        JSON.stringify(meta) + '\r\n' +
+        '--' + boundary + '\r\nContent-Type: application/json\r\n\r\n' +
+        payload + '\r\n--' + boundary + '--';
+      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST',
+        headers: Object.assign(_hdr(), { 'Content-Type': 'multipart/related; boundary=' + boundary }),
+        body: body,
+      }).then(r => r.json()).then(j => { if (j && j.id) fileId = j.id; cb(!!(j && j.id)); })
+        .catch(() => cb(false));
+    }
+  }
+
+  // ── Public: push (save) ──────────────────────────────────────────────────────
+  function push(showToast) {
+    if (localStorage.getItem(AUTH_FLAG) !== '1') {
+      if (showToast) _toast('Sign in to Google first', '#f23645');
+      return;
+    }
+    _withToken(ok => {
+      if (!ok) { if (showToast) _toast('Google sign-in needed', '#f23645'); return; }
+      const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
+      const doUpload = () => _uploadMedia(payload, okk => {
+        if (okk) {
+          _dirty = false;
+          _setStatus('☁ Cloud: saved ' + _now(), '#26a69a');
+          if (showToast) _toast('☁ Saved to Google Cloud');
+        } else if (showToast) { _toast('Cloud save failed', '#f23645'); }
+      });
+      if (fileId) doUpload(); else _findFile(() => doUpload());
+    });
+  }
+
+  // ── Public: pull (restore) ───────────────────────────────────────────────────
+  function pull(after) {
+    _withToken(ok => {
+      if (!ok) { if (after) after(false, false); return; }
+      _findFile(id => {
+        if (!id) { if (after) after(false, false); return; }
+        _download(obj => {
+          if (obj && obj.data) { const changed = _apply(obj.data); if (after) after(true, changed); }
+          else if (after) after(false, false);
+        });
+      });
+    });
+  }
+
+  // ── Boot: silent auto-login + restore on page open ──────────────────────────
+  function _boot() {
+    if (_booted) return; _booted = true;
+    if (localStorage.getItem(AUTH_FLAG) !== '1') {
+      _setStatus('☁ Cloud: not signed in');
+      _showBtn('Sign in', true);
+      return;
+    }
+    _setStatus('☁ Cloud: connecting…');
+    _showBtn('', false);
+    _requestToken(false, ok => {
+      if (!ok) { _setStatus('☁ Cloud: tap to sign in', '#f23645'); _showBtn('Sign in', true); return; }
+      _showBtn('', false);
+      // Show "restore completed" once after a reload triggered by restore
+      if (sessionStorage.getItem('gdJustRestored') === '1') {
+        sessionStorage.removeItem('gdJustRestored');
+        _toast('✓ Restore completed');
+      }
+      if (sessionStorage.getItem('gdRestored') === '1') {
+        _setStatus('☁ Cloud: connected ' + _now(), '#26a69a');
+        return;
+      }
+      _setStatus('☁ Cloud: restoring…');
+      pull((found, changed) => {
+        sessionStorage.setItem('gdRestored', '1');
+        if (found && changed) {
+          sessionStorage.setItem('gdJustRestored', '1');
+          _toast('✓ Restore completed');
+          setTimeout(() => location.reload(), 950);
+        } else if (found) {
+          _setStatus('☁ Cloud: restored ✓', '#26a69a');
+          _toast('✓ Restore completed');
+        } else {
+          _setStatus('☁ Cloud: connected', '#26a69a');
+          push(false); // first-time upload of current local state
+        }
+      });
+    });
+  }
+
+  // ── Manual sign-in (first time) ──────────────────────────────────────────────
+  function signIn() {
+    _setStatus('☁ Cloud: opening Google…');
+    _requestToken(true, ok => {
+      if (!ok) { _setStatus('☁ Cloud: sign-in failed', '#f23645'); _showBtn('Sign in', true); return; }
+      _showBtn('', false);
+      sessionStorage.removeItem('gdRestored');
+      _setStatus('☁ Cloud: restoring…');
+      pull((found, changed) => {
+        sessionStorage.setItem('gdRestored', '1');
+        if (found) {
+          _toast('✓ Restore completed');
+          if (changed) {
+            sessionStorage.setItem('gdJustRestored', '1');
+            setTimeout(() => location.reload(), 950);
+          } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
+        } else {
+          _setStatus('☁ Cloud: connected', '#26a69a');
+          push(true); // nothing on Drive yet → upload current
+        }
+      });
+    });
+  }
+
+  // ── Auto-save: patch localStorage.setItem → debounced cloud push ────────────
+  let _origSetItem = null;
+  function _initAutoSave() {
+    try {
+      _origSetItem = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function (k, v) {
+        _origSetItem(k, v);
+        if (k !== '__ls_test__' && k !== AUTH_FLAG && k !== 'gdAutoSave') {
+          _dirty = true;
+          _schedule();
+        }
+      };
+    } catch (_) {}
+  }
+  function _schedule() {
+    if (localStorage.getItem(AUTH_FLAG) !== '1') return;
+    // Auto-save OFF hai toh kuch mat karo — sirf manual Save Layout pe push hoga
+    const autoOn = localStorage.getItem('gdAutoSave') === '1';
+    if (!autoOn) return;
+    clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(() => { if (_dirty) push(false); }, 30000);
+  }
+
+  // Public: force push (manual Save Layout button ke liye)
+  function pushNow() { push(true); }
+
+  // ── GIS SDK load nahi karte — pure popup flow use karte hain ────────────────
+  // (GIS iframe mein origin=null error deta hai)
+  function _waitGIS() { _boot(); } // GIS skip, seedha boot
+  function init() {
+    _initAutoSave();
+    _boot(); // GIS SDK load nahi karo
+  }
+
+  // Manual token inject (URL paste se)
+  function _manualToken(token, exp) {
+    _onToken({ access_token: token, expires_in: exp || 3600 });
+    _showBtn('', false);
+    sessionStorage.removeItem('gdRestored');
+    _setStatus('☁ Cloud: restoring…');
+    pull((found, changed) => {
+      sessionStorage.setItem('gdRestored', '1');
+      if (found) {
+        _toast('✓ Restore completed');
+        if (changed) {
+          sessionStorage.setItem('gdJustRestored', '1');
+          setTimeout(() => location.reload(), 950);
+        } else { _setStatus('☁ Cloud: connected', '#26a69a'); }
+      } else {
+        _setStatus('☁ Cloud: connected', '#26a69a');
+        push(true);
+      }
+    });
+  }
+
+  // Save on tab hide / close (best-effort)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && _dirty) push(false);
+  });
+
+  return { init, push, pushNow, pull, signIn, _manualToken, _resetBoot: function(){ _booted = false; sessionStorage.removeItem('gdRestored'); } };
+})();
+
+// Global handler for the menu button
+function gdSignInClick() { try { GD.signIn(); } catch (_) {} }
+
+// Manual token paste — popup URL se token extract karo
+function gdManualToken() {
+  const inp = document.getElementById('gd-token-inp');
+  if (!inp) return;
+  const raw = inp.value.trim();
+  if (!raw) return;
+
+  // URL mein se fragment nikalo: #access_token=...
+  let fragment = '';
+  try {
+    const hashIdx = raw.indexOf('#');
+    if (hashIdx !== -1) {
+      fragment = raw.substring(hashIdx + 1);
+    } else if (raw.includes('access_token')) {
+      // Sirf fragment part paste kiya hoga
+      fragment = raw;
+    }
+  } catch(_) {}
+
+  if (!fragment) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ URL mein #access_token nahi mila'; s.style.color = '#f23645'; }
+    return;
+  }
+
+  const p     = new URLSearchParams(fragment);
+  const token = p.get('access_token');
+  const exp   = parseInt(p.get('expires_in') || '3600', 10);
+
+  if (!token) {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Token extract nahi hua'; s.style.color = '#f23645'; }
+    return;
+  }
+
+  // Token mil gaya — GD ko dedo
+  inp.value = '';
+  const row = document.getElementById('gd-manual-row');
+  if (row) row.style.display = 'none';
+  try { GD._manualToken(token, exp); } catch(_) {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SERVER SAVE  (Streamlit server file — Google Drive ke bina)
+// Koi login/popup nahi chahiye. Save Layout / New Layout pe localStorage
+// snapshot Python ko bhej dete hain (URL ke through), jo disk pe save karta hai.
+// Page load pe Python wahi data wapas inject kar deta hai (window.__CHART_STATE_RESTORE__).
 // ════════════════════════════════════════════════════════════════════════════
 
+
+// ════════════════════════════════════════════════════════════════════════════
+// GITHUB SYNC (Gist API)
+// Saves/restores ALL layouts + settings + drawings to a GitHub Gist.
+// ════════════════════════════════════════════════════════════════════════════
+const GH = (function () {
+  const GIST_NAME = 'banknifty-layout-sync.json';
+  const TOKEN_KEY = 'gh_token';
+  const GIST_ID_KEY = 'gh_gist_id';
+
+  function _setStatus(txt, color) {
+    const s = document.getElementById('gd-status'); // Reuse GD status for now
+    if (s) { s.textContent = txt; s.style.color = color || '#787b86'; }
+  }
+
+  function _toast(msg, color) {
+    if (window.GD && GD._toast) GD._toast(msg, color);
+    else alert(msg);
+  }
+
+  function _snapshot() {
+    const data = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || k === '__ls_test__' || k === TOKEN_KEY || k === GIST_ID_KEY) continue;
+        data[k] = localStorage.getItem(k);
+      }
+    } catch (_) {}
+    return data;
+  }
+
+  function _apply(data) {
+    let changed = false;
+    try {
+      for (const k in data) {
+        if (k === TOKEN_KEY || k === GIST_ID_KEY) continue;
+        // Force overwrite even if it looks the same, to be sure
+        localStorage.setItem(k, data[k]);
+        changed = true;
+      }
+    } catch (_) {}
+    return changed;
+  }
+
+  async function push(showToast) {
+    // Force save current state to localStorage first
+    if (window.saveState) saveState();
+    if (window.saveToActiveLayout) saveToActiveLayout();
+    
+    let token = localStorage.getItem(TOKEN_KEY);
+    if (!token || token.length < 5) {
+      token = prompt("Enter GitHub Personal Access Token (with 'gist' scope):");
+      if (token && token.trim().length > 5) {
+        token = token.trim();
+        localStorage.setItem(TOKEN_KEY, token);
+      } else {
+        _setStatus('🐙 GitHub: Token required', '#f23645');
+        return;
+      }
+    }
+
+    _setStatus('🐙 GitHub: saving...', '#f0b429');
+    let gistId = localStorage.getItem(GIST_ID_KEY);
+    const payload = JSON.stringify({ _ts: Date.now(), data: _snapshot() });
+
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json'
+    };
+
+    try {
+      let url = 'https://api.github.com/gists';
+      let method = 'POST';
+      let body = {
+        description: 'BankNifty Layout Sync',
+        public: false,
+        files: { [GIST_NAME]: { content: payload } }
+      };
+
+      if (gistId) {
+        url = `https://api.github.com/gists/${gistId}`;
+        method = 'PATCH';
+      }
+
+      const resp = await fetch(url, { method, headers, body: JSON.stringify(body) });
+      const json = await resp.json();
+
+      if (resp.ok) {
+        if (!gistId) localStorage.setItem(GIST_ID_KEY, json.id);
+        _setStatus('🐙 GitHub: saved ✓', '#26a69a');
+        if (showToast) _toast('☁ Saved to GitHub Gist');
+      } else {
+        console.error('GH Save Error:', json);
+        const errMsg = json.message || 'Save Failed';
+        
+        if (resp.status === 409) {
+          // Conflict error - force update by creating a new one or trying to pull first
+          console.warn('409 Conflict, retrying as new gist...');
+          localStorage.removeItem(GIST_ID_KEY);
+          return push(showToast);
+        }
+
+        if (resp.status === 404) {
+          localStorage.removeItem(GIST_ID_KEY);
+          const msg = "GitHub Error 404: Not Found.\n\n" +
+                      "This usually means your Token is missing 'gist' permission.\n" +
+                      "Please check 'gist' scope in GitHub Token settings.";
+          alert(msg);
+          _setStatus('🐙 GitHub: 404 Error', '#f23645');
+          return;
+        }
+
+        if (resp.status === 401) {
+          localStorage.removeItem(TOKEN_KEY);
+          _setStatus('🐙 GitHub: Invalid Token', '#f23645');
+          _toast('Invalid Token: ' + errMsg, '#f23645');
+        } else {
+          _setStatus('🐙 GitHub: ' + resp.status + ' error', '#f23645');
+          _toast('GitHub Error (' + resp.status + '): ' + errMsg, '#f23645');
+        }
+      }
+    } catch (err) {
+      _setStatus('🐙 GitHub: error', '#f23645');
+      _toast('GitHub Error: ' + err.message, '#f23645');
+    }
+  }
+
+  function reset() {
+    if (confirm("Reset GitHub Token and Gist ID?")) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(GIST_ID_KEY);
+      _setStatus('🐙 GitHub: Reset Done', '#26a69a');
+      _toast('GitHub settings reset. Tap again to enter new token.');
+    }
+  }
+
+  async function pull(after) {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (!token || !gistId) { if (after) after(false, false); return; }
+
+    _setStatus('🐙 GitHub: restoring...', '#f0b429');
+    const headers = {
+      'Authorization': `token ${token}`,
+      'Accept': 'application/vnd.github.v3+json'
+    };
+
+    try {
+      const resp = await fetch(`https://api.github.com/gists/${gistId}`, { headers });
+      const json = await resp.json();
+
+      if (resp.ok && json.files[GIST_NAME]) {
+        const content = JSON.parse(json.files[GIST_NAME].content);
+        const changed = _apply(content.data);
+        if (after) after(true, changed);
+      } else {
+        if (after) after(false, false);
+      }
+    } catch (err) {
+      if (after) after(false, false);
+    }
+  }
+
+  function init() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const gistId = localStorage.getItem(GIST_ID_KEY);
+    if (token && gistId) {
+      // Check if we just restored to avoid infinite loop
+      if (sessionStorage.getItem('gh_just_restored') === '1') {
+        sessionStorage.removeItem('gh_just_restored');
+        _setStatus('🐙 GitHub: restored ✓', '#26a69a');
+        _toast('✓ GitHub Restore completed');
+        return;
+      }
+
+      _setStatus('🐙 GitHub: checking...', '#f0b429');
+      pull((found, changed) => {
+        if (found && changed) {
+          sessionStorage.setItem('gh_just_restored', '1');
+          _toast('✓ GitHub Restore completed');
+          setTimeout(() => location.reload(), 800);
+        } else if (found) {
+          _setStatus('🐙 GitHub: connected ✓', '#26a69a');
+        } else {
+          _setStatus('🐙 GitHub: connected', '#787b86');
+        }
+      });
+    }
+  }
+
+  return { push, pull, init, reset };
+})();
+
+// Auto-init GitHub
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => GH.init());
+} else {
+  GH.init();
+}
 
 const SS = (function () {
   function _setStatus(txt, color) {
@@ -12924,7 +11478,7 @@ const SS = (function () {
     }
   }
 
-  // ── Restore from JSON file (manual, user-triggered only) ─────────────────
+  // ── Restore from JSON file ────────────────────────────────────────────────
   function restoreFromFile(file) {
     const reader = new FileReader();
     reader.onload = function(e) {
@@ -12942,21 +11496,50 @@ const SS = (function () {
     reader.readAsText(file);
   }
 
-  function init() { _setStatus('💽 JSON: ready', '#26a69a'); }
+  // ── Restore: localStorage backup se auto-restore ────────────────────────────
+  function _boot() {
+    // Python inject (window.__CHART_STATE_RESTORE__) ya localStorage backup dono check
+    const restored = window.__CHART_STATE_RESTORE__;
+    const lsBkp = (() => {
+      try { const r = localStorage.getItem('__ss_backup__'); return r ? JSON.parse(r) : null; } catch(_) { return null; }
+    })();
+
+    if (!restored && !lsBkp) { _setStatus('💽 JSON: ready', '#26a69a'); return; }
+
+    if (sessionStorage.getItem('ssRestored') === '1') {
+      _setStatus('💽 JSON: ready', '#26a69a');
+      return;
+    }
+    sessionStorage.setItem('ssRestored', '1');
+    // Python inject pehle try karo, warna localStorage backup use karo
+    const src = restored || lsBkp;
+    const changed = _apply(src);
+    if (changed) {
+      _setStatus('💽 JSON: restoring…');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      _setStatus('💽 JSON: ready', '#26a69a');
+    }
+  }
+
+  function init() { _boot(); }
   return { init, push, download, restoreFromFile };
 })();
 
-// Save Layout / New Layout pe server-side save bhi ho jaye
+// Save Layout / New Layout pe server-side save bhi ho jaye (GD wale hook ke saath)
 (function () {
   const _origSave2 = window.saveToActiveLayout;
   window.saveToActiveLayout = function () {
     if (typeof _origSave2 === 'function') _origSave2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
+    // Cloud sync bhi karo (agar enabled ho)
+    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
   const _origNew2 = window.newLayout;
   window.newLayout = function () {
     if (typeof _origNew2 === 'function') _origNew2.apply(this, arguments);
     try { SS.push(); } catch (_) {}
+    if (_gdEnabled) { try { GD.push(true); } catch (_) {} }
   };
 })();
 
@@ -12964,6 +11547,89 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => SS.init());
 } else {
   SS.init();
+}
+
+// Auto-save toggle
+function gdAutoSaveToggle() {
+  const cur = localStorage.getItem('gdAutoSave') === '1';
+  const next = !cur;
+  try { localStorage.setItem('gdAutoSave', next ? '1' : '0'); } catch(_) {}
+  _updateAutoSaveUI();
+  if (next && _gdEnabled) {
+    // Turant ek push karo
+    try { GD.pushNow(); } catch(_) {}
+  }
+}
+function _updateAutoSaveUI() {
+  const btn = document.getElementById('gd-autosave-btn');
+  if (!btn) return;
+  const on = localStorage.getItem('gdAutoSave') === '1';
+  btn.textContent = on ? '⚡ Auto: ON' : '⚡ Auto';
+  btn.style.background    = on ? '#1a3a1a' : '#1e222d';
+  btn.style.borderColor   = on ? '#26a69a' : '#2a2e3e';
+  btn.style.color         = on ? '#26a69a' : '#787b86';
+}
+let _gdEnabled = (() => {
+  try { return localStorage.getItem('gdSyncEnabled') !== '0'; } catch(_) { return true; }
+})();
+
+function gdToggle() {
+  _gdEnabled = !_gdEnabled;
+  try { localStorage.setItem('gdSyncEnabled', _gdEnabled ? '1' : '0'); } catch(_) {}
+  _updateGdToggleUI();
+  if (_gdEnabled) {
+    // _booted flag reset karo taaki GD dobara connect kar sake
+    try { GD._resetBoot(); } catch(_) {}
+    GD.init();
+  } else {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+    const b = document.getElementById('gd-btn');
+    if (b) b.style.display = 'none';
+    const mr = document.getElementById('gd-manual-row');
+    if (mr) mr.style.display = 'none';
+  }
+}
+function _updateGdToggleUI() {
+  const tog = document.getElementById('gd-toggle');
+  if (!tog) return;
+  tog.textContent = _gdEnabled ? '🟢' : '⚫';
+  tog.title = _gdEnabled ? 'Cloud sync ON — tap to turn off' : 'Cloud sync OFF — tap to turn on';
+}
+
+// Hook GD save with toggle check
+(function () {
+  const _origSave = window.saveToActiveLayout;
+  window.saveToActiveLayout = function () {
+    if (typeof _origSave === 'function') _origSave.apply(this, arguments);
+    // GD push is now done in the SS hook above (with toggle check)
+  };
+  const _origNew = window.newLayout;
+  window.newLayout = function () {
+    if (typeof _origNew === 'function') _origNew.apply(this, arguments);
+    // GD push is now done in the SS hook above (with toggle check)
+  };
+})();
+
+// Start cloud sync once DOM is ready (only if enabled)
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    _updateGdToggleUI();
+    _updateAutoSaveUI();
+    if (_gdEnabled) GD.init();
+    else {
+      const s = document.getElementById('gd-status');
+      if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+    }
+  });
+} else {
+  _updateGdToggleUI();
+  _updateAutoSaveUI();
+  if (_gdEnabled) GD.init();
+  else {
+    const s = document.getElementById('gd-status');
+    if (s) { s.textContent = '☁ Cloud: off'; s.style.color = '#787b86'; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
