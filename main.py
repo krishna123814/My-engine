@@ -762,6 +762,21 @@ def load_bn_daily() -> list:
 
     all_candles.sort(key=lambda x: x[0])
 
+    # Normalize timestamps to 9:15 AM IST of each IST calendar day.
+    # Fyers may return midnight UTC or any session-start epoch — normalize to
+    # 3:45 AM UTC (= 9:15 AM IST) so chart.html resample() stays consistent.
+    _IST_OFF   = 19800          # 5.5 * 3600
+    _NSE_OPEN  = 33300          # 9:15 AM = 9*3600+15*60 seconds from IST midnight
+    normalized = []
+    for c in all_candles:
+        t_ms   = int(c[0])
+        t_sec  = t_ms // 1000
+        ist_sec        = t_sec + _IST_OFF
+        ist_midnight   = ist_sec - (ist_sec % 86400)   # IST midnight of that day
+        t_fixed        = (ist_midnight - _IST_OFF) + _NSE_OPEN  # 9:15 AM IST in UTC epoch
+        normalized.append([t_fixed * 1000] + list(c[1:]))
+    all_candles = normalized
+
     if all_candles:
         try:
             with open(BN_DAILY_CACHE, "w") as f:

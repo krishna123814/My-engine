@@ -791,6 +791,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-step-btn.visible{
   display:flex;
+  overflow:visible;
 }
 #sv2-reset-btn{
   display:none;
@@ -2514,7 +2515,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Swing SR — Start length (× swing duration)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="sw-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
+            <input class="ind-len" id="sw-start-mult" type="number" value="2" min="0.5" max="250" step="0.5"
               title="Swing SR line ki starting length (per-TF swing-duration ka multiple)"
               onchange="setSwStartMult(+this.value)">
           </div>
@@ -2522,7 +2523,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="ind-row">
           <span class="ind-name">Swing SR — Slide length (× swing duration)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="sw-slide-mult" type="number" value="1" min="0.5" max="10" step="0.5"
+            <input class="ind-len" id="sw-slide-mult" type="number" value="1" min="0.5" max="250" step="0.5"
               title="Har naye candle par sliding window (per-TF swing-duration ka multiple)"
               onchange="setSwSlideMult(+this.value)">
           </div>
@@ -2610,14 +2611,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           <div class="ind-row">
             <span class="ind-name">Swing SR — Start length (× swing duration)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-sw-start-mult" type="number" value="2" min="0.5" max="10" step="0.5"
+              <input class="ind-len" id="sv2-sw-start-mult" type="number" value="2" min="0.5" max="250" step="0.5"
                 onchange="sv2SetSwStartMult(+this.value)">
             </div>
           </div>
           <div class="ind-row">
             <span class="ind-name">Swing SR — Slide length (× swing duration)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-sw-slide-mult" type="number" value="1" min="0.5" max="10" step="0.5"
+              <input class="ind-len" id="sv2-sw-slide-mult" type="number" value="1" min="0.5" max="250" step="0.5"
                 onchange="sv2SetSwSlideMult(+this.value)">
             </div>
           </div>
@@ -2857,7 +2858,16 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 // ════════════════════════════════════════════════════════════════════════════
 function _liveGetBucketTime(tSec, tfMin, isBN) {
   if (tfMin >= 1440) {
-    return Math.floor(tSec / 86400) * 86400;
+    if (isBN) {
+      // BN daily+: anchor to 9:15 AM IST (3:45 AM UTC = 13500s from UTC midnight)
+      var NSE_OPEN_UTC = 13500;
+      var nDays = Math.max(1, Math.round(tfMin / 1440));
+      var shifted = tSec - NSE_OPEN_UTC;
+      var tradingDayN = Math.floor(shifted / 86400);
+      var bucketDayN  = Math.floor(tradingDayN / nDays) * nDays;
+      return bucketDayN * 86400 + NSE_OPEN_UTC;
+    }
+    return Math.floor(tSec / 86400) * 86400;  // BTC: UTC midnight
   }
   if (isBN) {
     var IST = 5.5 * 3600;
@@ -2886,7 +2896,8 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
 //   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
 function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
   if (tfMin >= 1440) {
-    return bucketTime + 86400; // next calendar day boundary
+    var nDays = Math.max(1, Math.round(tfMin / 1440)); // 1D→1, 3D→3, 9D→9, 27D→27
+    return bucketTime + nDays * 86400; // correct multi-day boundary
   }
   var naturalEnd = bucketTime + tfMin * 60;
   if (!isBN) return naturalEnd;
@@ -5075,7 +5086,9 @@ function ss2ApplyAndClose() {
   var _debugBtn  = null;   // #sv2-debug-btn (SR length debug log toggle)
   var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
   var _running   = false;
-  var TICK_MS    = 2000;   // virtual-clock parameter: 2 real sec = 1 candle
+  var TICK_MS    = 30000;  // virtual-clock parameter: 30 real sec = 1 candle
+  var _ringCircle = null, _ringCirc = 0, _ringRaf = null, _ringStart = null;
+  var _formingIv  = null;
 
   // ── Show / hide controls based on whether a replay range is active ───────
   function _syncControls() {
@@ -5127,12 +5140,88 @@ function ss2ApplyAndClose() {
     }
   }
 
+  // ── Forming-candle live animation ─────────────────────────────────────────
+  // Next unrevealed bar (baseBars[revealIdx]) ka OHLC linearly interpolate
+  // karke sabhi cells mein show karo — real market jaisi candle body/wick
+  // gradually banti dikhti hai.  pct = 0 → sirf open dot, pct = 1 → full bar.
+  function _rebuildWithForming(pct) {
+    var live = window._SV2_LIVE;
+    if (!live || !live.baseBars || typeof STACK2_CELLS === 'undefined') return;
+    if (live.revealIdx >= live.baseBars.length) return;
+    var nb = live.baseBars[live.revealIdx];
+    if (!nb || nb.open == null) return;
+
+    var o = nb.open;
+    // Close linearly interpolates open→close
+    var lerpC = o + (nb.close - o) * pct;
+    // High grows from open toward actual high
+    var lerpH = o + (nb.high  - o) * pct;
+    // Low  falls from open toward actual low
+    var lerpL = o + (nb.low   - o) * pct;
+    // Keep high >= max(open,close) and low <= min(open,close) at all times
+    lerpH = Math.max(lerpH, Math.max(o, lerpC));
+    lerpL = Math.min(lerpL, Math.min(o, lerpC));
+
+    var formingBar = { time: nb.time, open: o, high: lerpH, low: lerpL, close: lerpC };
+
+    // Proxy array: all revealed bars + one forming bar at the end
+    var proxy = live.baseBars.slice(0, live.revealIdx);
+    proxy.push(formingBar);
+
+    for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+      var cell = STACK2_CELLS[ci];
+      if (!cell || !cell.series) continue;
+      var tfMin = _getCellTFMinLive(ci);
+      // _formingLast flag ignore — forming bar HAMESHA dikhana hai
+      var agg = _liveAggregateTF(proxy, proxy.length, tfMin, live.isBN);
+      var _preRange = null;
+      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
+      try { cell.series.setData(agg); } catch(_e) {}
+      if (_preRange && cell.chart) {
+        try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
+      }
+    }
+  }
+
+  // ── Circular progress ring — smooth rAF animation over TICK_MS duration ─
+  function _startRing() {
+    if (_ringRaf)   { cancelAnimationFrame(_ringRaf); _ringRaf = null; }
+    if (_formingIv) { clearInterval(_formingIv); _formingIv = null; }
+    if (!_ringCircle) return;
+    _ringStart = performance.now();
+
+    // rAF → smooth ring fill (60 fps)
+    function _ringStep(now) {
+      var pct = Math.min((now - _ringStart) / TICK_MS, 1);
+      _ringCircle.setAttribute('stroke-dashoffset', _ringCirc * (1 - pct));
+      if (pct < 1) _ringRaf = requestAnimationFrame(_ringStep);
+    }
+    _ringRaf = requestAnimationFrame(_ringStep);
+
+    // setInterval → forming candle body/wick update (every 200 ms = smooth enough)
+    _formingIv = setInterval(function() {
+      var pct = Math.min((performance.now() - _ringStart) / TICK_MS, 1);
+      _rebuildWithForming(pct);
+    }, 200);
+  }
+
+  function _stopRing() {
+    if (_ringRaf)   { cancelAnimationFrame(_ringRaf); _ringRaf = null; }
+    if (_formingIv) { clearInterval(_formingIv); _formingIv = null; }
+    if (_ringCircle) _ringCircle.setAttribute('stroke-dashoffset', _ringCirc);
+  }
+
   function _renderPlayIcon() {
     if (!_playBtn) return;
     var live = window._SV2_LIVE;
     var done = !!(live && live.baseBars && live.revealIdx >= live.baseBars.length);
     _playBtn.classList.toggle('done', done);
-    _playBtn.textContent = done ? '\u2713' : (_running ? '\u23f8' : '\u25b6');
+    // Sirf icon text update karo — SVG ring child safe rakho
+    var nodes = _playBtn.childNodes;
+    for (var ni = nodes.length - 1; ni >= 0; ni--) {
+      if (nodes[ni].nodeType === 3) _playBtn.removeChild(nodes[ni]); // text nodes hata
+    }
+    _playBtn.insertAdjacentText('beforeend', done ? '\u2713' : (_running ? '\u23f8' : '\u25b6'));
     // Step button: replay chalte hue (continuous play) ya khatam ho chuke
     // data par manual step allow nahi — warna dono controls tussle karenge.
     if (_onestepBtn) _onestepBtn.classList.toggle('disabled', done || _running);
@@ -5183,6 +5272,7 @@ function ss2ApplyAndClose() {
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
     _renderPlayIcon();
+    if (_running) _startRing();   // next candle ke liye ring reset + restart
   }
 
   function _play() {
@@ -5191,12 +5281,14 @@ function ss2ApplyAndClose() {
     if (!live || !live.baseBars || live.revealIdx >= live.baseBars.length) return;
     _running = true;
     _timerId = setInterval(_tick, TICK_MS);   // our own paced metronome
+    _startRing();
     _renderPlayIcon();
   }
 
   function _pause() {
     _running = false;
     if (_timerId) { clearInterval(_timerId); _timerId = null; }
+    _stopRing();
     _renderPlayIcon();
   }
 
@@ -5255,6 +5347,41 @@ function ss2ApplyAndClose() {
     _resetBtn   = document.getElementById('sv2-reset-btn');
     _debugBtn   = document.getElementById('sv2-debug-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
+
+    // ── SVG circular progress ring inject karo play button ke andar ─────────
+    // Ring play button ki border ke bahar thodi badi (54×54) dikhti hai —
+    // 30 sec countdown visually fill hoti hai, har naye candle par reset.
+    if (_playBtn) {
+      var R    = 21;
+      var CIRC = parseFloat((2 * Math.PI * R).toFixed(2));   // ≈ 131.95
+      _ringCirc = CIRC;
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 48 48');
+      svg.style.cssText = [
+        'position:absolute',
+        'top:-3px',
+        'left:-3px',
+        'width:54px',
+        'height:54px',
+        'pointer-events:none',
+        'transform:rotate(-90deg)',
+        'z-index:1'
+      ].join(';');
+      var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', '24');
+      circle.setAttribute('cy', '24');
+      circle.setAttribute('r', String(R));
+      circle.setAttribute('fill', 'none');
+      circle.setAttribute('stroke', '#26a69a');
+      circle.setAttribute('stroke-width', '3');
+      circle.setAttribute('stroke-dasharray', CIRC);
+      circle.setAttribute('stroke-dashoffset', CIRC);   // empty = 0% filled
+      circle.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(circle);
+      _playBtn.appendChild(svg);
+      _ringCircle = circle;
+    }
+
     _syncControls();
     _watchFabPos();
   }
@@ -6082,7 +6209,34 @@ function resample(rows, tfMin, asset) {
     return Object.values(buckets).sort((a, b) => a.time - b.time);
   }
 
-  // ── Crypto / Daily+: UTC-midnight anchor resample ────────────────────────
+  // ── NSE Daily+ (1D, 3D, 9D, 27D): 9:15 AM IST anchored ─────────────────
+  // Each candle timestamp = 9:15 AM IST (3:45 AM UTC = 13500s from UTC midnight)
+  // of the first trading day in the bucket.
+  // Shift trick: subtract NSE_OPEN_UTC so that 9:15 AM IST aligns to day boundary.
+  if (isNSE && tfMin >= 1440) {
+    const NSE_OPEN_UTC = 13500;  // 3:45 AM UTC = 9:15 AM IST
+    const nDays = Math.max(1, Math.round(tfMin / 1440));
+    const buckets = {};
+    rows.forEach(r => {
+      const shifted      = r.time - NSE_OPEN_UTC;
+      const tradingDayN  = Math.floor(shifted / 86400);
+      const bucketDayN   = Math.floor(tradingDayN / nDays) * nDays;
+      const key          = bucketDayN * 86400 + NSE_OPEN_UTC;  // 9:15 IST of bucket start
+      if (!buckets[key]) {
+        buckets[key] = { time:key, open:r.open, high:r.high, low:r.low,
+                         close:r.close, volume:r.volume||0 };
+      } else {
+        const b = buckets[key];
+        b.high   = Math.max(b.high, r.high);
+        b.low    = Math.min(b.low,  r.low);
+        b.close  = r.close;
+        b.volume += (r.volume||0);
+      }
+    });
+    return Object.values(buckets).sort((a, b) => a.time - b.time);
+  }
+
+  // ── Crypto: UTC-midnight anchor resample ─────────────────────────────────
   const anchor = 0;
   const buckets = {};
   rows.forEach(r => {
@@ -10003,13 +10157,13 @@ function setChExtendMult(v) {
   _swingRefresh();
 }
 function setSwStartMult(v) {
-  SW_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
+  SW_START_MULT = Math.max(0.5, Math.min(250, +v || 2));
   try { _LS.setItem(_SW_START_KEY, SW_START_MULT); } catch(_) {}
   const inp = document.getElementById('sw-start-mult'); if (inp) inp.value = SW_START_MULT;
   _swingRefresh();
 }
 function setSwSlideMult(v) {
-  SW_SLIDE_MULT = Math.max(0.5, Math.min(10, +v || 1));
+  SW_SLIDE_MULT = Math.max(0.5, Math.min(250, +v || 1));
   try { _LS.setItem(_SW_SLIDE_KEY, SW_SLIDE_MULT); } catch(_) {}
   const inp = document.getElementById('sw-slide-mult'); if (inp) inp.value = SW_SLIDE_MULT;
   _swingRefresh();
@@ -10515,14 +10669,7 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   // Har naye candle pe endTime = cur.time + swingDuration → sliding window.
   // Koi infinity nahi — line hamesha latest candle se fixed duration aage.
   function swingDuration(tf) {
-    if (tf <= 5)     return 3600;      // 5m  → 1 hour
-    if (tf <= 15)    return 7200;      // 15m → 2 hours
-    if (tf <= 45)    return 28800;     // 45m → 8 hours
-    if (tf <= 135)   return 259200;    // 135m → 3 days
-    if (tf <= 1440)  return 518400;    // 1D  → 6 days
-    if (tf <= 4320)  return 777600;    // 3D  → 9 days
-    if (tf <= 12960) return 2592000;   // 9D  → 1 month
-    return 7776000;                    // 27D → 3 months
+    return (tf || 1) * 60;              // 1 period — poora control multiplier ke haath mein
   }
 
   let aRes     = [];  // swing highs  { price, startTime, endTime, creationIndex, kind:'sh', periodSec }
@@ -10553,13 +10700,22 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
     // Actual candle duration from real data — fixes synthetic TFs like 135m
     // where tfMin*60 may not match actual candle boundaries after resampling.
-    // FIX: session-gap (overnight) candle par raw gap use nahi karte — warna
+    // FIX #1: session-gap (overnight) candle par raw gap use nahi karte — warna
     // periodSec 16-18 ghante ban jaata hai (previous din ke last candle se
     // gap), aur Step 4 mein CH_START_MULT * periodSec us gap ki duration se
     // multiply ho ke ek bahut lambi/galat "Start length" line bana deta —
     // jiska CH_START_MULT setting se koi practical rishta nahi dikhta.
     // Aise candle par TF ka apna default period use karo.
-    const periodSec = (i >= 1 && !isSessionGap)
+    //
+    // FIX #2: Daily+ TFs (1D/3D/9D/27D) ke liye bhi hamesha _defaultPeriodSec
+    // use karo. 1D BN data mein consecutive candle gap weekday = 86400s lekin
+    // Friday→Monday = 259200s (weekend). Is inconsistency ki wajah se
+    // _bnBuildSRNative ka lenBars = (endTime - startTime) / periodSec
+    // Monday-created swing ko 3× chhota render karta tha — isliye SW_START_MULT
+    // / SW_SLIDE_MULT multiplier ka visual effect 1D/3D/9D/27D par nahi dikhta
+    // tha (even on multiplier=10). tfMin < 1440 check se daily+ hamesha
+    // _defaultPeriodSec (= tfMin*60) use karte hain → consistent rendering.
+    const periodSec = (i >= 1 && !isSessionGap && tfMin < 1440)
       ? (cur.time - data[i-1].time)
       : _defaultPeriodSec;
 
@@ -10616,9 +10772,11 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       aSup = aSup.filter(l => l.price <= rPrice);
       // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
       { const _shEndIdx = i + _swS * _swBars;
+        const _shStartBar = pHigh >= cur.high ? i - 1 : i;
         aRes.push({ price: rPrice, startTime: rTime,
                     endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec),
                     endIndex: _shEndIdx,
+                    startBarIdx: _shStartBar,
                     creationIndex: i, kind: 'sh', periodSec }); }
     }
 
@@ -10631,27 +10789,30 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       aRes = aRes.filter(l => l.price >= sPrice);
       // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
       { const _slEndIdx = i + _swS * _swBars;
+        const _slStartBar = pLow <= cur.low ? i - 1 : i;
         aSup.push({ price: sPrice, startTime: sTime,
                     endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec),
                     endIndex: _slEndIdx,
+                    startBarIdx: _slStartBar,
                     creationIndex: i, kind: 'sl', periodSec }); }
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
-    // Agar candle high/low price kisi active swing H/L ki price se match kare
-    // toh candle H/L line push mat karo — swing line already wahan hai
-    const _activeSwingPrices = new Set([
-      ...aRes.map(l => l.price),
-      ...aSup.map(l => l.price)
-    ]);
-    if (!_activeSwingPrices.has(cur.high)) {
+    // NOTE: Pehle yahan _activeSwingPrices check tha — agar candle price kisi
+    // swing price se match kare to candle line nahi banate the. Yeh GALAT tha:
+    // swing line hoti thi, candle line nahi → SW_START badlane par woh swing
+    // line ka length badalta, user sochta "candle H/L bada/chota hua". FIX:
+    // Candle lines HAMESHA banao (swing price se match ho ya na ho). Dedup step
+    // (swingComputeMultiTF / _sv2ComputeCellSR) mein "candle wins over swing
+    // at same price" rule already hai — wo sahi line dikhata hai.
+    {
       const _chEndIdx = i + _chS;
       chLines.push({ price: cur.high, startTime: cur.time,
                      endTime: _indexToTime(data, _chEndIdx, tfMin, _defaultPeriodSec),
                      endIndex: _chEndIdx,
                      creationIndex: i, kind: 'ch', periodSec });
     }
-    if (!_activeSwingPrices.has(cur.low)) {
+    {
       const _clEndIdx = i + _chS;
       clLines.push({ price: cur.low,  startTime: cur.time,
                      endTime: _indexToTime(data, _clEndIdx, tfMin, _defaultPeriodSec),
@@ -10729,9 +10890,11 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   ].sort((a, b) => b.startTime - a.startTime).slice(0, 5);
 
   for (const sw of allSwings) {
+    const _swStartBar = sw.startBarIdx != null ? sw.startBarIdx : sw.creationIndex;
     out.push({ price: sw.price, startTime: sw.startTime, endTime: sw.endTime,
                kind: sw.kind, color: srColor, isInfinite: false,
-               periodSec: sw.periodSec, levelTf: tfMin });
+               periodSec: sw.periodSec, levelTf: tfMin,
+               spanBars: sw.endIndex - _swStartBar });
   }
 
   // Candle lines — all valid surviving lines
@@ -10743,7 +10906,9 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   for (const l of allCandles) {
     out.push({ price: l.price, startTime: l.startTime, endTime: l.endTime,
                kind: l.kind, color: l.color, isInfinite: false,
-               periodSec: l.periodSec, levelTf: tfMin });
+               periodSec: l.periodSec, levelTf: tfMin,
+               spanBars: (l.endIndex != null && l.creationIndex != null)
+                         ? (l.endIndex - l.creationIndex) : null });
   }
 
   return out;
@@ -10826,7 +10991,11 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
           const x0  = ts0.timeToCoordinate(ln.startTime);
           const barSpacing = ts0.options().barSpacing;
           if (x0 != null && barSpacing) {
-            const lenBars = (ln.endTime - ln.startTime) / _periodSec;
+            // spanBars = actual bar count (index-based, no session-gap inflation).
+            // Fallback = purana time-arithmetic formula (for lines without spanBars).
+            const lenBars = (ln.spanBars != null && ln.spanBars > 0)
+              ? ln.spanBars
+              : (ln.endTime - ln.startTime) / _periodSec;
             const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
             const x1 = x0 + lenBars * barSpacing * ratio;
             const t1 = ts0.coordinateToTime(x1);
@@ -10993,24 +11162,30 @@ function swingComputeMultiTF(asset, currentTf) {
   }
 
   // Step 1: Swing dedup — exact same price → highest TF rakho
-  const _swingByPrice = new Map();
   // Step 2: Candle dedup — exact same price → latest startTime rakho
+  // FIX: isInfinite kabhi true nahi hota (swingCompute sabko false set karta hai).
+  // Sahi check: kind 'sh'/'sl' = swing, 'ch'/'cl' = candle H/L.
+  // Floating-point safety: price ko 2 decimal tak round karke Map key banao.
+  const _pk = p => Math.round(p * 100) / 100;
+  const _swingByPrice  = new Map();
   const _candleByPrice = new Map();
   for (const line of allLines) {
-    if (line.isInfinite) {
-      const ex = _swingByPrice.get(line.price);
+    const _isSwing = (line.kind === 'sh' || line.kind === 'sl');
+    const _key = _pk(line.price);
+    if (_isSwing) {
+      const ex = _swingByPrice.get(_key);
       if (!ex || line.levelTf > ex.levelTf)
-        _swingByPrice.set(line.price, line);
+        _swingByPrice.set(_key, line);
     } else {
-      const ex = _candleByPrice.get(line.price);
+      const ex = _candleByPrice.get(_key);
       if (!ex || line.startTime > ex.startTime)
-        _candleByPrice.set(line.price, line);
+        _candleByPrice.set(_key, line);
     }
   }
   // Step 3: Agar same price par candle H/L bhi hai aur swing bhi —
   // candle H/L rakho, swing delete karo
-  for (const price of _candleByPrice.keys()) {
-    _swingByPrice.delete(price);
+  for (const key of _candleByPrice.keys()) {
+    _swingByPrice.delete(key);
   }
   return [...Array.from(_swingByPrice.values()), ...Array.from(_candleByPrice.values())];
 }
@@ -11282,13 +11457,13 @@ function sv2SetChExtendMult(v) {
 }
 
 function sv2SetSwStartMult(v) {
-  SV2_SW_START_MULT = Math.max(0.5, Math.min(10, +v || 2));
+  SV2_SW_START_MULT = Math.max(0.5, Math.min(250, +v || 2));
   try { _LS.setItem(_SV2_SW_START_KEY, SV2_SW_START_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
 
 function sv2SetSwSlideMult(v) {
-  SV2_SW_SLIDE_MULT = Math.max(0.5, Math.min(10, +v || 1));
+  SV2_SW_SLIDE_MULT = Math.max(0.5, Math.min(250, +v || 1));
   try { _LS.setItem(_SV2_SW_SLIDE_KEY, SV2_SW_SLIDE_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
@@ -11448,18 +11623,23 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
 
     // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
     // swing se upar priority do (SV1 swingComputeMultiTF ke saath identical)
+    // FIX: isInfinite kabhi true nahi hota — kind check use karo ('sh'/'sl' = swing).
+    // Floating-point safety: 2-decimal rounded key.
+    const _pk2 = p => Math.round(p * 100) / 100;
     const _swingByPrice  = new Map();
     const _candleByPrice = new Map();
     for (const line of allLines) {
-      if (line.isInfinite) {
-        const ex = _swingByPrice.get(line.price);
-        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(line.price, line);
+      const _isSwing = (line.kind === 'sh' || line.kind === 'sl');
+      const _key = _pk2(line.price);
+      if (_isSwing) {
+        const ex = _swingByPrice.get(_key);
+        if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(_key, line);
       } else {
-        const ex = _candleByPrice.get(line.price);
-        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(line.price, line);
+        const ex = _candleByPrice.get(_key);
+        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(_key, line);
       }
     }
-    for (const p of _candleByPrice.keys()) _swingByPrice.delete(p);
+    for (const k of _candleByPrice.keys()) _swingByPrice.delete(k);
     return [..._swingByPrice.values(), ..._candleByPrice.values()];
   } catch(_) { return []; }
 }
@@ -11632,7 +11812,9 @@ function _srDebugActualPeriodsIndexed(chartObj, ln, cellTFMin) {
     const barSpacing = ts.options().barSpacing;
     if (x0 == null || !barSpacing) return null;
     const period  = ln.periodSec || ((ln.levelTf || 1) * 60);
-    const lenBars = (ln.endTime - ln.startTime) / period;
+    const lenBars = (ln.spanBars != null && ln.spanBars > 0)
+      ? ln.spanBars
+      : (ln.endTime - ln.startTime) / period;
     const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
     const x1 = x0 + lenBars * barSpacing * ratio;
     const t1 = ts.coordinateToTime(x1);
@@ -12120,23 +12302,28 @@ function _btc2ComputeMultiTF(asset, currentTf) {
   }
   // Swing dedup — exact same price → highest TF rakho
   // Candle dedup — exact same price → latest startTime rakho
+  // FIX: isInfinite kabhi true nahi hota — kind 'sh'/'sl' = swing check use karo.
+  // Floating-point safety: 2-decimal rounded key.
+  const _pk3 = p => Math.round(p * 100) / 100;
   const _btcSwingByPrice  = new Map();
   const _btcCandleByPrice = new Map();
   for (const line of allLines) {
-    if (line.isInfinite) {
-      const ex = _btcSwingByPrice.get(line.price);
+    const _isSwing = (line.kind === 'sh' || line.kind === 'sl');
+    const _key = _pk3(line.price);
+    if (_isSwing) {
+      const ex = _btcSwingByPrice.get(_key);
       if (!ex || line.levelTf > ex.levelTf)
-        _btcSwingByPrice.set(line.price, line);
+        _btcSwingByPrice.set(_key, line);
     } else {
-      const ex = _btcCandleByPrice.get(line.price);
+      const ex = _btcCandleByPrice.get(_key);
       if (!ex || line.startTime > ex.startTime)
-        _btcCandleByPrice.set(line.price, line);
+        _btcCandleByPrice.set(_key, line);
     }
   }
   // Agar same price par candle H/L bhi hai aur swing bhi —
   // candle H/L rakho, swing delete karo
-  for (const price of _btcCandleByPrice.keys()) {
-    _btcSwingByPrice.delete(price);
+  for (const key of _btcCandleByPrice.keys()) {
+    _btcSwingByPrice.delete(key);
   }
   return [...Array.from(_btcSwingByPrice.values()), ...Array.from(_btcCandleByPrice.values())];
 }
