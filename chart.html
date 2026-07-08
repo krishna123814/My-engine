@@ -924,11 +924,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   white-space:pre-wrap;
   word-break:break-word;
 }
-#sv2-debug-log .sv2-dbg-grp  { color:#787b86; font-weight:700; margin:6px 0 2px; text-transform:uppercase; font-size:10px; }
-#sv2-debug-log .sv2-dbg-row  { display:flex; justify-content:space-between; gap:8px; }
-#sv2-debug-log .sv2-dbg-sh, #sv2-debug-log .sv2-dbg-sl { color:#ff9800; }
-#sv2-debug-log .sv2-dbg-ch, #sv2-debug-log .sv2-dbg-cl { color:#2196f3; }
-#sv2-debug-log .sv2-dbg-empty { color:#787b86; font-style:italic; }
+#sv2-debug-log .sv2-dbg-new  { color:#26a69a; }
+#sv2-debug-log .sv2-dbg-ext  { color:#2196f3; }
+#sv2-debug-log .sv2-dbg-del  { color:#ef5350; }
 
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
@@ -2278,14 +2276,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
-<button id="sv2-debug-btn" title="SR Live Length" onclick="_srDebugToggle()">🐞</button>
+<button id="sv2-debug-btn" title="SR Length Debug Log" onclick="_srDebugToggle()">🐞</button>
 
 <!-- ═══ SR DEBUG LOG PANEL ═══════════════════════════════════════════════ -->
 <div id="sv2-debug-panel">
   <div id="sv2-debug-hdr">
-    <span id="sv2-debug-title">🐞 SR Live Length</span>
-    <button class="sv2-debug-btn-sm" id="sv2-debug-copy-btn" onclick="_srDebugCopyLog()">📋 Copy</button>
-    <button class="sv2-debug-btn-sm" onclick="_srDebugClear()">🔄 Reset</button>
+    <span id="sv2-debug-title">🐞 SR Length Debug Log</span>
+    <button class="sv2-debug-btn-sm" id="sv2-debug-copy-btn" onclick="_srDebugCopyLog()">📋 Copy Log</button>
+    <button class="sv2-debug-btn-sm" onclick="_srDebugClear()">🗑 Clear</button>
     <button class="sv2-debug-btn-sm" onclick="_srDebugClosePanel()">✕</button>
   </div>
   <div id="sv2-debug-log"></div>
@@ -11929,18 +11927,44 @@ function sv2SwingClear() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SR LIVE LENGTH — har SR/swing/candle-H-L line ki ABHI ki drawn bar-length
+// SR LENGTH DEBUG LOG — Candle H/L line ki starting/extended length track karo
 // ────────────────────────────────────────────────────────────────────────────
-// Purana version ek scrolling "NEW/TOUCH/DELETED" event-log tha — replay mein
-// dekhna mushkil tha ki kisi line ki length ABHI kitni hai (scroll karke
-// dhoondhna padta tha). Ye naya version ek LIVE SNAPSHOT TABLE hai: har
-// `sv2SwingInit`/render pass ke baad (replay ke har step par), har source ke
-// liye uski saari lines ki current drawn bar-length ek chhoti table mein
-// dikhati hai — purana state yaad nahi rakhta, sirf "abhi kya hai" dikhata
-// hai. Isse multiplier (SW_START_MULT/SW_SLIDE_MULT) badalne ka asar turant,
-// bina zoom-out/scroll kiye, number ke roop mein dikh jaata hai.
+// Har `sv2SwingInit` pass ke baad (jo replay ke har step par chalta hai),
+// har cell ke liye ye naya `lines` array ko PICHLE pass ke saved snapshot se
+// compare karta hai (price+kind ko unique key maan ke). Farak milne par:
+//   - Nayi line mili           → "NEW"     (starting length)
+//   - Existing line ka endTime
+//     badla (bada ya chota)    → "TOUCH"   (extended/updated length)
+//   - Pehle thi, ab nahi hai   → "DELETED" (no-touch → removed)
+// Sirf jab replay LIVE hai (window._SV2_LIVE set) tab hi meaningful hai —
+// static/non-replay view mein bhi chalega par usually ek hi baar sab "NEW"
+// dikhega (initial load), jo theek hai.
 // ════════════════════════════════════════════════════════════════════════════
-window._SR_DEBUG = window._SR_DEBUG || { enabled: false, snapshot: {} };
+window._SR_DEBUG = window._SR_DEBUG || { enabled: false, log: [], prevByCell: {} };
+
+// ── Debug LOG FILTERS — yahan se control karo ke log mein kya dikhna hai ──
+//   cellIdx      : sirf ek source ka data dikhao.
+//                  Number (0,1,2..) = legacy, matlab SV2 cell N ('sv2-cell-N').
+//                  String  = seedha source key do: 'sv1-main' (SV1 single
+//                  chart), 'sv1-cell-0'/'sv1-cell-1'... (SV1 grid cells),
+//                  ya 'sv2-cell-0'/'sv2-cell-1'... (SV2 cells).
+//                  null karo agar SV1 + SV2 dono ke sab sources chahiye.
+//   kinds        : kaunse line-types dikhaane hain. 'ch'=HIGH, 'cl'=LOW,
+//                  'sh'=SWING-HIGH, 'sl'=SWING-LOW. null karo agar sab chahiye.
+//   showNew      : true → "NEW ... starting length" lines dikhao
+//   showTouch    : true → "TOUCH ... extended length" lines dikhao
+//   showDeleted  : true → "DELETED" lines dikhao
+//   onlyReplayDay: true → sirf jo din abhi replay ho raha hai (purani dates
+//                  hide). SV1 (live) is filter se affect nahi hota kyunki
+//                  cutoffTime=null bheja jaata hai.
+window._SR_DEBUG_FILTER = {
+  cellIdx:       null,
+  kinds:         ['ch', 'cl', 'sh', 'sl'],
+  showNew:       true,
+  showTouch:     true,
+  showDeleted:   false,
+  onlyReplayDay: true
+};
 
 function _srDebugCellLabel(cellIdx) {
   try {
@@ -11970,6 +11994,18 @@ function _srDebugKindLabel(kind) {
   return kind;
 }
 
+// IST-formatted HH:MM:SS for a given epoch-seconds timestamp
+function _srDebugFmtTime(tSec) {
+  try {
+    const d = new Date(tSec * 1000);
+    return d.toLocaleString('en-IN', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      day: '2-digit', month: '2-digit',
+      hour12: false, timeZone: 'Asia/Kolkata'
+    });
+  } catch(_) { return String(tSec); }
+}
+
 // ── INDEX-BASED REAL-DRAW CHECK — wahi math jo _bnBuildSRNative() actual
 // rendering ke waqt use karta hai (startTime se pixel-offset via barSpacing,
 // phir coordinateToTime() se wapas time). Isse pata chalta hai ki FIX lagne
@@ -11997,50 +12033,103 @@ function _srDebugActualPeriodsIndexed(chartObj, ln, cellTFMin) {
   } catch (_) { return null; }
 }
 
-// srcKey ke liye lines ka CURRENT snapshot bana ke store karo — koi history
-// nahi, sirf "abhi kya hai". Har replay tick par overwrite hota hai, isliye
-// panel hamesha latest state dikhata hai bina scroll kiye.
 function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) {
   if (!window._SR_DEBUG.enabled) return;
+  const F = window._SR_DEBUG_FILTER || {};
 
-  const rows = lines.map(l => ({
-    kind:  l.kind,
-    price: l.price,
-    drawn: cellTFMin ? _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin) : null
-  }));
-  // Swing lines (sh/sl) pehle, phir candle H/L (ch/cl) — har group ke andar
-  // price descending, taaki upar-neeche scan karna aasan ho.
-  const _kindRank = { sh: 0, sl: 1, ch: 2, cl: 3 };
-  rows.sort((a, b) => (_kindRank[a.kind] - _kindRank[b.kind]) || (b.price - a.price));
+  // ── Cell filter — sirf configured source ka data dikhao. Numeric (0,1,2..)
+  // ab bhi legacy SV2 cells ko refer karta hai ('sv2-cell-0' etc). SV1 ke
+  // liye string key seedha do: 'sv1-main' ya 'sv1-cell-0'/'sv1-cell-1'...
+  // null karo agar sab sources (SV1 + SV2) chahiye.
+  if (F.cellIdx !== null && F.cellIdx !== undefined) {
+    const want = (typeof F.cellIdx === 'number') ? ('sv2-cell-' + F.cellIdx) : F.cellIdx;
+    if (srcKey !== want) return;
+  }
 
-  window._SR_DEBUG.snapshot[srcKey] = { label, rows };
-  _srDebugRender();
+  // ── Kind filter — e.g. sirf 'ch'/'cl' (candle HIGH/LOW), swing 'sh'/'sl' allowed nahi
+  const kindOk = (k) => !F.kinds || F.kinds.includes(k);
+
+  // ── Replay-day filter — sirf jo IST calendar-day abhi replay ho raha hai ──
+  // SV1 (live, no replay) cutoffTime=null bhejta hai, isliye ye filter
+  // automatically skip ho jaata hai (replayDayKey null → onReplayDay hamesha true).
+  const IST_OFFSET_SEC = 5.5 * 3600;
+  const _dayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
+  const replayDayKey = (F.onlyReplayDay && cutoffTime) ? _dayKey(cutoffTime) : null;
+
+  const prevMap = window._SR_DEBUG.prevByCell[srcKey] || new Map();
+  const newMap  = new Map();
+
+  // DRAWN — chart ke actual loaded pixels se measure ki gayi length (wahi
+  // index-fixed math jo _bnBuildSRNative() rendering ke waqt use karta hai).
+  // Ab sirf yehi dikhaya jaata hai — "set/intended" value hata di gayi hai,
+  // kyunki wo sirf humara calculation tha, chart par asal mein kya render
+  // ho raha hai wahi yahan chahiye tha.
+  const _measureDrawn = (l) => {
+    if (!cellTFMin) return null;
+    return _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin);
+  };
+  const _drawnLabel = (p) => (p === null)
+    ? 'N/A (start point abhi chart ke loaded range se bahar hai)'
+    : p.toFixed(2) + '×period';
+
+  for (const l of lines) {
+    const key     = l.kind + ':' + l.price;
+    const drawnP  = _measureDrawn(l);
+    newMap.set(key, { line: l, drawnP });
+    if (!kindOk(l.kind)) continue;
+    const prevEntry    = prevMap.get(key);
+    const onReplayDay  = (replayDayKey === null) || (_dayKey(l.startTime) === replayDayKey);
+
+    if (!prevEntry) {
+      if (F.showNew && onReplayDay) {
+        _srDebugAppend(
+          '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — NEW ' +
+          _srDebugKindLabel(l.kind) + ' @ ' + l.price +
+          ' | drawn = ' + _drawnLabel(drawnP),
+          'sv2-dbg-new'
+        );
+      }
+    } else if (F.showTouch && Math.abs(l.endTime - prevEntry.line.endTime) > 0.001 && onReplayDay) {
+      _srDebugAppend(
+        '[' + _srDebugFmtTime(l.startTime) + '] ' + label + ' — TOUCH ' +
+        _srDebugKindLabel(l.kind) + ' @ ' + l.price +
+        ' | drawn ' + _drawnLabel(prevEntry.drawnP) + ' → ' + _drawnLabel(drawnP),
+        'sv2-dbg-ext'
+      );
+    }
+  }
+  if (F.showDeleted) {
+    for (const [key, prevEntry] of prevMap.entries()) {
+      const prev = prevEntry.line;
+      if (!kindOk(prev.kind)) continue;
+      if (!newMap.has(key)) {
+        const onReplayDay = (replayDayKey === null) || (_dayKey(prev.startTime) === replayDayKey);
+        if (onReplayDay) {
+          _srDebugAppend(
+            label + ' — DELETED ' + _srDebugKindLabel(prev.kind) + ' @ ' + prev.price +
+            ' | was drawn ' + _drawnLabel(prevEntry.drawnP) + ' (no-touch)',
+            'sv2-dbg-del'
+          );
+        }
+      }
+    }
+  }
+  window._SR_DEBUG.prevByCell[srcKey] = newMap;
 }
 
-function _srDebugRowLabel(p) {
-  return (p === null) ? 'N/A (off loaded range)' : p.toFixed(2) + '×period';
+function _srDebugAppend(text, cls) {
+  window._SR_DEBUG.log.push({ text, cls });
+  if (window._SR_DEBUG.log.length > 800) window._SR_DEBUG.log.shift();  // memory cap
+  _srDebugRender();
 }
 
 function _srDebugRender() {
   const el = document.getElementById('sv2-debug-log');
   if (!el) return;
-  const snap = window._SR_DEBUG.snapshot;
-  const keys = Object.keys(snap);
-  if (!keys.length) {
-    el.innerHTML = '<div class="sv2-dbg-empty">Replay chalao ya ek candle step karo — lines yahan dikhengi.</div>';
-    return;
-  }
-  el.innerHTML = keys.map(srcKey => {
-    const { label, rows } = snap[srcKey];
-    if (!rows.length) return '';
-    const rowsHtml = rows.map(r =>
-      '<div class="sv2-dbg-row sv2-dbg-' + r.kind + '">' +
-        '<span>' + _srDebugKindLabel(r.kind) + ' @ ' + r.price + '</span>' +
-        '<span>' + _srDebugRowLabel(r.drawn) + '</span>' +
-      '</div>'
-    ).join('');
-    return '<div class="sv2-dbg-grp">' + label + '</div>' + rowsHtml;
-  }).join('');
+  el.innerHTML = window._SR_DEBUG.log
+    .map(l => '<div class="' + l.cls + '">' + l.text.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</div>')
+    .join('');
+  el.scrollTop = el.scrollHeight;
 }
 
 function _srDebugToggle() {
@@ -12062,19 +12151,13 @@ function _srDebugClosePanel() {
 }
 
 function _srDebugClear() {
-  window._SR_DEBUG.snapshot = {};
+  window._SR_DEBUG.log = [];
+  window._SR_DEBUG.prevByCell = {};
   _srDebugRender();
 }
 
 function _srDebugCopyLog() {
-  const snap = window._SR_DEBUG.snapshot;
-  const text = Object.keys(snap).map(srcKey => {
-    const { label, rows } = snap[srcKey];
-    const rowsText = rows.map(r =>
-      '  ' + _srDebugKindLabel(r.kind) + ' @ ' + r.price + ' | ' + _srDebugRowLabel(r.drawn)
-    ).join('\n');
-    return label + '\n' + rowsText;
-  }).join('\n\n');
+  const text = window._SR_DEBUG.log.map(l => l.text).join('\n');
   const btn  = document.getElementById('sv2-debug-copy-btn');
   function _showCopied() {
     if (!btn) return;
