@@ -4357,7 +4357,7 @@ function _sv2DebugShow(idx, reason, lines) {
 
 function destroyStack2Cells() {
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
-  STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} });
+  STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} _vlRemoveCellCanvasGeneric(c); });
   STACK2_CELLS.length = 0;
   const sc = document.getElementById('stack-container-2');
   if (sc) sc.innerHTML = '';
@@ -4508,6 +4508,7 @@ function buildStack2() {
       const el = document.getElementById('stack2-chart-' + i);
       if (!el) return;
       c.chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
+      _vlResizeCellCanvas2(i); _vlDrawCell2(i);
     });
   });
   _stack2ResizeObs.observe(sc);
@@ -4592,6 +4593,13 @@ function _buildStack2CellChart(idx) {
     priceLineVisible: false,
   });
 
+  // ── Future Line (vLine) wiring — SV2 previously never created a canvas
+  // for this, so the "Future Line" toggle in Cell Settings existed but
+  // never actually drew anything. Mirror the Grid/Stack-1 setup here. ──────
+  if (!c.vLine) c.vLine = { ...S.vLine };
+  _vlCreateCellCanvas2(idx);
+  try { c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _vlDrawCell2(idx)); } catch(_) {}
+
   // ── Load pre-resampled data from gz-based SV2_BN / SV2_BTC ──────────────
   (function _sv2LoadData() {
     // ── Date range select nahi hui abhi → sirf hint dikhao, koi data nahi ──
@@ -4611,6 +4619,9 @@ function _buildStack2CellChart(idx) {
       const tfLabel = (cfg2.tfs && cfg2.tfs[idx]) || '';
       _dbg.push('tfLabel="'+tfLabel+'" tfs='+JSON.stringify(cfg2.tfs));
       if (!tfLabel) { _sv2DebugShow(idx,'NO_TFLABEL',_dbg); return; }
+      // Future Line offset math needs the real per-cell TF (minutes), not the
+      // placeholder 1440 set at cellObj creation time.
+      c.tf = _parseTFMin(tfLabel) || c.tf || 1440;
 
       const bnOk  = (typeof SV2_BN  !== 'undefined');
       const btcOk = (typeof SV2_BTC !== 'undefined');
@@ -4701,6 +4712,8 @@ function _buildStack2CellChart(idx) {
         const slice = dataToShow.slice(offset, offset + CHUNK);
         if (!slice.length) {
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          c._vlTime = dataToShow.length ? dataToShow[dataToShow.length - 1].time : null;
+          _vlDrawCell2(idx);
           return;
         }
         try {
@@ -4712,7 +4725,11 @@ function _buildStack2CellChart(idx) {
         }
         offset += CHUNK;
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
-        else { try { c.chart.timeScale().scrollToRealTime(); } catch(_) {} }
+        else {
+          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+          c._vlTime = dataToShow.length ? dataToShow[dataToShow.length - 1].time : null;
+          _vlDrawCell2(idx);
+        }
       }
       setTimeout(feedChunk, idx * 30);
     } catch(e) {
@@ -4731,15 +4748,18 @@ function _buildStack2CellChart(idx) {
   }
 }
 
+let _sv2SettingsRestore = null; // { idx, orig } — grid CELLS[idx] temporarily swapped out
 function _openStack2CellSettings(idx, anchorEl) {
   // Reuse existing cell settings panel if available
   if (typeof _openCellSettings === 'function') {
-    // Temporarily patch CELLS[idx] to point to STACK2_CELLS[idx] for the modal
-    // Since _openCellSettings uses CELLS[idx], we do a safe redirect
-    const tmpOld = CELLS[idx];
+    // Temporarily patch CELLS[idx] to point to STACK2_CELLS[idx] so the shared
+    // modal HTML (which reads/writes CELLS[idx]) edits the right cell.
+    // IMPORTANT: this must be restored when the panel closes, otherwise
+    // CELLS[idx] stays permanently pointed at the SV2 cell and Grid/Stack-1
+    // view for that index breaks after switching back. See _closeCellSettings.
+    _sv2SettingsRestore = { idx, orig: CELLS[idx] };
     CELLS[idx] = STACK2_CELLS[idx];
     try { _openCellSettings(idx, anchorEl); } catch(_) {}
-    // Restore (the panel will operate on the cell object directly via reference)
   }
 }
 
@@ -5438,6 +5458,10 @@ function ss2ApplyAndClose() {
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
       }
+      // Future Line ko forming (current) candle ke sath hi rakho, whitespace
+      // tail ke saath nahi — warna line last candle se bahut door dikhti hai.
+      cell._vlTime = formingBar.time;
+      if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_e) {}
     }
   }
 
@@ -5524,6 +5548,10 @@ function ss2ApplyAndClose() {
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
       }
+      // Future Line ko last REAL revealed candle ke sath rakho, whitespace
+      // tail ke sath nahi — warna line last candle se bahut door dikhti hai.
+      if (live.revealIdx > 0) cell._vlTime = live.baseBars[live.revealIdx - 1].time;
+      if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_) {}
     }
   }
 
@@ -5536,11 +5564,15 @@ function ss2ApplyAndClose() {
     live.revealIdx++;
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
+    // User chahta hai: Play click = sirf EK candle chale, phir apne aap ruk
+    // jaaye — dusri candle tabhi chale jab dubara Play click ho. Isliye ab
+    // continuous auto-chaining hata diya: har _tick() apne aap _pause() ho
+    // jaata hai, chahe TICK_MS abhi bacha ho ya nahi.
+    _running = false;
+    if (_timerId) { clearTimeout(_timerId); _timerId = null; }
+    _pausedAt = null;   // agli Play click par fresh ring/forming se shuru ho (0% se)
+    _stopRing();
     _renderPlayIcon();
-    if (_running) {
-      _startRing();                          // fresh ring/forming for the NEW candle (0% se)
-      _timerId = setTimeout(_tick, TICK_MS);  // agli candle poore TICK_MS baad
-    }
   }
 
   function _play() {
@@ -6848,10 +6880,16 @@ function _vlDraw() {
 }
 
 // Per-cell VLine canvas helpers
-function _vlCreateCellCanvas(idx) {
-  _vlRemoveCellCanvas(idx);
-  const c = CELLS[idx]; if (!c) return;
-  const el = document.getElementById('cell-chart-' + idx);
+// Generic core (works for any cell object + its DOM element id) — used by
+// both Stack View 1 / Grid cells (CELLS, 'cell-chart-') and Stack View 2
+// cells (STACK2_CELLS, 'stack2-chart-'). Earlier SV2 never called these at
+// all, so the "Future Line" toggle in its settings existed but nothing
+// ever drew (no canvas was ever created for SV2 cells) — fixed by wiring
+// the same generic helpers into _buildStack2CellChart below.
+function _vlCreateCellCanvasGeneric(c, elId) {
+  if (!c) return;
+  if (c._vlCanvas) { c._vlCanvas.remove(); c._vlCanvas = null; c._vlCtx = null; }
+  const el = document.getElementById(elId);
   if (!el) return;
   el.style.position = 'relative';
   const canvas = document.createElement('canvas');
@@ -6862,19 +6900,51 @@ function _vlCreateCellCanvas(idx) {
   canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
   c._vlCanvas = canvas; c._vlCtx = canvas.getContext('2d');
 }
-function _vlRemoveCellCanvas(idx) {
-  const c = CELLS[idx]; if (!c) return;
+function _vlRemoveCellCanvasGeneric(c) {
+  if (!c) return;
   if (c._vlCanvas) { c._vlCanvas.remove(); c._vlCanvas = null; c._vlCtx = null; }
 }
-function _vlDrawCell(idx) {
-  const c = CELLS[idx]; if (!c || !c._vlCtx || !c._vlCanvas) return;
+function _vlResizeCellCanvasGeneric(c, elId) {
+  if (!c || !c._vlCanvas) return;
+  const el = document.getElementById(elId); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._vlCanvas.width  = el.clientWidth  * dpr;
+  c._vlCanvas.height = el.clientHeight * dpr;
+  c._vlCanvas.style.width  = el.clientWidth  + 'px';
+  c._vlCanvas.style.height = el.clientHeight + 'px';
+}
+function _vlCreateCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c) return;
+  _vlCreateCellCanvasGeneric(c, 'cell-chart-' + idx);
+}
+function _vlCreateCellCanvas2(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _vlCreateCellCanvasGeneric(c, 'stack2-chart-' + idx);
+}
+function _vlRemoveCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c) return;
+  _vlRemoveCellCanvasGeneric(c);
+}
+function _vlRemoveCellCanvas2(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _vlRemoveCellCanvasGeneric(c);
+}
+function _vlDrawCellGeneric(c) {
+  if (!c || !c._vlCtx || !c._vlCanvas) return;
   const dpr = window.devicePixelRatio || 1;
   c._vlCtx.setTransform(1, 0, 0, 1, 0, 0);
   c._vlCtx.clearRect(0, 0, c._vlCanvas.width, c._vlCanvas.height);
   const vl = c.vLine || S.vLine;
   if (!vl.enabled || !c.chart) return;
   const cssW = c._vlCanvas.width / dpr, cssH = c._vlCanvas.height / dpr;
-  const offset = vl.offset || 5;
+  // Bar Replay (SV2) mein future line last candle se sirf 2-3 candle door
+  // honi chahiye — normal offset (default 5, settings-adjustable) yahan
+  // bahut door dikhta tha kyunki c._vlTime khud replay build-time whitespace
+  // tail (~30 candles aage) tak set ho jaata tha. _vlTime ab replay ke har
+  // tick par real/forming last-candle time se refresh hota hai (see
+  // _rebuildAllCells/_rebuildWithForming/_reset), aur offset yahan replay
+  // ke liye chhota (max 3) rakha gaya hai.
+  const offset = (c._stack2 && window._SV2_LIVE) ? Math.min(vl.offset || 5, 3) : (vl.offset || 5);
 
   // Bar spacing se x calculate karo — timeToCoordinate pe depend mat karo
   // (1D/3D jaise large TF par future timestamps visible range mein nahi hote
@@ -6923,15 +6993,20 @@ function _vlDrawCell(idx) {
   c._vlCtx.stroke();
   c._vlCtx.restore();
 }
+function _vlDrawCell(idx) {
+  _vlDrawCellGeneric(CELLS[idx]);
+}
+function _vlDrawCell2(idx) {
+  _vlDrawCellGeneric(STACK2_CELLS[idx]);
+}
 
 function _vlResizeCellCanvas(idx) {
-  const c = CELLS[idx]; if (!c || !c._vlCanvas) return;
-  const el = document.getElementById('cell-chart-' + idx); if (!el) return;
-  const dpr = window.devicePixelRatio || 1;
-  c._vlCanvas.width  = el.clientWidth  * dpr;
-  c._vlCanvas.height = el.clientHeight * dpr;
-  c._vlCanvas.style.width  = el.clientWidth  + 'px';
-  c._vlCanvas.style.height = el.clientHeight + 'px';
+  const c = CELLS[idx]; if (!c) return;
+  _vlResizeCellCanvasGeneric(c, 'cell-chart-' + idx);
+}
+function _vlResizeCellCanvas2(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _vlResizeCellCanvasGeneric(c, 'stack2-chart-' + idx);
 }
 
 // Main-chart settings panel
@@ -8685,6 +8760,12 @@ function _openCellSettings(idx, btn) {
 }
 function _closeCellSettings(){
   if(_cellSettingsPanel){ _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+  // Undo the temporary CELLS[idx]->STACK2_CELLS[idx] swap from
+  // _openStack2CellSettings, if this panel was opened for a Stack View 2 cell.
+  if(_sv2SettingsRestore){
+    CELLS[_sv2SettingsRestore.idx] = _sv2SettingsRestore.orig;
+    _sv2SettingsRestore = null;
+  }
 }
 function _setCellAsset(idx,name){
   const c=CELLS[idx]; if(!c||!ASSET_NAMES.includes(name)) return;
@@ -8724,7 +8805,7 @@ document.addEventListener('click', (e) => {
   // Cell settings panel
   if(_cellSettingsPanel && !_cellSettingsPanel.contains(e.target) &&
      !e.target.classList.contains('cell-settings-btn'))
-    { _cellSettingsPanel.remove(); _cellSettingsPanel=null; }
+    { _closeCellSettings(); }
   // Main chart settings panel
   if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
      e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
