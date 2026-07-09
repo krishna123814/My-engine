@@ -2499,34 +2499,34 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Candle H/L — Start length (× candle)</span>
+          <span class="ind-name">Candle H/L — Start length (candles)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-start-mult" type="number" value="16" min="0.5" max="50" step="0.5"
-              title="Candle high/low line ki starting length (candle-period ka multiple)"
+            <input class="ind-len" id="ch-start-mult" type="number" value="10" min="1" max="200" step="1"
+              title="Candle high/low line ki starting length, seedhe candle count mein"
               onchange="setChStartMult(+this.value)">
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Candle H/L — Extend on touch (× candle)</span>
+          <span class="ind-name">Candle H/L — Extend on touch (candles)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="ch-extend-mult" type="number" value="8" min="0.5" max="30" step="0.5"
-              title="Agli candle touch kare to line kitna aage badhe (candle-period ka multiple)"
+            <input class="ind-len" id="ch-extend-mult" type="number" value="11" min="1" max="200" step="1"
+              title="Agli candle touch kare to line kitne candle aage badhe (cumulative)"
               onchange="setChExtendMult(+this.value)">
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Swing SR — Start length (× swing duration)</span>
+          <span class="ind-name">Swing SR — Start length (candles)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="sw-start-mult" type="number" value="2" min="0.5" max="250" step="0.5"
-              title="Swing SR line ki starting length (per-TF swing-duration ka multiple)"
+            <input class="ind-len" id="sw-start-mult" type="number" value="10" min="1" max="200" step="1"
+              title="Swing high/low line ki starting length, seedhe candle count mein"
               onchange="setSwStartMult(+this.value)">
           </div>
         </div>
         <div class="ind-row">
-          <span class="ind-name">Swing SR — Slide length (× swing duration)</span>
+          <span class="ind-name">Swing SR — Extend on touch (candles)</span>
           <div class="ind-ctrl">
-            <input class="ind-len" id="sw-slide-mult" type="number" value="1" min="0.5" max="250" step="0.5"
-              title="Har naye candle par sliding window (per-TF swing-duration ka multiple)"
+            <input class="ind-len" id="sw-slide-mult" type="number" value="11" min="1" max="200" step="1"
+              title="Price line ko touch kare to line kitne candle aage badhe (cumulative). Touch na ho to line stable rehti hai."
               onchange="setSwSlideMult(+this.value)">
           </div>
         </div>
@@ -2597,30 +2597,30 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
             </div>
           </div>
           <div class="ind-row">
-            <span class="ind-name">Candle H/L — Start length (× candle)</span>
+            <span class="ind-name">Candle H/L — Start length (candles)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-ch-start-mult" type="number" value="2" min="0.5" max="50" step="0.5"
+              <input class="ind-len" id="sv2-ch-start-mult" type="number" value="10" min="1" max="200" step="1"
                 onchange="sv2SetChStartMult(+this.value)">
             </div>
           </div>
           <div class="ind-row">
-            <span class="ind-name">Candle H/L — Extend on touch (× candle)</span>
+            <span class="ind-name">Candle H/L — Extend on touch (candles)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-ch-extend-mult" type="number" value="1" min="0.5" max="30" step="0.5"
+              <input class="ind-len" id="sv2-ch-extend-mult" type="number" value="11" min="1" max="200" step="1"
                 onchange="sv2SetChExtendMult(+this.value)">
             </div>
           </div>
           <div class="ind-row">
-            <span class="ind-name">Swing SR — Start length (× swing duration)</span>
+            <span class="ind-name">Swing SR — Start length (candles)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-sw-start-mult" type="number" value="2" min="0.5" max="250" step="0.5"
+              <input class="ind-len" id="sv2-sw-start-mult" type="number" value="10" min="1" max="200" step="1"
                 onchange="sv2SetSwStartMult(+this.value)">
             </div>
           </div>
           <div class="ind-row">
-            <span class="ind-name">Swing SR — Slide length (× swing duration)</span>
+            <span class="ind-name">Swing SR — Extend on touch (candles)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-sw-slide-mult" type="number" value="1" min="0.5" max="250" step="0.5"
+              <input class="ind-len" id="sv2-sw-slide-mult" type="number" value="11" min="1" max="200" step="1"
                 onchange="sv2SetSwSlideMult(+this.value)">
             </div>
           </div>
@@ -10333,43 +10333,47 @@ function setSwingLineWidth(w) {
   _swingRefresh();
 }
 
-// ── Line-length multipliers (user-configurable, persisted) ────────────────
-// Candle H/L lines: length = multiplier × candle's own period.
-//   CH_START_MULT  → starting length jab candle H/L line pehli baar banti hai (2×period)
-//   CH_EXTEND_MULT → har touch par kitna ADD hota hai total length mein (cumulative, 1×period/touch)
-//                    e.g. 16 → touch1: 16+8=24 → touch2: 24+8=32 → touch3: 32+8=40 → touch4: 40+8=48 ...
+// ── Line lengths (user-configurable, persisted) — PLAIN CANDLE COUNTS ──────
+// No more "multiplier × period" — every value below is simply "how many
+// candles" (of the line's own TF), regardless of TF. Same rule applies
+// identically to Candle H/L and Swing H/L now:
+// Candle H/L lines:
+//   CH_START_MULT  → starting length in candles jab candle H/L line pehli baar banti hai
+//   CH_EXTEND_MULT → har touch par kitne candles ADD hote hain total length mein (cumulative)
+//                    e.g. start=10 → touch1: 10+11=21 → touch2: 21+11=32 → touch3: 32+11=43 ...
 //                    Touch nahi hui to line turant delete (koi extend nahi).
-// Swing SR lines: length = multiplier × swingDuration(tf).
-//   SW_START_MULT  → starting length jab swing pehli baar create hoti hai
-//   SW_SLIDE_MULT  → har agli candle par (jab tak zinda hai) kitni sliding window
+// Swing H/L lines (ab candle H/L jaisa hi touch-based, cumulative):
+//   SW_START_MULT  → starting length in candles jab swing pehli baar create hoti hai
+//   SW_SLIDE_MULT  → har touch par kitne candles ADD hote hain (cumulative, same pattern jaise upar)
+//                    Touch nahi hui to line apni current length par STABLE rehti hai (delete nahi hoti).
 const _CH_START_KEY  = 'chStartMult2';
 const _CH_EXTEND_KEY = 'chExtendMult2';
 const _SW_START_KEY  = 'swStartMult1';
 const _SW_SLIDE_KEY  = 'swSlideMult1';
-let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 2);
-let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 1);
-let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 2);
-let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 1);
+let CH_START_MULT  = +(_LS.getItem(_CH_START_KEY)  || 10);
+let CH_EXTEND_MULT = +(_LS.getItem(_CH_EXTEND_KEY) || 11);
+let SW_START_MULT  = +(_LS.getItem(_SW_START_KEY)  || 10);
+let SW_SLIDE_MULT  = +(_LS.getItem(_SW_SLIDE_KEY)  || 11);
 function setChStartMult(v) {
-  CH_START_MULT = Math.max(0.5, Math.min(50, +v || 2));
+  CH_START_MULT = Math.max(1, Math.min(200, Math.round(+v || 10)));
   try { _LS.setItem(_CH_START_KEY, CH_START_MULT); } catch(_) {}
   const inp = document.getElementById('ch-start-mult'); if (inp) inp.value = CH_START_MULT;
   _swingRefresh();
 }
 function setChExtendMult(v) {
-  CH_EXTEND_MULT = Math.max(0.5, Math.min(30, +v || 1));
+  CH_EXTEND_MULT = Math.max(1, Math.min(200, Math.round(+v || 11)));
   try { _LS.setItem(_CH_EXTEND_KEY, CH_EXTEND_MULT); } catch(_) {}
   const inp = document.getElementById('ch-extend-mult'); if (inp) inp.value = CH_EXTEND_MULT;
   _swingRefresh();
 }
 function setSwStartMult(v) {
-  SW_START_MULT = Math.max(0.5, Math.min(250, +v || 2));
+  SW_START_MULT = Math.max(1, Math.min(200, Math.round(+v || 10)));
   try { _LS.setItem(_SW_START_KEY, SW_START_MULT); } catch(_) {}
   const inp = document.getElementById('sw-start-mult'); if (inp) inp.value = SW_START_MULT;
   _swingRefresh();
 }
 function setSwSlideMult(v) {
-  SW_SLIDE_MULT = Math.max(0.5, Math.min(250, +v || 1));
+  SW_SLIDE_MULT = Math.max(1, Math.min(200, Math.round(+v || 11)));
   try { _LS.setItem(_SW_SLIDE_KEY, SW_SLIDE_MULT); } catch(_) {}
   const inp = document.getElementById('sw-slide-mult'); if (inp) inp.value = SW_SLIDE_MULT;
   _swingRefresh();
@@ -10857,15 +10861,19 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   // fall behind the replay's actual position and the line disappears too
   // early, leaving a visual gap until the next bucket finally closes.
   // CANDLE H/L RULES (kind:'ch'|'cl'):
-  //   Candle closes → High & Low lines created, starting length = CH_START_MULT×period (2×period)
-  //   Next candle (validator): Low ≤ price ≤ High → TOUCHED → total length +CH_EXTEND_MULT×period (cumulative)
-  //                                                     e.g. 16→24→32→40→48... (+8 every touch)
+  //   Candle closes → High & Low lines created, starting length = CH_START_MULT candles
+  //   Next candle (validator): Low ≤ price ≤ High → TOUCHED → total length +CH_EXTEND_MULT candles (cumulative)
+  //                                                     e.g. 10→21→32→43→54... (+11 every touch, defaults)
   //                            Not touched              → DELETED immediately (no extend)
   //
-  // SWING H/L RULES (kind:'sh'|'sl') — untouched, independent:
-  //   prevGreen→currRed  → Swing High (resistance)
-  //   prevRed→currGreen  → Swing Low  (support)
-  //   Infinite right-edge extension. Latest 5 lines shown.
+  // SWING H/L RULES (kind:'sh'|'sl') — same touch-based pattern as Candle H/L:
+  //   prevGreen→currRed  → Swing High (resistance), starting length = SW_START_MULT candles
+  //   prevRed→currGreen  → Swing Low  (support),    starting length = SW_START_MULT candles
+  //   Next candle (validator): Low ≤ price ≤ High → TOUCHED → total length +SW_SLIDE_MULT candles (cumulative)
+  //                                                     e.g. 10→21→32→43→54... (+11 every touch, defaults)
+  //                            Not touched              → STAYS AT CURRENT LENGTH (not deleted; only a
+  //                                                        new opposing extreme, via Step 2/3's price
+  //                                                        filter, can remove an old swing line).
 
   if (!bars || bars.length < 2) return [];
 
@@ -10993,25 +11001,26 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       validateLines(clLines);
     }
 
-    // ── Step 1b: Swing lines — har naye candle pe endTime slide karo ────────
-    // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
-    // Deletion sirf tab: naya swing bane aur extreme filter lagaye (Step 2/3).
-    const _swBars = swingBarCount(tfMin);
-    // FIX: pehle yahan endIndex UNCONDITIONALLY overwrite hota tha
-    // (i + SW_SLIDE_MULT*_swBars), chahe pehle se set (SW_START_MULT-based)
-    // length usse bada ho — isse naya-bana swing line agli hi candle par
-    // apni starting length se CHHOTA ho jaata tha (SW_SLIDE_MULT < SW_START_MULT
-    // hone par). Ab Math.max() se sirf tabhi aage badhta hai jab naya
-    // slide-target purane se bada ho — line kabhi apni set length se
-    // shrink nahi hogi, sirf grow (ya same rahegi) jab tak naya extreme
-    // (Step 2/3 ka filter) usse replace na kar de.
-    for (let j = 0; j < aRes.length; j++) {
-      aRes[j].endIndex = Math.max(aRes[j].endIndex, i + _swL * _swBars);
-      aRes[j].endTime  = _indexToTime(data, aRes[j].endIndex, tfMin, _defaultPeriodSec, _isNSE);
-    }
-    for (let j = 0; j < aSup.length; j++) {
-      aSup[j].endIndex = Math.max(aSup[j].endIndex, i + _swL * _swBars);
-      aSup[j].endTime  = _indexToTime(data, aSup[j].endIndex, tfMin, _defaultPeriodSec, _isNSE);
+    // ── Step 1b: Swing lines — touch-based cumulative extend (candle H/L jaisa) ──
+    // Har candle par touch-check: price line ko touch kare (low<=price<=high)
+    // to hi length +SW_SLIDE_MULT candles cumulative badhti hai (10→21→32→43...).
+    // Touch NAHI hui to line apni CURRENT length par stable rehti hai — na
+    // shrink hoti hai na extend, bas wahi ki wahi (delete bhi nahi hoti; sirf
+    // Step 2/3 ka naya-extreme filter hi purani swing lines ko hata sakta hai).
+    const _validateSwingLines = (arr) => {
+      for (let j = 0; j < arr.length; j++) {
+        const ln = arr[j];
+        if (ln.creationIndex >= i) continue;  // Don't validate on own creation bar
+        const isTouched = (cur.low <= ln.price && cur.high >= ln.price);
+        if (isTouched) {
+          ln.endIndex = ln.endIndex + _swL;
+          ln.endTime  = _indexToTime(data, ln.endIndex, tfMin, _defaultPeriodSec, _isNSE);
+        }
+      }
+    };
+    if (!isSessionGap) {
+      _validateSwingLines(aRes);
+      _validateSwingLines(aSup);
     }
 
     // ── Step 2: Swing High (prevGreen → currRed) ────────────────────────
@@ -11021,8 +11030,8 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       // Deletion: purane swings jo naye se upar hain → hata do
       aRes = aRes.filter(l => l.price <= rPrice);
       aSup = aSup.filter(l => l.price <= rPrice);
-      // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
-      { const _shEndIdx = i + _swS * _swBars;
+      // Naya swing — endIndex = i + SW_START_MULT (starting length, seedhe candle count mein)
+      { const _shEndIdx = i + _swS;
         const _shStartBar = pHigh >= cur.high ? i - 1 : i;
         aRes.push({ price: rPrice, startTime: rTime,
                     endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec, _isNSE),
@@ -11038,8 +11047,8 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       // Deletion: purane swings jo naye se neeche hain → hata do
       aSup = aSup.filter(l => l.price >= sPrice);
       aRes = aRes.filter(l => l.price >= sPrice);
-      // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
-      { const _slEndIdx = i + _swS * _swBars;
+      // Naya swing — endIndex = i + SW_START_MULT (starting length, seedhe candle count mein)
+      { const _slEndIdx = i + _swS;
         const _slStartBar = pLow <= cur.low ? i - 1 : i;
         aSup.push({ price: sPrice, startTime: sTime,
                     endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec, _isNSE),
@@ -11546,10 +11555,10 @@ const _SV2_TF_COLORS_KEY = 'sv2TfSrColors1';
 let SV2_SWING_LINE_WIDTH = 1;
 const _SV2_SW_WIDTH_KEY = 'sv2SwingLineWidth1';
 
-let SV2_CH_START_MULT  = 2;
-let SV2_CH_EXTEND_MULT = 1;
-let SV2_SW_START_MULT  = 2;
-let SV2_SW_SLIDE_MULT  = 1;
+let SV2_CH_START_MULT  = 10;
+let SV2_CH_EXTEND_MULT = 11;
+let SV2_SW_START_MULT  = 10;
+let SV2_SW_SLIDE_MULT  = 11;
 const _SV2_CH_START_KEY  = 'sv2ChStartMult1';
 const _SV2_CH_EXTEND_KEY = 'sv2ChExtendMult1';
 const _SV2_SW_START_KEY  = 'sv2SwStartMult1';
@@ -11558,10 +11567,10 @@ const _SV2_SW_SLIDE_KEY  = 'sv2SwSlideMult1';
 (function _sv2StateInit() {
   try {
     const lw = +(_LS.getItem(_SV2_SW_WIDTH_KEY) || 1); SV2_SWING_LINE_WIDTH = isNaN(lw) ? 1 : lw;
-    SV2_CH_START_MULT  = +(_LS.getItem(_SV2_CH_START_KEY)  || 2);
-    SV2_CH_EXTEND_MULT = +(_LS.getItem(_SV2_CH_EXTEND_KEY) || 1);
-    SV2_SW_START_MULT  = +(_LS.getItem(_SV2_SW_START_KEY)  || 2);
-    SV2_SW_SLIDE_MULT  = +(_LS.getItem(_SV2_SW_SLIDE_KEY)  || 1);
+    SV2_CH_START_MULT  = +(_LS.getItem(_SV2_CH_START_KEY)  || 10);
+    SV2_CH_EXTEND_MULT = +(_LS.getItem(_SV2_CH_EXTEND_KEY) || 11);
+    SV2_SW_START_MULT  = +(_LS.getItem(_SV2_SW_START_KEY)  || 10);
+    SV2_SW_SLIDE_MULT  = +(_LS.getItem(_SV2_SW_SLIDE_KEY)  || 11);
     const cs = _LS.getItem(_SV2_TF_COLORS_KEY);
     if (cs) { SV2_TF_COLORS = JSON.parse(cs) || {}; }
     if (!SV2_TF_COLORS[15]) SV2_TF_COLORS[15] = {};
@@ -11702,25 +11711,25 @@ function sv2SetSwingLineWidth(w) {
 }
 
 function sv2SetChStartMult(v) {
-  SV2_CH_START_MULT = Math.max(0.5, Math.min(50, +v || 2));
+  SV2_CH_START_MULT = Math.max(1, Math.min(200, Math.round(+v || 10)));
   try { _LS.setItem(_SV2_CH_START_KEY, SV2_CH_START_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
 
 function sv2SetChExtendMult(v) {
-  SV2_CH_EXTEND_MULT = Math.max(0.5, Math.min(30, +v || 1));
+  SV2_CH_EXTEND_MULT = Math.max(1, Math.min(200, Math.round(+v || 11)));
   try { _LS.setItem(_SV2_CH_EXTEND_KEY, SV2_CH_EXTEND_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
 
 function sv2SetSwStartMult(v) {
-  SV2_SW_START_MULT = Math.max(0.5, Math.min(250, +v || 2));
+  SV2_SW_START_MULT = Math.max(1, Math.min(200, Math.round(+v || 10)));
   try { _LS.setItem(_SV2_SW_START_KEY, SV2_SW_START_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
 
 function sv2SetSwSlideMult(v) {
-  SV2_SW_SLIDE_MULT = Math.max(0.5, Math.min(250, +v || 1));
+  SV2_SW_SLIDE_MULT = Math.max(1, Math.min(200, Math.round(+v || 11)));
   try { _LS.setItem(_SV2_SW_SLIDE_KEY, SV2_SW_SLIDE_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
