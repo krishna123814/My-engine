@@ -596,7 +596,13 @@ def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
     return out
 
 def _sv2_resample_btc(rows: list, tf_min: int) -> list:
-    """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto)."""
+    """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto).
+
+    NOTE: sirf 160m/8H (intraday, tf_min < 1440) ke liye use karo. Daily+
+    (1D/3D/9D/27D) ke liye _sv2_resample_btc_daily() use karo — wo epoch
+    (1970) anchor ki jagah data ke apne Day-1 se index-based chunking
+    karta hai, jisse 3D/9D/27D hamesha same date se sync start hote hain.
+    """
     if tf_min <= 5:
         return [{"time": r["t"], "open": r["o"], "high": r["h"],
                  "low": r["l"], "close": r["c"]} for r in rows]
@@ -613,6 +619,54 @@ def _sv2_resample_btc(rows: list, tf_min: int) -> list:
             b["low"]   = min(b["low"],   r["l"])
             b["close"] = r["c"]
     return sorted(buckets.values(), key=lambda x: x["time"])
+
+def _sv2_resample_btc_daily(rows: list, n_days: int = 1) -> list:
+    """BTC 5m data ko daily / multi-day candles mein resample karo.
+
+    Crypto 24/7 hai (koi session/weekday filter nahi) — sirf UTC
+    calendar-day buckets banao, phir un dailies ko INDEX se (BN ke
+    _sv2_resample_bn_daily jaisa: array index-0 = data ka pehla din)
+    groups of n_days mein chunk karo.
+
+    Ye zaroori hai kyunki purana _sv2_resample_btc() epoch (1 Jan 1970)
+    se seedha `(t // (n_days*86400)) * (n_days*86400)` karta tha — us
+    approach mein 3D/9D/27D ke cycle-boundaries data-start (2017) se
+    alag-alag remainder dete hain, isliye teeno TF alag-alag calendar
+    dates se start hote the. Index-based chunking (yahan) sabko data ke
+    Day-1 se hi sync rakhta hai — BN aur SV2 replay (_liveAggregateDailyPlus,
+    jo already index-based hai) dono ke saath consistent.
+    """
+    day_buckets: dict = {}
+    for r in rows:
+        t = r["t"]
+        day_start = (t // 86400) * 86400          # UTC calendar-day start
+        if day_start not in day_buckets:
+            day_buckets[day_start] = {"time": day_start,
+                                       "open": r["o"], "high": r["h"],
+                                       "low": r["l"], "close": r["c"]}
+        else:
+            b = day_buckets[day_start]
+            b["high"]  = max(b["high"],  r["h"])
+            b["low"]   = min(b["low"],   r["l"])
+            b["close"] = r["c"]
+
+    days = sorted(day_buckets.values(), key=lambda x: x["time"])
+    if n_days <= 1:
+        return days
+
+    out = []
+    for i in range(0, len(days), n_days):
+        chunk = days[i:i + n_days]
+        if not chunk:
+            break
+        out.append({
+            "time":  chunk[0]["time"],
+            "open":  chunk[0]["open"],
+            "high":  max(c["high"] for c in chunk),
+            "low":   min(c["low"]  for c in chunk),
+            "close": chunk[-1]["close"],
+        })
+    return out
 
 # Mobile ke liye max candles per TF (chunked inject)
 _SV2_MAX = {
@@ -659,10 +713,10 @@ def _build_sv2_data() -> dict:
     btc_tfs = {
         "160m": _sv2_resample_btc(btc_raw, 160),
         "8H":   _sv2_resample_btc(btc_raw, 480),
-        "1D":   _sv2_resample_btc(btc_raw, 1440),
-        "3D":   _sv2_resample_btc(btc_raw, 1440 * 3),
-        "9D":   _sv2_resample_btc(btc_raw, 1440 * 9),
-        "27D":  _sv2_resample_btc(btc_raw, 1440 * 27),
+        "1D":   _sv2_resample_btc_daily(btc_raw, 1),
+        "3D":   _sv2_resample_btc_daily(btc_raw, 3),
+        "9D":   _sv2_resample_btc_daily(btc_raw, 9),
+        "27D":  _sv2_resample_btc_daily(btc_raw, 27),
     }
     agg = {
         "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
