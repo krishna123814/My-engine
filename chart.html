@@ -4285,6 +4285,7 @@ function _sv2DebugShow(idx, reason, lines) {
 
 function destroyStack2Cells() {
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
+  try { unwireSync2(); } catch(_) {}
   STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} });
   STACK2_CELLS.length = 0;
   const sc = document.getElementById('stack-container-2');
@@ -4439,6 +4440,10 @@ function buildStack2() {
     });
   });
   _stack2ResizeObs.observe(sc);
+
+  // Cross-chart crosshair sync — must re-wire every time cells are rebuilt
+  // (destroyStack2Cells() above drops all old chart instances + handlers).
+  requestAnimationFrame(() => requestAnimationFrame(() => wireSync2()));
 
   // After all cells built, refresh idx=0 overlay with complete log (all cells info)
   setTimeout(function() {
@@ -4607,6 +4612,11 @@ function _buildStack2CellChart(idx) {
 
         _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
       }
+
+      // Stash the exact array that will be drawn — crosshair sync
+      // (_floorTime2 in wireSync2()) binary-searches this to map times
+      // across cells running different TFs.
+      c._data = dataToShow;
 
       const CHUNK = 500;
       let offset = 0;
@@ -5339,6 +5349,7 @@ function ss2ApplyAndClose() {
       var tfMin = _getCellTFMinLive(ci);
       // _formingLast flag ignore — forming bar HAMESHA dikhana hai
       var agg = _liveAggregateAny(proxy, proxy.length, tfMin, live.isBN);
+      cell._data = agg;   // crosshair-sync cache (see wireSync2())
       var _preRange = null;
       try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
       try { cell.series.setData(agg); } catch(_e) {}
@@ -5412,6 +5423,7 @@ function ss2ApplyAndClose() {
       if (!cell || !cell.series) continue;
       var tfMin = _getCellTFMinLive(ci);
       var agg = _liveAggregateAny(live.baseBars, live.revealIdx, tfMin, live.isBN);
+      cell._data = agg;   // crosshair-sync cache (see wireSync2())
       // setData() poora series data replace karta hai — jiski wajah se
       // Lightweight Charts apna visible time-range reset/re-fit kar deta
       // hai (default rightOffset view par). Isse replay ke har tick par
@@ -7495,6 +7507,7 @@ function toggleSync(key, btn){
   if(btn) btn.classList.toggle('on', SYNC[key]);
   saveSync();
   if(key==='crosshair'||key==='time'||key==='dateRange') wireSync();
+  if(key==='crosshair') { try{ wireSync2(); }catch(_){} }
   if(key==='interval' && SYNC.interval && CELLS.length>0){
     const tf=CELLS[SELECTED_CELL]?CELLS[SELECTED_CELL].tf:S.tf;
     CELLS.forEach(c=>c.tf=tf);
@@ -7624,6 +7637,83 @@ function wireSync(){
       src.chart.timeScale().subscribeVisibleLogicalRangeChange(src._rngHandler);
     });
   }
+}
+
+// ── Stack View 2: cross-chart crosshair sync (mirrors wireSync() above) ────
+// STACK2_CELLS never had this wiring at all — Stack View 2 (incl. Bar
+// Replay) simply had no cross-cell crosshair sync, on any TF combination.
+// Reuses the same global SYNC.crosshair toggle as Stack View 1.
+//
+// One difference from wireSync(): Stack View 2 (esp. during Live Replay)
+// does NOT build its candle data via _baseDataFor()+resampleForTF() — it
+// aggregates bottom-up from revealed base bars (_liveAggregateAny /
+// _rebuildAllCells / _rebuildWithForming) or, outside replay, loads
+// pre-resampled data straight from SV2_BN/SV2_BTC (_buildStack2CellChart).
+// So instead of re-deriving each destination cell's bars, every place that
+// calls setData()/renders a cell now also stashes that exact array on
+// `cell._data`, and _floorTime2() below binary-searches that live cache —
+// guaranteed to match what's actually drawn, replay or not.
+let _syncing2 = false;
+function unwireSync2(){
+  if (typeof STACK2_CELLS === 'undefined') return;
+  STACK2_CELLS.forEach(c=>{
+    if(c._chHandler2&&c.chart){ try{c.chart.unsubscribeCrosshairMove(c._chHandler2);}catch(_){} c._chHandler2=null; }
+  });
+}
+function wireSync2(){
+  unwireSync2();
+  if (typeof STACK2_CELLS === 'undefined' || STACK2_CELLS.length<2) return;
+  if (!SYNC.crosshair) return;
+
+  const allReady = STACK2_CELLS.every(c => !c.chart || c.series);
+  if(!allReady){ requestAnimationFrame(()=>wireSync2()); return; }
+
+  function _floorTime2(data, srcTime){
+    if(!data || !data.length) return null;
+    let lo=0, hi=data.length-1, result=null;
+    while(lo<=hi){
+      const mid=(lo+hi)>>1;
+      if(data[mid].time <= srcTime){ result=data[mid].time; lo=mid+1; }
+      else hi=mid-1;
+    }
+    return result;
+  }
+
+  let _xhRAF2 = null, _xhParam2 = null, _xhSrcIdx2 = -1;
+
+  function _flushCrosshairSync2(){
+    _xhRAF2 = null;
+    const si = _xhSrcIdx2, param = _xhParam2;
+    if(si < 0) return;
+    const src = STACK2_CELLS[si];
+    if(!src || !src.chart || !src.series) return;
+    if(_syncing2) return; _syncing2 = true;
+    try {
+      if(!param || param.time === undefined || !param.point){
+        STACK2_CELLS.forEach((d, di)=>{ if(di !== si && d.chart){ try{ d.chart.clearCrosshairPosition(); }catch(_){} } });
+      } else {
+        const bar = param.seriesData.get(src.series);
+        const price = bar ? (bar.close ?? bar.value ?? 0) : 0;
+        STACK2_CELLS.forEach((d, di)=>{
+          if(di === si || !d.chart || !d.series) return;
+          try{
+            const mappedTime = _floorTime2(d._data, param.time);
+            if(mappedTime !== null) d.chart.setCrosshairPosition(price, mappedTime, d.series);
+            else d.chart.clearCrosshairPosition();
+          }catch(_){}
+        });
+      }
+    } finally { _syncing2 = false; }
+  }
+
+  STACK2_CELLS.forEach((src, si)=>{
+    if(!src.chart || !src.series) return;
+    src._chHandler2 = param => {
+      _xhParam2 = param; _xhSrcIdx2 = si;
+      if(_xhRAF2 === null) _xhRAF2 = requestAnimationFrame(_flushCrosshairSync2);
+    };
+    src.chart.subscribeCrosshairMove(src._chHandler2);
+  });
 }
 
 function setLayout(key, btn) {
