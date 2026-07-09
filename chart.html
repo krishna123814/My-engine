@@ -12016,7 +12016,21 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
         if (!ex || line.startTime > ex.startTime) _candleByPrice.set(_key, line);
       }
     }
-    for (const k of _candleByPrice.keys()) _swingByPrice.delete(k);
+    // Same price par collision resolve karo (SV2-only rule):
+    //   - SAME TF (levelTf match, e.g. 15m candle H/L vs 15m swing H/L)
+    //     → Swing WIN karega, candle line hategi.
+    //   - DIFFERENT TF (e.g. 15m candle H/L vs 5m swing H/L)
+    //     → purana rule unchanged: Candle WIN karega, swing line hategi.
+    for (const k of _candleByPrice.keys()) {
+      const _sw = _swingByPrice.get(k);
+      if (!_sw) continue;
+      const _cd = _candleByPrice.get(k);
+      if (_sw.levelTf === _cd.levelTf) {
+        _candleByPrice.delete(k);   // same TF → swing wins
+      } else {
+        _swingByPrice.delete(k);    // different TF → candle wins (unchanged)
+      }
+    }
     const _result = [..._swingByPrice.values(), ..._candleByPrice.values()];
     // cellRawData ko lines array par attach karo (array = object, extra prop
     // allowed) taaki _sv2ApplyCellSR() ise _bnBuildSRNative() ke index-based
