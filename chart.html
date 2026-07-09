@@ -2611,17 +2611,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
             </div>
           </div>
           <div class="ind-row">
-            <span class="ind-name">Swing SR — Start length (candles)</span>
+            <span class="ind-name">Swing SR — Fixed length (candles)</span>
             <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-sw-start-mult" type="number" value="10" min="1" max="200" step="1"
+              <input class="ind-len" id="sv2-sw-start-mult" type="number" value="50" min="1" max="200" step="1"
                 onchange="sv2SetSwStartMult(+this.value)">
-            </div>
-          </div>
-          <div class="ind-row">
-            <span class="ind-name">Swing SR — Extend on touch (candles)</span>
-            <div class="ind-ctrl">
-              <input class="ind-len" id="sv2-sw-slide-mult" type="number" value="11" min="1" max="200" step="1"
-                onchange="sv2SetSwSlideMult(+this.value)">
             </div>
           </div>
           <div class="swing-tf-panel open">
@@ -10841,8 +10834,13 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   // ── Per-caller config (SV1 default / SV2 independent) ─────────────────
   const _chS    = (_cfg && _cfg.CH_START  != null) ? _cfg.CH_START  : CH_START_MULT;
   const _chX    = (_cfg && _cfg.CH_EXTEND != null) ? _cfg.CH_EXTEND : CH_EXTEND_MULT;
-  const _swS    = (_cfg && _cfg.SW_START  != null) ? _cfg.SW_START  : SW_START_MULT;
-  const _swL    = (_cfg && _cfg.SW_SLIDE  != null) ? _cfg.SW_SLIDE  : SW_SLIDE_MULT;
+  // SW_FIXED (SV2 ke liye): true hone par swing H/L lines ka koi touch-based
+  // extend nahi hota — sirf ek FIXED candle-count length (SW_FIXED_LEN,
+  // default 50) use hoti hai, start aur extend dono ke liye same.
+  const _swFixed    = !!(_cfg && _cfg.SW_FIXED);
+  const _swFixedLen = (_cfg && _cfg.SW_FIXED_LEN != null) ? _cfg.SW_FIXED_LEN : 50;
+  const _swS    = _swFixed ? _swFixedLen : ((_cfg && _cfg.SW_START  != null) ? _cfg.SW_START  : SW_START_MULT);
+  const _swL    = _swFixed ? 0            : ((_cfg && _cfg.SW_SLIDE  != null) ? _cfg.SW_SLIDE  : SW_SLIDE_MULT);
   const _srClrFn  = (_cfg && _cfg.srColorFn)  ? _cfg.srColorFn  : _tfSrColor;
   const _cndClrFn = (_cfg && _cfg.cndColorFn) ? _cfg.cndColorFn : _tfCandleColor;
   // isNSE: BankNifty (working-day calendar, weekends/holidays skip) vs BTC
@@ -11018,7 +11016,9 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
         }
       }
     };
-    if (!isSessionGap) {
+    // _swFixed (SV2): koi touch-based extend nahi — line hamesha apni fixed
+    // creationIndex + _swFixedLen length par rehti hai, is step ko skip karo.
+    if (!isSessionGap && !_swFixed) {
       _validateSwingLines(aRes);
       _validateSwingLines(aSup);
     }
@@ -11116,7 +11116,12 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   // hai (pehle sirf SW_SLIDE_MULT tha) — taaki agar Start length, Slide
   // length se bada rakha ho, to floor us bade window ko replay aage
   // badhte hi turant chhota karke overwrite na kare.
-  if (typeof nowSec === 'number' && nowSec > lastClosedTime) {
+  // _swFixed (SV2): is floor-extension ko bhi skip karo — warna nowSec replay
+  // ke saath badhte hi ye lines ka endTime aage khींchta rehta (ek chhupa hua
+  // extend, touch-based na sahi par phir bhi length badhti). Fixed mode mein
+  // line hamesha exactly creationIndex + _swFixedLen par khatam honi chahiye,
+  // replay state se bilkul independent.
+  if (!_swFixed && typeof nowSec === 'number' && nowSec > lastClosedTime) {
     const _swingFloorMult = Math.max(_swS, _swL);
     const _swingFloor = _advanceTradingSeconds(nowSec, _swingFloorMult * swingDuration(tfMin), tfMin, _isNSE);
     for (const l of aRes) if (l.endTime < _swingFloor) l.endTime = _swingFloor;
@@ -11557,20 +11562,17 @@ const _SV2_SW_WIDTH_KEY = 'sv2SwingLineWidth1';
 
 let SV2_CH_START_MULT  = 10;
 let SV2_CH_EXTEND_MULT = 11;
-let SV2_SW_START_MULT  = 10;
-let SV2_SW_SLIDE_MULT  = 11;
+let SV2_SW_START_MULT  = 50;
 const _SV2_CH_START_KEY  = 'sv2ChStartMult1';
 const _SV2_CH_EXTEND_KEY = 'sv2ChExtendMult1';
 const _SV2_SW_START_KEY  = 'sv2SwStartMult1';
-const _SV2_SW_SLIDE_KEY  = 'sv2SwSlideMult1';
 
 (function _sv2StateInit() {
   try {
     const lw = +(_LS.getItem(_SV2_SW_WIDTH_KEY) || 1); SV2_SWING_LINE_WIDTH = isNaN(lw) ? 1 : lw;
     SV2_CH_START_MULT  = +(_LS.getItem(_SV2_CH_START_KEY)  || 10);
     SV2_CH_EXTEND_MULT = +(_LS.getItem(_SV2_CH_EXTEND_KEY) || 11);
-    SV2_SW_START_MULT  = +(_LS.getItem(_SV2_SW_START_KEY)  || 10);
-    SV2_SW_SLIDE_MULT  = +(_LS.getItem(_SV2_SW_SLIDE_KEY)  || 11);
+    SV2_SW_START_MULT  = +(_LS.getItem(_SV2_SW_START_KEY)  || 50);
     const cs = _LS.getItem(_SV2_TF_COLORS_KEY);
     if (cs) { SV2_TF_COLORS = JSON.parse(cs) || {}; }
     if (!SV2_TF_COLORS[15]) SV2_TF_COLORS[15] = {};
@@ -11603,7 +11605,9 @@ const _SV2_SR_CFG = {
   get CH_START()   { return SV2_CH_START_MULT;  },
   get CH_EXTEND()  { return SV2_CH_EXTEND_MULT; },
   get SW_START()   { return SV2_SW_START_MULT;  },
-  get SW_SLIDE()   { return SV2_SW_SLIDE_MULT;  },
+  // SV2 Swing H/L: koi touch-based extend nahi — hamesha fixed candle count.
+  SW_FIXED:      true,
+  SW_FIXED_LEN:  50,
   srColorFn:  (tfMin) => _sv2TfSrColor(tfMin),
   cndColorFn: (tfMin) => _sv2TfCandleColor(tfMin),
 };
@@ -11621,7 +11625,6 @@ function _sv2IndSectionShow(isV2) {
     const cs = document.getElementById('sv2-ch-start-mult');  if (cs) cs.value = SV2_CH_START_MULT;
     const cx = document.getElementById('sv2-ch-extend-mult'); if (cx) cx.value = SV2_CH_EXTEND_MULT;
     const ss = document.getElementById('sv2-sw-start-mult');  if (ss) ss.value = SV2_SW_START_MULT;
-    const sl = document.getElementById('sv2-sw-slide-mult');  if (sl) sl.value = SV2_SW_SLIDE_MULT;
     const ck = document.getElementById('ck-sv2-swing');       if (ck) ck.checked = SV2_SWING_STATE.visible;
     _sv2RenderChips();
   }
@@ -11723,14 +11726,8 @@ function sv2SetChExtendMult(v) {
 }
 
 function sv2SetSwStartMult(v) {
-  SV2_SW_START_MULT = Math.max(1, Math.min(200, Math.round(+v || 10)));
+  SV2_SW_START_MULT = Math.max(1, Math.min(200, Math.round(+v || 50)));
   try { _LS.setItem(_SV2_SW_START_KEY, SV2_SW_START_MULT); } catch(_) {}
-  sv2SwingRefresh();
-}
-
-function sv2SetSwSlideMult(v) {
-  SV2_SW_SLIDE_MULT = Math.max(1, Math.min(200, Math.round(+v || 11)));
-  try { _LS.setItem(_SV2_SW_SLIDE_KEY, SV2_SW_SLIDE_MULT); } catch(_) {}
   sv2SwingRefresh();
 }
 
