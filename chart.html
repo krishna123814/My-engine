@@ -11950,11 +11950,22 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       return label ? _sv2DataForTF(assetKey, label, cutoffTime) : [];
     }
 
+    // SV2-only: Swing H/L (kind 'sh'/'sl') lines ka END infinite karo (right
+    // edge tak) — sirf swing lines, Candle H/L (kind 'ch'/'cl') bilkul
+    // untouched rehti hain (apna existing CH_START/CH_EXTEND-based finite
+    // endTime hi use karti hain). isInfinite=true set karne se
+    // _bnBuildSRNative() unhe far-right (100 periods aage) tak render karta
+    // hai — replay ke har naye closed candle par recompute hone ki wajah se
+    // ye window hamesha "abhi se aage" hi rehti hai (SV1 is change se
+    // affected nahi, wo apna alag swingComputeMultiTF() se independently
+    // compute karta hai).
+    const _sv2MarkInfinite = (l) => { if (l.kind === 'sh' || l.kind === 'sl') l.isInfinite = true; return l; };
+
     // Step 1: Cell ka apna TF
     const dataCur = _dataForTFAny(cellTFMin, tfLabel);
     if (dataCur.length >= 3) {
       swingCompute(dataCur, cellTFMin, liveNowSec, _srCfg2)
-        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(_sv2MarkInfinite(l)); });
     }
 
     // Step 2: SV2_SWING_TF_LIST se enabled higher TFs (SV1 se independent)
@@ -11966,7 +11977,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
         swingCompute(data, tf.min, liveNowSec, _srCfg2)
-          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(_sv2MarkInfinite(l)); });
       }
     }
 
