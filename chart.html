@@ -1233,9 +1233,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   width:100%;margin-top:16px;height:40px;background:#2962ff;
   border:none;color:#fff;border-radius:5px;font-size:13px;font-weight:700;cursor:pointer;
 }
-select.s-select{
+select.s-select, input.s-select{
   background:#131722;border:1px solid #363c4e;border-radius:3px;
-  color:#d1d4dc;font-size:12px;padding:4px 6px;height:28px;
+  color:#d1d4dc;font-size:12px;padding:4px 6px;height:28px;box-sizing:border-box;
 }
 /* ── Background swatches ─────────────────────────────────────────── */
 .bg-swatches{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 6px}
@@ -2752,6 +2752,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <span class="ind-name">Show Grid Lines</span>
         <label class="toggle"><input type="checkbox" id="s-grid"><span class="sl"></span></label>
       </div>
+      <div class="settings-sec">Right Offset (Bar Replay)</div>
+      <div class="ind-row">
+        <span class="ind-name">Future Spaces — correct time upto</span>
+        <input type="number" id="s-future-offset" class="s-select" min="1" max="200" step="1" value="30" style="width:64px;text-align:center;">
+      </div>
       <div class="settings-sec">Candle Timer</div>
       <div class="ind-row">
         <span class="ind-name">Show Remaining Timer</span>
@@ -2985,6 +2990,54 @@ function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
   return Math.min(naturalEnd, sessionEndUtc);
 }
 
+// ── Correct future-whitespace generator (FIX for chart library's wrong ──
+// right-offset time "guess") ─────────────────────────────────────────────
+// Lightweight Charts khud hi right-offset (last candle ke baad ki blank)
+// area ke liye time "guess" karta hai jab wahan koi real data point nahi
+// hota — ye guess sirf loaded bars ke (rough) average spacing par based
+// hota hai, jisme weekends/NSE-holidays/session-close jaise working-day
+// calendar rules bilkul ignore ho jaate hain. Isi wajah se badi TF
+// (3D/9D/27D) par kabhi kabhi bahut galat future date dikh jaati thi
+// (jaise saalon aage jump — 2026 se seedha 2033).
+// Fix: khud hi N correct future bucket-times generate karke unhe
+// whitespace points ({time:t}, bina OHLC ke — Lightweight Charts ka
+// official "whitespace data" format) ke roop mein series data ke aakhir
+// mein jod dete hain. Isse chart ko kuch guess karna hi nahi padta — use
+// hamesha REAL diya hua, working-day-aware time milta hai. Same
+// _liveBucketExpectedEnd() logic reuse karta hai jo already live-replay
+// bucket-completion ke liye trusted/tested hai (working-day skip daily+
+// TFs ke liye, session-aware skip intraday TFs ke liye).
+// Ek future bucket ka SAHI start-time do (last known bar/bucket-start `t`
+// ke turant baad wala):
+//   - Daily+ (tfMin>=1440): already-trusted working-day stepper
+//     (_liveBucketExpectedEnd) reuse karta hai — BN: weekends+NSE holidays
+//     skip; BTC: plain calendar days.
+//   - Intraday, BTC (24/7): seedha tfMin minutes add.
+//   - Intraday, BN: sirf TRADING seconds mein tfMin minutes aage badhao
+//     (_advanceTradingSeconds — session-close/weekend automatically skip
+//     karta hai), phir result ko exact session-aligned bucket-start par
+//     snap karo (_liveGetBucketTime) taaki har point ek REAL possible
+//     candle-open time par hi gire, kabhi session-close/holiday ke beech
+//     mein nahi.
+function _nextFutureBucketTime(t, tfMin, isBN) {
+  if (tfMin >= 1440) return _liveBucketExpectedEnd(t, tfMin, isBN);
+  if (!isBN) return t + tfMin * 60;
+  const advanced = _advanceTradingSeconds(t, tfMin * 60, tfMin, true);
+  return _liveGetBucketTime(advanced, tfMin, true);
+}
+
+function _buildFutureWhitespace(lastBarTime, tfMin, isBN, count) {
+  const pts = [];
+  if (lastBarTime == null) return pts;
+  let t = lastBarTime;
+  const n = Math.max(0, count | 0);
+  for (let i = 0; i < n; i++) {
+    t = _nextFutureBucketTime(t, tfMin, isBN);
+    pts.push({ time: t });
+  }
+  return pts;
+}
+
 // baseBars: full ordered array of base-TF candles (5m for BN / 160m for BTC)
 // revealCount: how many of those base bars are "known" right now (from index 0)
 // Returns an ordered array of aggregated candles for tfMin — last entry may
@@ -3149,7 +3202,26 @@ const S = {
   bgColor:   '#ffffff',
   textColor: '#131722',
   vLine:     { enabled: true, color: '#2962ff', width: 1, offset: 5, style: 'solid' },
+  // Right-offset (last candle ke baad ki blank space) mein kitne spaces
+  // ke liye hum khud sahi, working-day-aware time generate karke dikhayenge
+  // (chart library ke apne galat "guess" ki jagah). Settings se badal sakte ho.
+  futureOffset: 30,
 };
+
+// ── Right-offset future-time setting persistence (dedicated key) ───────────
+const _FUTURE_OFFSET_KEY = 'tvFutureOffset';
+(function _loadFutureOffset() {
+  try {
+    const v = parseInt(_LS.getItem(_FUTURE_OFFSET_KEY), 10);
+    if (Number.isFinite(v) && v > 0) S.futureOffset = Math.max(1, Math.min(200, v));
+  } catch(_) {}
+})();
+function _saveFutureOffset(n) {
+  const v = parseInt(n, 10);
+  S.futureOffset = Number.isFinite(v) && v > 0 ? Math.max(1, Math.min(200, v)) : 30;
+  try { _LS.setItem(_FUTURE_OFFSET_KEY, String(S.futureOffset)); } catch(_) {}
+  return S.futureOffset;
+}
 
 // ── Timezone-aware time formatting for crosshair label ──────────────────────
 // Binance candle timestamps are epoch/UTC; we render them in the chosen zone.
@@ -4285,7 +4357,6 @@ function _sv2DebugShow(idx, reason, lines) {
 
 function destroyStack2Cells() {
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
-  try { unwireSync2(); } catch(_) {}
   STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} });
   STACK2_CELLS.length = 0;
   const sc = document.getElementById('stack-container-2');
@@ -4441,10 +4512,6 @@ function buildStack2() {
   });
   _stack2ResizeObs.observe(sc);
 
-  // Cross-chart crosshair sync — must re-wire every time cells are rebuilt
-  // (destroyStack2Cells() above drops all old chart instances + handlers).
-  requestAnimationFrame(() => requestAnimationFrame(() => wireSync2()));
-
   // After all cells built, refresh idx=0 overlay with complete log (all cells info)
   setTimeout(function() {
     if (_sv2DbgLog.length > 0) {
@@ -4508,7 +4575,7 @@ function _buildStack2CellChart(idx) {
     grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
     crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: 5, barSpacing: 6, minBarSpacing: 2 },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: (S.futureOffset || 30), barSpacing: 6, minBarSpacing: 2 },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -4613,10 +4680,19 @@ function _buildStack2CellChart(idx) {
         _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
       }
 
-      // Stash the exact array that will be drawn — crosshair sync
-      // (_floorTime2 in wireSync2()) binary-searches this to map times
-      // across cells running different TFs.
-      c._data = dataToShow;
+      // ── Right-offset whitespace: khud sahi future time generate karke ────
+      // aakhri (real) bar ke baad jod do — chart library ko ab galat
+      // "guess" karne ki zaroorat nahi rahegi, hamesha REAL, working-day-
+      // aware time dikhega, jitne "S.futureOffset" (default 30, Settings se
+      // adjustable) spaces tak.
+      try {
+        if (dataToShow && dataToShow.length) {
+          const _tfMinWs = _parseTFMin(tfLabel) || 5;
+          const _isBNws  = (assetKey2 === 'bn');
+          const _fw = _buildFutureWhitespace(dataToShow[dataToShow.length - 1].time, _tfMinWs, _isBNws, (S.futureOffset || 30));
+          if (_fw.length) dataToShow = dataToShow.concat(_fw);
+        }
+      } catch(_) {}
 
       const CHUNK = 500;
       let offset = 0;
@@ -5349,14 +5425,13 @@ function ss2ApplyAndClose() {
       var tfMin = _getCellTFMinLive(ci);
       // _formingLast flag ignore — forming bar HAMESHA dikhana hai
       var agg = _liveAggregateAny(proxy, proxy.length, tfMin, live.isBN);
-      cell._data = agg;   // crosshair-sync cache (see wireSync2())
+      if (agg && agg.length) {
+        var _fw1 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
+        if (_fw1.length) agg = agg.concat(_fw1);
+      }
       var _preRange = null;
       try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
-      // Future whitespace bars — right-offset khaali area mein crosshair
-      // hover karne par sahi sequential time dikhane ke liye (real OHLC
-      // series/cell._data par koi asar nahi, sirf display ke liye).
-      try { cell.series.setData(_withFutureWhitespace(agg, tfMin, live.isBN)); }
-      catch(_e) { try { cell.series.setData(agg); } catch(__e) {} }
+      try { cell.series.setData(agg); } catch(_e) {}
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
       }
@@ -5427,7 +5502,10 @@ function ss2ApplyAndClose() {
       if (!cell || !cell.series) continue;
       var tfMin = _getCellTFMinLive(ci);
       var agg = _liveAggregateAny(live.baseBars, live.revealIdx, tfMin, live.isBN);
-      cell._data = agg;   // crosshair-sync cache (see wireSync2())
+      if (agg && agg.length) {
+        var _fw2 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
+        if (_fw2.length) agg = agg.concat(_fw2);
+      }
       // setData() poora series data replace karta hai — jiski wajah se
       // Lightweight Charts apna visible time-range reset/re-fit kar deta
       // hai (default rightOffset view par). Isse replay ke har tick par
@@ -5436,11 +5514,7 @@ function ss2ApplyAndClose() {
       // pattern jo _sv2ApplyCellSR() SR lines ke liye already use karta hai.
       var _preRange = null;
       try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_) {}
-      // Future whitespace bars — right-offset khaali area mein crosshair
-      // hover karne par sahi sequential time dikhane ke liye (real OHLC
-      // series/cell._data par koi asar nahi, sirf display ke liye).
-      try { cell.series.setData(_withFutureWhitespace(agg, tfMin, live.isBN)); }
-      catch(_) { try { cell.series.setData(agg); } catch(__) {} }
+      try { cell.series.setData(agg); } catch(_) {}
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
       }
@@ -5504,6 +5578,9 @@ function ss2ApplyAndClose() {
   window._sv2StepOnce    = _stepOnce;
   window._sv2LiveReset   = _reset;
   window._sv2StepSyncBtn = _syncControls;
+  // Settings modal se right-offset (future spaces) badalne par turant
+  // whitespace re-generate karne ke liye expose karo.
+  window._sv2RebuildAllCells = _rebuildAllCells;
 
   document.addEventListener('sv2DateRangeApplied', function() {
     _pause();
@@ -7515,7 +7592,6 @@ function toggleSync(key, btn){
   if(btn) btn.classList.toggle('on', SYNC[key]);
   saveSync();
   if(key==='crosshair'||key==='time'||key==='dateRange') wireSync();
-  if(key==='crosshair') { try{ wireSync2(); }catch(_){} }
   if(key==='interval' && SYNC.interval && CELLS.length>0){
     const tf=CELLS[SELECTED_CELL]?CELLS[SELECTED_CELL].tf:S.tf;
     CELLS.forEach(c=>c.tf=tf);
@@ -7645,83 +7721,6 @@ function wireSync(){
       src.chart.timeScale().subscribeVisibleLogicalRangeChange(src._rngHandler);
     });
   }
-}
-
-// ── Stack View 2: cross-chart crosshair sync (mirrors wireSync() above) ────
-// STACK2_CELLS never had this wiring at all — Stack View 2 (incl. Bar
-// Replay) simply had no cross-cell crosshair sync, on any TF combination.
-// Reuses the same global SYNC.crosshair toggle as Stack View 1.
-//
-// One difference from wireSync(): Stack View 2 (esp. during Live Replay)
-// does NOT build its candle data via _baseDataFor()+resampleForTF() — it
-// aggregates bottom-up from revealed base bars (_liveAggregateAny /
-// _rebuildAllCells / _rebuildWithForming) or, outside replay, loads
-// pre-resampled data straight from SV2_BN/SV2_BTC (_buildStack2CellChart).
-// So instead of re-deriving each destination cell's bars, every place that
-// calls setData()/renders a cell now also stashes that exact array on
-// `cell._data`, and _floorTime2() below binary-searches that live cache —
-// guaranteed to match what's actually drawn, replay or not.
-let _syncing2 = false;
-function unwireSync2(){
-  if (typeof STACK2_CELLS === 'undefined') return;
-  STACK2_CELLS.forEach(c=>{
-    if(c._chHandler2&&c.chart){ try{c.chart.unsubscribeCrosshairMove(c._chHandler2);}catch(_){} c._chHandler2=null; }
-  });
-}
-function wireSync2(){
-  unwireSync2();
-  if (typeof STACK2_CELLS === 'undefined' || STACK2_CELLS.length<2) return;
-  if (!SYNC.crosshair) return;
-
-  const allReady = STACK2_CELLS.every(c => !c.chart || c.series);
-  if(!allReady){ requestAnimationFrame(()=>wireSync2()); return; }
-
-  function _floorTime2(data, srcTime){
-    if(!data || !data.length) return null;
-    let lo=0, hi=data.length-1, result=null;
-    while(lo<=hi){
-      const mid=(lo+hi)>>1;
-      if(data[mid].time <= srcTime){ result=data[mid].time; lo=mid+1; }
-      else hi=mid-1;
-    }
-    return result;
-  }
-
-  let _xhRAF2 = null, _xhParam2 = null, _xhSrcIdx2 = -1;
-
-  function _flushCrosshairSync2(){
-    _xhRAF2 = null;
-    const si = _xhSrcIdx2, param = _xhParam2;
-    if(si < 0) return;
-    const src = STACK2_CELLS[si];
-    if(!src || !src.chart || !src.series) return;
-    if(_syncing2) return; _syncing2 = true;
-    try {
-      if(!param || param.time === undefined || !param.point){
-        STACK2_CELLS.forEach((d, di)=>{ if(di !== si && d.chart){ try{ d.chart.clearCrosshairPosition(); }catch(_){} } });
-      } else {
-        const bar = param.seriesData.get(src.series);
-        const price = bar ? (bar.close ?? bar.value ?? 0) : 0;
-        STACK2_CELLS.forEach((d, di)=>{
-          if(di === si || !d.chart || !d.series) return;
-          try{
-            const mappedTime = _floorTime2(d._data, param.time);
-            if(mappedTime !== null) d.chart.setCrosshairPosition(price, mappedTime, d.series);
-            else d.chart.clearCrosshairPosition();
-          }catch(_){}
-        });
-      }
-    } finally { _syncing2 = false; }
-  }
-
-  STACK2_CELLS.forEach((src, si)=>{
-    if(!src.chart || !src.series) return;
-    src._chHandler2 = param => {
-      _xhParam2 = param; _xhSrcIdx2 = si;
-      if(_xhRAF2 === null) _xhRAF2 = requestAnimationFrame(_flushCrosshairSync2);
-    };
-    src.chart.subscribeCrosshairMove(src._chHandler2);
-  });
 }
 
 function setLayout(key, btn) {
@@ -8262,6 +8261,8 @@ function toggleSettings() {
     if(cwEl) cwEl.value=String(S.crossWidth||1);
     // Fix 4: sync axis-label toggle
     set('s-hide-axis-labels', S.hideAxisLabels!==false);
+    // Right-offset (future spaces / bar replay) sync
+    const foEl=document.getElementById('s-future-offset'); if(foEl) foEl.value = S.futureOffset || 30;
     // Sync active bg swatch
     document.querySelectorAll('.bg-swatch').forEach(b=>{
       const oc=b.getAttribute('onclick')||'';
@@ -8301,6 +8302,25 @@ function applySettings() {
   // Fix 4: axis label visibility
   const halEl=document.getElementById('s-hide-axis-labels');
   if(halEl){ S.hideAxisLabels=halEl.checked; _applyCrosshairAxisLabels(); }
+  // Right-offset (future spaces / bar replay) — save + apply live
+  const foEl2=document.getElementById('s-future-offset');
+  if (foEl2) {
+    _saveFutureOffset(foEl2.value);
+    try {
+      if (typeof STACK2_CELLS !== 'undefined') {
+        STACK2_CELLS.forEach(c => { if (c && c.chart) { try { c.chart.timeScale().applyOptions({ rightOffset: S.futureOffset }); } catch(_) {} } });
+      }
+      if (window._SV2_LIVE && typeof window._sv2RebuildAllCells === 'function') {
+        // Live Replay already in progress — sirf whitespace naye offset se
+        // re-generate karo, revealIdx (replay progress) chhedo mat.
+        window._sv2RebuildAllCells();
+      } else if (S.layout === 'stack2' && typeof buildStack2 === 'function' && typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS.length) {
+        // Replay abhi shuru nahi hui — safe hai poora Stack View 2 rebuild
+        // karna taaki naya whitespace turant reflect ho.
+        buildStack2();
+      }
+    } catch(_) {}
+  }
   toggleSettings(); saveState(); applyBgToPage(); rebuildChart();
   if(S.layout!=='1x1') CELLS.forEach((_,k)=>buildCellChart(k));
   applyLegendVisibility();
@@ -10850,34 +10870,6 @@ function _nextSessionOpen(fromSec) {
   return openIst - _IST_OFF;
 }
 
-// ── Future whitespace bars — crosshair time-label fix (right-offset area) ──
-// Chart ke right side wale khaali "rightOffset" bars (jahan abhi koi real
-// candle nahi bani) mein cursor rakhne par Lightweight Charts KHUD guess
-// karta hai ki wahan kaunsa time hoga — apne internal average-bar-spacing
-// wale formula se (calendar-aware NAHI). Daily+ TFs (3D/9D/27D) mein ye
-// average thoda sa bhi skewed ho to guess bahut door (saalon aage, e.g.
-// 2033) chala jaata hai.
-// Fix: khud hi un khaali slots ke liye SAHI, sequential time compute karke
-// unhe "whitespace" points ({time} only, koi OHLC nahi) ke roop mein series
-// data ke end mein daal do. Ab library ko un future slots ka REAL time pata
-// hota hai — guess/extrapolate karne ki zaroorat hi nahi padti, isliye
-// har agla bar step-by-step sahi (last + periodSec, calendar-safe) time
-// dikhata hai, seedha kisi bahut door future mein jump nahi karta.
-function _withFutureWhitespace(data, tfMin, isNSE, count) {
-  if (!data || !data.length) return data;
-  const n = count || 20;
-  const periodSec = (tfMin || 1) * 60;
-  const last = data[data.length - 1];
-  if (last == null || last.time == null) return data;
-  const extra = [];
-  let t = last.time;
-  for (let k = 0; k < n; k++) {
-    t = _advanceTradingSeconds(t, periodSec, tfMin, isNSE);
-    extra.push({ time: t });
-  }
-  return data.concat(extra);
-}
-
 // fromSec se deltaSec "trading seconds" aage badhao (market-band ghanto
 // ko skip karke). tfMin >= 1440 (daily+) ke liye purana raw-add behaviour
 // hi rakha hai (unchanged scope).
@@ -11986,22 +11978,11 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       return label ? _sv2DataForTF(assetKey, label, cutoffTime) : [];
     }
 
-    // SV2-only: Swing H/L (kind 'sh'/'sl') lines ka END infinite karo (right
-    // edge tak) — sirf swing lines, Candle H/L (kind 'ch'/'cl') bilkul
-    // untouched rehti hain (apna existing CH_START/CH_EXTEND-based finite
-    // endTime hi use karti hain). isInfinite=true set karne se
-    // _bnBuildSRNative() unhe far-right (100 periods aage) tak render karta
-    // hai — replay ke har naye closed candle par recompute hone ki wajah se
-    // ye window hamesha "abhi se aage" hi rehti hai (SV1 is change se
-    // affected nahi, wo apna alag swingComputeMultiTF() se independently
-    // compute karta hai).
-    const _sv2MarkInfinite = (l) => { if (l.kind === 'sh' || l.kind === 'sl') l.isInfinite = true; return l; };
-
     // Step 1: Cell ka apna TF
     const dataCur = _dataForTFAny(cellTFMin, tfLabel);
     if (dataCur.length >= 3) {
       swingCompute(dataCur, cellTFMin, liveNowSec, _srCfg2)
-        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(_sv2MarkInfinite(l)); });
+        .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
 
     // Step 2: SV2_SWING_TF_LIST se enabled higher TFs (SV1 se independent)
@@ -12013,7 +11994,7 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
         swingCompute(data, tf.min, liveNowSec, _srCfg2)
-          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(_sv2MarkInfinite(l)); });
+          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
       }
     }
 
