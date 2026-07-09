@@ -5335,11 +5335,14 @@ function ss2ApplyAndClose() {
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
   var _debugBtn  = null;   // #sv2-debug-btn (SR length debug log toggle)
-  var _timerId   = null;   // setInterval handle — OUR metronome, not a clock read
+  var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   var TICK_MS    = 30000;  // virtual-clock parameter: 30 real sec = 1 candle
   var _ringCircle = null, _ringCirc = 0, _ringRaf = null, _ringStart = null;
   var _formingIv  = null;
+  var _pausedAt   = null;  // performance.now() timestamp jab pause hua — resume par
+                            // _ringStart isi ke hisaab se shift karke candle progress
+                            // wahi se continue karta hai, restart nahi hota.
 
   // ── Show / hide controls based on whether a replay range is active ───────
   function _syncControls() {
@@ -5439,11 +5442,14 @@ function ss2ApplyAndClose() {
   }
 
   // ── Circular progress ring — smooth rAF animation over TICK_MS duration ─
-  function _startRing() {
+  // resume=true → ring/forming animation ko WAHI se continue karo jahan
+  // pause hua tha (_ringStart already shift ho chuka hota hai caller mein).
+  // resume=false/undefined → naye candle ke liye fresh start (0% se).
+  function _startRing(resume) {
     if (_ringRaf)   { cancelAnimationFrame(_ringRaf); _ringRaf = null; }
     if (_formingIv) { clearInterval(_formingIv); _formingIv = null; }
     if (!_ringCircle) return;
-    _ringStart = performance.now();
+    if (!resume) _ringStart = performance.now();
 
     // rAF → smooth ring fill (60 fps)
     function _ringStep(now) {
@@ -5531,7 +5537,10 @@ function ss2ApplyAndClose() {
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
     _renderPlayIcon();
-    if (_running) _startRing();   // next candle ke liye ring reset + restart
+    if (_running) {
+      _startRing();                          // fresh ring/forming for the NEW candle (0% se)
+      _timerId = setTimeout(_tick, TICK_MS);  // agli candle poore TICK_MS baad
+    }
   }
 
   function _play() {
@@ -5539,15 +5548,30 @@ function ss2ApplyAndClose() {
     var live = window._SV2_LIVE;
     if (!live || !live.baseBars || live.revealIdx >= live.baseBars.length) return;
     _running = true;
-    _timerId = setInterval(_tick, TICK_MS);   // our own paced metronome
-    _startRing();
+    var now = performance.now();
+    var remaining;
+    if (_pausedAt !== null && _ringStart !== null) {
+      // Resume: jitni der pause tha utna hi _ringStart aage shift karo, taaki
+      // forming-candle progress (pct) wahi se continue ho jahan chhoda tha —
+      // dubara open se restart NAHI hoga.
+      _ringStart += (now - _pausedAt);
+      remaining = TICK_MS - (now - _ringStart);
+      if (remaining < 0) remaining = 0;
+      _startRing(true);   // resume: ringStart mat reset karo
+    } else {
+      remaining = TICK_MS;
+      _startRing();        // fresh play (pehli baar / reset ke baad): 0% se
+    }
+    _pausedAt = null;
+    _timerId = setTimeout(_tick, remaining);
     _renderPlayIcon();
   }
 
   function _pause() {
     _running = false;
-    if (_timerId) { clearInterval(_timerId); _timerId = null; }
-    _stopRing();
+    if (_timerId) { clearTimeout(_timerId); _timerId = null; }
+    _pausedAt = performance.now();   // resume par isi se remaining time nikalenge
+    _stopRing();                     // sirf animation loop rokta hai, progress/data untouched rehta hai
     _renderPlayIcon();
   }
 
@@ -5565,6 +5589,8 @@ function ss2ApplyAndClose() {
 
   function _reset() {
     _pause();
+    _pausedAt = null;   // poora reset — koi resume-shift baggage nahi rehna chahiye
+    _ringStart = null;
     var live = window._SV2_LIVE;
     if (!live) return;
     live.revealIdx = live.startIdx;
@@ -5584,12 +5610,16 @@ function ss2ApplyAndClose() {
 
   document.addEventListener('sv2DateRangeApplied', function() {
     _pause();
+    _pausedAt = null;   // naya replay session — purani candle ka progress carry nahi hona chahiye
+    _ringStart = null;
     _syncControls();
     try { _srDebugClear(); } catch(_) {}
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
     _pause();
+    _pausedAt = null;
+    _ringStart = null;
     window._SV2_LIVE = null;
     _syncControls();
   });
