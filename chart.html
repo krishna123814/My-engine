@@ -4696,6 +4696,14 @@ function _buildStack2CellChart(idx) {
       // "guess" karne ki zaroorat nahi rahegi, hamesha REAL, working-day-
       // aware time dikhega, jitne "S.futureOffset" (default 30, Settings se
       // adjustable) spaces tak.
+      // Real last (aakhri actual) candle ka time whitespace jodne SE PEHLE
+      // save kar lo — Future Line hamesha isी se measure honi chahiye, na ki
+      // whitespace tail ke aakhri (futureOffset, e.g. 30) empty slot se.
+      // Yehi wajah thi ki date-select ke turant baad line bahut door dikhti
+      // thi: c._vlTime neeche whitespace-jode-hue dataToShow ke last element
+      // (30ve future slot) se set ho raha tha.
+      const _realLastTime2 = (dataToShow && dataToShow.length) ? dataToShow[dataToShow.length - 1].time : null;
+
       try {
         if (dataToShow && dataToShow.length) {
           const _tfMinWs = _parseTFMin(tfLabel) || 5;
@@ -4712,7 +4720,7 @@ function _buildStack2CellChart(idx) {
         const slice = dataToShow.slice(offset, offset + CHUNK);
         if (!slice.length) {
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          c._vlTime = dataToShow.length ? dataToShow[dataToShow.length - 1].time : null;
+          c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
           return;
         }
@@ -4727,7 +4735,7 @@ function _buildStack2CellChart(idx) {
         if (offset < dataToShow.length) { setTimeout(feedChunk, 0); }
         else {
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-          c._vlTime = dataToShow.length ? dataToShow[dataToShow.length - 1].time : null;
+          c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
         }
       }
@@ -5448,6 +5456,14 @@ function ss2ApplyAndClose() {
       var tfMin = _getCellTFMinLive(ci);
       // _formingLast flag ignore — forming bar HAMESHA dikhana hai
       var agg = _liveAggregateAny(proxy, proxy.length, tfMin, live.isBN);
+      // Future Line ka time ISI cell ke apne (aggregated) aakhri REAL bucket
+      // se lena hai — base-resolution formingBar.time seedha use karne se
+      // higher-TF cells (jinka bucket-start alag hota hai) ke liye
+      // timeToCoordinate() fail ho jaata tha (koi matching bar nahi milta),
+      // jiski wajah se line scroll ke saath sync nahi hoti thi (static
+      // fallback position par chali jaati thi). Har cell apna sahi time use
+      // kare, taaki scroll ke saath hamesha sync rahe.
+      var _aggLastReal = (agg && agg.length) ? agg[agg.length - 1].time : formingBar.time;
       if (agg && agg.length) {
         var _fw1 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
         if (_fw1.length) agg = agg.concat(_fw1);
@@ -5458,9 +5474,7 @@ function ss2ApplyAndClose() {
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
       }
-      // Future Line ko forming (current) candle ke sath hi rakho, whitespace
-      // tail ke saath nahi — warna line last candle se bahut door dikhti hai.
-      cell._vlTime = formingBar.time;
+      cell._vlTime = _aggLastReal;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_e) {}
     }
   }
@@ -5532,6 +5546,13 @@ function ss2ApplyAndClose() {
       if (!cell || !cell.series) continue;
       var tfMin = _getCellTFMinLive(ci);
       var agg = _liveAggregateAny(live.baseBars, live.revealIdx, tfMin, live.isBN);
+      // Is cell ke apne (aggregated) aakhri REAL bucket ka time save karo —
+      // base-resolution baseBars[revealIdx-1].time seedha use karne se
+      // higher-TF cells ke liye timeToCoordinate() fail hota tha (koi
+      // matching bar nahi milta us cell ke series mein), jisse line scroll
+      // ke saath sync nahi hoti thi (static fallback position). Har cell
+      // apna sahi time use kare taaki scroll ke saath hamesha sync rahe.
+      var _aggLastReal2 = (agg && agg.length) ? agg[agg.length - 1].time : null;
       if (agg && agg.length) {
         var _fw2 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
         if (_fw2.length) agg = agg.concat(_fw2);
@@ -5548,9 +5569,10 @@ function ss2ApplyAndClose() {
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
       }
-      // Future Line ko last REAL revealed candle ke sath rakho, whitespace
-      // tail ke sath nahi — warna line last candle se bahut door dikhti hai.
-      if (live.revealIdx > 0) cell._vlTime = live.baseBars[live.revealIdx - 1].time;
+      // Future Line ko is cell ke apne last REAL (aggregated) bucket ke
+      // sath rakho — whitespace tail ke sath nahi, aur base-resolution
+      // time ke sath bhi nahi (upar comment dekhein).
+      if (_aggLastReal2 != null) cell._vlTime = _aggLastReal2;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_) {}
     }
   }
@@ -6937,14 +6959,14 @@ function _vlDrawCellGeneric(c) {
   const vl = c.vLine || S.vLine;
   if (!vl.enabled || !c.chart) return;
   const cssW = c._vlCanvas.width / dpr, cssH = c._vlCanvas.height / dpr;
-  // Bar Replay (SV2) mein future line last candle se sirf 2-3 candle door
-  // honi chahiye — normal offset (default 5, settings-adjustable) yahan
-  // bahut door dikhta tha kyunki c._vlTime khud replay build-time whitespace
-  // tail (~30 candles aage) tak set ho jaata tha. _vlTime ab replay ke har
-  // tick par real/forming last-candle time se refresh hota hai (see
-  // _rebuildAllCells/_rebuildWithForming/_reset), aur offset yahan replay
-  // ke liye chhota (max 3) rakha gaya hai.
-  const offset = (c._stack2 && window._SV2_LIVE) ? Math.min(vl.offset || 5, 3) : (vl.offset || 5);
+  // Bar Replay (SV2) mein future line hamesha last (real) candle se FIXED
+  // 5 candle door honi chahiye — chahe time-axis/whitespace rightOffset
+  // kitna bhi bada ho (default 30, scroll room ke liye). Whitespace ka
+  // rightOffset alag cheez hai (sirf chart scroll space), future-line ka
+  // offset alag — dono ko mix nahi karna. c._vlTime bhi hamesha REAL last
+  // candle (ya forming candle) ke time par set rehta hai (build/tick/reset
+  // sab jagah), isliye yahan sirf fixed 5 lagana kaafi hai.
+  const offset = c._stack2 ? 5 : (vl.offset || 5);
 
   // Bar spacing se x calculate karo — timeToCoordinate pe depend mat karo
   // (1D/3D jaise large TF par future timestamps visible range mein nahi hote
