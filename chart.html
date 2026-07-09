@@ -2752,7 +2752,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <span class="ind-name">Show Grid Lines</span>
         <label class="toggle"><input type="checkbox" id="s-grid"><span class="sl"></span></label>
       </div>
-      <div class="settings-sec">Right Offset (Bar Replay)</div>
+      <div class="settings-sec">Right Offset (Stack View 1 &amp; 2)</div>
       <div class="ind-row">
         <span class="ind-name">Future Spaces — correct time upto</span>
         <input type="number" id="s-future-offset" class="s-select" min="1" max="200" step="1" value="30" style="width:64px;text-align:center;">
@@ -8038,7 +8038,7 @@ async function buildCellChart(idx) {
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
     crosshair:{mode:0, vertLine:{labelVisible:true}, horzLine:{labelVisible:true}},  // always Normal (free) for grid cells — never Magnet
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
-    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:Math.max(3,(S.vLine&&S.vLine.offset||5)+1),barSpacing:4,minBarSpacing:1},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLine&&S.vLine.offset||5)+1)),barSpacing:4,minBarSpacing:1},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{axisPressedMouseMove:true,mouseWheel:true,pinch:true},
@@ -8309,6 +8309,11 @@ function applySettings() {
     try {
       if (typeof STACK2_CELLS !== 'undefined') {
         STACK2_CELLS.forEach(c => { if (c && c.chart) { try { c.chart.timeScale().applyOptions({ rightOffset: S.futureOffset }); } catch(_) {} } });
+      }
+      // Stack View 1 — same rightOffset, live-apply turant (full rebuild neeche
+      // applySettings() ke end mein anyway hoga, ye sirf turant-flicker-free update ke liye)
+      if (S.layout === 'stack' && typeof CELLS !== 'undefined') {
+        CELLS.forEach(c => { if (c && c.chart) { try { c.chart.timeScale().applyOptions({ rightOffset: S.futureOffset }); } catch(_) {} } });
       }
       if (window._SV2_LIVE && typeof window._sv2RebuildAllCells === 'function') {
         // Live Replay already in progress — sirf whitespace naye offset se
@@ -11553,10 +11558,20 @@ function swingComputeMultiTF(asset, currentTf) {
         _candleByPrice.set(_key, line);
     }
   }
-  // Step 3: Agar same price par candle H/L bhi hai aur swing bhi —
-  // candle H/L rakho, swing delete karo
+  // Step 3: Same price par collision resolve karo:
+  //   - SAME TF (levelTf match, e.g. 15m candle H/L vs 15m swing H/L)
+  //     → Swing WIN karega, candle line hategi.
+  //   - DIFFERENT TF (e.g. 15m candle H/L vs 5m swing H/L)
+  //     → purana rule unchanged: Candle WIN karega, swing line hategi.
   for (const key of _candleByPrice.keys()) {
-    _swingByPrice.delete(key);
+    const _sw = _swingByPrice.get(key);
+    if (!_sw) continue;
+    const _cd = _candleByPrice.get(key);
+    if (_sw.levelTf === _cd.levelTf) {
+      _candleByPrice.delete(key);   // same TF → swing wins
+    } else {
+      _swingByPrice.delete(key);    // different TF → candle wins (unchanged)
+    }
   }
   return [...Array.from(_swingByPrice.values()), ...Array.from(_candleByPrice.values())];
 }
@@ -12634,10 +12649,20 @@ function _btc2ComputeMultiTF(asset, currentTf) {
         _btcCandleByPrice.set(_key, line);
     }
   }
-  // Agar same price par candle H/L bhi hai aur swing bhi —
-  // candle H/L rakho, swing delete karo
+  // Same price par collision resolve karo:
+  //   - SAME TF (levelTf match, e.g. 15m candle H/L vs 15m swing H/L)
+  //     → Swing WIN karega, candle line hategi.
+  //   - DIFFERENT TF (e.g. 15m candle H/L vs 5m swing H/L)
+  //     → purana rule unchanged: Candle WIN karega, swing line hategi.
   for (const key of _btcCandleByPrice.keys()) {
-    _btcSwingByPrice.delete(key);
+    const _sw = _btcSwingByPrice.get(key);
+    if (!_sw) continue;
+    const _cd = _btcCandleByPrice.get(key);
+    if (_sw.levelTf === _cd.levelTf) {
+      _btcCandleByPrice.delete(key);   // same TF → swing wins
+    } else {
+      _btcSwingByPrice.delete(key);    // different TF → candle wins (unchanged)
+    }
   }
   return [...Array.from(_btcSwingByPrice.values()), ...Array.from(_btcCandleByPrice.values())];
 }
