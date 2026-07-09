@@ -5352,7 +5352,11 @@ function ss2ApplyAndClose() {
       cell._data = agg;   // crosshair-sync cache (see wireSync2())
       var _preRange = null;
       try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
-      try { cell.series.setData(agg); } catch(_e) {}
+      // Future whitespace bars — right-offset khaali area mein crosshair
+      // hover karne par sahi sequential time dikhane ke liye (real OHLC
+      // series/cell._data par koi asar nahi, sirf display ke liye).
+      try { cell.series.setData(_withFutureWhitespace(agg, tfMin, live.isBN)); }
+      catch(_e) { try { cell.series.setData(agg); } catch(__e) {} }
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
       }
@@ -5432,7 +5436,11 @@ function ss2ApplyAndClose() {
       // pattern jo _sv2ApplyCellSR() SR lines ke liye already use karta hai.
       var _preRange = null;
       try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_) {}
-      try { cell.series.setData(agg); } catch(_) {}
+      // Future whitespace bars — right-offset khaali area mein crosshair
+      // hover karne par sahi sequential time dikhane ke liye (real OHLC
+      // series/cell._data par koi asar nahi, sirf display ke liye).
+      try { cell.series.setData(_withFutureWhitespace(agg, tfMin, live.isBN)); }
+      catch(_) { try { cell.series.setData(agg); } catch(__) {} }
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
       }
@@ -10840,6 +10848,34 @@ function _nextSessionOpen(fromSec) {
     dow = new Date(dayStart * 1000).getUTCDay();
   }
   return openIst - _IST_OFF;
+}
+
+// ── Future whitespace bars — crosshair time-label fix (right-offset area) ──
+// Chart ke right side wale khaali "rightOffset" bars (jahan abhi koi real
+// candle nahi bani) mein cursor rakhne par Lightweight Charts KHUD guess
+// karta hai ki wahan kaunsa time hoga — apne internal average-bar-spacing
+// wale formula se (calendar-aware NAHI). Daily+ TFs (3D/9D/27D) mein ye
+// average thoda sa bhi skewed ho to guess bahut door (saalon aage, e.g.
+// 2033) chala jaata hai.
+// Fix: khud hi un khaali slots ke liye SAHI, sequential time compute karke
+// unhe "whitespace" points ({time} only, koi OHLC nahi) ke roop mein series
+// data ke end mein daal do. Ab library ko un future slots ka REAL time pata
+// hota hai — guess/extrapolate karne ki zaroorat hi nahi padti, isliye
+// har agla bar step-by-step sahi (last + periodSec, calendar-safe) time
+// dikhata hai, seedha kisi bahut door future mein jump nahi karta.
+function _withFutureWhitespace(data, tfMin, isNSE, count) {
+  if (!data || !data.length) return data;
+  const n = count || 20;
+  const periodSec = (tfMin || 1) * 60;
+  const last = data[data.length - 1];
+  if (last == null || last.time == null) return data;
+  const extra = [];
+  let t = last.time;
+  for (let k = 0; k < n; k++) {
+    t = _advanceTradingSeconds(t, periodSec, tfMin, isNSE);
+    extra.push({ time: t });
+  }
+  return data.concat(extra);
 }
 
 // fromSec se deltaSec "trading seconds" aage badhao (market-band ghanto
