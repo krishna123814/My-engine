@@ -11255,7 +11255,14 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
     const cur      = data[i];
     const curGreen = cur.close > cur.open;
     const curRed   = cur.close < cur.open;
-    const isSessionGap = tfMin < 1440 && i >= 1 &&
+    // FIX: BTC 24/7 hai — koi real overnight session-gap nahi hota. Ye guard
+    // sirf BN (_isNSE) ke liye hai. Pehle _isNSE check missing tha, isliye
+    // BTC par bhi IST-day-boundary heuristic false-positive trigger hoti thi
+    // (UTC-aligned buckets IST midnight se align nahi karte) — jisse
+    // validateLines() har din 1 candle par galat skip ho jaata (8h par
+    // sabse zyada visible: 3 candles/din mein se 1 skip → cumulative extend
+    // ka count bigad jaata, "2 → 7" jaisa overshoot).
+    const isSessionGap = _isNSE && tfMin < 1440 && i >= 1 &&
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
     // Actual candle duration from real data — fixes synthetic TFs like 135m
     // where tfMin*60 may not match actual candle boundaries after resampling.
