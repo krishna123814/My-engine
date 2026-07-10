@@ -5462,18 +5462,51 @@ function ss2ApplyAndClose() {
     var subBars = subArr ? _findSubBarsInWindow(subArr, nb.time, nb.time + baseSec) : [];
 
     if (subBars.length) {
-      // Reveal sub-bars in the SAME order they actually printed live —
-      // this recreates the true intrabar path (up-then-down, down-then-up,
-      // whatever really happened) instead of a fake simultaneous stretch.
-      var revealN  = Math.max(1, Math.min(subBars.length, Math.ceil(pct * subBars.length)));
-      var revealed = subBars.slice(0, revealN);
-      var h = revealed[0].high, l = revealed[0].low;
-      for (var si = 1; si < revealed.length; si++) {
-        if (revealed[si].high > h) h = revealed[si].high;
-        if (revealed[si].low  < l) l = revealed[si].low;
+      // ── Continuous interpolation (no jhatka) ──────────────────────────
+      // Sub-bars ke exact checkpoints (real print order) already pata hain
+      // (ye replay hai, live nahi) — isliye har checkpoint tak pahunchne se
+      // PEHLE hi hum current se next checkpoint tak ki poori duration me
+      // smoothly move karte hain, taaki price jhatke se nahi, dheere-dheere
+      // us checkpoint par "sahi time par sahi price" pe pahunche.
+      //
+      // pct (0→1, poore base-bar ki duration) ko N sub-bar segments me baant
+      // dete hain — segIdx = kaunsa checkpoint target hai, segFrac = us
+      // checkpoint tak segment ke andar kitna progress hua (0→1).
+      var N = subBars.length;
+      var segF = pct * N;
+      if (segF > N) segF = N;
+      var segIdx = Math.floor(segF);
+      if (segIdx >= N) segIdx = N - 1;
+      var segFrac = segF - segIdx;
+
+      var prevClose = (segIdx === 0) ? o : subBars[segIdx - 1].close;
+      var target    = subBars[segIdx];
+
+      // Poore-poore complete ho chuke segments (0..segIdx-1) ka real envelope
+      var h, l, haveFull = false;
+      for (var si = 0; si < segIdx; si++) {
+        if (!haveFull) { h = subBars[si].high; l = subBars[si].low; haveFull = true; }
+        else { if (subBars[si].high > h) h = subBars[si].high; if (subBars[si].low < l) l = subBars[si].low; }
       }
-      var c = revealed[revealed.length - 1].close;
-      formingBar = { time: nb.time, open: revealed[0].open, high: h, low: l, close: c };
+      if (!haveFull) { h = o; l = o; }
+
+      // Abhi jo segment ban raha hai, uska close smoothly prevClose se
+      // target.close tak lerp hota h — aur wick bhi USI RATE se target ke
+      // high/low tak grow karta h (Option B: sab kuch saath-saath move,
+      // kuch bhi "future" pehle se expose nahi hota).
+      var c = prevClose + (target.close - prevClose) * segFrac;
+      var segHigh = prevClose + (target.high - prevClose) * segFrac;
+      var segLow  = prevClose + (target.low  - prevClose) * segFrac;
+
+      if (segHigh > h) h = segHigh;
+      if (segLow  < l) l = segLow;
+      if (c > h) h = c;
+      if (c < l) l = c;
+
+      // segFrac === 1 (checkpoint par exactly pahunch gaye) par ye h/l/c
+      // real subBars[segIdx] ke high/low/close se EXACT match karte hain —
+      // isliye reveal abhi bhi asli data se kabhi bhatakta nahi.
+      formingBar = { time: nb.time, open: o, high: h, low: l, close: c };
     } else {
       // Fallback (no sub-resolution data for this window, e.g. very old
       // history outside the trimmed raw arrays) — keep the previous
