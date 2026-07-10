@@ -719,8 +719,8 @@ def _sv2_resample_btc_daily(rows: list, n_days: int = 1) -> list:
 
 # Mobile ke liye max candles per TF (chunked inject)
 _SV2_MAX = {
-    "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
-    "160m": 2000, "8H": 2000,
+    "1m_raw": 30000, "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
+    "5m_raw": 64000, "160m": 2000, "8H": 2000,
     "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
 }
 
@@ -750,6 +750,7 @@ def _build_sv2_data() -> dict:
     btc_raw = _sv2_load_btc_gz()
 
     bn_tfs = {
+        "1m_raw": _sv2_resample_bn_intraday(bn_raw, 1),
         "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
         "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
         "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
@@ -760,6 +761,7 @@ def _build_sv2_data() -> dict:
         "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
     }
     btc_tfs = {
+        "5m_raw": _sv2_resample_btc(btc_raw, 5),
         "160m": _sv2_resample_btc(btc_raw, 160),
         "8H":   _sv2_resample_btc(btc_raw, 480),
         "1D":   _sv2_resample_btc_daily(btc_raw, 1),
@@ -1590,6 +1592,7 @@ def _build_chart_html(
             "btc_counts": {k: len(v) for k, v in _btc.items()},
         }
         _sv2_err_msg = json.dumps(_sv2_debug_info)
+        html = html.replace("__SV2_BN_1M_RAW__", _sv2_to_js(_bn["1m_raw"]))
         html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
         html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
         html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
@@ -1598,6 +1601,7 @@ def _build_chart_html(
         html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
         html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
         html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
+        html = html.replace("__SV2_BTC_5M_RAW__", _sv2_to_js(_btc["5m_raw"]))
         html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
         html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
         html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
@@ -1607,9 +1611,9 @@ def _build_chart_html(
     except Exception as _sv2_ex:
         _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
         # Fallback: empty arrays agar gz file missing/corrupt ho
-        for _ph in ["__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
+        for _ph in ["__SV2_BN_1M_RAW__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
                     "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
-                    "__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
+                    "__SV2_BTC_5M_RAW__","__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
                     "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
             html = html.replace(_ph, "[]")
     # Inject debug info as JS variable — visible via window.__SV2_DEBUG in browser console

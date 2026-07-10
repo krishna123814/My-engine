@@ -904,6 +904,31 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   font-size:15px;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
 }
+#sv2-drng-settings{
+  width:26px;height:26px;border-radius:50%;
+  background:#2a2e39;border:none;color:#d1d4dc;
+  font-size:13px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+#sv2-drng-settings.active{background:#2962ff;}
+
+/* Replay speed settings panel */
+#sv2-speed-panel{
+  padding:10px 16px 6px;border-bottom:1px solid #2a2e39;
+}
+#sv2-speed-title{
+  font-size:11px;color:#848da0;margin-bottom:8px;text-align:center;
+}
+#sv2-speed-opts{
+  display:flex;gap:6px;
+}
+.sv2-speed-opt{
+  flex:1;padding:8px 4px;font-size:12px;font-weight:700;
+  background:#131722;border:1px solid #2a2e39;color:#787b86;
+  cursor:pointer;border-radius:6px;
+}
+.sv2-speed-opt.active{background:#26a69a;border-color:#26a69a;color:#fff;}
+.sv2-speed-opt:active{opacity:.8;}
 
 /* Start / End date selector tabs */
 #sv2-drng-tabs{
@@ -1014,6 +1039,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .co-sym{font-size:10px;font-weight:700;color:#d1d4dc}
 .co-price{font-size:10px;font-weight:600}
 .co-chg{font-size:9px}
+.co-timer{font-size:9px;font-weight:700;color:#ffb74d;margin-left:4px}
 .co-ohlc-grp{display:none;font-size:9px;line-height:1.5}
 .co-ohlc-grp .co-o{color:#d1d4dc}
 .co-ohlc-grp .co-h{color:#26a69a}
@@ -2210,8 +2236,20 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div id="sv2-drng-handle"></div>
     <div id="sv2-drng-hdr">
       <span id="sv2-drng-title">📅 Replay Date</span>
+      <button id="sv2-drng-settings" onclick="_sv2SpeedToggle()" title="Replay Speed Settings">⚙️</button>
       <button id="sv2-drng-clear" onclick="_sv2DrngClear()">✕ Clear</button>
       <button id="sv2-drng-close" onclick="_sv2DrngClose()">✕</button>
+    </div>
+
+    <!-- Replay Speed settings row — toggled via the ⚙️ button above -->
+    <div id="sv2-speed-panel" style="display:none;">
+      <div id="sv2-speed-title">⏱ Candle Speed (1 candle = X real seconds)</div>
+      <div id="sv2-speed-opts">
+        <button class="sv2-speed-opt" data-sec="30"  onclick="_sv2SpeedSet(30)">30s</button>
+        <button class="sv2-speed-opt" data-sec="60"  onclick="_sv2SpeedSet(60)">60s</button>
+        <button class="sv2-speed-opt" data-sec="90"  onclick="_sv2SpeedSet(90)">90s</button>
+        <button class="sv2-speed-opt" data-sec="120" onclick="_sv2SpeedSet(120)">120s</button>
+      </div>
     </div>
 
     <!-- Single date tab — us date tak ka data dikhega, uske baad replay shuru -->
@@ -2739,6 +2777,7 @@ const BN_DAILY    = __BN_DAILY__;
 // Each value is an array of {time,open,high,low,close} objects (LWC format).
 // Chunks of last ~3000 candles per TF so mobile doesn't hang.
 const SV2_BN = {
+  '1m_raw': __SV2_BN_1M_RAW__,
   '5m':   __SV2_BN_5M__,
   '15m':  __SV2_BN_15M__,
   '45m':  __SV2_BN_45M__,
@@ -2749,6 +2788,7 @@ const SV2_BN = {
   '27D':  __SV2_BN_27D__,
 };
 const SV2_BTC = {
+  '5m_raw': __SV2_BTC_5M_RAW__,
   '160m': __SV2_BTC_160M__,
   '8H':   __SV2_BTC_8H__,
   '1D':   __SV2_BTC_1D__,
@@ -4409,6 +4449,7 @@ function buildStack2() {
       '<span class="co-tf"> · ' + label + '</span>'+
       '<span class="co-price up">--</span>'+
       '<span class="co-chg" style="color:#555">--</span>'+
+      '<span class="co-timer" style="display:none"></span>'+
       '<span class="co-ohlc-grp">'+
         '<span class="co-o">O <b class="co-ov">--</b></span> '+
         '<span class="co-h">H <b class="co-hv">--</b></span> '+
@@ -5325,7 +5366,16 @@ function ss2ApplyAndClose() {
   var _resetBtn  = null;   // #sv2-reset-btn
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
-  var TICK_MS    = 30000;  // virtual-clock parameter: 30 real sec = 1 candle
+  // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
+  // User-configurable via ⚙️ Settings (Replay Date sheet) — 30/60/90/120s.
+  // localStorage mein persist hota hai taaki agli baar bhi wahi speed mile.
+  var TICK_MS = (function() {
+    try {
+      var saved = parseInt(localStorage.getItem('sv2_replay_tick_ms'), 10);
+      if (saved && [30000,60000,90000,120000].indexOf(saved) !== -1) return saved;
+    } catch(_) {}
+    return 30000;
+  })();
   var _ringCircle = null, _ringCirc = 0, _ringRaf = null, _ringStart = null;
   var _formingIv  = null;
   var _pausedAt   = null;  // performance.now() timestamp jab pause hua — resume par
@@ -5368,10 +5418,33 @@ function ss2ApplyAndClose() {
     }
   }
 
+  // ── Real intrabar path helper ─────────────────────────────────────────────
+  // Raw sub-resolution bars (BN=1m, BTC=5m) rakhte hain waqt ka ACTUAL path
+  // jo price ne us bade (base) candle ke andar liya tha. Binary-search se
+  // [tStart, tEnd) window ke andar wale sub-bars nikalte hain.
+  function _findSubBarsInWindow(subArr, tStart, tEnd) {
+    if (!subArr || !subArr.length) return [];
+    var lo = 0, hi = subArr.length;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (subArr[mid].time < tStart) lo = mid + 1; else hi = mid;
+    }
+    var out = [];
+    for (var i = lo; i < subArr.length; i++) {
+      if (subArr[i].time >= tEnd) break;
+      out.push(subArr[i]);
+    }
+    return out;
+  }
+
   // ── Forming-candle live animation ─────────────────────────────────────────
-  // Next unrevealed bar (baseBars[revealIdx]) ka OHLC linearly interpolate
-  // karke sabhi cells mein show karo — real market jaisi candle body/wick
-  // gradually banti dikhti hai.  pct = 0 → sirf open dot, pct = 1 → full bar.
+  // Next unrevealed bar (baseBars[revealIdx]) real market mein jis TARAH
+  // ban raha tha, use hi progressively reveal karte hain — high aur low ko
+  // ek saath open se stretch karke fake nahi banate (wo "live wali feeling"
+  // kharab karta tha). Iske bajaye asli raw sub-bars (BankNifty 1m / BTC 5m)
+  // ko one-by-one reveal karte hain, taaki candle wahi sequence follow kare
+  // jo actual live market mein hua tha. pct = 0 → sirf open dot,
+  // pct = 1 → full bar (saare sub-bars revealed).
   function _rebuildWithForming(pct) {
     var live = window._SV2_LIVE;
     if (!live || !live.baseBars || typeof STACK2_CELLS === 'undefined') return;
@@ -5380,17 +5453,38 @@ function ss2ApplyAndClose() {
     if (!nb || nb.open == null) return;
 
     var o = nb.open;
-    // Close linearly interpolates open→close
-    var lerpC = o + (nb.close - o) * pct;
-    // High grows from open toward actual high
-    var lerpH = o + (nb.high  - o) * pct;
-    // Low  falls from open toward actual low
-    var lerpL = o + (nb.low   - o) * pct;
-    // Keep high >= max(open,close) and low <= min(open,close) at all times
-    lerpH = Math.max(lerpH, Math.max(o, lerpC));
-    lerpL = Math.min(lerpL, Math.min(o, lerpC));
+    var formingBar;
+    // Base-bar duration: BN base bar = 5m (300s), BTC base bar = 160m (9600s)
+    var baseSec = live.isBN ? 300 : 9600;
+    var subArr  = live.isBN
+      ? (typeof SV2_BN  !== 'undefined' ? SV2_BN['1m_raw']  : null)
+      : (typeof SV2_BTC !== 'undefined' ? SV2_BTC['5m_raw'] : null);
+    var subBars = subArr ? _findSubBarsInWindow(subArr, nb.time, nb.time + baseSec) : [];
 
-    var formingBar = { time: nb.time, open: o, high: lerpH, low: lerpL, close: lerpC };
+    if (subBars.length) {
+      // Reveal sub-bars in the SAME order they actually printed live —
+      // this recreates the true intrabar path (up-then-down, down-then-up,
+      // whatever really happened) instead of a fake simultaneous stretch.
+      var revealN  = Math.max(1, Math.min(subBars.length, Math.ceil(pct * subBars.length)));
+      var revealed = subBars.slice(0, revealN);
+      var h = revealed[0].high, l = revealed[0].low;
+      for (var si = 1; si < revealed.length; si++) {
+        if (revealed[si].high > h) h = revealed[si].high;
+        if (revealed[si].low  < l) l = revealed[si].low;
+      }
+      var c = revealed[revealed.length - 1].close;
+      formingBar = { time: nb.time, open: revealed[0].open, high: h, low: l, close: c };
+    } else {
+      // Fallback (no sub-resolution data for this window, e.g. very old
+      // history outside the trimmed raw arrays) — keep the previous
+      // linear-lerp approximation so replay never breaks.
+      var lerpC = o + (nb.close - o) * pct;
+      var lerpH = o + (nb.high  - o) * pct;
+      var lerpL = o + (nb.low   - o) * pct;
+      lerpH = Math.max(lerpH, Math.max(o, lerpC));
+      lerpL = Math.min(lerpL, Math.min(o, lerpC));
+      formingBar = { time: nb.time, open: o, high: lerpH, low: lerpL, close: lerpC };
+    }
 
     // Proxy array: all revealed bars + one forming bar at the end
     var proxy = live.baseBars.slice(0, live.revealIdx);
@@ -5422,7 +5516,74 @@ function ss2ApplyAndClose() {
       }
       cell._vlTime = _aggLastReal;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_e) {}
+      _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal, pct);
     }
+  }
+
+  // ── Per-cell "next candle in..." countdown ───────────────────────────────
+  // Base tick speed (TICK_MS/1000, from Settings) = time for ONE base bar
+  // (BN=5m, BTC=160m). Har higher TF ki candle utne hi base-bars se milkar
+  // banti hai — TRADING/SESSION days ke hisaab se, calendar days ke hisaab
+  // se NAHI (isliye BN daily+ TFs ke liye hardcoded session-bar table use
+  // hoti hai, calendar tf/5 nahi — ek trading din mein sirf 375 min hote
+  // hain, 1440 nahi).
+  var _SV2_BN_BARS_PER_BUCKET = {
+    5: 1, 15: 3, 45: 9, 135: 27,
+    1440: 75, 4320: 225, 12960: 675, 38880: 2025
+  };
+  function _sv2BarsPerBucket(tfMin, isBN) {
+    if (isBN) {
+      if (_SV2_BN_BARS_PER_BUCKET[tfMin] != null) return _SV2_BN_BARS_PER_BUCKET[tfMin];
+      return Math.max(1, Math.round(tfMin / 5));
+    }
+    return Math.max(1, Math.round(tfMin / 160));   // BTC: 24/7, calendar == session
+  }
+
+  // D:H:M:S — sirf largest non-zero unit se shuru, leading-zero units hide.
+  // e.g. 5 second bache to "5s", 305 sec bache to "5m:5s", 0 din hai to din
+  // bilkul nahi dikhega.
+  function _sv2FmtRemain(totalSec) {
+    totalSec = Math.max(0, Math.ceil(totalSec));
+    var d = Math.floor(totalSec / 86400); totalSec -= d * 86400;
+    var h = Math.floor(totalSec / 3600);  totalSec -= h * 3600;
+    var m = Math.floor(totalSec / 60);    totalSec -= m * 60;
+    var s = totalSec;
+    var parts = [];
+    if (d > 0) parts.push(d + 'd');
+    if (d > 0 || h > 0) parts.push(h + 'h');
+    if (d > 0 || h > 0 || m > 0) parts.push(m + 'm');
+    parts.push(s + 's');
+    return parts.join(':');
+  }
+
+  function _sv2UpdateCellTimer(ci, tfMin, live, realBucketTime, pct) {
+    var cell = STACK2_CELLS[ci];
+    if (!cell || !cell.el || !cell.el.parentElement) return;
+    var timerEl = cell.el.parentElement.querySelector('.co-timer');
+    if (!timerEl) return;
+    if (!live || !live.baseBars || live.revealIdx >= live.baseBars.length) {
+      timerEl.style.display = 'none';
+      return;
+    }
+    var barsPerBucket = _sv2BarsPerBucket(tfMin, live.isBN);
+    // Bucket start = is cell ki aakhri aggregated candle ka REAL time
+    // (caller se pass hota hai — future-whitespace-concat hone SE PEHLE
+    // wala time, warna whitespace tail ka time aa jaata hai jo hamesha
+    // barsElapsedBeforeForming ko 0 pe fix kar deta tha — timer har
+    // base-bar ke baad full duration par reset ho jaata tha).
+    var bucketStart = (realBucketTime != null) ? realBucketTime : null;
+    if (bucketStart == null) { timerEl.style.display = 'none'; return; }
+    var barsElapsedBeforeForming = 0;
+    for (var bi = live.revealIdx - 1; bi >= 0; bi--) {
+      if (live.baseBars[bi].time >= bucketStart) barsElapsedBeforeForming++;
+      else break;
+    }
+    var remainingBars = barsPerBucket - barsElapsedBeforeForming - (pct || 0);
+    if (remainingBars < 0) remainingBars = 0;
+    var tickSec = TICK_MS / 1000;
+    var remainingSec = remainingBars * tickSec;
+    timerEl.style.display = '';
+    timerEl.textContent = '⏳ ' + _sv2FmtRemain(remainingSec);
   }
 
   // ── Circular progress ring — smooth rAF animation over TICK_MS duration ─
@@ -5520,6 +5681,7 @@ function ss2ApplyAndClose() {
       // time ke sath bhi nahi (upar comment dekhein).
       if (_aggLastReal2 != null) cell._vlTime = _aggLastReal2;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_) {}
+      _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal2, 0);
     }
   }
 
@@ -5579,6 +5741,44 @@ function ss2ApplyAndClose() {
     if (_running) _pause(); else _play();
   }
 
+  // ── Replay speed settings (⚙️ button on the Replay Date sheet) ──────────
+  function _syncSpeedBtns() {
+    var opts = document.querySelectorAll('.sv2-speed-opt');
+    for (var i = 0; i < opts.length; i++) {
+      var sec = parseInt(opts[i].getAttribute('data-sec'), 10) * 1000;
+      opts[i].classList.toggle('active', sec === TICK_MS);
+    }
+  }
+
+  function _sv2SpeedToggle() {
+    var panel = document.getElementById('sv2-speed-panel');
+    var btn   = document.getElementById('sv2-drng-settings');
+    if (!panel) return;
+    var show = panel.style.display === 'none' || !panel.style.display;
+    panel.style.display = show ? 'block' : 'none';
+    if (btn) btn.classList.toggle('active', show);
+    if (show) _syncSpeedBtns();
+  }
+
+  function _sv2SpeedSet(sec) {
+    var ms = sec * 1000;
+    if ([30000,60000,90000,120000].indexOf(ms) === -1) return;
+    // Beech replay mein speed badalne par current candle ka progress na toote
+    // isliye agar Play chal raha hai to usse pause karke fresh restart karo
+    // taaki naya TICK_MS turant sahi se lagu ho.
+    var wasRunning = _running;
+    if (wasRunning) _pause();
+    TICK_MS = ms;
+    try { localStorage.setItem('sv2_replay_tick_ms', String(ms)); } catch(_) {}
+    _pausedAt  = null;   // pehle wale interval ka baggage carry mat karo
+    _ringStart = null;
+    _syncSpeedBtns();
+    if (wasRunning) _play();
+  }
+
+  window._sv2SpeedToggle = _sv2SpeedToggle;
+  window._sv2SpeedSet    = _sv2SpeedSet;
+
   // ── Manual STEP: reveal exactly ONE candle (all TFs sync), then stop ────
   // Continuous auto-play (_play/_pause) ke saath tussle na ho isliye agar
   // auto-play chal raha ho to pehle usko pause kar do, phir ek hi _tick().
@@ -5620,6 +5820,14 @@ function ss2ApplyAndClose() {
     _ringStart = null;
     window._SV2_LIVE = null;
     _syncControls();
+    if (typeof STACK2_CELLS !== 'undefined') {
+      for (var _ci = 0; _ci < STACK2_CELLS.length; _ci++) {
+        var _c = STACK2_CELLS[_ci];
+        if (!_c || !_c.el || !_c.el.parentElement) continue;
+        var _t = _c.el.parentElement.querySelector('.co-timer');
+        if (_t) _t.style.display = 'none';
+      }
+    }
   });
 
   function _watchFabPos() {
