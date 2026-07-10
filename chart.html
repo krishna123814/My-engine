@@ -852,84 +852,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   cursor:not-allowed;
 }
 
-/* ── SR Debug Log button + panel ─────────────────────────────────────── */
-#sv2-debug-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:40px;height:40px;
-  border-radius:50%;
-  background:#1e222d;
-  border:2px solid #ff9800;
-  box-shadow:0 4px 16px #0007;
-  font-size:17px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  color:#ff9800;
-  /* Default/fallback spot — SV1 (live) mein SV2 ka date-range FAB exist
-     nahi karta, isliye JS wahan is button ko reposition nahi karta aur
-     ye yahi default fixed spot par dikhta hai. SV2 replay active hote
-     waqt JS ise FAB ke neeche move kar deta hai (see _syncPos). */
-  right:12px;
-  bottom:64px;
-  left:auto;
-  top:auto;
-}
-#sv2-debug-btn.visible{ display:flex; }
-#sv2-debug-btn.active{
-  background:#ff9800;
-  color:#1e222d;
-}
-#sv2-debug-panel{
-  display:none;
-  position:fixed;
-  z-index:9500;
-  right:12px;
-  bottom:12px;
-  width:min(420px, calc(100vw - 24px));
-  height:min(360px, calc(100vh - 120px));
-  background:#131722;
-  border:1px solid #2a2e3e;
-  border-radius:12px;
-  box-shadow:0 8px 32px #000a;
-  flex-direction:column;
-  overflow:hidden;
-}
-#sv2-debug-panel.open{ display:flex; }
-#sv2-debug-hdr{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 10px;
-  background:#1e222d;
-  border-bottom:1px solid #2a2e3e;
-  flex-shrink:0;
-}
-#sv2-debug-title{
-  color:#d1d4dc;font-size:12px;font-weight:700;flex:1;
-}
-.sv2-debug-btn-sm{
-  background:#2a2e3e;color:#d1d4dc;border:none;border-radius:6px;
-  font-size:11px;padding:5px 9px;cursor:pointer;
-}
-.sv2-debug-btn-sm.copied{ background:#26a69a; color:#fff; }
-#sv2-debug-log{
-  flex:1;overflow-y:auto;
-  padding:8px 10px;
-  font-family:'SF Mono',Consolas,monospace;
-  font-size:10.5px;
-  line-height:1.5;
-  color:#c7cbe0;
-  white-space:pre-wrap;
-  word-break:break-word;
-}
-#sv2-debug-log .sv2-dbg-grp  { color:#787b86; font-weight:700; margin:6px 0 2px; text-transform:uppercase; font-size:10px; }
-#sv2-debug-log .sv2-dbg-row  { display:flex; justify-content:space-between; gap:8px; }
-#sv2-debug-log .sv2-dbg-sh, #sv2-debug-log .sv2-dbg-sl { color:#ff9800; }
-#sv2-debug-log .sv2-dbg-ch, #sv2-debug-log .sv2-dbg-cl { color:#2196f3; }
-#sv2-debug-log .sv2-dbg-empty { color:#787b86; font-style:italic; }
-
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
 #sv2-drng-sheet{
   display:none;
@@ -2278,18 +2200,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
-<button id="sv2-debug-btn" title="SR Live Length" onclick="_srDebugToggle()">🐞</button>
-
-<!-- ═══ SR DEBUG LOG PANEL ═══════════════════════════════════════════════ -->
-<div id="sv2-debug-panel">
-  <div id="sv2-debug-hdr">
-    <span id="sv2-debug-title">🐞 SR Live Length</span>
-    <button class="sv2-debug-btn-sm" id="sv2-debug-copy-btn" onclick="_srDebugCopyLog()">📋 Copy</button>
-    <button class="sv2-debug-btn-sm" onclick="_srDebugClear()">🔄 Reset</button>
-    <button class="sv2-debug-btn-sm" onclick="_srDebugClosePanel()">✕</button>
-  </div>
-  <div id="sv2-debug-log"></div>
-</div>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -5377,7 +5287,6 @@ function ss2ApplyAndClose() {
   var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
-  var _debugBtn  = null;   // #sv2-debug-btn (SR length debug log toggle)
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   var TICK_MS    = 30000;  // virtual-clock parameter: 30 real sec = 1 candle
@@ -5395,10 +5304,6 @@ function ss2ApplyAndClose() {
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
-    // Debug button ab replay-range se independent — SV1 (live) aur SV2
-    // (live ya replay) dono mein hamesha visible rahega, taaki live
-    // BTC/BankNifty charts par bhi SR length debug log use ho sake.
-    if (_debugBtn)    _debugBtn.classList.toggle('visible', true);
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -5407,12 +5312,6 @@ function ss2ApplyAndClose() {
   function _syncPos() {
     var fab = document.getElementById('sv2-drng-fab');
     if (!fab) {
-      // SV1 mein FAB exist nahi karta — agar pehle SV2 visit kiya tha aur
-      // JS ne debug button par inline left/top set kar diya tha, wo yahan
-      // clear karo taaki CSS ka default fixed spot (right/bottom) wapas
-      // apply ho, warna button SV2 ki purani (ab invalid) position par
-      // stuck reh jaata — SV1 mein invisible/galat jagah dikhta.
-      if (_debugBtn) { _debugBtn.style.left = ''; _debugBtn.style.top = ''; }
       return;
     }
     var r = fab.getBoundingClientRect();
@@ -5430,10 +5329,6 @@ function ss2ApplyAndClose() {
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
       _resetBtn.style.top  = (r.bottom + 8 + 58 + 58) + 'px';
-    }
-    if (_debugBtn) {
-      _debugBtn.style.left = r.left + 'px';
-      _debugBtn.style.top  = (r.bottom + 8 + 58 + 58 + 58) + 'px';
     }
   }
 
@@ -5665,7 +5560,6 @@ function ss2ApplyAndClose() {
     live.revealIdx = live.startIdx;
     _rebuildAllCells();
     _renderPlayIcon();
-    try { _srDebugClear(); } catch(_) {}
   }
 
   // Keep old global names working (HTML onclick + external callers use these)
@@ -5682,7 +5576,6 @@ function ss2ApplyAndClose() {
     _pausedAt = null;   // naya replay session — purani candle ka progress carry nahi hona chahiye
     _ringStart = null;
     _syncControls();
-    try { _srDebugClear(); } catch(_) {}
   });
 
   document.addEventListener('sv2DateRangeCleared', function() {
@@ -5706,7 +5599,6 @@ function ss2ApplyAndClose() {
     _playBtn    = document.getElementById('sv2-step-btn');
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
-    _debugBtn   = document.getElementById('sv2-debug-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
@@ -11791,13 +11683,6 @@ function initSwingIndicator() {
   const _mainRawData = resampleForTF(_baseDataFor(S.asset, S.tf), S.tf, S.asset);
   _bnMainSrSeries = _bnBuildSRNative(chart, _swingLines, _mainPreRange, false, S.tf, null, _mainRawData, _mainIsNSE);
 
-  // ── SR debug log — SV1 Main chart (LIVE, koi replay/cutoff nahi) ────────
-  // cutoffTime = null → onlyReplayDay filter automatically skip ho jaata
-  // hai, isliye purani/aaj sab din ka NEW/TOUCH/DELETED dikhega jab tak
-  // window._SR_DEBUG.enabled = true kiya jaaye.
-  try {
-    _srDebugCapture('sv1-main', 'SV1 Main (' + S.asset + ' ' + S.tf + ')', chart, _swingLines, null);
-  } catch(_) {}
 }
 
 function buildCellSwing(idx) {
@@ -11826,10 +11711,6 @@ function buildCellSwing(idx) {
   const _cellIsNSE = c.asset && !isCryptoSymbol(c.asset);
   c.srSeries = _bnBuildSRNative(c.chart, lines, _preRange, false, c.tf, null, _cellRawData, _cellIsNSE);
 
-  // ── SR debug log — SV1 grid cell (LIVE, koi replay/cutoff nahi) ─────────
-  try {
-    _srDebugCapture('sv1-cell-' + idx, 'SV1 Cell ' + (idx + 1) + ' (' + c.asset + ' ' + c.tf + ')', c.chart, lines, null);
-  } catch(_) {}
 }
 
 function swingAfterRebuild() {
@@ -12288,10 +12169,6 @@ function sv2SwingInit(cutoffTime) {
   for (let i = 0; i < STACK2_CELLS.length; i++) {
     const lines = _sv2ComputeCellSR(i, assetKey, cutoffTime);
     _sv2ApplyCellSR(i, lines);
-    try {
-      const _c = STACK2_CELLS[i];
-      _srDebugCapture('sv2-cell-' + i, _srDebugCellLabel(i), _c && _c.chart, lines, cutoffTime, _srDebugCellTFMin(i));
-    } catch(_) {}
   }
 }
 
@@ -12325,30 +12202,8 @@ function sv2SwingClear() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SR LIVE LENGTH — har SR/swing/candle-H-L line ki ABHI ki drawn bar-length
-// ────────────────────────────────────────────────────────────────────────────
-// Purana version ek scrolling "NEW/TOUCH/DELETED" event-log tha — replay mein
-// dekhna mushkil tha ki kisi line ki length ABHI kitni hai (scroll karke
-// dhoondhna padta tha). Ye naya version ek LIVE SNAPSHOT TABLE hai: har
-// `sv2SwingInit`/render pass ke baad (replay ke har step par), har source ke
-// liye uski saari lines ki current drawn bar-length ek chhoti table mein
-// dikhati hai — purana state yaad nahi rakhta, sirf "abhi kya hai" dikhata
-// hai. Isse multiplier (SW_START_MULT/SW_SLIDE_MULT) badalne ka asar turant,
-// bina zoom-out/scroll kiye, number ke roop mein dikh jaata hai.
-// ════════════════════════════════════════════════════════════════════════════
-window._SR_DEBUG = window._SR_DEBUG || { enabled: false, snapshot: {} };
-
-function _srDebugCellLabel(cellIdx) {
-  try {
-    const assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    const cfg2     = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-    const tfLabel  = (cfg2.tfs && cfg2.tfs[cellIdx]) || ('#' + cellIdx);
-    return 'Cell ' + (cellIdx + 1) + ' (' + tfLabel + ')';
-  } catch(_) { return 'Cell ' + (cellIdx + 1); }
-}
-
-// SV2 cell ka apna TF (minutes mein) — index-based rendering/debug ke liye
-// (_bnBuildSRNative cellTFMin param, aur debug ka drawn-length measurement).
+// SV2 cell ka apna TF (minutes mein) — index-based rendering ke liye
+// (_bnBuildSRNative ka cellTFMin param).
 function _srDebugCellTFMin(cellIdx) {
   try {
     const assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
@@ -12356,148 +12211,6 @@ function _srDebugCellTFMin(cellIdx) {
     const tfLabel  = (cfg2.tfs && cfg2.tfs[cellIdx]) || '';
     return _parseTFMin(tfLabel) || null;
   } catch(_) { return null; }
-}
-
-function _srDebugKindLabel(kind) {
-  if (kind === 'ch') return 'HIGH';
-  if (kind === 'cl') return 'LOW';
-  if (kind === 'sh') return 'SWING-HIGH';
-  if (kind === 'sl') return 'SWING-LOW';
-  return kind;
-}
-
-// ── INDEX-BASED REAL-DRAW CHECK — wahi math jo _bnBuildSRNative() actual
-// rendering ke waqt use karta hai (startTime se pixel-offset via barSpacing,
-// phir coordinateToTime() se wapas time). Isse pata chalta hai ki FIX lagne
-// ke baad line asal mein kitni lambi render hogi — agar ye lenP (intended)
-// ke kareeb aaye to fix kaam kar raha hai; agar phir bhi door ho to
-// rendering mein koi aur cheez culprit hai.
-function _srDebugActualPeriodsIndexed(chartObj, ln, cellTFMin) {
-  try {
-    if (!chartObj || !cellTFMin) return null;
-    const ts = chartObj.timeScale();
-    const x0 = ts.timeToCoordinate(ln.startTime);
-    const barSpacing = ts.options().barSpacing;
-    if (x0 == null || !barSpacing) return null;
-    const period  = ln.periodSec || ((ln.levelTf || 1) * 60);
-    const lenBars = (ln.spanBars != null && ln.spanBars > 0)
-      ? ln.spanBars
-      : (ln.endTime - ln.startTime) / period;
-    const ratio   = (ln.levelTf || cellTFMin) / cellTFMin;
-    const x1 = x0 + lenBars * barSpacing * ratio;
-    const t1 = ts.coordinateToTime(x1);
-    if (t1 == null) return null;
-    const x2 = ts.timeToCoordinate(t1);
-    if (x2 == null) return null;
-    return (x2 - x0) / (barSpacing * ratio);
-  } catch (_) { return null; }
-}
-
-// srcKey ke liye lines ka CURRENT snapshot bana ke store karo — koi history
-// nahi, sirf "abhi kya hai". Har replay tick par overwrite hota hai, isliye
-// panel hamesha latest state dikhata hai bina scroll kiye.
-function _srDebugCapture(srcKey, label, chartObj, lines, cutoffTime, cellTFMin) {
-  if (!window._SR_DEBUG.enabled) return;
-
-  const rows = lines.map(l => ({
-    kind:  l.kind,
-    price: l.price,
-    drawn: cellTFMin ? _srDebugActualPeriodsIndexed(chartObj, l, cellTFMin) : null
-  }));
-  // Swing lines (sh/sl) pehle, phir candle H/L (ch/cl) — har group ke andar
-  // price descending, taaki upar-neeche scan karna aasan ho.
-  const _kindRank = { sh: 0, sl: 1, ch: 2, cl: 3 };
-  rows.sort((a, b) => (_kindRank[a.kind] - _kindRank[b.kind]) || (b.price - a.price));
-
-  window._SR_DEBUG.snapshot[srcKey] = { label, rows };
-  _srDebugRender();
-}
-
-function _srDebugRowLabel(p) {
-  return (p === null) ? 'N/A (off loaded range)' : p.toFixed(2) + '×period';
-}
-
-function _srDebugRender() {
-  const el = document.getElementById('sv2-debug-log');
-  if (!el) return;
-  const snap = window._SR_DEBUG.snapshot;
-  const keys = Object.keys(snap);
-  if (!keys.length) {
-    el.innerHTML = '<div class="sv2-dbg-empty">Replay chalao ya ek candle step karo — lines yahan dikhengi.</div>';
-    return;
-  }
-  el.innerHTML = keys.map(srcKey => {
-    const { label, rows } = snap[srcKey];
-    if (!rows.length) return '';
-    const rowsHtml = rows.map(r =>
-      '<div class="sv2-dbg-row sv2-dbg-' + r.kind + '">' +
-        '<span>' + _srDebugKindLabel(r.kind) + ' @ ' + r.price + '</span>' +
-        '<span>' + _srDebugRowLabel(r.drawn) + '</span>' +
-      '</div>'
-    ).join('');
-    return '<div class="sv2-dbg-grp">' + label + '</div>' + rowsHtml;
-  }).join('');
-}
-
-function _srDebugToggle() {
-  const panel = document.getElementById('sv2-debug-panel');
-  const btn   = document.getElementById('sv2-debug-btn');
-  const opening = !(panel && panel.classList.contains('open'));
-  if (panel) panel.classList.toggle('open', opening);
-  if (btn)   btn.classList.toggle('active', opening);
-  window._SR_DEBUG.enabled = opening;
-  if (opening) _srDebugRender();
-}
-
-function _srDebugClosePanel() {
-  const panel = document.getElementById('sv2-debug-panel');
-  const btn   = document.getElementById('sv2-debug-btn');
-  if (panel) panel.classList.remove('open');
-  if (btn)   btn.classList.remove('active');
-  window._SR_DEBUG.enabled = false;
-}
-
-function _srDebugClear() {
-  window._SR_DEBUG.snapshot = {};
-  _srDebugRender();
-}
-
-function _srDebugCopyLog() {
-  const snap = window._SR_DEBUG.snapshot;
-  const text = Object.keys(snap).map(srcKey => {
-    const { label, rows } = snap[srcKey];
-    const rowsText = rows.map(r =>
-      '  ' + _srDebugKindLabel(r.kind) + ' @ ' + r.price + ' | ' + _srDebugRowLabel(r.drawn)
-    ).join('\n');
-    return label + '\n' + rowsText;
-  }).join('\n\n');
-  const btn  = document.getElementById('sv2-debug-copy-btn');
-  function _showCopied() {
-    if (!btn) return;
-    const old = btn.textContent;
-    btn.textContent = '✓ Copied';
-    btn.classList.add('copied');
-    setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 1200);
-  }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(_showCopied).catch(() => _srDebugFallbackCopy(text, _showCopied));
-  } else {
-    _srDebugFallbackCopy(text, _showCopied);
-  }
-}
-
-function _srDebugFallbackCopy(text, cb) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    if (cb) cb();
-  } catch(_) {}
 }
 
 // ── Date Range events sunna ─────────────────────────────────────────────────
