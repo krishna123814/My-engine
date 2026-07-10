@@ -3122,7 +3122,14 @@ const S = {
   hdrOhlc:   true,  // Show OHLC in top-left header on crosshair
   bgColor:   '#ffffff',
   textColor: '#131722',
-  vLine:     { enabled: true, color: '#2962ff', width: 1, offset: 5, style: 'solid' },
+  // Future Line defaults — SV1 (Stack View 1 / Grid / Main) aur SV2 (Stack
+  // View 2) ke liye ALAG-ALAG rakhe hain, taaki ek view mein setting badalne
+  // se dusre view ka default effect na ho. Pehle sirf ek shared `S.vLine`
+  // tha, jo SV1 ke naye cells aur SV2 ke naye cells DONO ke liye default seed
+  // banta tha — matlab Main Chart Settings panel se badla hua vLine, SV2 mein
+  // bhi bleed kar jaata tha (aur vice versa).
+  vLineSV1:  { enabled: true, color: '#2962ff', width: 1, offset: 5, style: 'solid' },
+  vLineSV2:  { enabled: true, color: '#2962ff', width: 1, offset: 5, style: 'solid' },
   // Right-offset (last candle ke baad ki blank space) mein kitne spaces
   // ke liye hum khud sahi, working-day-aware time generate karke dikhayenge
   // (chart library ke apne galat "guess" ki jagah). Settings se badal sakte ho.
@@ -3142,6 +3149,15 @@ function _saveFutureOffset(n) {
   S.futureOffset = Number.isFinite(v) && v > 0 ? Math.max(1, Math.min(200, v)) : 30;
   try { _LS.setItem(_FUTURE_OFFSET_KEY, String(S.futureOffset)); } catch(_) {}
   return S.futureOffset;
+}
+
+// ── Active Future Line defaults — SV2 (Stack View 2) ke liye S.vLineSV2,
+// har baaki view (Main/Grid/SV1) ke liye S.vLineSV1. Jahan bhi "naye cell ke
+// liye default vLine kya ho" ya "global Future Line settings panel kis
+// object ko padhe/likhe" decide karna ho, isi function se karo — taaki
+// SV1/SV2 ka default hamesha ek hi jagah se, consistently decide ho.
+function _activeVLineDefaults() {
+  return (S.layout === 'stack2') ? S.vLineSV2 : S.vLineSV1;
 }
 
 // ── Timezone-aware time formatting for crosshair label ──────────────────────
@@ -3217,7 +3233,8 @@ function saveState() {
       selCell:   SELECTED_CELL,
       activeSlot: _activeSlot,
       cells:     CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
-      vLine:     { ...S.vLine },
+      vLineSV1:  { ...S.vLineSV1 },
+      vLineSV2:  { ...S.vLineSV2 },
     }));
   } catch(_) {}
 }
@@ -3253,7 +3270,8 @@ function _currentSnapshot(name) {
     bgColor:     S.bgColor,
     textColor:   S.textColor,
     hour12:      S.hour12,
-    vLine:       {...S.vLine},
+    vLineSV1:    {...S.vLineSV1},
+    vLineSV2:    {...S.vLineSV2},
     favTFs:      [..._favTFs],
     cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
     drawings:    JSON.parse(JSON.stringify(_DT.drawings || [])),
@@ -3424,8 +3442,15 @@ function loadFromSlot(idx) {
   const legSym = document.getElementById('leg-sym');
   if (legSym && slot.asset) { const tf=document.getElementById('leg-tf'); legSym.childNodes[0].textContent=slot.asset; if(tf) tf.textContent=' · '+_cellTfLabel(S.tf||1); }
 
-  // Restore future vertical line config
-  if (slot.vLine) Object.assign(S.vLine, slot.vLine);
+  // Restore future vertical line config — naya format: vLineSV1/vLineSV2
+  // alag-alag. Purana format (sirf `slot.vLine`) mile to dono mein migrate
+  // karo, taaki purani saved layouts break na hon.
+  if (slot.vLineSV1) Object.assign(S.vLineSV1, slot.vLineSV1);
+  if (slot.vLineSV2) Object.assign(S.vLineSV2, slot.vLineSV2);
+  if (slot.vLine && !slot.vLineSV1 && !slot.vLineSV2) {
+    Object.assign(S.vLineSV1, slot.vLine);
+    Object.assign(S.vLineSV2, slot.vLine);
+  }
 
   // Restore favourite TFs
   if (slot.favTFs && Array.isArray(slot.favTFs)) {
@@ -4532,7 +4557,7 @@ function _buildStack2CellChart(idx) {
   // ── Future Line (vLine) wiring — SV2 previously never created a canvas
   // for this, so the "Future Line" toggle in Cell Settings existed but
   // never actually drew anything. Mirror the Grid/Stack-1 setup here. ──────
-  if (!c.vLine) c.vLine = { ...S.vLine };
+  if (!c.vLine) c.vLine = { ..._activeVLineDefaults() };
   _vlCreateCellCanvas2(idx);
   try { c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _vlDrawCell2(idx)); } catch(_) {}
 
@@ -6738,85 +6763,32 @@ function chartOpts(el, h) {
 // ════════════════════════════════════════════════════════════════════════════
 
 let _vlCanvas = null, _vlCtx = null, _mainVLTime = null;
+// Main chart ab SV1/SV2 jaisa hi ek "cell-shaped" proxy object use karta hai,
+// taaki _vlCreateCellCanvasGeneric/_vlResizeCellCanvasGeneric/
+// _vlRemoveCellCanvasGeneric/_vlDrawCellGeneric — wahi EK function jo SV1
+// aur SV2 dono use karte hain — Main chart ke liye bhi identically chale.
+const _mainVLProxy = { chart: null, vLine: null, tf: null, _vlCanvas: null, _vlCtx: null, _vlTime: null };
 
 function _vlCreateCanvas() {
-  _vlRemoveCanvas();
-  const el = document.getElementById('main-chart');
-  if (!el) return;
-  el.style.position = 'relative';
-  _vlCanvas = document.createElement('canvas');
-  _vlCanvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:6;';
-  el.appendChild(_vlCanvas);
-  _vlCtx = _vlCanvas.getContext('2d');
-  _vlResizeCanvas();
+  _mainVLProxy.chart = chart;
+  _vlCreateCellCanvasGeneric(_mainVLProxy, 'main-chart');
+  _vlCanvas = _mainVLProxy._vlCanvas; _vlCtx = _mainVLProxy._vlCtx;
 }
 function _vlResizeCanvas() {
-  if (!_vlCanvas) return;
-  const el = document.getElementById('main-chart');
-  if (!el) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = el.clientWidth, h = el.clientHeight;
-  _vlCanvas.width = w * dpr; _vlCanvas.height = h * dpr;
-  _vlCanvas.style.width = w + 'px'; _vlCanvas.style.height = h + 'px';
+  _vlResizeCellCanvasGeneric(_mainVLProxy, 'main-chart');
+  _vlCanvas = _mainVLProxy._vlCanvas; _vlCtx = _mainVLProxy._vlCtx;
 }
 function _vlRemoveCanvas() {
-  if (_vlCanvas) { _vlCanvas.remove(); _vlCanvas = null; _vlCtx = null; }
+  _vlRemoveCellCanvasGeneric(_mainVLProxy);
+  _vlCanvas = null; _vlCtx = null;
 }
 
 function _vlDraw() {
-  if (!_vlCtx || !_vlCanvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  _vlCtx.setTransform(1, 0, 0, 1, 0, 0);
-  _vlCtx.clearRect(0, 0, _vlCanvas.width, _vlCanvas.height);
-  if (!S.vLine.enabled || !chart || !_mainVLTime) return;
-  const cssW = _vlCanvas.width / dpr, cssH = _vlCanvas.height / dpr;
-  const tfSec = (S.tf || 1) * 60;
-  const futureTime = _mainVLTime + (S.vLine.offset || 5) * tfSec;
-
-  // timeToCoordinate works for visible times; for future times use bar-width fallback
-  // (identical pattern to swingDraw's xE fallback)
-  let x = chart.timeScale().timeToCoordinate(futureTime);
-  if (x == null) {
-    const lastX  = chart.timeScale().timeToCoordinate(_mainVLTime);
-    if (lastX != null) {
-      let barPx = 8;
-      try {
-        const bs = chart.timeScale().options().barSpacing;
-        if (bs && bs > 0) barPx = bs;
-      } catch(_) {}
-      if (barPx < 4) {
-        const prevX = chart.timeScale().timeToCoordinate(_mainVLTime - tfSec);
-        if (prevX != null) barPx = Math.abs(lastX - prevX);
-      }
-      x = lastX + (S.vLine.offset || 5) * barPx;
-    }
-  }
-  // Step 2: agar abhi bhi null hai ya range se bahar — rightOffset se seedha calculate karo
-  // (BankNifty/NSE jaise assets mein weekend+holiday gaps hote hain, isliye future timeToCoordinate
-  //  null deta hai. _vlDrawCell ka proven logic yahan bhi same apply karo)
-  if (x == null || x < -20 || x > cssW + 20) {
-    try {
-      let barPx = 6;
-      try { const bs = chart.timeScale().options().barSpacing; if (bs > 0) barPx = bs; } catch(_) {}
-      const offset   = S.vLine.offset || 5;
-      const rightOff = chart.timeScale().options().rightOffset || offset;
-      x = cssW - (rightOff - offset) * barPx;
-    } catch(_) { return; }
-  }
-  if (x == null || x < -20 || x > cssW + 20) return;
-
-  const tsH = (chart.timeScale && typeof chart.timeScale().height === 'function')
-    ? chart.timeScale().height() : 38;
-  _vlCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  _vlCtx.save();
-  _vlCtx.strokeStyle = S.vLine.color || '#2962ff';
-  _vlCtx.lineWidth   = Math.max(1, S.vLine.width || 1);
-  _vlCtx.setLineDash((S.vLine.style || 'dashed') === 'solid' ? [] : [5, 4]);
-  _vlCtx.beginPath();
-  _vlCtx.moveTo(x, 0);
-  _vlCtx.lineTo(x, cssH - tsH);
-  _vlCtx.stroke();
-  _vlCtx.restore();
+  _mainVLProxy.chart   = chart;
+  _mainVLProxy.tf      = S.tf;
+  _mainVLProxy.vLine   = S.vLineSV1;
+  _mainVLProxy._vlTime = _mainVLTime;
+  _vlDrawCellGeneric(_mainVLProxy);
 }
 
 // Per-cell VLine canvas helpers
@@ -6874,7 +6846,7 @@ function _vlDrawCellGeneric(c) {
   const dpr = window.devicePixelRatio || 1;
   c._vlCtx.setTransform(1, 0, 0, 1, 0, 0);
   c._vlCtx.clearRect(0, 0, c._vlCanvas.width, c._vlCanvas.height);
-  const vl = c.vLine || S.vLine;
+  const vl = c.vLine || _activeVLineDefaults();
   if (!vl.enabled || !c.chart) return;
   const cssW = c._vlCanvas.width / dpr, cssH = c._vlCanvas.height / dpr;
   // Bar Replay (SV2) mein future line hamesha last (real) candle se FIXED
@@ -6953,25 +6925,25 @@ function _vlResizeCellCanvas2(idx) {
 let _mainSettingsPanel = null;
 function _openMainChartSettings(btn) {
   if (_mainSettingsPanel) { _mainSettingsPanel.remove(); _mainSettingsPanel = null; return; }
-  const vl = S.vLine;
+  const vl = S.vLineSV1;
   const panel = document.createElement('div');
   panel.className = 'cell-settings-panel open';
   panel.innerHTML =
     `<div class="csp-title"><span>Chart Settings</span><button class="csp-close" onclick="_closeMainChartSettings()">✕</button></div>`+
     `<div class="csp-row"><span>Future Line</span>`+
-      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="S.vLine.enabled=this.checked;_vlDraw();saveState();"><span class="sl"></span></label></div>`+
+      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="S.vLineSV1.enabled=this.checked;_vlDraw();saveState();"><span class="sl"></span></label></div>`+
     `<div class="csp-row"><span>Color</span>`+
-      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#2962ff'?'#fff':'#444'};background:#2962ff;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLine.color='#2962ff';_setVLineColor(S.asset,S.tf,'#2962ff');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Blue"></button>`+
-      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#f23645'?'#fff':'#444'};background:#f23645;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLine.color='#f23645';_setVLineColor(S.asset,S.tf,'#f23645');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>`+
-      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#26a69a'?'#fff':'#444'};background:#26a69a;cursor:pointer" onclick="event.stopPropagation();S.vLine.color='#26a69a';_setVLineColor(S.asset,S.tf,'#26a69a');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Green"></button>`+
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#2962ff'?'#fff':'#444'};background:#2962ff;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLineSV1.color='#2962ff';_setVLineColor(S.asset,S.tf,'#2962ff');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Blue"></button>`+
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#f23645'?'#fff':'#444'};background:#f23645;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();S.vLineSV1.color='#f23645';_setVLineColor(S.asset,S.tf,'#f23645');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>`+
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${vl.color==='#26a69a'?'#fff':'#444'};background:#26a69a;cursor:pointer" onclick="event.stopPropagation();S.vLineSV1.color='#26a69a';_setVLineColor(S.asset,S.tf,'#26a69a');_vlDraw();saveState();this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Green"></button>`+
     `</div>`+
     `<div class="csp-row"><span>Width</span>`+
-      `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="S.vLine.width=+this.value;_vlDraw();saveState();"></div>`+
+      `<input class="vl-num-inp" type="number" min="1" max="5" value="${vl.width}" onchange="S.vLineSV1.width=+this.value;_vlDraw();saveState();"></div>`+
     `<div class="csp-row"><span>Offset (candles)</span>`+
-      `<input class="vl-num-inp" type="number" min="1" max="50" value="${vl.offset}" onchange="S.vLine.offset=+this.value;_vlDraw();saveState();"></div>`+
+      `<input class="vl-num-inp" type="number" min="1" max="50" value="${vl.offset}" onchange="S.vLineSV1.offset=+this.value;_vlDraw();saveState();"></div>`+
     `<div class="csp-row"><span>Solid Line</span>`+
       `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">`+
-        `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="S.vLine.style=this.checked?'solid':'dashed';_vlDraw();saveState();">`+
+        `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="S.vLineSV1.style=this.checked?'solid':'dashed';_vlDraw();saveState();">`+
         `<span class="sl"></span></label></div>`;
   document.body.appendChild(panel);
   const pW = panel.offsetWidth || 172, pH = panel.offsetHeight || 140;
@@ -7173,7 +7145,7 @@ function rebuildChart() {
   applyLegendVisibility();
   swingAfterRebuild();
   _mainVLTime = data.length ? data[data.length - 1].time : null;
-  _applyVLineColor(S.asset, S.tf, S.vLine);
+  _applyVLineColor(S.asset, S.tf, S.vLineSV1);
   _vlCreateCanvas();
   chart.timeScale().subscribeVisibleLogicalRangeChange(_vlDraw);
   // RAF-throttle vlDraw on crosshair move — prevents double-paint with legend RAF
@@ -8139,7 +8111,7 @@ async function buildCellChart(idx) {
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
     crosshair:{mode:0, vertLine:{labelVisible:true}, horzLine:{labelVisible:true}},  // always Normal (free) for grid cells — never Magnet
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
-    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLine&&S.vLine.offset||5)+1)),barSpacing:4,minBarSpacing:1},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLineSV1&&S.vLineSV1.offset||5)+1)),barSpacing:4,minBarSpacing:1},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{axisPressedMouseMove:true,mouseWheel:true,pinch:true},
@@ -8203,7 +8175,7 @@ async function buildCellChart(idx) {
   _pdotCreateCellCanvas(idx);
   setTimeout(()=>{ _pdotDraw(idx); }, 80);
   c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _pdotDraw(idx));
-  if (!c.vLine) c.vLine = { ...S.vLine };
+  if (!c.vLine) c.vLine = { ..._activeVLineDefaults() };
   _applyVLineColor(c.asset, c.tf, c.vLine);
   c._vlTime = data.length ? data[data.length - 1].time : null;
   _vlCreateCellCanvas(idx);
@@ -8721,7 +8693,7 @@ function _openCellSettings(idx, btn) {
       `<button class="tv-clr-btn-lg" data-color="${c.dnColor||S.dnColor}" style="background:${c.dnColor||S.dnColor};width:20px;height:14px" onclick="event.stopPropagation();_openSettingsColor(this,v=>_setCellColor(${idx},'dn',v))"></button></div>`+
     `<div class="csp-row"><span>Log</span>`+
       `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${c.log?'checked':''} onchange="_setCellLog(${idx},this.checked)"><span class="sl"></span></label></div>`+
-    (()=>{ if(!c.vLine) c.vLine={...S.vLine}; const vl=c.vLine; return ``+
+    (()=>{ if(!c.vLine) c.vLine={..._activeVLineDefaults()}; const vl=c.vLine; return ``+
       `<div class="csp-row" style="border-top:1px solid #2a2e39;margin-top:2px"><span style="font-weight:700;color:#9598a1">Future Line</span>`+
         `<label class="toggle" style="transform:scale(0.75);transform-origin:right center"><input type="checkbox" ${vl.enabled?'checked':''} onchange="CELLS[${idx}].vLine.enabled=this.checked;_vlDrawCell(${idx});saveState();"><span class="sl"></span></label></div>`+
       `<div class="csp-row"><span>Color</span>`+
@@ -10388,7 +10360,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof st.bgColor  ==='string')  S.bgColor=st.bgColor;
       if (typeof st.textColor==='string')  S.textColor=st.textColor;
       if (typeof st.grid     ==='boolean') S.grid=st.grid;
-      if (st.vLine && typeof st.vLine.offset==='number') Object.assign(S.vLine, st.vLine);
+      if (st.vLineSV1 && typeof st.vLineSV1.offset==='number') Object.assign(S.vLineSV1, st.vLineSV1);
+      if (st.vLineSV2 && typeof st.vLineSV2.offset==='number') Object.assign(S.vLineSV2, st.vLineSV2);
+      if (st.vLine && typeof st.vLine.offset==='number' && !st.vLineSV1 && !st.vLineSV2) {
+        Object.assign(S.vLineSV1, st.vLine);
+        Object.assign(S.vLineSV2, st.vLine);
+      }
       S.chartType='candle';   // always candle; type switcher removed
       if (Array.isArray(st.cells)&&st.cells.length) { _savedCells=st.cells; _savedCellsLayout = st.layout||'1x1'; }
       _applyRestoredUI(st);
@@ -10410,7 +10387,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (slotToLoad.bgColor)   S.bgColor   = slotToLoad.bgColor;
         if (slotToLoad.textColor) S.textColor = slotToLoad.textColor;
         if (slotToLoad.tf)        S.tf        = slotToLoad.tf;
-        if (slotToLoad.vLine)     Object.assign(S.vLine, slotToLoad.vLine);
+        if (slotToLoad.vLineSV1) Object.assign(S.vLineSV1, slotToLoad.vLineSV1);
+        if (slotToLoad.vLineSV2) Object.assign(S.vLineSV2, slotToLoad.vLineSV2);
+        if (slotToLoad.vLine && !slotToLoad.vLineSV1 && !slotToLoad.vLineSV2) {
+          Object.assign(S.vLineSV1, slotToLoad.vLine);
+          Object.assign(S.vLineSV2, slotToLoad.vLine);
+        }
         if (slotToLoad.favTFs && Array.isArray(slotToLoad.favTFs)) {
           _favTFs = [...slotToLoad.favTFs];
           try { _LS.setItem(_FAV_KEY, JSON.stringify(_favTFs)); } catch(_) {}
