@@ -509,6 +509,47 @@ _IST_NAIVE_OFFSET = 19800   # 5.5 * 3600 — IST-naive → real UTC conversion
 _SESSION_START    = 33300   # 9:15 IST = 9*3600 + 15*60 seconds from midnight
 _SESSION_END      = 55800   # 15:30 IST = 15*3600 + 30*60 seconds from midnight
 
+def _sv2_fill_bn_gaps(rows: list) -> list:
+    """BN 1m raw data mein missing minutes (no-trade gaps) forward-fill karo.
+
+    Vendor ka 1m data kai jagah beech mein minutes miss karta hai (illiquid /
+    no-trade moments). Agar poore 5m/15m/etc bucket ke saare minutes missing
+    hon, to us bucket ka candle hi resample output se gayab ho jaata hai —
+    chart mein genuine "candles ke beech gap" dikhta hai. Fix: har trading
+    session (9:15–15:29:XX IST, 375 minutes/day) ke liye poori minute sequence
+    banao — jo minute missing ho use pichle available close se flat candle
+    (o=h=l=c=prev_close) se bhar do. Isse koi bhi downstream resample bucket
+    kabhi khaali nahi rahega.
+    """
+    if not rows:
+        return rows
+    by_day: dict = {}
+    for r in rows:
+        t   = r["t"]
+        mod = t % 86400
+        if mod < _SESSION_START or mod >= _SESSION_END:
+            continue
+        day_start = t - mod
+        by_day.setdefault(day_start, {})[t] = r
+
+    out = []
+    prev_close = None
+    for day_start in sorted(by_day.keys()):
+        day_rows = by_day[day_start]
+        for sec_off in range(_SESSION_START, _SESSION_END, 60):
+            t = day_start + sec_off
+            if t in day_rows:
+                r = day_rows[t]
+                out.append(r)
+                prev_close = r["c"]
+            elif prev_close is not None:
+                out.append({"t": t, "o": prev_close, "h": prev_close,
+                            "l": prev_close, "c": prev_close})
+            # agar dataset ke bilkul shuru mein hi pehla minute missing ho
+            # (prev_close abhi None hai), to use silently skip karo — us
+            # point tak koi reference close available hi nahi hai.
+    return out
+
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
     """BN 1m data ko intraday TF mein resample karo.
 
@@ -705,7 +746,7 @@ def _build_sv2_data() -> dict:
     if "agg" in _SV2_CACHE:
         return _SV2_CACHE["agg"]
 
-    bn_raw  = _sv2_load_bn_gz()
+    bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
     btc_raw = _sv2_load_btc_gz()
 
     bn_tfs = {
