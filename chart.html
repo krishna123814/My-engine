@@ -4189,6 +4189,16 @@ function destroyStackCells() {
 // ════════════════════════════════════════════════════════════════════════════
 const STACK2_CELLS = [];      // independent CELLS array for Stack View 2
 let _stack2Active  = false;
+
+// ── Active-view-aware cell array ──────────────────────────────────────────
+// Cursor/crosshair sync code (wireSync, mobile lpMoveCrosshair/lpDeactivate)
+// used to hardcode `CELLS` (Stack View 1's grid array) everywhere — so it
+// silently did nothing while Stack View 2 was active, since SV2 keeps its
+// cells in the separate STACK2_CELLS array. This helper picks whichever
+// array is actually on-screen right now.
+function _activeSyncCells() {
+  return (typeof _stack2Active !== 'undefined' && _stack2Active) ? STACK2_CELLS : CELLS;
+}
 let _stack2OnOff   = false;
 let _stack2ResizeObs = null;
 let _stack2ScrollAnim = null;
@@ -4499,6 +4509,11 @@ function buildStack2() {
     // Build empty chart for this cell
     _buildStack2CellChart(i);
   }
+
+  // Wire cross-cell cursor/time sync for these SV2 cells — buildStack2()
+  // previously never called this at all, so SV2 panes never synced with
+  // each other (wireSync() only ever ran against the SV1 grid's CELLS).
+  requestAnimationFrame(() => requestAnimationFrame(() => wireSync()));
 
   // Resize observer
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} }
@@ -7373,10 +7388,12 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
   function lpDeactivate() {
     lpOn = false; _lastBar = null;
     try { chartInst.applyOptions({handleScroll:{horzTouchDrag:true, vertTouchDrag:true, mouseWheel:true, pressedMouseMove:true}}); } catch(_) {}
-    // Clear crosshair on this chart + all other grid cells
+    // Clear crosshair on this chart + all other cells in the currently
+    // active view (grid Stack View 1 OR Stack View 2 — not hardcoded CELLS,
+    // which used to leave SV2 panes stuck showing a stale crosshair).
     try { chartInst.clearCrosshairPosition(); } catch(_) {}
-    if (typeof CELLS !== 'undefined') {
-      CELLS.forEach(c => {
+    if (typeof _activeSyncCells === 'function') {
+      _activeSyncCells().forEach(c => {
         if (c.chart && c.chart !== chartInst) {
           try { c.chart.clearCrosshairPosition(); } catch(_) {}
         }
@@ -7402,9 +7419,11 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
       // Set crosshair on this chart
       chartInst.setCrosshairPosition(price, time, s);
 
-      // Sync to all other grid cells
-      if (typeof CELLS !== 'undefined') {
-        CELLS.forEach(c => {
+      // Sync to all other cells in the currently active view (grid Stack
+      // View 1 OR Stack View 2 — was hardcoded to CELLS before, so SV2
+      // cross-cell touch sync silently never ran).
+      if (typeof _activeSyncCells === 'function') {
+        _activeSyncCells().forEach(c => {
           if (!c.chart || c.chart === chartInst || !c.series) return;
           try {
             const el = c.el;
@@ -7418,10 +7437,21 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
 
             // Floor-match time into target cell's candle data
             // NOTE: .data() not in v4.2 — use ALLDATA cache
+            // During an active SV2 Live Replay, use the same partial
+            // bottom-up-aggregated bars the replay engine actually plotted
+            // (window._SV2_LIVE) instead of the full/static dataset — the
+            // full dataset would floor-match to bars not yet revealed on
+            // the destination chart, making setCrosshairPosition() no-op.
             let tTime = null;
             try {
-              const raw  = _baseDataFor(c.asset, c.tf);
-              const data = resampleForTF(raw, c.tf, c.asset);
+              const _live = window._SV2_LIVE;
+              let data;
+              if (typeof _stack2Active !== 'undefined' && _stack2Active && _live && _live.baseBars && typeof _liveAggregateAny === 'function') {
+                data = _liveAggregateAny(_live.baseBars, _live.revealIdx, c.tf || 5, _live.isBN);
+              } else {
+                const raw = _baseDataFor(c.asset, c.tf);
+                data = resampleForTF(raw, c.tf, c.asset);
+              }
               if (data && data.length) {
                 let lo = 0, hi = data.length - 1;
                 while (lo <= hi) {
@@ -7737,18 +7767,41 @@ function toggleSync(key, btn){
 let _syncing = false;
 let _syncSrc = -1;
 function unwireSync(){
-  CELLS.forEach(c=>{
+  _activeSyncCells().forEach(c=>{
     if(c._chHandler&&c.chart){ try{c.chart.unsubscribeCrosshairMove(c._chHandler);}catch(_){} c._chHandler=null; }
     if(c._rngHandler&&c.chart){ try{c.chart.timeScale().unsubscribeVisibleLogicalRangeChange(c._rngHandler);}catch(_){} c._rngHandler=null; }
   });
 }
 function wireSync(){
   unwireSync();
-  if(CELLS.length<2) return;
+  const CELLS_ACTIVE = _activeSyncCells();
+  if(CELLS_ACTIVE.length<2) return;
 
   // Retry if any cell chart exists but has no series yet
-  const allReady = CELLS.every(c => !c.chart || c.series);
+  const allReady = CELLS_ACTIVE.every(c => !c.chart || c.series);
   if(!allReady){ requestAnimationFrame(()=>wireSync()); return; }
+
+  // ── Replay-aware destination data ─────────────────────────────────────
+  // _baseDataFor()+resampleForTF() only ever return the FULL/normal dataset.
+  // During an active SV2 Live Replay, what's actually plotted on each cell
+  // is a partial, bottom-up-aggregated slice (window._SV2_LIVE) — using the
+  // full dataset here would floor-match to bars the destination chart
+  // hasn't revealed yet, so setCrosshairPosition() would silently no-op
+  // (cursor looks "stuck"/desynced). When replay is live, rebuild each
+  // destination's currently-visible bars the same way the replay engine
+  // does; otherwise fall back to the normal static path.
+  function _destDataFor(d){
+    const live = window._SV2_LIVE;
+    // d.tf is set correctly (in minutes) once _buildStack2CellChart loads
+    // that cell's data — reuse it here instead of the private closure-scoped
+    // _getCellTFMinLive() inside the replay-engine IIFE, which isn't reachable.
+    if(_stack2Active && live && live.baseBars && typeof _liveAggregateAny === 'function'){
+      try{ return _liveAggregateAny(live.baseBars, live.revealIdx, d.tf || 5, live.isBN); }
+      catch(_){ /* fall through to static path */ }
+    }
+    const destRaw = _baseDataFor(d.asset, d.tf);
+    return resampleForTF(destRaw, d.tf, d.asset);
+  }
 
   // Binary search: find largest candle.time <= srcTime (floor match)
   // This correctly maps cross-TF: e.g. 14:32 on 1D → 09:15 on 15m
@@ -7791,20 +7844,19 @@ function wireSync(){
       _xhRAF = null;
       const si = _xhSrcIdx, param = _xhParam;
       if(si < 0) return;
-      const src = CELLS[si];
+      const src = CELLS_ACTIVE[si];
       if(!src || !src.chart || !src.series) return;
       if(_syncing) return; _syncing = true;
       try {
         if(!param || param.time === undefined || !param.point){
-          CELLS.forEach((d, di)=>{ if(di !== si && d.chart){ try{ d.chart.clearCrosshairPosition(); }catch(_){} } });
+          CELLS_ACTIVE.forEach((d, di)=>{ if(di !== si && d.chart){ try{ d.chart.clearCrosshairPosition(); }catch(_){} } });
         } else {
           const bar = param.seriesData.get(src.series);
           const price = bar ? (bar.close ?? bar.value ?? 0) : 0;
-          CELLS.forEach((d, di)=>{
+          CELLS_ACTIVE.forEach((d, di)=>{
             if(di === si || !d.chart || !d.series) return;
             try{
-              const destRaw     = _baseDataFor(d.asset, d.tf);
-              const destData    = resampleForTF(destRaw, d.tf, d.asset);
+              const destData    = _destDataFor(d);
               const mappedTime  = _floorTime(destData, param.time);
               if(mappedTime !== null) d.chart.setCrosshairPosition(price, mappedTime, d.series);
               else d.chart.clearCrosshairPosition();
@@ -7814,7 +7866,7 @@ function wireSync(){
       } finally { _syncing = false; }
     }
 
-    CELLS.forEach((src, si)=>{
+    CELLS_ACTIVE.forEach((src, si)=>{
       if(!src.chart || !src.series) return;
       src._chHandler = param => {
         _xhParam = param; _xhSrcIdx = si;
@@ -7826,7 +7878,7 @@ function wireSync(){
 
   // ── Time range sync ─────────────────────────────────────────────────────
   if(SYNC.time || SYNC.dateRange){
-    CELLS.forEach((src, si)=>{
+    CELLS_ACTIVE.forEach((src, si)=>{
       if(!src.chart) return;
       let _rngRAF = null, _lastR = null;
       src._rngHandler = r => {
@@ -7837,7 +7889,7 @@ function wireSync(){
           _rngRAF = null;
           const rr = _lastR; _lastR = null;
           if(!rr) return;
-          CELLS.forEach((d, di)=>{
+          CELLS_ACTIVE.forEach((d, di)=>{
             if(di === si || !d.chart) return;
             d._rngDriving = true;
             try{ d.chart.timeScale().setVisibleLogicalRange(rr); }catch(_){}
