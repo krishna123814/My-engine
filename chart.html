@@ -8114,6 +8114,25 @@ async function buildCellChart(idx) {
 
   const data=resampleForTF(rawData, c.tf, c.asset);
 
+  // ── Right-offset whitespace fix (Stack View 1 ke liye) ───────────────────
+  // SV2 mein ye fix pehle se tha (_buildFutureWhitespace via _sv2LoadData) —
+  // SV1 (S.layout==='stack') mein bilkul missing tha, isliye "30 din" wala
+  // Settings ka futureOffset sirf ek numeric rightOffset chart-option ban ke
+  // reh jaata tha, aur Lightweight Charts apna khud ka (working-day/session
+  // rules ignore karne wala) future-time "guess" use karta tha — daily+ TFs
+  // (3D/9D/27D) par kabhi galat/bahut door future date dikh jaati thi.
+  // Ab SV1 bhi wahi asli, working-day-aware whitespace tail generate karke
+  // real data ke turant baad jodta hai, taaki chart ko kuch guess na karna
+  // pade — SV2 jaisa hi consistent behavior.
+  let cellDataWithWs = data;
+  if (S.layout === 'stack' && data.length) {
+    try {
+      const _cellIsBN = c.asset && !isCryptoSymbol(c.asset);
+      const _fwCell = _buildFutureWhitespace(data[data.length - 1].time, c.tf, _cellIsBN, (S.futureOffset || 30));
+      if (_fwCell.length) cellDataWithWs = data.concat(_fwCell);
+    } catch(_) {}
+  }
+
   c.chart=LightweightCharts.createChart(el,{
     width:el.clientWidth||200, height:el.clientHeight||200,
     layout:{background:{type:'solid',color:S.bgColor},textColor:S.textColor,fontSize:7},
@@ -8153,9 +8172,9 @@ async function buildCellChart(idx) {
 
   if (data.length) {
     if (cType === 'line' || cType === 'area') {
-      c.series.setData(data.map(d => ({time: d.time, value: d.close})));
+      c.series.setData(cellDataWithWs.map(d => (d.close != null ? {time: d.time, value: d.close} : d)));
     } else {
-      c.series.setData(data);
+      c.series.setData(cellDataWithWs);
     }
     _applyZoom(c.chart.timeScale(), c.asset, c.tf);
   }
