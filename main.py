@@ -480,7 +480,7 @@ def _sv2_fetch_gz_from_url(url: str) -> list:
         return []
 
 def _sv2_load_bn_gz() -> list:
-    """BankNifty 5m candles — GitHub se fetch karo (cached)."""
+    """BankNifty 1m candles — GitHub se fetch karo (cached)."""
     if "bn_raw" in _SV2_CACHE:
         return _SV2_CACHE["bn_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
@@ -491,7 +491,7 @@ def _sv2_load_bn_gz() -> list:
     return rows
 
 def _sv2_load_btc_gz() -> list:
-    """BTC 5m candles — GitHub se fetch karo (cached)."""
+    """BTC 1m candles — GitHub se fetch karo (cached)."""
     if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
@@ -510,15 +510,19 @@ _SESSION_START    = 33300   # 9:15 IST = 9*3600 + 15*60 seconds from midnight
 _SESSION_END      = 55800   # 15:30 IST = 15*3600 + 30*60 seconds from midnight
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
-    """BN 5m data ko intraday TF mein resample karo.
+    """BN 1m data ko intraday TF mein resample karo.
 
     .gz timestamps IST-naive hain (9:15 IST stored as 09:15 UTC epoch).
     Per-day anchor: har din 9:15 IST se bucket 0 start hota hai.
     Output timestamps real UTC mein (LightweightCharts + IST timezone ke liye).
     Session filter: sirf 9:15–15:30 IST ke candles.
+
+    NOTE: raw .gz ab 1m granularity hai (pehle 5m thi). Isliye passthrough
+    (bina bucketing) sirf tf_min==1 par hota hai — 5m/15m/45m/135m sabko
+    ab yahin se actual bucket-resample hona zaroori hai.
     """
     sec = tf_min * 60
-    if tf_min <= 5:
+    if tf_min <= 1:
         out = []
         for r in rows:
             mod = r["t"] % 86400
@@ -553,7 +557,7 @@ def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
     return sorted(buckets.values(), key=lambda x: x["time"])
 
 def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
-    """BN 5m data ko daily / multi-day candles mein resample karo.
+    """BN 1m data ko daily / multi-day candles mein resample karo.
 
     Har trading day ka open = 9:15 IST (real UTC: 3:45 AM = 13500s from UTC midnight).
     .gz timestamps IST-naive hain — 19800 subtract karo real UTC ke liye.
@@ -596,14 +600,17 @@ def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
     return out
 
 def _sv2_resample_btc(rows: list, tf_min: int) -> list:
-    """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto).
+    """BTC 1m data ko UTC-anchored TF mein resample karo (24/7 crypto).
 
     NOTE: sirf 160m/8H (intraday, tf_min < 1440) ke liye use karo. Daily+
     (1D/3D/9D/27D) ke liye _sv2_resample_btc_daily() use karo — wo epoch
     (1970) anchor ki jagah data ke apne Day-1 se index-based chunking
     karta hai, jisse 3D/9D/27D hamesha same date se sync start hote hain.
+
+    NOTE: raw .gz ab 1m granularity hai (pehle 5m thi). Isliye passthrough
+    (bina bucketing) sirf tf_min==1 par hota hai.
     """
-    if tf_min <= 5:
+    if tf_min <= 1:
         return [{"time": r["t"], "open": r["o"], "high": r["h"],
                  "low": r["l"], "close": r["c"]} for r in rows]
     sec = tf_min * 60
@@ -621,7 +628,7 @@ def _sv2_resample_btc(rows: list, tf_min: int) -> list:
     return sorted(buckets.values(), key=lambda x: x["time"])
 
 def _sv2_resample_btc_daily(rows: list, n_days: int = 1) -> list:
-    """BTC 5m data ko daily / multi-day candles mein resample karo.
+    """BTC 1m data ko daily / multi-day candles mein resample karo.
 
     Crypto 24/7 hai (koi session/weekday filter nahi) — sirf UTC
     calendar-day buckets banao, phir un dailies ko INDEX se (BN ke
@@ -691,7 +698,7 @@ def _build_sv2_data() -> dict:
     pehli dafa call hota hai) aur result ko _SV2_CACHE["agg"] mein store kar
     deta hai. Uske baad har stackview-2 open / Streamlit rerun pe seedha
     cached aggregated data return hota hai — resample functions dobara nahi
-    chalte. Raw 5m .gz data ka source same hai, bas resampling ab repeat
+    chalte. Raw 1m .gz data ka source same hai, bas resampling ab repeat
     nahi hoti.
     """
     if "agg" in _SV2_CACHE:
