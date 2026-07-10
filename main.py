@@ -491,7 +491,7 @@ def _sv2_load_bn_gz() -> list:
     return rows
 
 def _sv2_load_btc_gz() -> list:
-    """BTC 1m candles — GitHub se fetch karo (cached)."""
+    """BTC 5m candles — GitHub se fetch karo (cached)."""
     if "btc_raw" in _SV2_CACHE:
         return _SV2_CACHE["btc_raw"]
     rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
@@ -600,17 +600,18 @@ def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
     return out
 
 def _sv2_resample_btc(rows: list, tf_min: int) -> list:
-    """BTC 1m data ko UTC-anchored TF mein resample karo (24/7 crypto).
+    """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto).
 
     NOTE: sirf 160m/8H (intraday, tf_min < 1440) ke liye use karo. Daily+
     (1D/3D/9D/27D) ke liye _sv2_resample_btc_daily() use karo — wo epoch
     (1970) anchor ki jagah data ke apne Day-1 se index-based chunking
     karta hai, jisse 3D/9D/27D hamesha same date se sync start hote hain.
 
-    NOTE: raw .gz ab 1m granularity hai (pehle 5m thi). Isliye passthrough
-    (bina bucketing) sirf tf_min==1 par hota hai.
+    NOTE: raw .gz 5m granularity hai (BankNifty 1m par hai, BTC 5m par
+    wapas revert kar diya gaya hai). Isliye passthrough (bina bucketing)
+    tf_min<=5 par hota hai.
     """
-    if tf_min <= 1:
+    if tf_min <= 5:
         return [{"time": r["t"], "open": r["o"], "high": r["h"],
                  "low": r["l"], "close": r["c"]} for r in rows]
     sec = tf_min * 60
@@ -628,7 +629,7 @@ def _sv2_resample_btc(rows: list, tf_min: int) -> list:
     return sorted(buckets.values(), key=lambda x: x["time"])
 
 def _sv2_resample_btc_daily(rows: list, n_days: int = 1) -> list:
-    """BTC 1m data ko daily / multi-day candles mein resample karo.
+    """BTC 5m data ko daily / multi-day candles mein resample karo.
 
     Crypto 24/7 hai (koi session/weekday filter nahi) — sirf UTC
     calendar-day buckets banao, phir un dailies ko INDEX se (BN ke
