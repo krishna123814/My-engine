@@ -2791,8 +2791,19 @@ function _nextNseWorkingDay(tSec) {
   return t;
 }
 
+// ── SHARED daily-plus boundary check ────────────────────────────────────────
+// Poore codebase mein "daily+ (1D/3D/9D/27D) vs intraday" wala decision kai
+// jagah raw `tfMin >= 1440` likh ke liya jaata tha — alag-alag functions mein
+// alag comparator use hone ka risk tha (`>=` vs `>` vs `===`), jisse kisi ek
+// TF (jaise exactly 1440 ya koi custom intraday TF) ke liye functions ke
+// beech disagreement ho sakta tha ki wo "daily+" hai ya "intraday". Ab sab
+// isi ek helper ko call karte hain, taaki decision hamesha IDENTICAL rahe.
+function _isDailyPlusTF(tfMin) {
+  return tfMin >= 1440;
+}
+
 function _liveGetBucketTime(tSec, tfMin, isBN) {
-  if (tfMin >= 1440) {
+  if (_isDailyPlusTF(tfMin)) {
     if (isBN) {
       // BN daily+ (1D/3D/9D/27D) — WORKING-DAY based bucketing (weekends +
       // NSE holidays excluded), taaki "3D" ka matlab hamesha 3 CONTINUOUS
@@ -2865,7 +2876,7 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
 //     asli boundary hai — jo bhi pehle aaye.
 //   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
 function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
-  if (tfMin >= 1440) {
+  if (_isDailyPlusTF(tfMin)) {
     var nDays = Math.max(1, Math.round(tfMin / 1440)); // 1D→1, 3D→3, 9D→9, 27D→27
     if (isBN) {
       var dailyArr = (typeof SV2_BN !== 'undefined' && SV2_BN['1D'] && SV2_BN['1D'].length) ? SV2_BN['1D'] : null;
@@ -2930,7 +2941,7 @@ function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
 //     candle-open time par hi gire, kabhi session-close/holiday ke beech
 //     mein nahi.
 function _nextFutureBucketTime(t, tfMin, isBN) {
-  if (tfMin >= 1440) return _liveBucketExpectedEnd(t, tfMin, isBN);
+  if (_isDailyPlusTF(tfMin)) return _liveBucketExpectedEnd(t, tfMin, isBN);
   if (!isBN) return t + tfMin * 60;
   const advanced = _advanceTradingSeconds(t, tfMin * 60, tfMin, true);
   return _liveGetBucketTime(advanced, tfMin, true);
@@ -3077,7 +3088,7 @@ function _liveAggregateDailyPlus(dailyFull, baseBars, revealIdx, nDays, isBN) {
 // through the full-history-aware aggregator above, everything else through
 // the original 5m/160m-base aggregator. Keeps all call-sites one-liners.
 function _liveAggregateAny(baseBars, revealIdx, tfMin, isBN) {
-  if (tfMin >= 1440) {
+  if (_isDailyPlusTF(tfMin)) {
     var dailyFull = isBN
       ? ((typeof SV2_BN  !== 'undefined' && SV2_BN['1D'])  || [])
       : ((typeof SV2_BTC !== 'undefined' && SV2_BTC['1D']) || []);
@@ -7000,13 +7011,13 @@ function destroyCharts() {
 // < 5m    → 1m candles
 function _baseDataFor(asset, tfMin) {
   if (asset === BN_ASSET) {
-    if (tfMin >= 1440 && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
+    if (_isDailyPlusTF(tfMin) && Array.isArray(BN_DAILY) && BN_DAILY.length) return BN_DAILY;
     if (tfMin >= 45   && Array.isArray(BN_45M)   && BN_45M.length)   return BN_45M;
     if (tfMin >= 15   && Array.isArray(BN_15M)   && BN_15M.length)   return BN_15M;
     if (tfMin >= 5    && Array.isArray(BN_5M)    && BN_5M.length)    return BN_5M;
     return ALLDATA[asset] || [];
   }
-  if (tfMin >= 1440 && Array.isArray(BTC_DAILY) && BTC_DAILY.length) return BTC_DAILY;
+  if (_isDailyPlusTF(tfMin) && Array.isArray(BTC_DAILY) && BTC_DAILY.length) return BTC_DAILY;
   if (tfMin >= 15   && Array.isArray(BTC_15M)   && BTC_15M.length)   return BTC_15M;
   return ALLDATA[asset] || [];
 }
@@ -10956,7 +10967,7 @@ function _nextSessionOpen(fromSec) {
 // ko skip karke). tfMin >= 1440 (daily+) ke liye purana raw-add behaviour
 // hi rakha hai (unchanged scope).
 function _advanceTradingSeconds(fromSec, deltaSec, tfMin, isNSE) {
-  if (tfMin >= 1440) {
+  if (_isDailyPlusTF(tfMin)) {
     if (!isNSE) return fromSec + deltaSec;   // BTC: 24/7, plain calendar add
     // BN daily+ (1D/3D/9D/27D): seedha seconds add karne se weekend/NSE-
     // holiday wala "calendar-based" phantom time ban jaata hai jo kisi bhi
@@ -11154,7 +11165,7 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
     // validateLines() har din 1 candle par galat skip ho jaata (8h par
     // sabse zyada visible: 3 candles/din mein se 1 skip → cumulative extend
     // ka count bigad jaata, "2 → 7" jaisa overshoot).
-    const isSessionGap = _isNSE && tfMin < 1440 && i >= 1 &&
+    const isSessionGap = _isNSE && !_isDailyPlusTF(tfMin) && i >= 1 &&
                           _istDayKey(cur.time) !== _istDayKey(data[i - 1].time);
     // Actual candle duration from real data — fixes synthetic TFs like 135m
     // where tfMin*60 may not match actual candle boundaries after resampling.
@@ -11173,7 +11184,7 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
     // / SW_SLIDE_MULT multiplier ka visual effect 1D/3D/9D/27D par nahi dikhta
     // tha (even on multiplier=10). tfMin < 1440 check se daily+ hamesha
     // _defaultPeriodSec (= tfMin*60) use karte hain → consistent rendering.
-    const periodSec = (i >= 1 && !isSessionGap && tfMin < 1440)
+    const periodSec = (i >= 1 && !isSessionGap && !_isDailyPlusTF(tfMin))
       ? (cur.time - data[i-1].time)
       : _defaultPeriodSec;
 
