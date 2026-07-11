@@ -5235,13 +5235,6 @@ function ss2ApplyAndClose() {
   }
 
   // ── Sheet open / close ────────────────────────────────────────────────────
-  // BN ka market-open 9:15 AM IST hai. BTC 24/7 hai isliye usko koi
-  // "market open" nahi — default cutoff yahan manually 5:30 AM rakha hai.
-  function _sv2DefaultTime() {
-    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    return (assetKey === 'btc') ? '05:30' : '09:15';
-  }
-
   function _sv2DrngOpen() {
     if (!_sheet) return;
     // Initialise calendar to today if nothing selected
@@ -5249,9 +5242,6 @@ function ss2ApplyAndClose() {
     _calYear  = today.getFullYear();
     _calMonth = today.getMonth();
     _activeTab = 'start';
-    // Agar user ne abhi tak time khud nahi choose kiya, to asset ke
-    // hisaab se sahi default laga do (BN=9:15, BTC=5:30).
-    if (!_selStart) _selTime = _sv2DefaultTime();
     _renderTabs();
     _renderCal();
     _sv2SyncTimeInp();
@@ -5272,7 +5262,7 @@ function ss2ApplyAndClose() {
   function _sv2DrngClear() {
     _selStart = null;
     _selEnd   = null;
-    _selTime  = _sv2DefaultTime();
+    _selTime  = '09:15';
     window._SV2_DATE_RANGE = null;
     if (_fab) _fab.classList.remove('active-range');
     _renderTabs();
@@ -5394,7 +5384,21 @@ function ss2ApplyAndClose() {
   window._sv2CalYearSelChange  = _sv2CalYearSelChange;
 
   // ── Cutoff time — input + quick-pick chips ────────────────────────────────
+  // BTC 24/7 trade karta hai — koi fixed "market open" time nahi hota, isliye
+  // BankNifty-style quick times (9:15/10:15…) BTC ke liye meaningless hain.
+  // BTC active ho to pura time-picker UI hide, aur cutoff us din ke UTC
+  // start (00:00) par snap ho jaata hai. BankNifty ke liye sab pehle jaisa hi.
+  function _sv2SyncTimeVisibility() {
+    var row      = document.getElementById('sv2-time-row');
+    var quick    = document.getElementById('sv2-time-quick');
+    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    var isBTC    = (assetKey === 'btc');
+    if (row)   row.style.display   = isBTC ? 'none' : '';
+    if (quick) quick.style.display = isBTC ? 'none' : '';
+    if (isBTC) _selTime = '00:00';
+  }
   function _sv2SyncTimeInp() {
+    _sv2SyncTimeVisibility();
     var inp = document.getElementById('sv2-time-inp');
     if (inp) inp.value = _selTime;
     _sv2RenderTimeQuick();
@@ -5438,7 +5442,12 @@ function ss2ApplyAndClose() {
   // ── Render tabs — single-date mode ───────────────────────────────────────
   function _renderTabs() {
     var tsv = document.getElementById('sv2-tab-start-val');
-    if (tsv) tsv.textContent = _selStart ? (_fmtDate(_selStart) + '  ' + _selTime) : '-- Date chuniye --';
+    if (!tsv) return;
+    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    var isBTC    = (assetKey === 'btc');
+    tsv.textContent = _selStart
+      ? (isBTC ? _fmtDate(_selStart) : (_fmtDate(_selStart) + '  ' + _selTime))
+      : '-- Date chuniye --';
     // End tab hidden in single-date mode — noop
   }
 
