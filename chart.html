@@ -1469,17 +1469,20 @@ select.s-select, input.s-select{
 #notepad-btn.active{border-color:#2962ff;color:#2962ff}
 #notepad-panel{
   display:none;position:fixed;z-index:10002;
-  bottom:30px;left:50%;transform:translateX(-50%);
+  top:0;left:0;
   width:min(320px,92vw);max-height:70vh;
   background:#1e222d;border:1px solid #363c4e;border-radius:10px;
-  box-shadow:0 8px 32px #0009;flex-direction:column;overflow:hidden;
+  box-shadow:0 8px 32px #000c;flex-direction:column;overflow:hidden;
 }
 #notepad-panel.open{display:flex}
+#notepad-panel.dragging{box-shadow:0 12px 40px #000e;opacity:.97}
 #notepad-hdr{
   display:flex;align-items:center;gap:6px;padding:8px 10px;
   border-bottom:1px solid #2a2e39;flex-shrink:0;
+  cursor:move;touch-action:none;user-select:none;-webkit-user-select:none;
 }
 #notepad-hdr span{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
+#notepad-move-hint{font-size:13px;color:#555;flex-shrink:0}
 #notepad-saved{font-size:10px;color:#26a69a;opacity:0;transition:opacity .25s}
 #notepad-saved.show{opacity:1}
 #notepad-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
@@ -2264,6 +2267,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="notepad-hdr">
     <span>📝 Notepad</span>
     <span id="notepad-saved">Saved</span>
+    <span id="notepad-move-hint" title="Drag to move">✥</span>
     <button id="notepad-close" onclick="toggleNotepad()">✕</button>
   </div>
   <textarea id="notepad-text" placeholder="Kuch bhi likho... automatic save ho jayega" oninput="_notepadOnInput()"></textarea>
@@ -2855,7 +2859,89 @@ const _LS = (() => {
 // NOTEPAD — bottom-bar icon, works same in Stack View 1 & Stack View 2 (shared)
 // ════════════════════════════════════════════════════════════════════════════
 const NOTEPAD_LS_KEY = 'tvNotepad';
+const NOTEPAD_POS_KEY = 'tvNotepadPos';
 let _notepadSaveTimer = null;
+let _notepadDragWired = false;
+
+function _notepadViewport() {
+  const vv = window.visualViewport;
+  return vv ? { w: vv.width, h: vv.height } : { w: window.innerWidth, h: window.innerHeight };
+}
+
+// Clamp panel fully inside the currently visible area (keyboard-safe)
+function _notepadClampToView(panel) {
+  const { w: vw, h: vh } = _notepadViewport();
+  const pw = panel.offsetWidth  || 300;
+  const ph = panel.offsetHeight || 260;
+  let left = panel.offsetLeft, top = panel.offsetTop;
+  left = Math.max(4, Math.min(left, vw - pw - 4));
+  top  = Math.max(4, Math.min(top,  vh - ph - 4));
+  panel.style.left = left + 'px';
+  panel.style.top  = top  + 'px';
+}
+
+// Called whenever the visual viewport changes (keyboard open/close, rotate)
+function _notepadKeepInView() {
+  const panel = document.getElementById('notepad-panel');
+  if (!panel || !panel.classList.contains('open')) return;
+  _notepadClampToView(panel);
+}
+
+function _notepadWireDrag() {
+  if (_notepadDragWired) return;
+  _notepadDragWired = true;
+  const panel = document.getElementById('notepad-panel');
+  const hdr   = document.getElementById('notepad-hdr');
+  if (!panel || !hdr) return;
+  let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
+
+  function start(x, y) {
+    dragging = true;
+    ox = panel.offsetLeft; oy = panel.offsetTop;
+    sx = x; sy = y;
+    panel.classList.add('dragging');
+  }
+  function move(x, y) {
+    if (!dragging) return;
+    const { w: vw, h: vh } = _notepadViewport();
+    const pw = panel.offsetWidth, ph = panel.offsetHeight;
+    let nl = ox + (x - sx), nt = oy + (y - sy);
+    nl = Math.max(4, Math.min(nl, vw - pw - 4));
+    nt = Math.max(4, Math.min(nt, vh - ph - 4));
+    panel.style.left = nl + 'px';
+    panel.style.top  = nt + 'px';
+  }
+  function end() {
+    if (!dragging) return;
+    dragging = false;
+    panel.classList.remove('dragging');
+    try { _LS.setItem(NOTEPAD_POS_KEY, JSON.stringify({ left: panel.offsetLeft, top: panel.offsetTop })); } catch(_){}
+  }
+
+  hdr.addEventListener('touchstart', e => {
+    if (e.target.id === 'notepad-close') return;
+    const t = e.touches[0]; start(t.clientX, t.clientY);
+  }, { passive: true });
+  hdr.addEventListener('touchmove', e => {
+    if (!dragging) return;
+    const t = e.touches[0]; move(t.clientX, t.clientY);
+  }, { passive: true });
+  hdr.addEventListener('touchend', end);
+  hdr.addEventListener('touchcancel', end);
+
+  hdr.addEventListener('mousedown', e => {
+    if (e.target.id === 'notepad-close') return;
+    start(e.clientX, e.clientY);
+    const mm = ev => move(ev.clientX, ev.clientY);
+    const mu = () => { end(); document.removeEventListener('mousemove', mm); document.removeEventListener('mouseup', mu); };
+    document.addEventListener('mousemove', mm);
+    document.addEventListener('mouseup', mu);
+  });
+
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', _notepadKeepInView);
+  window.addEventListener('resize', _notepadKeepInView);
+  window.addEventListener('orientationchange', () => setTimeout(_notepadKeepInView, 250));
+}
 
 function toggleNotepad() {
   const p = document.getElementById('notepad-panel');
@@ -2869,8 +2955,29 @@ function toggleNotepad() {
   p.classList.toggle('open', opening);
   if (btn) btn.classList.toggle('active', opening);
   if (opening) {
+    _notepadWireDrag();
+    // Position: restore last dragged spot if any, else default near the TOP
+    // of the screen (not bottom) so it never ends up hidden behind the
+    // on-screen keyboard when the textarea gets focused.
+    let pos = null;
+    try { pos = JSON.parse(_LS.getItem(NOTEPAD_POS_KEY) || 'null'); } catch(_){}
+    const { w: vw } = _notepadViewport();
+    const pw = 320;
+    if (pos && typeof pos.left === 'number' && typeof pos.top === 'number') {
+      p.style.left = pos.left + 'px';
+      p.style.top  = pos.top  + 'px';
+    } else {
+      p.style.left = Math.max(4, Math.round((vw - pw) / 2)) + 'px';
+      p.style.top  = '48px';
+    }
+    _notepadClampToView(p);
     const ta = document.getElementById('notepad-text');
-    if (ta) { ta.value = _LS.getItem(NOTEPAD_LS_KEY) || ''; ta.focus(); }
+    if (ta) {
+      ta.value = _LS.getItem(NOTEPAD_LS_KEY) || '';
+      ta.focus();
+      // Keyboard opens slightly after focus — re-clamp once it settles.
+      setTimeout(() => _notepadClampToView(p), 300);
+    }
   }
 }
 
