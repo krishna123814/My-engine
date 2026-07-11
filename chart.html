@@ -1457,6 +1457,48 @@ select.s-select, input.s-select{
 }
 .ovl-dd-item:last-child{border-bottom:none}
 .ovl-dd-item:hover{background:#2a2e39}
+
+/* ── Notepad ──────────────────────────────────────────────────── */
+#notepad-btn{
+  height:18px;width:22px;padding:0;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:12px;line-height:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+#notepad-btn:active{background:#2a2e39}
+#notepad-btn.active{border-color:#2962ff;color:#2962ff}
+#notepad-panel{
+  display:none;position:fixed;z-index:10002;
+  bottom:30px;left:50%;transform:translateX(-50%);
+  width:min(320px,92vw);max-height:70vh;
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 8px 32px #0009;flex-direction:column;overflow:hidden;
+}
+#notepad-panel.open{display:flex}
+#notepad-hdr{
+  display:flex;align-items:center;gap:6px;padding:8px 10px;
+  border-bottom:1px solid #2a2e39;flex-shrink:0;
+}
+#notepad-hdr span{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
+#notepad-saved{font-size:10px;color:#26a69a;opacity:0;transition:opacity .25s}
+#notepad-saved.show{opacity:1}
+#notepad-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
+#notepad-close:active{color:#ef5350}
+#notepad-text{
+  flex:1;min-height:140px;resize:none;
+  background:#131722;border:none;outline:none;
+  color:#d1d4dc;font-size:13px;line-height:1.5;
+  padding:10px;font-family:inherit;
+}
+#notepad-ftr{display:flex;gap:6px;padding:8px 10px;border-top:1px solid #2a2e39;flex-shrink:0}
+.np-btn{
+  flex:1;height:28px;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;
+  background:#2a2e39;color:#9598a1;
+}
+.np-btn:active{background:#363c4e}
+.np-btn.np-save{background:#2962ff;color:#fff}
+.np-btn.np-save:active{background:#1a53e0}
+.np-btn.np-clear:active{color:#ef5350}
 /* Overlay panels now tile like grid cells — no resize/drag */
 .ovl-panel{
   position:fixed;z-index:8000;
@@ -2197,6 +2239,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
+  <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
@@ -2213,6 +2256,21 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="goto-date-btns">
     <button class="goto-date-go" onclick="execGotoDate()">Go</button>
     <button class="goto-date-cancel" onclick="toggleGotoDate()">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ NOTEPAD PANEL ═══════════════════════════════════════════════ -->
+<div id="notepad-panel">
+  <div id="notepad-hdr">
+    <span>📝 Notepad</span>
+    <span id="notepad-saved">Saved</span>
+    <button id="notepad-close" onclick="toggleNotepad()">✕</button>
+  </div>
+  <textarea id="notepad-text" placeholder="Kuch bhi likho... automatic save ho jayega" oninput="_notepadOnInput()"></textarea>
+  <div id="notepad-ftr">
+    <button class="np-btn" onclick="_notepadCopy()">📋 Copy</button>
+    <button class="np-btn np-clear" onclick="_notepadClear()">🗑 Clear</button>
+    <button class="np-btn np-save" onclick="_notepadSave(true)">💾 Save</button>
   </div>
 </div>
 
@@ -2792,6 +2850,69 @@ const _LS = (() => {
            setItem: (k,v) => { try{localStorage.setItem(k,v);}catch(_){} },
            removeItem: k => { try{localStorage.removeItem(k);}catch(_){} } };
 })();
+
+// ════════════════════════════════════════════════════════════════════════════
+// NOTEPAD — bottom-bar icon, works same in Stack View 1 & Stack View 2 (shared)
+// ════════════════════════════════════════════════════════════════════════════
+const NOTEPAD_LS_KEY = 'tvNotepad';
+let _notepadSaveTimer = null;
+
+function toggleNotepad() {
+  const p = document.getElementById('notepad-panel');
+  const btn = document.getElementById('notepad-btn');
+  if (!p) return;
+  const opening = !p.classList.contains('open');
+  // close other bottom-bar panels so they don't overlap
+  const gd = document.getElementById('goto-date-panel'); if (gd) gd.classList.remove('open');
+  const ovl = document.getElementById('overlay-dd'); if (ovl) ovl.classList.remove('open');
+  const gp = document.getElementById('grid-picker'); if (gp) gp.classList.remove('open');
+  p.classList.toggle('open', opening);
+  if (btn) btn.classList.toggle('active', opening);
+  if (opening) {
+    const ta = document.getElementById('notepad-text');
+    if (ta) { ta.value = _LS.getItem(NOTEPAD_LS_KEY) || ''; ta.focus(); }
+  }
+}
+
+function _notepadOnInput() {
+  clearTimeout(_notepadSaveTimer);
+  _notepadSaveTimer = setTimeout(() => _notepadSave(false), 500);
+}
+
+function _notepadSave(showBadge) {
+  const ta = document.getElementById('notepad-text');
+  if (!ta) return;
+  _LS.setItem(NOTEPAD_LS_KEY, ta.value);
+  if (showBadge) {
+    const b = document.getElementById('notepad-saved');
+    if (b) { b.classList.add('show'); setTimeout(() => b.classList.remove('show'), 1200); }
+  }
+}
+
+function _notepadCopy() {
+  const ta = document.getElementById('notepad-text');
+  if (!ta) return;
+  const done = () => {
+    const b = document.getElementById('notepad-saved');
+    if (b) { b.textContent = 'Copied'; b.classList.add('show'); setTimeout(() => { b.classList.remove('show'); b.textContent = 'Saved'; }, 1200); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(done).catch(() => {
+      ta.select(); try { document.execCommand('copy'); done(); } catch(_){}
+    });
+  } else {
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch(_){}
+  }
+}
+
+function _notepadClear() {
+  const ta = document.getElementById('notepad-text');
+  if (!ta) return;
+  ta.value = '';
+  _notepadSave(true);
+  ta.focus();
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // DATA  — injected by Python  (1-min BTCUSDT candles, 500 bars)
@@ -8049,7 +8170,10 @@ function toggleTfBar() {
 function toggleGridPicker() {
   const p=document.getElementById('grid-picker');
   const open=p.classList.toggle('open');
-  if (open){ renderGridPicker(); renderSyncToggles(); }
+  if (open){ renderGridPicker(); renderSyncToggles();
+    const np=document.getElementById('notepad-panel'); if(np) np.classList.remove('open');
+    const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
+  }
 }
 
 // Parse a grid-template-areas spec → geometry + ordered unique cell names.
@@ -8996,6 +9120,8 @@ function toggleGotoDate() {
   // close overlay menu if open
   const dd=document.getElementById('overlay-dd');
   if(dd) dd.classList.remove('open');
+  const np=document.getElementById('notepad-panel'); if(np) np.classList.remove('open');
+  const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
 }
 function execGotoDate() {
   const inp=document.getElementById('goto-date-inp');
@@ -9015,6 +9141,8 @@ function toggleOverlayMenu() {
   if(!dd) return;
   dd.classList.toggle('open');
   document.getElementById('goto-date-panel').classList.remove('open');
+  const np=document.getElementById('notepad-panel'); if(np) np.classList.remove('open');
+  const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
 }
 // Track which overlay panel is "active" (receives TF / indicator changes)
 let _activeOvlPanelIdx = 0;
@@ -9275,6 +9403,11 @@ document.addEventListener('click', (e) => {
   const gdBtn=document.getElementById('goto-date-btn');
   if(gdPanel && gdPanel.classList.contains('open') && !gdPanel.contains(e.target) && e.target!==gdBtn)
     gdPanel.classList.remove('open');
+  // Notepad panel
+  const npPanel=document.getElementById('notepad-panel');
+  const npBtn=document.getElementById('notepad-btn');
+  if(npPanel && npPanel.classList.contains('open') && !npPanel.contains(e.target) && e.target!==npBtn)
+    { npPanel.classList.remove('open'); if(npBtn) npBtn.classList.remove('active'); }
   // Cell settings panel
   if(_cellSettingsPanel && !_cellSettingsPanel.contains(e.target) &&
      !e.target.classList.contains('cell-settings-btn'))
