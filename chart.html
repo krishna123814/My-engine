@@ -968,34 +968,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-cal-month-label{
   flex:1;text-align:center;font-size:13px;font-weight:700;color:#d1d4dc;
 }
-#sv2-cal-month-sel,#sv2-cal-year-sel{
-  text-align:center;font-size:13px;font-weight:700;color:#d1d4dc;
-  background:#131722;border:1px solid #2a2e39;border-radius:6px;
-  padding:7px 2px;-webkit-appearance:none;appearance:none;cursor:pointer;
-}
-#sv2-cal-month-sel{flex:1.4;}
-#sv2-cal-year-sel{flex:1;}
-
-/* Cutoff time row + quick-pick chips */
-#sv2-time-row{
-  display:flex;align-items:center;justify-content:space-between;gap:8px;
-  padding:8px 16px 2px;
-}
-#sv2-time-label{font-size:12px;color:#d1d4dc;font-weight:600}
-#sv2-time-inp{
-  background:#131722;border:1px solid #2a2e39;color:#d1d4dc;
-  border-radius:6px;padding:6px 8px;font-size:13px;font-weight:700;
-}
-#sv2-time-quick{
-  display:flex;flex-wrap:wrap;gap:6px;padding:6px 16px 4px;
-}
-.sv2-time-opt{
-  flex:1 1 calc(25% - 5px);min-width:50px;padding:6px 4px;font-size:11px;font-weight:700;
-  background:#131722;border:1px solid #2a2e39;color:#787b86;
-  cursor:pointer;border-radius:6px;
-}
-.sv2-time-opt.active{background:#2962ff;border-color:#2962ff;color:#fff;}
-.sv2-time-opt:active{opacity:.8;}
 
 /* Calendar grid */
 #sv2-cal-grid{
@@ -2330,29 +2302,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <!-- Calendar nav row -->
     <div id="sv2-cal-nav">
       <button id="sv2-cal-prev" onclick="_sv2CalPrev()">‹</button>
-      <select id="sv2-cal-month-sel" onchange="_sv2CalMonthSelChange()"></select>
-      <select id="sv2-cal-year-sel" onchange="_sv2CalYearSelChange()"></select>
+      <span id="sv2-cal-month-label">-- --</span>
       <button id="sv2-cal-next" onclick="_sv2CalNext()">›</button>
     </div>
 
     <!-- Calendar grid (days-of-week header + date cells, built by JS) -->
     <div id="sv2-cal-grid"></div>
-
-    <!-- Cutoff Time — date select karne ke baad is time tak history dikhegi,
-         uske aage se replay shuru hoga. Default 9:15 AM (BN market open). -->
-    <div id="sv2-time-row">
-      <span id="sv2-time-label">⏰ Cutoff Time</span>
-      <input type="time" id="sv2-time-inp" value="09:15" step="60" onchange="_sv2TimeInpChange()">
-    </div>
-    <div id="sv2-time-quick">
-      <button class="sv2-time-opt" data-t="09:15" onclick="_sv2TimeQuickSet('09:15')">9:15</button>
-      <button class="sv2-time-opt" data-t="10:15" onclick="_sv2TimeQuickSet('10:15')">10:15</button>
-      <button class="sv2-time-opt" data-t="11:15" onclick="_sv2TimeQuickSet('11:15')">11:15</button>
-      <button class="sv2-time-opt" data-t="12:15" onclick="_sv2TimeQuickSet('12:15')">12:15</button>
-      <button class="sv2-time-opt" data-t="13:15" onclick="_sv2TimeQuickSet('13:15')">1:15</button>
-      <button class="sv2-time-opt" data-t="14:15" onclick="_sv2TimeQuickSet('14:15')">2:15</button>
-      <button class="sv2-time-opt" data-t="15:15" onclick="_sv2TimeQuickSet('15:15')">3:15</button>
-    </div>
 
     <!-- Apply -->
     <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply &amp; Start Replay</button>
@@ -2994,33 +2949,6 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
 //     e.g. 135m ka aakhri bucket sirf 90 min ka hota hai), to sessionEnd hi
 //     asli boundary hai — jo bhi pehle aaye.
 //   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
-//
-// ── SAME-CALENDAR-DAY session-close (BUGFIX helper, daily+ "is today's bar
-// fully revealed yet" check ke liye) ──────────────────────────────────────
-// _liveBucketExpectedEnd() daily+ TFs ke liye jaanbujh kar AGLE working-day
-// ka anchor return karta hai (future-whitespace/right-edge stepping ke liye
-// sahi hai) — lekin "kya AAJ ka din poora reveal ho chuka hai" jaise
-// completeness-check ke liye ye GALAT reference hai jab session poore
-// calendar din se chhoti ho (BN: 6h15m session vs 24h din). BN mein
-// session-close (15:30 IST) aur agle din ke open (9:15 IST) ke beech ~17h45m
-// ka overnight gap hota hai — is gap ki wajah se "agle din ka anchor" ko
-// "aaj poora hua?" ke liye use karne par aaj ka COMPLETE din bhi hamesha
-// "still forming" maan liya jaata (kyunki session-close < agle din ka open,
-// hamesha true). BTC mein ye masla nahi aata kyunki 24/7 hone ki wajah se
-// "agla din ka open" aur "aaj ka close" ek hi instant hain (koi gap nahi) —
-// isliye ye bug sirf BN daily+ SR/candle-H-L par asar karta tha, BTC par nahi.
-// Fix: completeness-check ke liye hamesha USI calendar/trading din ka apna
-// session-close use karo (BN: 15:30 IST same day; BTC: unchanged, 24h later
-// — wahi cheez hai kyunki BTC mein gap hai hi nahi).
-function _liveSameDaySessionEnd(bucketTime, isBN) {
-  if (!isBN) return bucketTime + 86400;   // BTC: 24/7, calendar day end (no gap)
-  var IST          = 5.5 * 3600;
-  var istSec       = bucketTime + IST;
-  var dayStart     = istSec - (istSec % 86400);
-  var SESSION_END  = 15 * 60 + 30;        // 15:30 IST in minutes
-  return (dayStart + SESSION_END * 60) - IST;
-}
-
 function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
   if (_isDailyPlusTF(tfMin)) {
     var nDays = Math.max(1, Math.round(tfMin / 1440)); // 1D→1, 3D→3, 9D→9, 27D→27
@@ -3206,7 +3134,7 @@ function _liveAggregateDailyPlus(dailyFull, baseBars, revealIdx, nDays, isBN) {
       if (todayBars[k].low  < l) l = todayBars[k].low;
     }
     todayBar = { time: curDayBucket, open: o, high: h, low: l, close: c };
-    var dayEnd = _liveSameDaySessionEnd(curDayBucket, isBN);
+    var dayEnd = _liveBucketExpectedEnd(curDayBucket, 1440, isBN);
     var lastBaseDur = (baseBars.length > 1) ? (baseBars[1].time - baseBars[0].time) : 300;
     todayForming = (todayBars[todayBars.length - 1].time + lastBaseDur) < dayEnd;
   }
@@ -5089,11 +5017,6 @@ function ss2ApplyAndClose() {
   var _selEnd    = null;      // Date object or null
   var _calYear   = 0;
   var _calMonth  = 0;         // 0-indexed (0=Jan)
-  var _selTime   = '09:15';   // "HH:MM" cutoff time-of-day, default = BN market open
-
-  // Calendar year-select range — BN/BTC data spans ~2015 onwards
-  var _CAL_MIN_YEAR = 2015;
-  var _CAL_MAX_YEAR = Math.max(new Date().getFullYear() + 1, 2027);
 
   // ── Opening Price Preview — on/off (persisted) ────────────────────────────
   // Live BankNifty jaisa: date select karte hi us din ka opening price dikhao.
@@ -5244,7 +5167,6 @@ function ss2ApplyAndClose() {
     _activeTab = 'start';
     _renderTabs();
     _renderCal();
-    _sv2SyncTimeInp();
     _updateApplyBtn();
     _sv2UpdateOpenPriceDisplay();
     _backdrop.classList.add('open');
@@ -5262,12 +5184,10 @@ function ss2ApplyAndClose() {
   function _sv2DrngClear() {
     _selStart = null;
     _selEnd   = null;
-    _selTime  = '09:15';
     window._SV2_DATE_RANGE = null;
     if (_fab) _fab.classList.remove('active-range');
     _renderTabs();
     _renderCal();
-    _sv2SyncTimeInp();
     _updateApplyBtn();
     _sv2UpdateOpenPriceDisplay();
     // Dispatch event so future replay system can listen
@@ -5367,62 +5287,6 @@ function ss2ApplyAndClose() {
   window._sv2CalPrev = _sv2CalPrev;
   window._sv2CalNext = _sv2CalNext;
 
-  // ── Year / Month dropdown — direct jump (no month-by-month scrolling) ────
-  function _sv2CalMonthSelChange() {
-    var sel = document.getElementById('sv2-cal-month-sel');
-    if (!sel) return;
-    _calMonth = parseInt(sel.value, 10);
-    _renderCal();
-  }
-  function _sv2CalYearSelChange() {
-    var sel = document.getElementById('sv2-cal-year-sel');
-    if (!sel) return;
-    _calYear = parseInt(sel.value, 10);
-    _renderCal();
-  }
-  window._sv2CalMonthSelChange = _sv2CalMonthSelChange;
-  window._sv2CalYearSelChange  = _sv2CalYearSelChange;
-
-  // ── Cutoff time — input + quick-pick chips ────────────────────────────────
-  // BTC 24/7 trade karta hai — koi fixed "market open" time nahi hota, isliye
-  // BankNifty-style quick times (9:15/10:15…) BTC ke liye meaningless hain.
-  // BTC active ho to pura time-picker UI hide, aur cutoff us din ke UTC
-  // start (00:00) par snap ho jaata hai. BankNifty ke liye sab pehle jaisa hi.
-  function _sv2SyncTimeVisibility() {
-    var row      = document.getElementById('sv2-time-row');
-    var quick    = document.getElementById('sv2-time-quick');
-    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    var isBTC    = (assetKey === 'btc');
-    if (row)   row.style.display   = isBTC ? 'none' : '';
-    if (quick) quick.style.display = isBTC ? 'none' : '';
-    if (isBTC) _selTime = '00:00';
-  }
-  function _sv2SyncTimeInp() {
-    _sv2SyncTimeVisibility();
-    var inp = document.getElementById('sv2-time-inp');
-    if (inp) inp.value = _selTime;
-    _sv2RenderTimeQuick();
-  }
-  function _sv2RenderTimeQuick() {
-    document.querySelectorAll('.sv2-time-opt').forEach(function(b){
-      b.classList.toggle('active', b.getAttribute('data-t') === _selTime);
-    });
-  }
-  function _sv2TimeInpChange() {
-    var inp = document.getElementById('sv2-time-inp');
-    if (!inp || !inp.value) return;
-    _selTime = inp.value;
-    _sv2RenderTimeQuick();
-    _renderTabs();
-  }
-  function _sv2TimeQuickSet(t) {
-    _selTime = t;
-    _sv2SyncTimeInp();
-    _renderTabs();
-  }
-  window._sv2TimeInpChange = _sv2TimeInpChange;
-  window._sv2TimeQuickSet  = _sv2TimeQuickSet;
-
   // ── Date helpers ──────────────────────────────────────────────────────────
   function _dateToEpoch(d) {
     // UTC midnight of the date (seconds)
@@ -5442,40 +5306,17 @@ function ss2ApplyAndClose() {
   // ── Render tabs — single-date mode ───────────────────────────────────────
   function _renderTabs() {
     var tsv = document.getElementById('sv2-tab-start-val');
-    if (!tsv) return;
-    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    var isBTC    = (assetKey === 'btc');
-    tsv.textContent = _selStart
-      ? (isBTC ? _fmtDate(_selStart) : (_fmtDate(_selStart) + '  ' + _selTime))
-      : '-- Date chuniye --';
+    if (tsv) tsv.textContent = _selStart ? _fmtDate(_selStart) : '-- Date chuniye --';
     // End tab hidden in single-date mode — noop
   }
 
   // ── Render calendar grid ──────────────────────────────────────────────────
   function _renderCal() {
-    var monthSel = document.getElementById('sv2-cal-month-sel');
-    var yearSel  = document.getElementById('sv2-cal-year-sel');
+    var lbl = document.getElementById('sv2-cal-month-label');
     var grid = document.getElementById('sv2-cal-grid');
-    if (!monthSel || !yearSel || !grid) return;
+    if (!lbl || !grid) return;
 
-    // Populate options once (month list fixed, year list fixed range)
-    if (!monthSel.options.length) {
-      MONTHS.forEach(function(m, i){
-        var o = document.createElement('option');
-        o.value = i; o.textContent = m.slice(0,3);
-        monthSel.appendChild(o);
-      });
-    }
-    if (!yearSel.options.length) {
-      for (var y = _CAL_MIN_YEAR; y <= _CAL_MAX_YEAR; y++) {
-        var oy = document.createElement('option');
-        oy.value = y; oy.textContent = y;
-        yearSel.appendChild(oy);
-      }
-    }
-    monthSel.value = _calMonth;
-    yearSel.value  = _calYear;
-
+    lbl.textContent = MONTHS[_calMonth] + ' ' + _calYear;
     grid.innerHTML = '';
 
     // Day-of-week headers (Mo first)
@@ -5571,35 +5412,26 @@ function ss2ApplyAndClose() {
   function _sv2DrngApply() {
     if (!_selStart) return;
 
-    // ── Single date+time replay logic ──────────────────────────────────────
-    // Selected date D + time T = "history cutoff" instant.
-    //   → sabhi candles jinka time < cutoff = pura history, seedha dikhega
-    //   → cutoff se aage ke candles = replay territory, ek ek karke reveal
-    // BN: T ko IST (market clock) maana jata hai — default 9:15 = market open.
-    // BTC: 24/7 hone ki wajah se T seedha UTC clock par apply hota hai.
-    var tParts   = (_selTime || '09:15').split(':');
-    var cutHH    = parseInt(tParts[0], 10) || 0;
-    var cutMM    = parseInt(tParts[1], 10) || 0;
-    var secOfDay = cutHH * 3600 + cutMM * 60;
-
-    var assetKey       = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-    var IST_OFFSET_SEC = 5.5 * 3600;
-    var cutEpoch = (assetKey === 'bn')
-      ? (_dateToEpoch(_selStart) - IST_OFFSET_SEC + secOfDay)
-      : (_dateToEpoch(_selStart) + secOfDay);
-
-    var cutLabel = _fmtDate(_selStart) + '  ' + _selTime;
+    // ── Single-date replay logic ───────────────────────────────────────────
+    // Selected date D = "history cutoff"
+    // rng.from = UTC midnight of D+1  (exclusive boundary)
+    //   → sabhi candles jinka time < rng.from = Day D tak ka pura data
+    //     ye sab seedha dikhega (fully aggregated history)
+    //   → rng.from se aage ke candles = replay territory
+    //     ek ek karke reveal honge jab ▶ play hoga
+    // rng.to = Infinity  (no upper bound — replay sabhi future bars cover karta hai)
+    var cutEpoch = _dateToEpoch(_selStart) + 86400;   // Day D+1 UTC midnight
 
     window._SV2_DATE_RANGE = {
       from:    cutEpoch,
       to:      Infinity,
-      fromStr: cutLabel,
-      toStr:   cutLabel,
+      fromStr: _fmtDate(_selStart),
+      toStr:   _fmtDate(_selStart),
     };
     if (_fab) _fab.classList.add('active-range');
     // FAB label update — selected date dikhao
     var fabLbl = document.getElementById('sv2-drng-fab');
-    if (fabLbl) fabLbl.title = 'Cutoff: ' + cutLabel + '  (tap to change)';
+    if (fabLbl) fabLbl.title = 'Cutoff: ' + _fmtDate(_selStart) + '  (tap to change)';
 
     _sv2DrngClose();
 
