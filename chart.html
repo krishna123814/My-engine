@@ -2994,6 +2994,33 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
 //     e.g. 135m ka aakhri bucket sirf 90 min ka hota hai), to sessionEnd hi
 //     asli boundary hai — jo bhi pehle aaye.
 //   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
+//
+// ── SAME-CALENDAR-DAY session-close (BUGFIX helper, daily+ "is today's bar
+// fully revealed yet" check ke liye) ──────────────────────────────────────
+// _liveBucketExpectedEnd() daily+ TFs ke liye jaanbujh kar AGLE working-day
+// ka anchor return karta hai (future-whitespace/right-edge stepping ke liye
+// sahi hai) — lekin "kya AAJ ka din poora reveal ho chuka hai" jaise
+// completeness-check ke liye ye GALAT reference hai jab session poore
+// calendar din se chhoti ho (BN: 6h15m session vs 24h din). BN mein
+// session-close (15:30 IST) aur agle din ke open (9:15 IST) ke beech ~17h45m
+// ka overnight gap hota hai — is gap ki wajah se "agle din ka anchor" ko
+// "aaj poora hua?" ke liye use karne par aaj ka COMPLETE din bhi hamesha
+// "still forming" maan liya jaata (kyunki session-close < agle din ka open,
+// hamesha true). BTC mein ye masla nahi aata kyunki 24/7 hone ki wajah se
+// "agla din ka open" aur "aaj ka close" ek hi instant hain (koi gap nahi) —
+// isliye ye bug sirf BN daily+ SR/candle-H-L par asar karta tha, BTC par nahi.
+// Fix: completeness-check ke liye hamesha USI calendar/trading din ka apna
+// session-close use karo (BN: 15:30 IST same day; BTC: unchanged, 24h later
+// — wahi cheez hai kyunki BTC mein gap hai hi nahi).
+function _liveSameDaySessionEnd(bucketTime, isBN) {
+  if (!isBN) return bucketTime + 86400;   // BTC: 24/7, calendar day end (no gap)
+  var IST          = 5.5 * 3600;
+  var istSec       = bucketTime + IST;
+  var dayStart     = istSec - (istSec % 86400);
+  var SESSION_END  = 15 * 60 + 30;        // 15:30 IST in minutes
+  return (dayStart + SESSION_END * 60) - IST;
+}
+
 function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
   if (_isDailyPlusTF(tfMin)) {
     var nDays = Math.max(1, Math.round(tfMin / 1440)); // 1D→1, 3D→3, 9D→9, 27D→27
@@ -3179,7 +3206,7 @@ function _liveAggregateDailyPlus(dailyFull, baseBars, revealIdx, nDays, isBN) {
       if (todayBars[k].low  < l) l = todayBars[k].low;
     }
     todayBar = { time: curDayBucket, open: o, high: h, low: l, close: c };
-    var dayEnd = _liveBucketExpectedEnd(curDayBucket, 1440, isBN);
+    var dayEnd = _liveSameDaySessionEnd(curDayBucket, isBN);
     var lastBaseDur = (baseBars.length > 1) ? (baseBars[1].time - baseBars[0].time) : 300;
     todayForming = (todayBars[todayBars.length - 1].time + lastBaseDur) < dayEnd;
   }
