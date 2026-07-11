@@ -916,14 +916,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-speed-panel{
   padding:10px 16px 6px;border-bottom:1px solid #2a2e39;
 }
+#sv2-contplay-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:4px 2px 8px;
+}
+#sv2-contplay-label{font-size:12px;color:#d1d4dc;font-weight:600}
+#sv2-contplay-hint{
+  font-size:10px;color:#848da0;text-align:center;padding:0 4px 10px;
+}
 #sv2-speed-title{
   font-size:11px;color:#848da0;margin-bottom:8px;text-align:center;
 }
 #sv2-speed-opts{
-  display:flex;gap:6px;
+  display:flex;flex-wrap:wrap;gap:6px;
 }
 .sv2-speed-opt{
-  flex:1;padding:8px 4px;font-size:12px;font-weight:700;
+  flex:1 1 calc(25% - 5px);min-width:56px;padding:8px 4px;font-size:12px;font-weight:700;
   background:#131722;border:1px solid #2a2e39;color:#787b86;
   cursor:pointer;border-radius:6px;
 }
@@ -2253,8 +2261,16 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
     <!-- Replay Speed settings row — toggled via the ⚙️ button above -->
     <div id="sv2-speed-panel" style="display:none;">
+      <div id="sv2-contplay-row">
+        <span id="sv2-contplay-label">🔁 Continuous Auto-Play</span>
+        <button id="sv2-contplay-switch" class="gp-switch" onclick="_sv2ContPlayToggle()"></button>
+      </div>
+      <div id="sv2-contplay-hint">Off = ▶ ek click par sirf 1 candle. On = ▶ click karte hi candles lagatar banti rahengi.</div>
       <div id="sv2-speed-title">⏱ Candle Speed (1 candle = X real seconds)</div>
       <div id="sv2-speed-opts">
+        <button class="sv2-speed-opt" data-sec="5"   onclick="_sv2SpeedSet(5)">5s</button>
+        <button class="sv2-speed-opt" data-sec="10"  onclick="_sv2SpeedSet(10)">10s</button>
+        <button class="sv2-speed-opt" data-sec="15"  onclick="_sv2SpeedSet(15)">15s</button>
         <button class="sv2-speed-opt" data-sec="30"  onclick="_sv2SpeedSet(30)">30s</button>
         <button class="sv2-speed-opt" data-sec="60"  onclick="_sv2SpeedSet(60)">60s</button>
         <button class="sv2-speed-opt" data-sec="90"  onclick="_sv2SpeedSet(90)">90s</button>
@@ -3795,6 +3811,49 @@ function _flashBtn(id, msg) {
 
 let chart=null, mainSeries=null;
 const CELLS = [];
+
+// ── Global "user is actively touching a chart" flag ─────────────────────────
+// Perf fix (hang while panning during live ticks / replay): several heavy,
+// purely-cosmetic per-tick jobs (DOM text writes across every grid cell,
+// forming-candle redraw during Stack View 2 replay, the 60fps timer-badge
+// position loop) get skipped/deferred while this is true. Nothing essential
+// (chart.series.update() itself, real candle data) is ever skipped — only
+// non-essential re-renders that would otherwise fight the touch/drag
+// gesture for the main thread. Cleared a short grace period after release
+// so momentum/inertial scroll finishes cleanly, then everything catches up
+// on the very next frame — no data is lost, it's just deferred.
+let _userDragActive = false;
+let _userDragReleaseTid = null;
+function _markUserDragStart() {
+  _userDragActive = true;
+  if (_userDragReleaseTid) { clearTimeout(_userDragReleaseTid); _userDragReleaseTid = null; }
+}
+function _markUserDragEnd() {
+  if (_userDragReleaseTid) clearTimeout(_userDragReleaseTid);
+  _userDragReleaseTid = setTimeout(() => { _userDragActive = false; _userDragReleaseTid = null; }, 180);
+}
+(function _wireGlobalDragTracking() {
+  const ids = ['grid-container', 'stack-container', 'stack-container-2', 'main-chart'];
+  function _attach() {
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (!el || el._dragTrackWired) return;
+      el._dragTrackWired = true;
+      el.addEventListener('touchstart', _markUserDragStart, {passive:true, capture:true});
+      el.addEventListener('touchend',   _markUserDragEnd,   {passive:true, capture:true});
+      el.addEventListener('touchcancel',_markUserDragEnd,   {passive:true, capture:true});
+      el.addEventListener('pointerdown',_markUserDragStart, {passive:true, capture:true});
+      el.addEventListener('pointerup',  _markUserDragEnd,   {passive:true, capture:true});
+      el.addEventListener('pointercancel',_markUserDragEnd, {passive:true, capture:true});
+    });
+  }
+  _attach();
+  document.addEventListener('DOMContentLoaded', _attach);
+  // Grid/stack containers get rebuilt (innerHTML replaced) when layouts
+  // change, so keep re-wiring cheaply on an interval rather than trying to
+  // hook every single rebuild call site.
+  setInterval(_attach, 1000);
+})();
 
 // Every layout is defined by its grid-template-areas rows. The number of unique
 // area names = number of chart cells. Both the picker preview icons and the real
@@ -5456,12 +5515,12 @@ function ss2ApplyAndClose() {
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
-  // User-configurable via ⚙️ Settings (Replay Date sheet) — 30/60/90/120s.
+  // User-configurable via ⚙️ Settings (Replay Date sheet) — 5/10/15/30/60/90/120s.
   // localStorage mein persist hota hai taaki agli baar bhi wahi speed mile.
   var TICK_MS = (function() {
     try {
       var saved = parseInt(localStorage.getItem('sv2_replay_tick_ms'), 10);
-      if (saved && [30000,60000,90000,120000].indexOf(saved) !== -1) return saved;
+      if (saved && [5000,10000,15000,30000,60000,90000,120000].indexOf(saved) !== -1) return saved;
     } catch(_) {}
     return 30000;
   })();
@@ -5640,12 +5699,28 @@ function ss2ApplyAndClose() {
     var proxy = live.baseBars.slice(0, live.revealIdx);
     proxy.push(formingBar);
 
+    // Perf fix: this runs every 200ms for every cell, continuously, for as
+    // long as a candle is forming — that's the main cause of Stack View 2
+    // hanging while the user pans/scrolls. Two changes, same end result:
+    //  1) Skip entirely while the user is actively touching a chart — this
+    //     is a purely cosmetic mid-candle animation, deferring it a few
+    //     frames during a drag is invisible; it resumes right after release.
+    //  2) Use series.update() (touches just the one forming bar) instead of
+    //     series.setData() (replaces + re-fits the WHOLE series) whenever
+    //     the cell's underlying base data + future-whitespace tail were
+    //     already established for this exact bucket by the last full
+    //     _rebuildAllCells() setData — which is true on every call here
+    //     except the very first tick of a freshly-revealed candle, so it
+    //     safely falls back to setData() in that one case.
+    if (_userDragActive) return;
+
     for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
       var cell = STACK2_CELLS[ci];
       if (!cell || !cell.series) continue;
       var tfMin = _getCellTFMinLive(ci);
       // _formingLast flag ignore — forming bar HAMESHA dikhana hai
       var agg = _liveAggregateAny(proxy, proxy.length, tfMin, live.isBN);
+      if (!agg || !agg.length) continue;
       // Future Line ka time ISI cell ke apne (aggregated) aakhri REAL bucket
       // se lena hai — base-resolution formingBar.time seedha use karne se
       // higher-TF cells (jinka bucket-start alag hota hai) ke liye
@@ -5653,17 +5728,29 @@ function ss2ApplyAndClose() {
       // jiski wajah se line scroll ke saath sync nahi hoti thi (static
       // fallback position par chali jaati thi). Har cell apna sahi time use
       // kare, taaki scroll ke saath hamesha sync rahe.
-      var _aggLastReal = (agg && agg.length) ? agg[agg.length - 1].time : formingBar.time;
-      if (agg && agg.length) {
-        var _fw1 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
-        if (_fw1.length) agg = agg.concat(_fw1);
+      var formingAggBar = agg[agg.length - 1];
+      var _aggLastReal   = formingAggBar.time;
+
+      if (cell._sv2FormingBaseline === _aggLastReal) {
+        // Fast path: only the forming bar's OHLC changed since the last
+        // full setData() — a cheap incremental update, no re-fit, no
+        // full-array copy.
+        try { cell.series.update(formingAggBar); } catch(_e) {}
+      } else {
+        // Slow path (only once per newly-revealed candle): full rebuild,
+        // same as before, so the whitespace tail is correctly (re)seeded.
+        var aggFull = agg;
+        var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
+        if (_fw1.length) aggFull = aggFull.concat(_fw1);
+        var _preRange = null;
+        try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
+        try { cell.series.setData(aggFull); } catch(_e) {}
+        if (_preRange && cell.chart) {
+          try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
+        }
+        cell._sv2FormingBaseline = _aggLastReal;
       }
-      var _preRange = null;
-      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
-      try { cell.series.setData(agg); } catch(_e) {}
-      if (_preRange && cell.chart) {
-        try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
-      }
+
       cell._vlTime = _aggLastReal;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_e) {}
       _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal, pct);
@@ -5830,10 +5917,32 @@ function ss2ApplyAndClose() {
       // sath rakho — whitespace tail ke sath nahi, aur base-resolution
       // time ke sath bhi nahi (upar comment dekhein).
       if (_aggLastReal2 != null) cell._vlTime = _aggLastReal2;
+      cell._sv2FormingBaseline = _aggLastReal2;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_) {}
       _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal2, 0);
     }
   }
+
+  // ── Continuous Auto-Play — on/off (persisted) ─────────────────────────────
+  // Off (default) = ▶ click par sirf EK candle bante hai, phir ruk jaata hai.
+  // On = ▶ click karte hi candles apne aap lagatar banti rahengi (jab tak
+  // Pause na dabaya jaaye ya data khatam na ho jaaye).
+  var _CONTPLAY_KEY = 'sv2ContinuousPlay';
+  function _loadContPlay() { return _LS.getItem(_CONTPLAY_KEY) === '1'; }   // default OFF
+  function _saveContPlay(on) { _LS.setItem(_CONTPLAY_KEY, on ? '1' : '0'); }
+  var _continuousPlay = _loadContPlay();
+
+  function _renderContPlaySwitch() {
+    var btn = document.getElementById('sv2-contplay-switch');
+    if (btn) btn.classList.toggle('on', _continuousPlay);
+  }
+
+  function _sv2ContPlayToggle() {
+    _continuousPlay = !_continuousPlay;
+    _saveContPlay(_continuousPlay);
+    _renderContPlaySwitch();
+  }
+  window._sv2ContPlayToggle = _sv2ContPlayToggle;
 
   // ── One tick = reveal exactly ONE more base bar, then rebuild all cells ──
   function _tick() {
@@ -5844,10 +5953,23 @@ function ss2ApplyAndClose() {
     live.revealIdx++;
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
-    // User chahta hai: Play click = sirf EK candle chale, phir apne aap ruk
-    // jaaye — dusri candle tabhi chale jab dubara Play click ho. Isliye ab
-    // continuous auto-chaining hata diya: har _tick() apne aap _pause() ho
-    // jaata hai, chahe TICK_MS abhi bacha ho ya nahi.
+
+    var moreLeft = live.revealIdx < live.baseBars.length;
+
+    if (_continuousPlay && moreLeft) {
+      // Continuous Auto-Play ON — Play button dobara dabaye bina hi agli
+      // candle ke liye turant fresh ring (0%) shuru karo aur agla tick
+      // schedule kar do. _running yahan touch nahi karte — wo already
+      // true hai jab tak user khud Pause na dabaye.
+      _pausedAt = null;
+      _startRing();
+      _timerId = setTimeout(_tick, TICK_MS);
+      _renderPlayIcon();
+      return;
+    }
+
+    // Continuous OFF (default), ya data khatam — sirf EK candle chalke
+    // apne aap ruk jaao, dusri candle tabhi chale jab dubara Play click ho.
     _running = false;
     if (_timerId) { clearTimeout(_timerId); _timerId = null; }
     _pausedAt = null;   // agli Play click par fresh ring/forming se shuru ho (0% se)
@@ -5907,23 +6029,50 @@ function ss2ApplyAndClose() {
     var show = panel.style.display === 'none' || !panel.style.display;
     panel.style.display = show ? 'block' : 'none';
     if (btn) btn.classList.toggle('active', show);
-    if (show) _syncSpeedBtns();
+    if (show) { _syncSpeedBtns(); _renderContPlaySwitch(); }
   }
 
   function _sv2SpeedSet(sec) {
     var ms = sec * 1000;
-    if ([30000,60000,90000,120000].indexOf(ms) === -1) return;
-    // Beech replay mein speed badalne par current candle ka progress na toote
-    // isliye agar Play chal raha hai to usse pause karke fresh restart karo
-    // taaki naya TICK_MS turant sahi se lagu ho.
+    if ([5000,10000,15000,30000,60000,90000,120000].indexOf(ms) === -1) return;
+
+    // Speed badalne se pehle, abhi jo candle ban rahi hai uska progress
+    // (0→1) nikaal lo — taaki speed switch hone par wo candle achanak
+    // reset/chhoti na ho jaaye. Sirf AAGE ki countdown/animation speed
+    // badlegi, jo ab tak ban chuka hai wo bilkul wahi rahega.
+    var now = performance.now();
+    var elapsedFrac = 0;
+    if (_running && _ringStart !== null) {
+      elapsedFrac = Math.min((now - _ringStart) / TICK_MS, 1);
+    } else if (_pausedAt !== null && _ringStart !== null) {
+      elapsedFrac = Math.min((_pausedAt - _ringStart) / TICK_MS, 1);
+    }
+
     var wasRunning = _running;
-    if (wasRunning) _pause();
+    if (_timerId) { clearTimeout(_timerId); _timerId = null; }
+    if (wasRunning) { _running = false; _stopRing(); }
+
     TICK_MS = ms;
     try { localStorage.setItem('sv2_replay_tick_ms', String(ms)); } catch(_) {}
-    _pausedAt  = null;   // pehle wale interval ka baggage carry mat karo
-    _ringStart = null;
     _syncSpeedBtns();
-    if (wasRunning) _play();
+
+    // Naye TICK_MS ke hisaab se _ringStart is tarah set karo ki
+    // elapsedFrac (jo abhi calculate kiya) bilkul wahi ka wahi rahe.
+    _ringStart = now - elapsedFrac * TICK_MS;
+
+    var live = window._SV2_LIVE;
+    if (wasRunning) {
+      _running = true;
+      var remaining = TICK_MS - (now - _ringStart);
+      if (remaining < 0) remaining = 0;
+      _startRing(true);   // resume:true → _ringStart upar se already set hai, overwrite mat karo
+      _pausedAt = null;
+      _timerId = setTimeout(_tick, remaining);
+      _renderPlayIcon();
+    } else {
+      _pausedAt = now;    // paused hi rahega, bas progress naye ringStart se preserved hai
+      if (live && live.baseBars) _rebuildWithForming(elapsedFrac);   // turant UI candle wahi state me refresh
+    }
   }
 
   window._sv2SpeedToggle = _sv2SpeedToggle;
@@ -8023,6 +8172,14 @@ function wireSync(){
   // (cursor looks "stuck"/desynced). When replay is live, rebuild each
   // destination's currently-visible bars the same way the replay engine
   // does; otherwise fall back to the normal static path.
+  // Perf fix: this used to fully re-resample a cell's dataset from scratch
+  // on EVERY crosshair move / range-change frame, for EVERY other cell in
+  // the grid — expensive and pointless when the underlying data hasn't
+  // changed since the last call. Cached per (asset,tf); the cache entry is
+  // only recomputed when the source array's length or last-bar time
+  // actually changed (i.e. a real new candle arrived), which is a cheap
+  // O(1) staleness check instead of the O(n) resample.
+  const _destDataCache = new Map();
   function _destDataFor(d){
     const live = window._SV2_LIVE;
     // d.tf is set correctly (in minutes) once _buildStack2CellChart loads
@@ -8033,7 +8190,15 @@ function wireSync(){
       catch(_){ /* fall through to static path */ }
     }
     const destRaw = _baseDataFor(d.asset, d.tf);
-    return resampleForTF(destRaw, d.tf, d.asset);
+    const lastBar = destRaw.length ? destRaw[destRaw.length-1] : null;
+    const key = d.asset + '|' + d.tf;
+    const cached = _destDataCache.get(key);
+    if(cached && cached.len === destRaw.length && cached.lastTime === (lastBar && lastBar.time)){
+      return cached.data;
+    }
+    const resampled = resampleForTF(destRaw, d.tf, d.asset);
+    _destDataCache.set(key, { len: destRaw.length, lastTime: lastBar && lastBar.time, data: resampled });
+    return resampled;
   }
 
   // Binary search: find largest candle.time <= srcTime (floor match)
@@ -9374,9 +9539,22 @@ function _fmtRemaining(remaining, tfSec) {
 
 // ── Grid cell countdown — attached to each cell's native price label ──────
 let _cellTimerIv=null;
+// Perf fix: querySelectorAll ran on every single animation frame (60/sec),
+// forever, for as long as any grid/stack view was open — a permanent,
+// unconditional DOM-query cost stacking on top of everything else. The
+// badge list only ever changes when cells are rebuilt (layout change,
+// settings applied, etc.), so it's cached here and only re-queried once a
+// second (piggybacking on the existing 1s text tick) instead of every frame.
+let _cellTimerBadgeCache = null;
+function _refreshCellTimerBadgeCache() {
+  _cellTimerBadgeCache = Array.prototype.slice.call(
+    document.querySelectorAll('.cell-timer-badge.timer-on')
+  );
+}
 // Text-only update (countdown digits) — once per second
 function _tickCellTimersText() {
-  document.querySelectorAll('.cell-timer-badge.timer-on').forEach(badge => {
+  _refreshCellTimerBadgeCache();
+  _cellTimerBadgeCache.forEach(badge => {
     const idx=parseInt(badge.dataset.cellIdx)||0;
     const c=CELLS[idx]; if(!c||!c.series) return;
     const tfSec=(c.tf||1)*60;
@@ -9384,10 +9562,19 @@ function _tickCellTimersText() {
     badge.textContent = (remaining === null) ? 'Closed' : _fmtRemaining(remaining, tfSec);
   });
 }
-// Position-only update — every animation frame so chips stay glued to price
-// with zero perceptible lag, independent of the 1s text tick.
+// Position-only update — glues chips to price. Perf fix: throttled to
+// ~20fps (imperceptible vs 60fps for a slowly-drifting price label) and
+// fully paused while the user is actively dragging a chart, since this
+// used to run unconditionally forever and was a steady, needless drain on
+// the same frame budget touch/pan gestures need.
+let _posCellTimersLastTs = 0;
 function _positionCellTimers() {
-  document.querySelectorAll('.cell-timer-badge.timer-on').forEach(badge => {
+  if (_userDragActive) return;
+  const now = performance.now();
+  if (now - _posCellTimersLastTs < 50) return;
+  _posCellTimersLastTs = now;
+  if (!_cellTimerBadgeCache) _refreshCellTimerBadgeCache();
+  _cellTimerBadgeCache.forEach(badge => {
     const idx=parseInt(badge.dataset.cellIdx)||0;
     const c=CELLS[idx]; if(!c||!c.series||c._lastLTP==null) return;
     const y=c.series.priceToCoordinate(c._lastLTP);
@@ -9485,6 +9672,12 @@ function _tickTimer(){ _tickTimerText(); _positionTimerEl(); }
 // ════════════════════════════════════════════════════════════════════════════
 const _btcBucket={tf:null,time:null,open:null,high:-Infinity,low:Infinity,close:null};
 let _swingRebuildTimer=null, _btcRafId=0, _bnRafId=0;
+// Perf fix: instead of one requestAnimationFrame per grid cell per tick
+// (N cells = N separate rAF callbacks fighting for the same frame), all
+// pending cell updates are collected here and flushed together in a
+// single rAF per tick — same visual result, far less scheduling overhead.
+let _bnGridPending = new Set();
+let _bnGridRafId = 0;
 const BTC_ASSET='\u20bf BTC/USDT';
 
 // ── Asset switcher ────────────────────────────────────────────────────────
@@ -10506,9 +10699,23 @@ function _bnGetCellBar(c, latest) {
            low: c._bnBkt.low, close: c._bnBkt.close, value: c._bnBkt.close };
 }
 
+// Perf fix: three channels (fast 300ms poll, bn_live.json 800ms poll,
+// Streamlit postMessage ~1s) used to ALL call _applyBNLiveTick() completely
+// independently — meaning every tick was processed up to 3x over (full
+// CELLS loop, DOM writes, the works), tripling the main-thread cost of
+// something that already runs continuously during live market hours. This
+// timestamp lets the two slower channels detect "the fast poll is already
+// keeping things fresh" and skip their own redundant work — they still
+// kick in immediately as true fallbacks the moment the fast poll goes
+// quiet (e.g. side port unreachable), so nothing about the fallback
+// behavior changes, only the redundant duplicate-processing in the common
+// case is removed.
+let _bnLastAppliedWallTs = 0;
+
 function _applyBNLiveTick(d) {
   // d = { ts, ltp, candle: {time, open, high, low, close} }
   if (!d || !d.candle) return;
+  _bnLastAppliedWallTs = Date.now();
   const latest = {
     time:   d.candle.time,
     open:   d.candle.open,
@@ -10570,42 +10777,21 @@ function _applyBNLiveTick(d) {
   }
 
   // ── Step 4: Grid cells update ─────────────────────────────────────────────
-  CELLS.forEach((c, ci) => {
+  // Perf fix: compute each cell's new bar now (cheap — pure math, no DOM),
+  // stash it on the cell, and queue the cell into a shared pending set.
+  // The actual chart/DOM writes all happen together in ONE rAF per tick
+  // (see _flushBnGridPending below) instead of one separate rAF per cell —
+  // that used to mean up to N rAF callbacks competing for the same frame
+  // on every single tick, which is a big part of what made panning while
+  // live ticks were flowing feel like a hang.
+  CELLS.forEach((c) => {
     if (c.asset !== BN_ASSET || !c.series) return;
-    const cellBar = _bnGetCellBar(c, latest);
-
-    if (!c._bnRafPending) {
-      c._bnRafPending = true;
-      requestAnimationFrame(() => {
-        c._bnRafPending = false;
-        if (!c.series || !c._bnBkt) return;
-        try { c.series.update({ ...cellBar }); } catch(_) {}
-        if ((c.tf||1) >= 1440 && c.chart && c._followLive) {
-          try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
-        }
-        const _ci2 = CELLS.indexOf(c); c._vlTime = cellBar.time; _vlDrawCell(_ci2);
-        _pdotDraw(_ci2);
-        c._lastLTP = cellBar.close;
-        const cell2 = document.querySelector('.grid-cell[data-idx="'+ci+'"]');
-        if (cell2) {
-          const pe = cell2.querySelector('.cell-price');
-          if (pe) {
-            pe.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
-            pe.className   = 'cell-price ' + (cellBar.close >= (c._bnBkt.open||cellBar.close) ? 'up' : 'dn');
-          }
-          const op = cell2.querySelector('.co-price');
-          if (op) op.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
-          const oc = cell2.querySelector('.co-chg');
-          if (oc) {
-            const _d = cellBar.close - (c._bnBkt.open||cellBar.close);
-            const _p = c._bnBkt.open ? (_d/c._bnBkt.open*100).toFixed(2) : '0.00';
-            oc.textContent = (_d>=0?'+':'')+_p+'%';
-            oc.style.color = _d >= 0 ? '#26a69a' : '#ef5350';
-          }
-        }
-      });
-    }
+    c._pendingBnBar = _bnGetCellBar(c, latest);
+    _bnGridPending.add(c);
   });
+  if (_bnGridPending.size && !_bnGridRafId) {
+    _bnGridRafId = requestAnimationFrame(_flushBnGridPending);
+  }
 
   // ── Step 5: Live indicator ────────────────────────────────────────────────
   if (S.asset === BN_ASSET || CELLS.some(c=>c.asset===BN_ASSET)) {
@@ -10617,11 +10803,74 @@ function _applyBNLiveTick(d) {
   if (isNewCandle) _pdotOnLiveTick();
 }
 
+// Flushes every cell queued up in Step 4 above, once per frame. Chart data
+// (series.update) always happens — that's the real candle and must stay
+// accurate. Only the cosmetic DOM text writes (price/change labels in the
+// cell header/overlay) are skipped while the user is actively dragging a
+// chart, since those are pure re-renders that would otherwise compete with
+// touchmove handling for the same frame; they simply catch up on the very
+// next frame after the drag ends, so nothing is ever wrong, just briefly
+// un-refreshed.
+function _flushBnGridPending() {
+  _bnGridRafId = 0;
+  const skipDom = _userDragActive;
+  _bnGridPending.forEach((c) => {
+    const cellBar = c._pendingBnBar;
+    if (!cellBar || !c.series || !c._bnBkt) return;
+    try { c.series.update({ ...cellBar }); } catch(_) {}
+    if ((c.tf||1) >= 1440 && c.chart && c._followLive) {
+      try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
+    }
+    const _ci2 = CELLS.indexOf(c);
+    c._vlTime = cellBar.time; _vlDrawCell(_ci2);
+    _pdotDraw(_ci2);
+    c._lastLTP = cellBar.close;
+
+    if (!skipDom) {
+      const cell2 = document.querySelector('.grid-cell[data-idx="'+_ci2+'"]');
+      if (cell2) {
+        const pe = cell2.querySelector('.cell-price');
+        if (pe) {
+          pe.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
+          pe.className   = 'cell-price ' + (cellBar.close >= (c._bnBkt.open||cellBar.close) ? 'up' : 'dn');
+        }
+        const op = cell2.querySelector('.co-price');
+        if (op) op.textContent = cellBar.close.toLocaleString('en-IN',{minimumFractionDigits:2});
+        const oc = cell2.querySelector('.co-chg');
+        if (oc) {
+          const _d = cellBar.close - (c._bnBkt.open||cellBar.close);
+          const _p = c._bnBkt.open ? (_d/c._bnBkt.open*100).toFixed(2) : '0.00';
+          oc.textContent = (_d>=0?'+':'')+_p+'%';
+          oc.style.color = _d >= 0 ? '#26a69a' : '#ef5350';
+        }
+      }
+    }
+  });
+  _bnGridPending.clear();
+  // If the user was dragging, DOM text got skipped this frame — try again
+  // shortly so labels catch up without waiting for the next live tick.
+  if (skipDom) {
+    clearTimeout(_bnGridDomCatchupTid);
+    _bnGridDomCatchupTid = setTimeout(() => {
+      if (!_userDragActive) CELLS.forEach(c => { if (c.asset===BN_ASSET && c._lastLTP!=null) _bnGridPending.add(c); });
+      if (_bnGridPending.size && !_bnGridRafId) _bnGridRafId = requestAnimationFrame(_flushBnGridPending);
+    }, 220);
+  }
+}
+let _bnGridDomCatchupTid = null;
+
 // Listen for postMessage from Streamlit parent (Python pushes tick every ~1s)
 window.addEventListener('message', function(evt) {
   try {
     const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'bn_live') _applyBNLiveTick(msg.data);
+    if (msg && msg.type === 'bn_live') {
+      // Fallback only — skip if the fast 300ms poll already applied
+      // something recently (normal case), to avoid processing the same
+      // tick 2-3 times over. Kicks back in instantly if the fast poll
+      // ever goes quiet.
+      if (Date.now() - _bnLastAppliedWallTs < 1500) return;
+      _applyBNLiveTick(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
@@ -10665,6 +10914,11 @@ _startBNFastPolling();
 let _bnLastTs = 0;
 
 async function _pollBNLive() {
+  // Fallback only — the fast 300ms side-port poll is the primary path and
+  // is almost always fresh. Skipping this (including its network fetches)
+  // when the fast poll is healthy removes redundant work/requests; it
+  // resumes immediately if the fast poll ever stalls.
+  if (Date.now() - _bnLastAppliedWallTs < 1500) return;
   try {
     const paths = ['./bn_live.json', '/bn_live.json', 'bn_live.json'];
     let d = null;
