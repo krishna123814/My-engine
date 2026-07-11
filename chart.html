@@ -5534,6 +5534,40 @@ function ss2ApplyAndClose() {
   // ko one-by-one reveal karte hain, taaki candle wahi sequence follow kare
   // jo actual live market mein hua tha. pct = 0 → sirf open dot,
   // pct = 1 → full bar (saare sub-bars revealed).
+  // ── Single-price-path helper (Option 2) ───────────────────────────────────
+  // SIRF EK price line move karti hai: open → pehla extreme → dusra extreme
+  // → close, ek hi continuous route par. High/low alag se animate NAHI hote —
+  // wo sirf ab tak price ne jo route liya hai uska running max/min hain
+  // (ek "footprint"). Route ka order candle ke apne open/close se decide
+  // hota hai: bullish (close>=open) → pehle low, phir high; bearish → pehle
+  // high, phir low — yehi real candle-formation ka common pattern hai.
+  // frac (0→1) = is bar ke andar kitna progress hua. Return: {c,h,l}.
+  function _pathThroughBar(startPrice, bar, frac) {
+    var bullish = bar.close >= bar.open;
+    var wpA = bullish ? bar.low  : bar.high;   // route ka pehla extreme
+    var wpB = bullish ? bar.high : bar.low;    // route ka dusra extreme
+    var path = [startPrice, wpA, wpB, bar.close];
+
+    var legF = frac * 3;
+    if (legF > 3) legF = 3;
+    var legIdx = Math.floor(legF);
+    if (legIdx >= 3) legIdx = 2;
+    var legFrac = legF - legIdx;
+
+    var c = path[legIdx] + (path[legIdx + 1] - path[legIdx]) * legFrac;
+
+    // High/low = sirf ab tak price ne jo raasta cover kiya hai uska max/min
+    var h = path[0], l = path[0];
+    for (var i = 1; i <= legIdx; i++) {
+      if (path[i] > h) h = path[i];
+      if (path[i] < l) l = path[i];
+    }
+    if (c > h) h = c;
+    if (c < l) l = c;
+
+    return { c: c, h: h, l: l };
+  }
+
   function _rebuildWithForming(pct) {
     var live = window._SV2_LIVE;
     if (!live || !live.baseBars || typeof STACK2_CELLS === 'undefined') return;
@@ -5579,18 +5613,16 @@ function ss2ApplyAndClose() {
       }
       if (!haveFull) { h = o; l = o; }
 
-      // Abhi jo segment ban raha hai, uska close smoothly prevClose se
-      // target.close tak lerp hota h — aur wick bhi USI RATE se target ke
-      // high/low tak grow karta h (Option B: sab kuch saath-saath move,
-      // kuch bhi "future" pehle se expose nahi hota).
-      var c = prevClose + (target.close - prevClose) * segFrac;
-      var segHigh = prevClose + (target.high - prevClose) * segFrac;
-      var segLow  = prevClose + (target.low  - prevClose) * segFrac;
+      // Abhi jo segment ban raha hai — SIRF EK price path move karta hai
+      // (prevClose se target.close tak, beech me target ka low/high jis
+      // order me real candle me pehle aaya hoga usi order me chhoote hue).
+      // High/low alag se lerp NAHI hote — wo isi ek path ka running max/min
+      // hain (Option 2).
+      var pt = _pathThroughBar(prevClose, target, segFrac);
+      var c  = pt.c;
 
-      if (segHigh > h) h = segHigh;
-      if (segLow  < l) l = segLow;
-      if (c > h) h = c;
-      if (c < l) l = c;
+      if (pt.h > h) h = pt.h;
+      if (pt.l < l) l = pt.l;
 
       // segFrac === 1 (checkpoint par exactly pahunch gaye) par ye h/l/c
       // real subBars[segIdx] ke high/low/close se EXACT match karte hain —
@@ -5598,14 +5630,10 @@ function ss2ApplyAndClose() {
       formingBar = { time: nb.time, open: o, high: h, low: l, close: c };
     } else {
       // Fallback (no sub-resolution data for this window, e.g. very old
-      // history outside the trimmed raw arrays) — keep the previous
-      // linear-lerp approximation so replay never breaks.
-      var lerpC = o + (nb.close - o) * pct;
-      var lerpH = o + (nb.high  - o) * pct;
-      var lerpL = o + (nb.low   - o) * pct;
-      lerpH = Math.max(lerpH, Math.max(o, lerpC));
-      lerpL = Math.min(lerpL, Math.min(o, lerpC));
-      formingBar = { time: nb.time, open: o, high: lerpH, low: lerpL, close: lerpC };
+      // history outside the trimmed raw arrays) — same single-path logic,
+      // seedha poore base-bar (nb) par apply karke.
+      var ptFb = _pathThroughBar(o, nb, pct);
+      formingBar = { time: nb.time, open: o, high: ptFb.h, low: ptFb.l, close: ptFb.c };
     }
 
     // Proxy array: all revealed bars + one forming bar at the end
