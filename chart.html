@@ -986,6 +986,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-cal-day.disabled {color:#333;pointer-events:none}
 
 /* Apply button */
+/* Opening Price Preview — toggle row + price display (sits right on the calendar sheet) */
+#sv2-openpx-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 10px;margin:8px 0 2px;background:#1a1e29;border:1px solid #2a2e3e;border-radius:8px;
+}
+#sv2-openpx-label{font-size:12px;color:#d1d4dc;font-weight:600}
+#sv2-openpx-box{
+  display:none;text-align:center;font-size:12px;color:#26a69a;font-weight:700;
+  padding:6px 10px;margin:0 0 8px;background:#132821;border:1px solid #1f4d3f;border-radius:8px;
+}
 #sv2-drng-apply{
   display:block;width:calc(100% - 32px);margin:8px 16px 4px;
   height:44px;border-radius:8px;
@@ -2264,6 +2274,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div style="font-size:10px;color:#848da0;text-align:center;padding:4px 0 0 0;margin-top:-4px;">
       ← Is date tak ka data dikhega · Uske baad Replay ▶ shuru hoga
     </div>
+
+    <!-- Opening Price Preview — on/off toggle right here on the calendar,
+         jaisa Live BankNifty mein pre-market par opening price dikhta hai -->
+    <div id="sv2-openpx-row">
+      <span id="sv2-openpx-label">📍 Opening Price Preview</span>
+      <button id="sv2-openpx-switch" class="gp-switch" onclick="_sv2OpenPxToggle()"></button>
+    </div>
+    <div id="sv2-openpx-box"><span id="sv2-openpx-val">--</span></div>
 
     <!-- Calendar nav row -->
     <div id="sv2-cal-nav">
@@ -4941,6 +4959,16 @@ function ss2ApplyAndClose() {
   var _calYear   = 0;
   var _calMonth  = 0;         // 0-indexed (0=Jan)
 
+  // ── Opening Price Preview — on/off (persisted) ────────────────────────────
+  // Live BankNifty jaisa: date select karte hi us din ka opening price dikhao.
+  var _OPENPX_KEY  = 'sv2OpenPxOnOff';
+  function _loadOpenPxOnOff() {
+    var raw = _LS.getItem(_OPENPX_KEY);
+    return raw === null ? true : raw === '1';   // default ON
+  }
+  function _saveOpenPxOnOff(on) { _LS.setItem(_OPENPX_KEY, on ? '1' : '0'); }
+  var _showOpenPx = _loadOpenPxOnOff();
+
   // Month names
   var MONTHS = ['January','February','March','April','May','June',
                 'July','August','September','October','November','December'];
@@ -5081,6 +5109,7 @@ function ss2ApplyAndClose() {
     _renderTabs();
     _renderCal();
     _updateApplyBtn();
+    _sv2UpdateOpenPriceDisplay();
     _backdrop.classList.add('open');
     _sheet.classList.add('open');
   }
@@ -5101,6 +5130,7 @@ function ss2ApplyAndClose() {
     _renderTabs();
     _renderCal();
     _updateApplyBtn();
+    _sv2UpdateOpenPriceDisplay();
     // Dispatch event so future replay system can listen
     try { document.dispatchEvent(new CustomEvent('sv2DateRangeCleared')); } catch(_){}
     // Rebuild Stack View 2 immediately if it's currently the active layout —
@@ -5114,6 +5144,64 @@ function ss2ApplyAndClose() {
     }
   }
   window._sv2DrngClear = _sv2DrngClear;
+
+  // ── Opening Price Preview ─────────────────────────────────────────────────
+  function _renderOpenPxSwitch() {
+    var btn = document.getElementById('sv2-openpx-switch');
+    if (btn) btn.classList.toggle('on', _showOpenPx);
+  }
+
+  function _sv2OpenPxToggle() {
+    _showOpenPx = !_showOpenPx;
+    _saveOpenPxOnOff(_showOpenPx);
+    _renderOpenPxSwitch();
+    _sv2UpdateOpenPriceDisplay();
+  }
+  window._sv2OpenPxToggle = _sv2OpenPxToggle;
+
+  // Selected calendar date ke liye us din ka opening price dhoondo.
+  // SV2_BN['1D'] / SV2_BTC['1D'] pehle se hi Python se resampled aake hue
+  // hain — har candle ka "open" us trading/calendar day ka actual open hai.
+  function _sv2GetOpenPriceForDate(date) {
+    if (!date) return null;
+    var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    var dailyArr = null;
+    if (assetKey === 'bn' && typeof SV2_BN !== 'undefined') dailyArr = SV2_BN['1D'];
+    else if (typeof SV2_BTC !== 'undefined') dailyArr = SV2_BTC['1D'];
+    if (!dailyArr || !dailyArr.length) return null;
+
+    var targetStr = date.getFullYear() + '-' +
+                    String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                    String(date.getDate()).padStart(2, '0');
+
+    for (var i = 0; i < dailyArr.length; i++) {
+      if (typeof _utcDateStr === 'function' && _utcDateStr(dailyArr[i].time) === targetStr) {
+        return dailyArr[i].open;
+      }
+    }
+    return null;
+  }
+
+  function _sv2UpdateOpenPriceDisplay() {
+    var box = document.getElementById('sv2-openpx-box');
+    var val = document.getElementById('sv2-openpx-val');
+    _renderOpenPxSwitch();
+    if (!box || !val) return;
+
+    if (!_showOpenPx || !_selStart) { box.style.display = 'none'; return; }
+
+    var px = _sv2GetOpenPriceForDate(_selStart);
+    if (px == null) {
+      val.textContent = '⏳ Opening price abhi available nahi hai is date ke liye';
+      box.style.display = '';
+      return;
+    }
+    var assetKey  = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
+    var symLabel  = (assetKey === 'bn') ? 'BANKNIFTY' : 'BTC/USDT';
+    val.textContent = '📍 ' + symLabel + ' Open (' + _fmtDate(_selStart) + '): ' + Number(px).toFixed(2);
+    box.style.display = '';
+  }
+  window._sv2UpdateOpenPriceDisplay = _sv2UpdateOpenPriceDisplay;
 
   // ── Tab switching ─────────────────────────────────────────────────────────
   function _sv2DrngSwitchTab(tab) {
@@ -5252,6 +5340,7 @@ function ss2ApplyAndClose() {
     _renderTabs();
     _renderCal();
     _updateApplyBtn();
+    _sv2UpdateOpenPriceDisplay();   // Live BankNifty jaisa opening-price preview
   }
 
   // ── Apply button — single-date mode ──────────────────────────────────────
