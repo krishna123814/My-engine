@@ -5699,19 +5699,15 @@ function ss2ApplyAndClose() {
     var proxy = live.baseBars.slice(0, live.revealIdx);
     proxy.push(formingBar);
 
-    // Perf fix: this runs every 200ms for every cell, continuously, for as
-    // long as a candle is forming — that's the main cause of Stack View 2
-    // hanging while the user pans/scrolls. Two changes, same end result:
-    //  1) Skip entirely while the user is actively touching a chart — this
-    //     is a purely cosmetic mid-candle animation, deferring it a few
-    //     frames during a drag is invisible; it resumes right after release.
-    //  2) Use series.update() (touches just the one forming bar) instead of
-    //     series.setData() (replaces + re-fits the WHOLE series) whenever
-    //     the cell's underlying base data + future-whitespace tail were
-    //     already established for this exact bucket by the last full
-    //     _rebuildAllCells() setData — which is true on every call here
-    //     except the very first tick of a freshly-revealed candle, so it
-    //     safely falls back to setData() in that one case.
+    // Perf fix: skip this entirely while the user is actively touching a
+    // chart — this is a purely cosmetic mid-candle animation tick, so
+    // deferring it during a drag is invisible; it resumes right after
+    // release. (Note: an earlier attempt also tried to replace setData()
+    // with a cheap update() here, but that's not valid in this case — the
+    // forming bar is followed by future-whitespace bars, so it's no longer
+    // the series' last bar, and update() can only touch the last bar. That
+    // was silently failing and is reverted below — full setData() per cell
+    // stays, just gated on drag state.)
     if (_userDragActive) return;
 
     for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
@@ -5728,27 +5724,14 @@ function ss2ApplyAndClose() {
       // jiski wajah se line scroll ke saath sync nahi hoti thi (static
       // fallback position par chali jaati thi). Har cell apna sahi time use
       // kare, taaki scroll ke saath hamesha sync rahe.
-      var formingAggBar = agg[agg.length - 1];
-      var _aggLastReal   = formingAggBar.time;
-
-      if (cell._sv2FormingBaseline === _aggLastReal) {
-        // Fast path: only the forming bar's OHLC changed since the last
-        // full setData() — a cheap incremental update, no re-fit, no
-        // full-array copy.
-        try { cell.series.update(formingAggBar); } catch(_e) {}
-      } else {
-        // Slow path (only once per newly-revealed candle): full rebuild,
-        // same as before, so the whitespace tail is correctly (re)seeded.
-        var aggFull = agg;
-        var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
-        if (_fw1.length) aggFull = aggFull.concat(_fw1);
-        var _preRange = null;
-        try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
-        try { cell.series.setData(aggFull); } catch(_e) {}
-        if (_preRange && cell.chart) {
-          try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
-        }
-        cell._sv2FormingBaseline = _aggLastReal;
+      var _aggLastReal = agg[agg.length - 1].time;
+      var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
+      if (_fw1.length) agg = agg.concat(_fw1);
+      var _preRange = null;
+      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
+      try { cell.series.setData(agg); } catch(_e) {}
+      if (_preRange && cell.chart) {
+        try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
       }
 
       cell._vlTime = _aggLastReal;
@@ -5917,7 +5900,6 @@ function ss2ApplyAndClose() {
       // sath rakho — whitespace tail ke sath nahi, aur base-resolution
       // time ke sath bhi nahi (upar comment dekhein).
       if (_aggLastReal2 != null) cell._vlTime = _aggLastReal2;
-      cell._sv2FormingBaseline = _aggLastReal2;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_) {}
       _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal2, 0);
     }
