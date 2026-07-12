@@ -7692,6 +7692,30 @@ function _vlRemoveCellCanvas2(idx) {
 //   Colour = that cell's TF colour. Max 4 locked arrows per cell (FIFO).
 // ════════════════════════════════════════════════════════════════════════════
 const TFARR_LS_KEY      = 'tfArrowOn';
+
+// ── On-screen debug panel — mobile pe console nahi khulta, isliye same
+//    log-lines yahan bhi dikhengi. Feature ON hote hi ye panel bhi dikhta
+//    hai; ✕ se hata sakte ho. ─────────────────────────────────────────────
+function _tfArrowDebug(msg) {
+  try { console.log('[TFArrow]', msg); } catch(_) {}
+  let box = document.getElementById('tfarrow-debug');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'tfarrow-debug';
+    box.style.cssText = 'position:fixed;left:6px;right:6px;bottom:28px;z-index:10060;background:#000000cc;color:#7CFC00;font-size:10px;font-family:monospace;padding:6px 8px;border-radius:6px;max-height:120px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;';
+    const close = document.createElement('div');
+    close.textContent = '✕ close debug';
+    close.style.cssText = 'color:#f23645;text-align:right;cursor:pointer;font-weight:700;';
+    close.onclick = () => box.remove();
+    box.appendChild(close);
+    document.body.appendChild(box);
+  }
+  const line = document.createElement('div');
+  line.textContent = new Date().toLocaleTimeString() + ' — ' + msg;
+  box.appendChild(line);
+  while (box.children.length > 15) box.removeChild(box.children[1]);   // keep close-btn + last 14 lines
+  box.scrollTop = box.scrollHeight;
+}
 const TFARR_TYPE_LS_KEY = 'tfArrowType';   // 'up' | 'down'
 let TFARR_ON   = (_LS.getItem(TFARR_LS_KEY) === '1');
 let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick
@@ -7729,7 +7753,7 @@ function _tfArrowConfirmType(type) {
   try { _LS.setItem(TFARR_LS_KEY, '1'); } catch(_) {}
   _tfArrowSyncBtn();
   _tfArrowRedrawAll();
-  console.log('[TFArrow] ON, type =', TFARR_TYPE);
+  _tfArrowDebug('ON, type = ' + TFARR_TYPE);
 }
 function toggleTfArrow() {
   if (!TFARR_ON) {
@@ -7797,7 +7821,7 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   const el = document.getElementById(elId);
   if (!el || el._taWired) return;
   el._taWired = true;
-  console.log('[TFArrow] wired', elId);
+  _tfArrowDebug('wired ' + elId);
   let holdT1 = null, holdT2 = null, downPt = null;
 
   function ptFromEvent(ev) {
@@ -7819,16 +7843,16 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   el.addEventListener('pointerdown', (ev) => {
     if (!TFARR_ON) return;
     downPt = ptFromEvent(ev);
-    console.log('[TFArrow] pointerdown', elId, downPt);
+    _tfArrowDebug('pointerdown ' + elId + ' x=' + Math.round(downPt.x) + ' y=' + Math.round(downPt.y));
     holdT1 = setTimeout(() => {
       const c = getCell(); if (!c) return;
       c._taPreview = { x: downPt.x, y: downPt.y };
-      console.log('[TFArrow] 3s preview', elId);
+      _tfArrowDebug('3s preview ' + elId);
       _tfArrowDrawCell(c, elId, getColor);
     }, 3000);
     holdT2 = setTimeout(() => {
       const c = getCell();
-      console.log('[TFArrow] 5s lock attempt', elId, 'type=', TFARR_TYPE, 'lastBar=', c && c._taLastBar);
+      _tfArrowDebug('5s lock attempt ' + elId + ' type=' + TFARR_TYPE + ' hasBar=' + !!(c && c._taLastBar));
       if (c) _tfArrowLock(c, getColor);
       cancelHold();
     }, 5000);
@@ -7845,10 +7869,10 @@ function _tfArrowWireCell(elId, getCell, getColor) {
 
 // ── Lock: pin a new FIXED-type arrow to whatever candle is forming now ─────
 function _tfArrowLock(c, getColor) {
-  if (!c || !c.series || !TFARR_TYPE) { console.log('[TFArrow] lock skipped — no series or no type picked'); return; }
+  if (!c || !c.series || !TFARR_TYPE) { _tfArrowDebug('lock SKIPPED — no series or no type picked'); return; }
   _tfArrowHookSeries(c);
   const bar = c._taLastBar;
-  if (!bar) { console.log('[TFArrow] lock skipped — no bar captured yet (series never updated since page load?)'); return; }
+  if (!bar) { _tfArrowDebug('lock SKIPPED — no bar captured yet'); return; }
   if (!c._taArrows) c._taArrows = [];
   c._taArrows.push({
     time: bar.time,
@@ -7856,7 +7880,7 @@ function _tfArrowLock(c, getColor) {
     color: getColor(c),
   });
   while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
-  console.log('[TFArrow] LOCKED', c._taArrows[c._taArrows.length - 1]);
+  _tfArrowDebug('LOCKED! time=' + c._taArrows[c._taArrows.length - 1].time + ' type=' + c._taArrows[c._taArrows.length - 1].type);
 }
 
 // ── Per-cell redraw: keep locked arrows glued to their (still forming)
@@ -7936,7 +7960,7 @@ function _tfArrowRedrawAll() {
         const elId = 'cell-chart-' + i;
         _tfArrowWireCell(elId, () => CELLS[i], (cc) => _tfCandleColor(cc.tf));
         _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
-      } catch(e) { console.log('[TFArrow] SV1 cell', i, 'error:', e.message); }
+      } catch(e) { _tfArrowDebug('SV1 cell ' + i + ' ERROR: ' + e.message); }
     });
   }
   if (typeof STACK2_CELLS !== 'undefined') {
@@ -7946,11 +7970,12 @@ function _tfArrowRedrawAll() {
         const elId = 'stack2-chart-' + i;
         _tfArrowWireCell(elId, () => STACK2_CELLS[i], (cc) => _sv2TfCandleColor(cc.tf));
         _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
-      } catch(e) { console.log('[TFArrow] SV2 cell', i, 'error:', e.message); }
+      } catch(e) { _tfArrowDebug('SV2 cell ' + i + ' ERROR: ' + e.message); }
     });
   }
 }
 setInterval(_tfArrowRedrawAll, 300);
+setTimeout(() => _tfArrowDebug('module loaded, CELLS=' + (typeof CELLS!=='undefined'?CELLS.length:'undef') + ' STACK2_CELLS=' + (typeof STACK2_CELLS!=='undefined'?STACK2_CELLS.length:'undef')), 500);
 setTimeout(_tfArrowSyncBtn, 0);
 // ════════════════════════════════════════════════════════ END TF ARROW ═════
 
