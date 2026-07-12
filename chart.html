@@ -4938,6 +4938,7 @@ function _buildStack2CellChart(idx) {
     wickUpColor: S.upColor, wickDownColor: S.dnColor,
     priceLineVisible: false,
   });
+  try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
   // ── Future Line (vLine) wiring — SV2 previously never created a canvas
   // for this, so the "Future Line" toggle in Cell Settings existed but
@@ -7728,6 +7729,7 @@ function _tfArrowConfirmType(type) {
   try { _LS.setItem(TFARR_LS_KEY, '1'); } catch(_) {}
   _tfArrowSyncBtn();
   _tfArrowRedrawAll();
+  console.log('[TFArrow] ON, type =', TFARR_TYPE);
 }
 function toggleTfArrow() {
   if (!TFARR_ON) {
@@ -7795,8 +7797,15 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   const el = document.getElementById(elId);
   if (!el || el._taWired) return;
   el._taWired = true;
+  console.log('[TFArrow] wired', elId);
   let holdT1 = null, holdT2 = null, downPt = null;
 
+  function ptFromEvent(ev) {
+    const r = el.getBoundingClientRect();
+    const cx = (ev.clientX != null) ? ev.clientX : (ev.touches && ev.touches[0] && ev.touches[0].clientX);
+    const cy = (ev.clientY != null) ? ev.clientY : (ev.touches && ev.touches[0] && ev.touches[0].clientY);
+    return { x: cx - r.left, y: cy - r.top };
+  }
   function cancelHold() {
     if (holdT1) { clearTimeout(holdT1); holdT1 = null; }
     if (holdT2) { clearTimeout(holdT2); holdT2 = null; }
@@ -7804,34 +7813,42 @@ function _tfArrowWireCell(elId, getCell, getColor) {
     const c = getCell();
     if (c) { c._taPreview = null; _tfArrowDrawCell(c, elId, getColor); }
   }
+  // capture:true — humein event tab milega jab wo tree me neeche ja raha
+  // hoga, chahe chart library internally stopPropagation() bhi kyun na
+  // kare bubble phase mein. Ye sabse robust tareeka hai.
   el.addEventListener('pointerdown', (ev) => {
     if (!TFARR_ON) return;
-    downPt = { x: ev.offsetX, y: ev.offsetY };
+    downPt = ptFromEvent(ev);
+    console.log('[TFArrow] pointerdown', elId, downPt);
     holdT1 = setTimeout(() => {
       const c = getCell(); if (!c) return;
       c._taPreview = { x: downPt.x, y: downPt.y };
+      console.log('[TFArrow] 3s preview', elId);
       _tfArrowDrawCell(c, elId, getColor);
     }, 3000);
     holdT2 = setTimeout(() => {
-      const c = getCell(); if (c) _tfArrowLock(c, getColor);
+      const c = getCell();
+      console.log('[TFArrow] 5s lock attempt', elId, 'type=', TFARR_TYPE, 'lastBar=', c && c._taLastBar);
+      if (c) _tfArrowLock(c, getColor);
       cancelHold();
     }, 5000);
-  }, { passive: true });
+  }, { capture: true, passive: true });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(evt =>
-    el.addEventListener(evt, cancelHold, { passive: true }));
+    el.addEventListener(evt, cancelHold, { capture: true, passive: true }));
   el.addEventListener('pointermove', (ev) => {
     if (!downPt) return;
+    const p = ptFromEvent(ev);
     // 12px se zyada hilne par hold cancel — normal pan/zoom disturb na ho
-    if (Math.abs(ev.offsetX - downPt.x) > 12 || Math.abs(ev.offsetY - downPt.y) > 12) cancelHold();
-  }, { passive: true });
+    if (Math.abs(p.x - downPt.x) > 12 || Math.abs(p.y - downPt.y) > 12) cancelHold();
+  }, { capture: true, passive: true });
 }
 
 // ── Lock: pin a new FIXED-type arrow to whatever candle is forming now ─────
 function _tfArrowLock(c, getColor) {
-  if (!c || !c.series || !TFARR_TYPE) return;
+  if (!c || !c.series || !TFARR_TYPE) { console.log('[TFArrow] lock skipped — no series or no type picked'); return; }
   _tfArrowHookSeries(c);
   const bar = c._taLastBar;
-  if (!bar) return;
+  if (!bar) { console.log('[TFArrow] lock skipped — no bar captured yet (series never updated since page load?)'); return; }
   if (!c._taArrows) c._taArrows = [];
   c._taArrows.push({
     time: bar.time,
@@ -7839,6 +7856,7 @@ function _tfArrowLock(c, getColor) {
     color: getColor(c),
   });
   while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
+  console.log('[TFArrow] LOCKED', c._taArrows[c._taArrows.length - 1]);
 }
 
 // ── Per-cell redraw: keep locked arrows glued to their (still forming)
@@ -7914,17 +7932,21 @@ function _tfArrowRedrawAll() {
   if (typeof CELLS !== 'undefined') {
     CELLS.forEach((c, i) => {
       if (!c || !c.chart) return;
-      const elId = 'cell-chart-' + i;
-      _tfArrowWireCell(elId, () => CELLS[i], (cc) => _tfCandleColor(cc.tf));
-      _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
+      try {
+        const elId = 'cell-chart-' + i;
+        _tfArrowWireCell(elId, () => CELLS[i], (cc) => _tfCandleColor(cc.tf));
+        _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
+      } catch(e) { console.log('[TFArrow] SV1 cell', i, 'error:', e.message); }
     });
   }
   if (typeof STACK2_CELLS !== 'undefined') {
     STACK2_CELLS.forEach((c, i) => {
       if (!c || !c.chart) return;
-      const elId = 'stack2-chart-' + i;
-      _tfArrowWireCell(elId, () => STACK2_CELLS[i], (cc) => _sv2TfCandleColor(cc.tf));
-      _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
+      try {
+        const elId = 'stack2-chart-' + i;
+        _tfArrowWireCell(elId, () => STACK2_CELLS[i], (cc) => _sv2TfCandleColor(cc.tf));
+        _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
+      } catch(e) { console.log('[TFArrow] SV2 cell', i, 'error:', e.message); }
     });
   }
 }
@@ -9251,6 +9273,7 @@ async function buildCellChart(idx) {
   } else {
     c.series = c.chart.addAreaSeries({ topColor: upClr + '44', bottomColor: upClr + '00', lineColor: upClr, lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
   }
+  try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
   if (data.length) {
     if (cType === 'line' || cType === 'area') {
