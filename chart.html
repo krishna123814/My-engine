@@ -7693,8 +7693,12 @@ function _vlRemoveCellCanvas2(idx) {
 // ════════════════════════════════════════════════════════════════════════════
 const TFARR_LS_KEY      = 'tfArrowOn';
 const TFARR_TYPE_LS_KEY = 'tfArrowType';   // 'up' | 'down'
-let TFARR_ON   = (_LS.getItem(TFARR_LS_KEY) === '1');
-let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick
+// NEW: hamesha OFF se start — app open/reload par pichli saved ON state
+// jaan-boojhkar ignore karte hain (sirf state ignore; already-locked
+// arrows is se bilkul affect nahi hote, wo TFARR_ON se independent hain).
+let TFARR_ON   = false;
+try { _LS.setItem(TFARR_LS_KEY, '0'); } catch(_) {}
+let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick — type yaad rehta hai (convenience), ON/OFF nahi
 
 function _tfArrowSyncBtn() {
   const btn = document.getElementById('tfarrow-btn');
@@ -7730,18 +7734,25 @@ function _tfArrowConfirmType(type) {
   _tfArrowSyncBtn();
   _tfArrowRedrawAll();
 }
+// ── Shared OFF path — manual toggle AND single-shot auto-off (after a
+//    successful placement) both go through this. NEVER touches c._taArrows
+//    — already-locked arrows keep drawing regardless of TFARR_ON, exactly
+//    like before (see comment in _tfArrowDrawCell). ─────────────────────
+function _tfArrowTurnOff() {
+  TFARR_ON = false;
+  try { _LS.setItem(TFARR_LS_KEY, '0'); } catch(_) {}
+  _tfArrowSyncBtn();
+  _tfArrowClearAllPreviews();
+  _tfArrowRedrawAll();
+}
 function toggleTfArrow() {
   if (!TFARR_ON) {
     // OFF → ON: type ek popup se pick karwao (mandatory) — feature tabhi ON hota hai
     _tfArrowOpenPicker();
     return;
   }
-  // ON → OFF
-  TFARR_ON = false;
-  try { _LS.setItem(TFARR_LS_KEY, '0'); } catch(_) {}
-  _tfArrowSyncBtn();
-  _tfArrowClearAllPreviews();
-  _tfArrowRedrawAll();
+  // ON → OFF (manual)
+  _tfArrowTurnOff();
 }
 
 // ── Canvas overlay (generic core, reused for SV1 + SV2 cell objects) ───────
@@ -7856,7 +7867,7 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   const el = document.getElementById(elId);
   if (!el || el._taWired) return;
   el._taWired = true;
-  let holdT1 = null, holdT2 = null, downPt = null;
+  let holdT1 = null, holdT2 = null, downPt = null, downAt = 0;
 
   function ptFromEvent(ev) {
     const r = el.getBoundingClientRect();
@@ -7875,8 +7886,12 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   // hoga, chahe chart library internally stopPropagation() bhi kyun na
   // kare bubble phase mein. Ye sabse robust tareeka hai.
   el.addEventListener('pointerdown', (ev) => {
-    if (!TFARR_ON) return;
     downPt = ptFromEvent(ev);
+    downAt = Date.now();
+    // Delete tap-check (pointerup listener) TFARR_ON se independent chalta
+    // hai — galat arrow hatane ke liye tool ON hona zaroori nahi. Hold-
+    // timers (naya arrow lagaane wale) sirf tool ON hone par start hote hain.
+    if (!TFARR_ON) return;
     holdT1 = setTimeout(() => {
       const c = getCell(); if (!c) return;
       c._taPreview = { x: downPt.x, y: downPt.y };
@@ -7884,12 +7899,25 @@ function _tfArrowWireCell(elId, getCell, getColor) {
     }, 3000);
     holdT2 = setTimeout(() => {
       const c = getCell();
-      if (c) _tfArrowLock(c, elId, getColor, downPt);
+      const placed = c ? _tfArrowLock(c, elId, getColor, downPt) : false;
       cancelHold();
+      // NEW: single-shot — ek arrow lock hote hi tool khud OFF, agla
+      // lagane ke liye icon dobara click karna padega. Sirf successful
+      // placement par (agar lock fail hua to ON hi rehne do).
+      if (placed) _tfArrowTurnOff();
     }, 5000);
   }, { capture: true, passive: true });
   ['pointerup', 'pointerleave', 'pointercancel'].forEach(evt =>
-    el.addEventListener(evt, cancelHold, { capture: true, passive: true }));
+    el.addEventListener(evt, (ev) => {
+      // NEW: quick tap (<400ms, koi hold nahi) ek existing arrow ke upar ho
+      // to delete-confirm popup dikhao — chahe tool ON ho ya OFF.
+      if (evt === 'pointerup' && downPt && (Date.now() - downAt) < 400) {
+        const c = getCell();
+        const hit = c ? _tfArrowHitTest(c, downPt) : null;
+        if (hit) { cancelHold(); _tfArrowConfirmDelete(c, hit); return; }
+      }
+      cancelHold();
+    }, { capture: true, passive: true }));
   el.addEventListener('pointermove', (ev) => {
     if (!downPt) return;
     const p = ptFromEvent(ev);
@@ -7903,19 +7931,87 @@ function _tfArrowWireCell(elId, getCell, getColor) {
 //    forming right now. If the pointer IS over the forming candle, it will
 //    keep tracking live exactly as before (handled in _tfArrowDrawCell). ──
 function _tfArrowLock(c, elId, getColor, downPt) {
-  if (!c || !c.series || !TFARR_TYPE) return;
+  if (!c || !c.series || !TFARR_TYPE) return false;
   _tfArrowHookSeries(c);
   const bar = _tfArrowFindBarAtX(c, downPt ? downPt.x : null);
-  if (!bar) return;
+  if (!bar) return false;
   if (!c._taArrows) c._taArrows = [];
   const refPriceNow = _tfArrowRefPrice(bar, TFARR_TYPE);
   c._taArrows.push({
+    id: 'ta_' + Date.now() + '_' + Math.random().toString(36).slice(2),  // NEW: stable id, tap-to-delete target
     time: bar.time,
     type: TFARR_TYPE,     // 'up' (below candle) | 'down' (above candle) — FIXED
     color: getColor(c),
     _lastRef: refPriceNow,  // seed now so it draws immediately even on a non-forming (historical) candle
   });
   while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
+  return true;   // NEW: signals a real placement happened (used for single-shot auto-off)
+}
+
+// ── Shared coordinate resolver for ONE arrow — used by both drawing and
+//    tap-hit-testing (delete), so the two can never drift out of sync.
+//    Same "glued to forming candle, frozen after close" logic as before,
+//    just pulled out into its own function. Returns {x,y} in canvas CSS-px
+//    (same space as pointer coords from getBoundingClientRect), or null if
+//    not currently resolvable on screen. ─────────────────────────────────
+function _tfArrowGetXY(c, a) {
+  if (!c || !c.chart || !c.series) return null;
+  const lastBar = c._taLastBar;
+  let refPrice, barTime = a.time;
+  if (lastBar && lastBar.time === a.time) {
+    refPrice = _tfArrowRefPrice(lastBar, a.type);
+    if (refPrice != null) a._lastRef = refPrice;
+    else refPrice = a._lastRef;
+  } else {
+    refPrice = a._lastRef;
+  }
+  if (refPrice == null) return null;
+  const x = c.chart.timeScale().timeToCoordinate(barTime);
+  const y = c.series.priceToCoordinate(refPrice);
+  if (x == null || y == null) return null;
+  const yy = a.type === 'up' ? y + 10 : y - 10;   // up-arrow BELOW candle, down-arrow ABOVE
+  return { x: x, y: yy };
+}
+
+// ── Hit-test a tap point against a cell's locked arrows (newest/topmost
+//    first). HIT_R is generous enough for a fingertip on mobile without
+//    being so big it fires from unrelated taps nearby. Works regardless of
+//    TFARR_ON — delete must work whether the marker tool is ON or OFF. ────
+function _tfArrowHitTest(c, pt) {
+  if (!c || !c._taArrows || !c._taArrows.length || !pt) return null;
+  const HIT_R = 14;
+  for (let i = c._taArrows.length - 1; i >= 0; i--) {
+    const a = c._taArrows[i];
+    const p = _tfArrowGetXY(c, a);
+    if (!p) continue;
+    const dx = pt.x - p.x, dy = pt.y - p.y;
+    if ((dx * dx + dy * dy) <= HIT_R * HIT_R) return a;
+  }
+  return null;
+}
+
+// ── Delete confirm popup (Yes/No) — same visual language as the type
+//    picker above (dark card, full-screen dim backdrop). ─────────────────
+function _tfArrowConfirmDelete(c, arrow) {
+  if (!c || !arrow) return;
+  let box = document.getElementById('tfarrow-delconfirm');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'tfarrow-delconfirm';
+  box.style.cssText = 'position:fixed;inset:0;z-index:10060;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+  box.innerHTML = `
+    <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:240px;box-shadow:0 8px 32px #0009;">
+      <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:12px;text-align:center;">Ye arrow delete karein?</div>
+      <button id="tfarrow-del-yes" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">Delete</button>
+      <button id="tfarrow-del-no" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Cancel</button>
+    </div>`;
+  document.body.appendChild(box);
+  document.getElementById('tfarrow-del-yes').onclick = () => {
+    const idx = c._taArrows ? c._taArrows.findIndex(x => x.id === arrow.id) : -1;
+    if (idx !== -1) c._taArrows.splice(idx, 1);
+    box.remove();
+  };
+  document.getElementById('tfarrow-del-no').onclick = () => box.remove();
 }
 
 // ── Per-cell redraw: keep locked arrows glued to their (still forming)
@@ -7947,27 +8043,14 @@ function _tfArrowDrawCell(c, elId, getColor) {
   // tool off only stops NEW placements (gated at pointerdown), it must
   // never hide or delete arrows already placed.
   if (!c._taArrows || !c._taArrows.length || !c.series || !c.chart) return;
-  const lastBar = c._taLastBar;
 
   c._taArrows.forEach(a => {
-    // Jab tak ye arrow ki candle abhi bhi forming (= last bar) hai, uske
-    // live low/high (ya close/value fallback) se chipka rahega; candle
-    // close ho jaye to jahan thi wahi reh jayega (frozen) — bas ab live
-    // update nahi hoga.
-    let refPrice, barTime = a.time;
-    if (lastBar && lastBar.time === a.time) {
-      refPrice = _tfArrowRefPrice(lastBar, a.type);
-      if (refPrice != null) a._lastRef = refPrice;   // cache so it stays put after candle closes
-      else refPrice = a._lastRef;
-    } else {
-      refPrice = a._lastRef;
-    }
-    if (refPrice == null) return;
-    const x = c.chart.timeScale().timeToCoordinate(barTime);
-    const y = c.series.priceToCoordinate(refPrice);
-    if (x == null || y == null) return;
-    const yy = a.type === 'up' ? y + 10 : y - 10;   // up-arrow BELOW candle, down-arrow ABOVE
-    _tfArrowDrawTriangle(ctx, x, yy, a.type, a.color);
+    // _tfArrowGetXY handles the "glued to forming candle, frozen after
+    // close" logic (and updates a._lastRef as a side effect) — same as
+    // before, now shared with the delete hit-test so both stay in sync.
+    const p = _tfArrowGetXY(c, a);
+    if (!p) return;
+    _tfArrowDrawTriangle(ctx, p.x, p.y, a.type, a.color);
   });
 }
 
