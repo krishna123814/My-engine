@@ -8152,24 +8152,26 @@ function _tfArrowDrawCell(c, elId, getColor) {
     if (!a._logged) { _tfArrowDebug('ARROW DRAWN OK time=' + a.time + ' x=' + Math.round(x) + ' y=' + Math.round(yy)); a._logged = true; }
   });
 }
-// ── Hollow (outline-only, no fill) arrowhead with a thin wick trailing away
-//    from the candle — tip points toward the candle, wick points away. ─────
+// ── Open V-shape arrowhead (chevron, no base line) flowing straight into a
+//    thin stem — matches simple hand-drawn arrow style. Tip points toward
+//    the candle, stem trails away from it. ──────────────────────────────
 function _tfArrowDrawTriangle(ctx, x, y, type, color) {
   ctx.save();
   ctx.strokeStyle = color || '#2962ff';
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 1;
   ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   if (type === 'up') {
-    // ↑ sits BELOW the candle: tip points UP toward it, wick trails DOWN away from it
+    // ↑ sits BELOW the candle: V-apex points UP toward it, stem trails DOWN away from it
     ctx.beginPath();
-    ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4);
-    ctx.closePath(); ctx.stroke();
+    ctx.moveTo(x - 5, y + 4); ctx.lineTo(x, y - 6); ctx.lineTo(x + 5, y + 4);
+    ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x, y + 4); ctx.lineTo(x, y + 13); ctx.stroke();
   } else {
-    // ↓ sits ABOVE the candle: tip points DOWN toward it, wick trails UP away from it
+    // ↓ sits ABOVE the candle: V-apex points DOWN toward it, stem trails UP away from it
     ctx.beginPath();
-    ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4);
-    ctx.closePath(); ctx.stroke();
+    ctx.moveTo(x - 5, y - 4); ctx.lineTo(x, y + 6); ctx.lineTo(x + 5, y - 4);
+    ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y - 13); ctx.stroke();
   }
   ctx.restore();
