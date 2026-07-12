@@ -748,12 +748,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   display:none;                          /* sirf stack2 active hone par dikhega */
   position:fixed;
   z-index:8500;
-  width:48px;height:48px;
+  width:24px;height:24px;
   border-radius:50%;
   background:#1e222d;
-  border:2px solid #2962ff;
+  border:1px solid #2962ff;
   box-shadow:0 4px 16px #0007;
-  font-size:22px;
+  font-size:11px;
   cursor:pointer;
   align-items:center;justify-content:center;
   touch-action:none;
@@ -775,12 +775,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   display:none;                          /* sirf active-range mein dikhega */
   position:fixed;
   z-index:8499;                          /* FAB ke theek neeche */
-  width:48px;height:48px;
+  width:24px;height:24px;
   border-radius:50%;
   background:#1e222d;
-  border:2px solid #26a69a;
+  border:1px solid #26a69a;
   box-shadow:0 4px 16px #0007;
-  font-size:20px;
+  font-size:10px;
   cursor:pointer;
   align-items:center;justify-content:center;
   touch-action:manipulation;
@@ -797,12 +797,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   display:none;
   position:fixed;
   z-index:8499;
-  width:40px;height:40px;
+  width:20px;height:20px;
   border-radius:50%;
   background:#1e222d;
-  border:2px solid #787b86;
+  border:1px solid #787b86;
   box-shadow:0 4px 16px #0007;
-  font-size:17px;
+  font-size:9px;
   cursor:pointer;
   align-items:center;justify-content:center;
   touch-action:manipulation;
@@ -817,12 +817,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   display:none;
   position:fixed;
   z-index:8499;
-  width:40px;height:40px;
+  width:20px;height:20px;
   border-radius:50%;
   background:#1e222d;
-  border:2px solid #2196f3;
+  border:1px solid #2196f3;
   box-shadow:0 4px 16px #0007;
-  font-size:17px;
+  font-size:9px;
   cursor:pointer;
   align-items:center;justify-content:center;
   touch-action:manipulation;
@@ -922,6 +922,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-contplay-label{font-size:12px;color:#d1d4dc;font-weight:600}
 #sv2-contplay-hint{
+  font-size:10px;color:#848da0;text-align:center;padding:0 4px 10px;
+}
+#sv2-stepreset-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:4px 2px 8px;border-top:1px solid #2a2e39;
+}
+#sv2-stepreset-label{font-size:12px;color:#d1d4dc;font-weight:600}
+#sv2-stepreset-hint{
   font-size:10px;color:#848da0;text-align:center;padding:0 4px 10px;
 }
 #sv2-speed-title{
@@ -1467,6 +1475,16 @@ select.s-select, input.s-select{
 }
 #notepad-btn:active{background:#2a2e39}
 #notepad-btn.active{border-color:#2962ff;color:#2962ff}
+
+/* ── TF Arrow Marker ─────────────────────────────────────────────── */
+#tfarrow-btn{
+  height:18px;width:22px;padding:0;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:12px;line-height:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+#tfarrow-btn:active{background:#2a2e39}
+#tfarrow-btn.active{border-color:#2962ff;color:#2962ff}
 #notepad-panel{
   display:none;position:fixed;z-index:10002;
   top:0;left:0;
@@ -1577,6 +1595,10 @@ select.s-select, input.s-select{
   border-radius:0 0 2px 2px;white-space:nowrap;
 }
 .cell-timer-badge.timer-on{display:block}
+/* Turns red once a timeframe's candle duration has fully elapsed (0 left) */
+.cell-timer-badge.expired{
+  background:#ef5350;border-color:#ef5350;color:#fff;
+}
 
 /* ── WS status ────────────────────────────────────────────────────── */
 #ws-dot{
@@ -2243,6 +2265,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
+  <button id="tfarrow-btn" onclick="toggleTfArrow()" title="TF Arrow Marker (hold 5s on a candle)">↕</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
@@ -2328,6 +2351,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <button id="sv2-contplay-switch" class="gp-switch" onclick="_sv2ContPlayToggle()"></button>
       </div>
       <div id="sv2-contplay-hint">Off = ▶ ek click par sirf 1 candle. On = ▶ click karte hi candles lagatar banti rahengi.</div>
+      <div id="sv2-stepreset-row">
+        <span id="sv2-stepreset-label">⏭⟲ Show Step / Reset Icons</span>
+        <button id="sv2-stepreset-switch" class="gp-switch" onclick="_sv2StepResetToggle()"></button>
+      </div>
+      <div id="sv2-stepreset-hint">Off (default) = ⏭ Step aur ⟲ Reset icons hidden rahenge, sirf ▶ Play aur 📅 Calendar dikhenge. On = dono wapas dikhenge.</div>
       <div id="sv2-speed-title">⏱ Candle Speed (1 candle = X real seconds)</div>
       <div id="sv2-speed-opts">
         <button class="sv2-speed-opt" data-sec="5"   onclick="_sv2SpeedSet(5)">5s</button>
@@ -4658,7 +4686,7 @@ function _sv2DebugShow(idx, reason, lines) {
 
 function destroyStack2Cells() {
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} _stack2ResizeObs=null; }
-  STACK2_CELLS.forEach(c => { try{ c.chart.remove(); }catch(_){} _vlRemoveCellCanvasGeneric(c); });
+  STACK2_CELLS.forEach((c, i) => { try{ c.chart.remove(); }catch(_){} _vlRemoveCellCanvasGeneric(c); try{ _pdot2RemoveCellCanvas(i); }catch(_){} });
   STACK2_CELLS.length = 0;
   const sc = document.getElementById('stack-container-2');
   if (sc) sc.innerHTML = '';
@@ -4792,8 +4820,18 @@ function buildStack2() {
       e.stopPropagation();
     };
 
+    // Countdown chip — glued to this cell's own native right-side price
+    // scale (same treatment Stack View 1 / grid cells already get), so it
+    // travels up/down together with the live price instead of sitting
+    // fixed in the top overlay strip.
+    const timerBadge = document.createElement('div');
+    timerBadge.className = 'cell-timer-badge sv2-timer-badge';
+    timerBadge.dataset.cellIdx2 = i;
+    if (S.showTimer !== false) timerBadge.classList.add('timer-on');
+
     cell.appendChild(overlay);
     cell.appendChild(chartDiv);
+    chartDiv.appendChild(timerBadge);
     cell.appendChild(gotoBtn);
     sc.appendChild(cell);
     cellObj.el = chartDiv;
@@ -4816,6 +4854,7 @@ function buildStack2() {
       if (!el) return;
       c.chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
       _vlResizeCellCanvas2(i); _vlDrawCell2(i);
+      try { _pdot2ResizeCellCanvas(i); _pdot2Draw(i); } catch(_) {}
     });
   });
   _stack2ResizeObs.observe(sc);
@@ -4906,6 +4945,14 @@ function _buildStack2CellChart(idx) {
   if (!c.vLine) c.vLine = { ..._activeVLineDefaults() };
   _vlCreateCellCanvas2(idx);
   try { c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _vlDrawCell2(idx)); } catch(_) {}
+
+  // ── Parent Dot (SV2, independent of SV1) — own canvas, redraws on pan/zoom
+  // just like the SR/vline overlays. Actual dot recompute (replay-safe) is
+  // driven separately by sv2SwingInit/sv2SwingOnStep hooks, not from here.
+  try {
+    _pdot2CreateCellCanvas(idx);
+    c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _pdot2Draw(idx));
+  } catch(_) {}
 
   // ── Load pre-resampled data from gz-based SV2_BN / SV2_BTC ──────────────
   (function _sv2LoadData() {
@@ -5256,6 +5303,16 @@ function ss2ApplyAndClose() {
   function _saveOpenPxOnOff(on) { _LS.setItem(_OPENPX_KEY, on ? '1' : '0'); }
   var _showOpenPx = _loadOpenPxOnOff();
 
+  // ── Step / Reset icons visibility — on/off (persisted) ────────────────────
+  // Calendar ki ⚙️ Settings se control hota hai. Default OFF rakha gaya hai
+  // (⏭ Step aur ⟲ Reset dono hidden shuru honge) — sirf ▶ Play aur 📅
+  // Calendar hamesha dikhte hain; user chahe to setting se dono wapas ON
+  // kar sakta hai.
+  var _STEPRESET_KEY = 'sv2StepResetShow';
+  function _loadStepResetShow() { return _LS.getItem(_STEPRESET_KEY) === '1'; }   // default OFF (hidden)
+  function _saveStepResetShow(on) { _LS.setItem(_STEPRESET_KEY, on ? '1' : '0'); }
+  var _showStepReset = _loadStepResetShow();
+
   // Month names
   var MONTHS = ['January','February','March','April','May','June',
                 'July','August','September','October','November','December'];
@@ -5288,8 +5345,8 @@ function ss2ApplyAndClose() {
 
   function _snapToCorner(x, y) {
     var W = window.innerWidth, H = window.innerHeight;
-    var cx = (x < W / 2) ? _SNAP_MARGIN : W - 48 - _SNAP_MARGIN;
-    var cy = (y < H / 2) ? _SNAP_MARGIN + 44 : H - 48 - 44 - _SNAP_MARGIN;
+    var cx = (x < W / 2) ? _SNAP_MARGIN : W - 24 - _SNAP_MARGIN;
+    var cy = (y < H / 2) ? _SNAP_MARGIN + 44 : H - 24 - 44 - _SNAP_MARGIN;
     // 44 = top bar height allowance; 44 bottom = bottom bar
     return { left: cx, top: cy };
   }
@@ -5337,8 +5394,8 @@ function ss2ApplyAndClose() {
       if (Math.abs(dx) + Math.abs(dy) > 4) _moved = true;
       var nl = _origLeft + dx, nt = _origTop + dy;
       // Clamp to viewport
-      nl = Math.max(0, Math.min(window.innerWidth - 48, nl));
-      nt = Math.max(0, Math.min(window.innerHeight - 48, nt));
+      nl = Math.max(0, Math.min(window.innerWidth - 24, nl));
+      nt = Math.max(0, Math.min(window.innerHeight - 24, nt));
       _fab.style.left = nl + 'px';
       _fab.style.top  = nt + 'px';
     }
@@ -5347,11 +5404,11 @@ function ss2ApplyAndClose() {
       if (!_dragging) return;
       _dragging = false;
       _fab.classList.remove('dragging');
+      // Free placement — icon jahan chhoda wahi ruk jaayega, kisi corner
+      // par snap nahi karega (sirf viewport ke andar clamp, jo _onMove
+      // upar already karta hai), taaki user ise screen par kahin bhi rakh sake.
       var r = _fab.getBoundingClientRect();
-      var cx2 = r.left + 24, cy2 = r.top + 24;
-      var snapped = _snapToCorner(cx2, cy2);
-      _applyFabPos(snapped);
-      _saveFabPos(snapped.left, snapped.top);
+      _saveFabPos(r.left, r.top);
       // If barely moved → treat as tap (open sheet)
       if (!_moved) {
         _sv2DrngOpen();
@@ -5445,6 +5502,27 @@ function ss2ApplyAndClose() {
     _sv2UpdateOpenPriceDisplay();
   }
   window._sv2OpenPxToggle = _sv2OpenPxToggle;
+
+  // ── Step / Reset icons visibility toggle ─────────────────────────────────
+  function _renderStepResetSwitch() {
+    var btn = document.getElementById('sv2-stepreset-switch');
+    if (btn) btn.classList.toggle('on', _showStepReset);
+  }
+
+  function _sv2StepResetToggle() {
+    _showStepReset = !_showStepReset;
+    _saveStepResetShow(_showStepReset);
+    _renderStepResetSwitch();
+    // Replay-controls module (separate IIFE) owns the actual buttons —
+    // ask it to re-evaluate visibility right away via its exposed hook.
+    if (typeof window._sv2StepSyncBtn === 'function') try { window._sv2StepSyncBtn(); } catch(_){}
+  }
+  window._sv2StepResetToggle = _sv2StepResetToggle;
+  window._sv2RenderStepResetSwitch = _renderStepResetSwitch;
+  // Read-only getter the replay-controls module uses to decide whether the
+  // ⏭ Step / ⟲ Reset buttons should be shown (independent of this file's
+  // own closure scope).
+  window._sv2StepResetVisible = function() { return _showStepReset; };
 
   // Selected calendar date ke liye us din ka opening price dhoondo.
   // SV2_BN['1D'] / SV2_BTC['1D'] pehle se hi Python se resampled aake hue
@@ -5706,6 +5784,7 @@ function ss2ApplyAndClose() {
 
     // Sync visibility immediately (in case SV2 already active on first load)
     _sv2DrngSyncFab();
+    _renderStepResetSwitch();
   }
 
   if (document.readyState === 'loading') {
@@ -5763,9 +5842,13 @@ function ss2ApplyAndClose() {
     var rangeActive = !!(window._SV2_DATE_RANGE && typeof window._SV2_DATE_RANGE.from === 'number');
     var stack2On    = (typeof _stack2Active !== 'undefined') && _stack2Active;
     var show = rangeActive && stack2On;
+    // ⏭ Step aur ⟲ Reset — calendar ki ⚙️ Settings me "Show Step / Reset
+    // Icons" toggle se control hote hain (default OFF = hidden). ▶ Play
+    // aur 📅 Calendar is toggle se unaffected rehte hain, hamesha dikhte hain.
+    var stepResetOn = (typeof window._sv2StepResetVisible === 'function') ? window._sv2StepResetVisible() : true;
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
-    if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show);
-    if (_resetBtn)    _resetBtn.classList.toggle('visible', show);
+    if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show && stepResetOn);
+    if (_resetBtn)    _resetBtn.classList.toggle('visible', show && stepResetOn);
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -5782,15 +5865,15 @@ function ss2ApplyAndClose() {
     // raha tha (horizontal row), jisse chart ke upar overlap ho raha tha.
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
-      _playBtn.style.top  = (r.bottom + 8) + 'px';
+      _playBtn.style.top  = (r.bottom + 4) + 'px';
     }
     if (_onestepBtn) {
       _onestepBtn.style.left = r.left + 'px';
-      _onestepBtn.style.top  = (r.bottom + 8 + 58) + 'px';
+      _onestepBtn.style.top  = (r.bottom + 4 + 29) + 'px';
     }
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
-      _resetBtn.style.top  = (r.bottom + 8 + 58 + 58) + 'px';
+      _resetBtn.style.top  = (r.bottom + 4 + 29 + 29) + 'px';
     }
   }
 
@@ -5953,6 +6036,7 @@ function ss2ApplyAndClose() {
       // fallback position par chali jaati thi). Har cell apna sahi time use
       // kare, taaki scroll ke saath hamesha sync rahe.
       var _aggLastReal = agg[agg.length - 1].time;
+      cell._lastClose = agg[agg.length - 1].close;
       var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
       if (_fw1.length) agg = agg.concat(_fw1);
       var _preRange = null;
@@ -6006,11 +6090,13 @@ function ss2ApplyAndClose() {
 
   function _sv2UpdateCellTimer(ci, tfMin, live, realBucketTime, pct) {
     var cell = STACK2_CELLS[ci];
-    if (!cell || !cell.el || !cell.el.parentElement) return;
-    var timerEl = cell.el.parentElement.querySelector('.co-timer');
+    if (!cell || !cell.el) return;
+    // Badge now lives glued to the right price-scale (inside the chart
+    // div itself), not in the top overlay strip — see cell-build loop.
+    var timerEl = cell.el.querySelector('.sv2-timer-badge');
     if (!timerEl) return;
     if (!live || !live.baseBars || live.revealIdx >= live.baseBars.length) {
-      timerEl.style.display = 'none';
+      timerEl.style.visibility = 'hidden';
       return;
     }
     var barsPerBucket = _sv2BarsPerBucket(tfMin, live.isBN);
@@ -6020,7 +6106,7 @@ function ss2ApplyAndClose() {
     // barsElapsedBeforeForming ko 0 pe fix kar deta tha — timer har
     // base-bar ke baad full duration par reset ho jaata tha).
     var bucketStart = (realBucketTime != null) ? realBucketTime : null;
-    if (bucketStart == null) { timerEl.style.display = 'none'; return; }
+    if (bucketStart == null) { timerEl.style.visibility = 'hidden'; return; }
     var barsElapsedBeforeForming = 0;
     for (var bi = live.revealIdx - 1; bi >= 0; bi--) {
       if (live.baseBars[bi].time >= bucketStart) barsElapsedBeforeForming++;
@@ -6030,8 +6116,29 @@ function ss2ApplyAndClose() {
     if (remainingBars < 0) remainingBars = 0;
     var tickSec = TICK_MS / 1000;
     var remainingSec = remainingBars * tickSec;
-    timerEl.style.display = '';
+
+    // Timeframe ka time pura ho gaya (0 sec bache) → red highlight, taaki
+    // pata chale is candle/bucket ka countdown khatam ho chuka hai. Ye
+    // sabhi timeframes (5m/15m/45m/1D/... — chahe kitne bhi real seconds
+    // ka ho) ke liye automatically kaam karta hai, kyunki remainingSec
+    // hamesha isi bucket ki apni duration se nikala jaata hai.
+    timerEl.classList.toggle('expired', remainingSec <= 0);
     timerEl.textContent = '⏳ ' + _sv2FmtRemain(remainingSec);
+
+    // Price ke sath vertically move — right price-scale par jahan is
+    // cell ka current price dikh raha hai, thik uske niche chip ko chipka
+    // do (same glide-with-price treatment jo grid/Stack-View-1 cells ko
+    // already milti hai).
+    var y = null;
+    try {
+      if (cell.series && cell._lastClose != null) y = cell.series.priceToCoordinate(cell._lastClose);
+    } catch(_e) {}
+    if (y != null) {
+      timerEl.style.top = Math.round(y + 8) + 'px';
+      timerEl.style.visibility = 'visible';
+    } else {
+      timerEl.style.visibility = 'hidden';
+    }
   }
 
   // ── Circular progress ring — smooth rAF animation over TICK_MS duration ─
@@ -6108,6 +6215,7 @@ function ss2ApplyAndClose() {
       // ke saath sync nahi hoti thi (static fallback position). Har cell
       // apna sahi time use kare taaki scroll ke saath hamesha sync rahe.
       var _aggLastReal2 = (agg && agg.length) ? agg[agg.length - 1].time : null;
+      cell._lastClose = (agg && agg.length) ? agg[agg.length - 1].close : null;
       if (agg && agg.length) {
         var _fw2 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
         if (_fw2.length) agg = agg.concat(_fw2);
@@ -6239,7 +6347,11 @@ function ss2ApplyAndClose() {
     var show = panel.style.display === 'none' || !panel.style.display;
     panel.style.display = show ? 'block' : 'none';
     if (btn) btn.classList.toggle('active', show);
-    if (show) { _syncSpeedBtns(); _renderContPlaySwitch(); }
+    if (show) {
+      _syncSpeedBtns();
+      _renderContPlaySwitch();
+      if (typeof window._sv2RenderStepResetSwitch === 'function') try { window._sv2RenderStepResetSwitch(); } catch(_){}
+    }
   }
 
   function _sv2SpeedSet(sec) {
@@ -6332,9 +6444,9 @@ function ss2ApplyAndClose() {
     if (typeof STACK2_CELLS !== 'undefined') {
       for (var _ci = 0; _ci < STACK2_CELLS.length; _ci++) {
         var _c = STACK2_CELLS[_ci];
-        if (!_c || !_c.el || !_c.el.parentElement) continue;
-        var _t = _c.el.parentElement.querySelector('.co-timer');
-        if (_t) _t.style.display = 'none';
+        if (!_c || !_c.el) continue;
+        var _t = _c.el.querySelector('.sv2-timer-badge');
+        if (_t) { _t.style.visibility = 'hidden'; _t.classList.remove('expired'); }
       }
     }
   });
@@ -7558,6 +7670,203 @@ function _vlRemoveCellCanvas2(idx) {
   const c = STACK2_CELLS[idx]; if (!c) return;
   _vlRemoveCellCanvasGeneric(c);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// TF ARROW MARKER — bottom-bar toggle icon (↕), identical behaviour in
+// Stack View 1 (CELLS / 'cell-chart-') and Stack View 2 (STACK2_CELLS /
+// 'stack2-chart-'). Uses the exact same generic-canvas-per-cell pattern as
+// the vLine/parent-dot overlays above, so SV1 and SV2 share one code path.
+//
+// Flow:
+//   pointerdown on a cell → hold 3s  → generic preview (dashed grey circle,
+//                                       no direction yet)
+//                          → hold 5s  → LOCK: an arrow is pinned to the
+//                                       candle that is forming right now in
+//                                       that cell.
+//   While the locked arrow's candle is still the forming (last) bar, its
+//   position flips ABOVE the candle whenever a new HIGH is made, and BELOW
+//   whenever a new LOW is made. Colour = that cell's TF colour.
+//   Max 4 locked arrows kept per cell — 5th push evicts the oldest (FIFO).
+// ════════════════════════════════════════════════════════════════════════════
+const TFARR_LS_KEY = 'tfArrowOn';
+let TFARR_ON = (_LS.getItem(TFARR_LS_KEY) === '1');
+
+function _tfArrowSyncBtn() {
+  const btn = document.getElementById('tfarrow-btn');
+  if (btn) btn.classList.toggle('active', TFARR_ON);
+}
+function toggleTfArrow() {
+  TFARR_ON = !TFARR_ON;
+  try { _LS.setItem(TFARR_LS_KEY, TFARR_ON ? '1' : '0'); } catch(_) {}
+  _tfArrowSyncBtn();
+  if (!TFARR_ON) _tfArrowClearAllPreviews();
+  _tfArrowRedrawAll();
+}
+
+// ── Canvas overlay (generic core, reused for SV1 + SV2 cell objects) ───────
+function _tfArrowCreateCanvas(c, elId) {
+  if (!c) return;
+  if (c._taCanvas) { c._taCanvas.remove(); c._taCanvas = null; c._taCtx = null; }
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:7;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._taCanvas = canvas; c._taCtx = canvas.getContext('2d');
+}
+function _tfArrowResizeCanvas(c, elId) {
+  if (!c || !c._taCanvas) return;
+  const el = document.getElementById(elId); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  const wantW = el.clientWidth * dpr, wantH = el.clientHeight * dpr;
+  if (c._taCanvas.width === wantW && c._taCanvas.height === wantH) return;
+  c._taCanvas.width  = wantW;
+  c._taCanvas.height = wantH;
+  c._taCanvas.style.width  = el.clientWidth  + 'px';
+  c._taCanvas.style.height = el.clientHeight + 'px';
+}
+
+// ── Pointer hold-detection (generic — wired once per DOM element) ──────────
+// `getColor(c)` returns this cell's current TF colour hex — SV1 passes
+// (cc => _tfCandleColor(cc.tf)), SV2 passes (cc => _sv2TfCandleColor(cc.tf)).
+function _tfArrowWireCell(c, elId, getColor) {
+  const el = document.getElementById(elId);
+  if (!el || el._taWired) return;
+  el._taWired = true;
+  let holdT1 = null, holdT2 = null, downPt = null;
+
+  function cancelHold() {
+    if (holdT1) { clearTimeout(holdT1); holdT1 = null; }
+    if (holdT2) { clearTimeout(holdT2); holdT2 = null; }
+    downPt = null;
+    c._taPreview = null;
+    _tfArrowDrawCell(c, elId, getColor);
+  }
+  el.addEventListener('pointerdown', (ev) => {
+    if (!TFARR_ON) return;
+    downPt = { x: ev.offsetX, y: ev.offsetY };
+    holdT1 = setTimeout(() => {
+      c._taPreview = { x: downPt.x, y: downPt.y };
+      _tfArrowDrawCell(c, elId, getColor);
+    }, 3000);
+    holdT2 = setTimeout(() => {
+      _tfArrowLock(c, getColor);
+      cancelHold();
+    }, 5000);
+  }, { passive: true });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(evt =>
+    el.addEventListener(evt, cancelHold, { passive: true }));
+  el.addEventListener('pointermove', (ev) => {
+    if (!downPt) return;
+    // 12px se zyada hilne par hold cancel — normal pan/zoom disturb na ho
+    if (Math.abs(ev.offsetX - downPt.x) > 12 || Math.abs(ev.offsetY - downPt.y) > 12) cancelHold();
+  }, { passive: true });
+}
+
+// ── Lock: pin a new arrow to whatever candle is forming right now ──────────
+function _tfArrowLock(c, getColor) {
+  if (!c || !c.series) return;
+  let data; try { data = c.series.data(); } catch(_) { data = null; }
+  if (!data || !data.length) return;
+  const bar = data[data.length - 1];
+  if (!c._taArrows) c._taArrows = [];
+  c._taArrows.push({
+    time: bar.time,
+    refHigh: bar.high, refLow: bar.low,
+    side: null,               // 'up' | 'down' — set on first new high/low
+    color: getColor(c),
+  });
+  while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
+}
+
+// ── Per-cell redraw: refresh locked-arrow sides from live high/low, paint ──
+function _tfArrowDrawCell(c, elId, getColor) {
+  if (!c) return;
+  if (!c._taCanvas || !c._taCanvas.isConnected) _tfArrowCreateCanvas(c, elId);
+  if (!c._taCtx || !c._taCanvas) return;
+  _tfArrowResizeCanvas(c, elId);
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = c._taCtx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, c._taCanvas.width, c._taCanvas.height);
+  if (!TFARR_ON) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  // Generic hold-preview (3s–5s window) — no direction shown yet
+  if (c._taPreview) {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = '#9598a1'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.arc(c._taPreview.x, c._taPreview.y, 9, 0, 2 * Math.PI); ctx.stroke();
+    ctx.restore();
+  }
+
+  if (!c._taArrows || !c._taArrows.length || !c.series || !c.chart) return;
+  let data; try { data = c.series.data(); } catch(_) { data = null; }
+  if (!data || !data.length) return;
+  const lastBar = data[data.length - 1];
+
+  c._taArrows.forEach(a => {
+    // Candle abhi bhi forming (= last bar) hai to live high/low se update lo
+    if (lastBar.time === a.time) {
+      if (lastBar.high > a.refHigh) { a.refHigh = lastBar.high; a.side = 'up'; }
+      if (lastBar.low  < a.refLow)  { a.refLow  = lastBar.low;  a.side = 'down'; }
+    }
+    if (!a.side) return;   // abhi tak koi naya high/low nahi bana
+    const price = a.side === 'up' ? a.refHigh : a.refLow;
+    const x = c.chart.timeScale().timeToCoordinate(a.time);
+    const y = c.series.priceToCoordinate(price);
+    if (x == null || y == null) return;
+    const yy = a.side === 'up' ? y - 10 : y + 10;
+    _tfArrowDrawTriangle(ctx, x, yy, a.side, a.color);
+  });
+}
+function _tfArrowDrawTriangle(ctx, x, y, side, color) {
+  ctx.save();
+  ctx.fillStyle = color || '#2962ff';
+  ctx.beginPath();
+  if (side === 'up') { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }
+  else                { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function _tfArrowClearAllPreviews() {
+  [(typeof CELLS !== 'undefined' ? CELLS : []),
+   (typeof STACK2_CELLS !== 'undefined' ? STACK2_CELLS : [])].forEach(arr => {
+    arr.forEach(c => { if (c) c._taPreview = null; });
+  });
+}
+
+// ── Driver: polled every 300ms so we don't need to hook every live-tick /
+//    replay-step call site scattered through the feed/replay engine. Also
+//    lazily creates the canvas + wires pointer-hold on any new cell. ───────
+function _tfArrowRedrawAll() {
+  if (typeof CELLS !== 'undefined') {
+    CELLS.forEach((c, i) => {
+      if (!c || !c.chart) return;
+      const elId = 'cell-chart-' + i;
+      _tfArrowWireCell(c, elId, (cc) => _tfCandleColor(cc.tf));
+      _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
+    });
+  }
+  if (typeof STACK2_CELLS !== 'undefined') {
+    STACK2_CELLS.forEach((c, i) => {
+      if (!c || !c.chart) return;
+      const elId = 'stack2-chart-' + i;
+      _tfArrowWireCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
+      _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
+    });
+  }
+}
+setInterval(_tfArrowRedrawAll, 300);
+setTimeout(_tfArrowSyncBtn, 0);
+// ════════════════════════════════════════════════════════ END TF ARROW ═════
+
 function _vlDrawCellGeneric(c) {
   if (!c || !c._vlCtx || !c._vlCanvas) return;
   const dpr = window.devicePixelRatio || 1;
@@ -9450,7 +9759,7 @@ function _openCellSettings(idx, btn) {
           `<input type="checkbox" ${(vl.style||'solid')==='solid'?'checked':''} onchange="CELLS[${idx}].vLine.style=this.checked?'solid':'dashed';_vlDrawCell(${idx});saveState();">`+
           `<span class="sl"></span></label></div>`;
     })()+
-    _pdotSettingsHTML(idx);
+    (CELLS[idx] && CELLS[idx]._stack2 ? _pdot2SettingsHTML(idx) : _pdotSettingsHTML(idx));
 
   // Smart positioning: prefer above-left of button, clamp to viewport
   document.body.appendChild(panel);
@@ -12939,6 +13248,12 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const _pk2 = p => Math.round(p * 100) / 100;
     const _swingByPrice  = new Map();
     const _candleByPrice = new Map();
+    // Biggest-TF candle line seen at each price — tracked separately from
+    // _candleByPrice (jo sirf "latest startTime" wala candle rakhta hai,
+    // TF ignore karke). Isse hume pata chalta hai ki is exact price par
+    // koi aur bhi bade TF ka candle H/L maujood hai ya nahi, chahe wo
+    // latest-startTime rule me har gaya ho.
+    const _maxTfCandleByPrice = new Map();
     for (const line of allLines) {
       const _isSwing = (line.kind === 'sh' || line.kind === 'sl');
       const _key = _pk2(line.price);
@@ -12948,11 +13263,17 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       } else {
         const ex = _candleByPrice.get(_key);
         if (!ex || line.startTime > ex.startTime) _candleByPrice.set(_key, line);
+        const exMax = _maxTfCandleByPrice.get(_key);
+        if (!exMax || line.levelTf > exMax.levelTf) _maxTfCandleByPrice.set(_key, line);
       }
     }
     // Same price par collision resolve karo (SV2-only rule):
     //   - SAME TF (levelTf match, e.g. 15m candle H/L vs 15m swing H/L)
-    //     → Swing WIN karega, candle line hategi.
+    //     → Swing WIN karega, candle line hategi —
+    //       LEKIN agar isi price par kisi BADE TF ka candle H/L bhi maujood
+    //       hai (levelTf us swing se strictly bada), to wo bada-TF candle
+    //       jeetega (swing aur same-TF candle, dono hategi). Agar koi
+    //       bada-TF candle nahi mila, to purana rule hi chalega — swing jeetega.
     //   - DIFFERENT TF (e.g. 15m candle H/L vs 5m swing H/L)
     //     → purana rule unchanged: Candle WIN karega, swing line hategi.
     for (const k of _candleByPrice.keys()) {
@@ -12960,7 +13281,13 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       if (!_sw) continue;
       const _cd = _candleByPrice.get(k);
       if (_sw.levelTf === _cd.levelTf) {
-        _candleByPrice.delete(k);   // same TF → swing wins
+        const _bigCd = _maxTfCandleByPrice.get(k);
+        if (_bigCd && _bigCd.levelTf > _sw.levelTf) {
+          _swingByPrice.delete(k);        // bade-TF candle jeeta — swing hategi
+          _candleByPrice.set(k, _bigCd);  // ...aur wahi bada candle final rahega
+        } else {
+          _candleByPrice.delete(k);       // koi bada candle nahi → swing jeetega (unchanged)
+        }
       } else {
         _swingByPrice.delete(k);    // different TF → candle wins (unchanged)
       }
@@ -13007,9 +13334,13 @@ function _sv2ApplyCellSR(cellIdx, lines) {
 // cutoffTime = null → poora .gz data
 // cutoffTime = number → sirf bar.time < cutoffTime wale candles
 function sv2SwingInit(cutoffTime) {
-  if (!SV2_SWING_STATE.visible) return;
   if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  // Parent Dot (SV2) — independent of the SR toggle, runs on the same
+  // lifecycle (asset switch / date-range apply-clear / replay step) so it
+  // never drifts from the SR system's replay-clock-safe cadence.
+  try { _pdot2Init(cutoffTime); } catch(_) {}
+  if (!SV2_SWING_STATE.visible) return;
   const assetKey = (typeof _stackKeyForAsset === 'function')
                     ? _stackKeyForAsset(S.asset) : 'bn';
   for (let i = 0; i < STACK2_CELLS.length; i++) {
@@ -13028,8 +13359,11 @@ function sv2SwingRefresh() {
 
 // ── Replay step: jab ek candle fully close ho tab SR update karo ─────────────
 function sv2SwingOnStep(closedCandleTime) {
-  if (!SV2_SWING_STATE.visible) return;
-  // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye
+  // +1 so that filter bar.time < cutoff mein yeh closed candle bhi aaye.
+  // Always goes through sv2SwingInit (which now handles Parent Dot itself,
+  // independent of the SR-visible flag below) so both stay on the exact
+  // same replay-clock cadence, whether or not SR is toggled on.
+  if (!SV2_SWING_STATE.visible) { try { _pdot2Init(closedCandleTime + 1); } catch(_) {} return; }
   sv2SwingInit(closedCandleTime + 1);
 }
 
@@ -13312,6 +13646,232 @@ function _pdotSetOpacity(idx, level) {
   const c = CELLS[idx]; if (!c) return;
   _pdotGetCfg(c.asset, c.tf).opacity = Math.max(1, Math.min(4, level));
   _pdotSaveCfg(); _pdotDraw(idx);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 PARENT DOT SYSTEM — independent clone of the SV1 Parent Dot system,
+// wired for Stack View 2 (STACK2_CELLS) + Bar Replay.
+//
+// INDEPENDENCE: own localStorage key (parentDotCfg2), own cfg object
+// (_pdot2Cfg), own per-cell canvases (c._pdot2Canvas/_pdot2Ctx). SV1's dot
+// settings/state (parentDotCfg1 / _pdotCfg / c._pdotCanvas) are never
+// touched — toggling/coloring the dot in one view has zero effect on the
+// other. Only the stateless, asset-based helpers (_pdotParentMap,
+// _pdotDefaults, _pdotFindFirstChildBar, _PDOT_SIZE_MAP, _PDOT_OPACITY_MAP)
+// are shared, since they take no cell/array reference.
+//
+// REPLAY SAFETY: this NEVER reads full/live data via _baseDataFor +
+// resampleForTF (that's what SV1's _pdotGetData does, and it would leak
+// future candles into a replay). It always goes through the same
+// replay-clock-aware path the SV2 SR system uses:
+//   - active replay (window._SV2_LIVE)      → _liveAggregateAny(baseBars, revealIdx, ...)
+//   - static SV2 with a date-range cutoff   → _sv2DataForTF(asset, label, cutoffTime)
+//   - plain SV2, no range selected          → _sv2DataForTF(asset, label, null)
+// It is also driven from the exact same lifecycle hooks as the SR system
+// (sv2SwingInit / sv2SwingOnStep), so it advances once per revealed candle —
+// never on a real-time timer — and adds no extra work during the replay
+// step's 60-frame grow animation.
+// ════════════════════════════════════════════════════════════════════════════
+
+const _PDOT2_KEY = 'parentDotCfg2';
+
+function _pdot2LoadCfg() {
+  try {
+    const raw = _LS.getItem(_PDOT2_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch(_) { return {}; }
+}
+function _pdot2SaveCfg() {
+  try { _LS.setItem(_PDOT2_KEY, JSON.stringify(_pdot2Cfg)); } catch(_) {}
+}
+let _pdot2Cfg = _pdot2LoadCfg();   // keyed by "asset|childTfMin" — independent of SV1's _pdotCfg
+
+function _pdot2CfgKey(asset, childTf) { return asset + '|' + childTf; }
+function _pdot2GetCfg(asset, childTf) {
+  const k = _pdot2CfgKey(asset, childTf);
+  if (!_pdot2Cfg[k]) _pdot2Cfg[k] = _pdotDefaults();   // stateless factory, shared with SV1
+  return _pdot2Cfg[k];
+}
+
+// ── Current cutoff, same convention sv2SwingInit/sv2SwingRefresh use ───────
+function _pdot2CurrentCutoff() {
+  const rng = window._SV2_DATE_RANGE;
+  return (rng && typeof rng.from === 'number') ? rng.from : null;
+}
+
+// ── Replay-safe data fetch for a given asset + TF ──────────────────────────
+// Mirrors _sv2ComputeCellSR's internal _dataForTFAny helper.
+function _pdot2GetData(assetKey, tfMin, hintLabel, cutoffTime) {
+  const live = window._SV2_LIVE;
+  if (live && Array.isArray(live.baseBars)) {
+    // Active replay — only bars revealed so far. Structural bucket-window
+    // completeness (not Date.now()-based), same helper the SR system uses.
+    try { return _liveAggregateAny(live.baseBars, live.revealIdx, tfMin, live.isBN) || []; }
+    catch(_) { return []; }
+  }
+  const label = _sv2FindTFLabel(assetKey, tfMin, hintLabel);
+  return label ? _sv2DataForTF(assetKey, label, cutoffTime) : [];
+}
+
+// ── Per-cell canvas overlay — independent props, targets 'stack2-chart-N' ──
+function _pdot2CreateCellCanvas(idx) {
+  _pdot2RemoveCellCanvas(idx);
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  const el = document.getElementById('stack2-chart-' + idx);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;background:transparent;pointer-events:none;z-index:6;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._pdot2Canvas = canvas; c._pdot2Ctx = canvas.getContext('2d');
+}
+function _pdot2RemoveCellCanvas(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  if (c._pdot2Canvas) { c._pdot2Canvas.remove(); c._pdot2Canvas = null; c._pdot2Ctx = null; }
+}
+function _pdot2ResizeCellCanvas(idx) {
+  const c = STACK2_CELLS[idx]; if (!c || !c._pdot2Canvas) return;
+  const el = document.getElementById('stack2-chart-' + idx); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._pdot2Canvas.width  = el.clientWidth  * dpr;
+  c._pdot2Canvas.height = el.clientHeight * dpr;
+  c._pdot2Canvas.style.width  = el.clientWidth  + 'px';
+  c._pdot2Canvas.style.height = el.clientHeight + 'px';
+}
+function _pdot2ClearCell(idx) {
+  const c = STACK2_CELLS[idx]; if (!c || !c._pdot2Ctx || !c._pdot2Canvas) return;
+  c._pdot2Ctx.setTransform(1, 0, 0, 1, 0, 0);
+  c._pdot2Ctx.clearRect(0, 0, c._pdot2Canvas.width, c._pdot2Canvas.height);
+}
+
+// ── Draw (or update) dot for one SV2 cell ───────────────────────────────────
+function _pdot2Draw(idx, cutoffTime) {
+  const c = STACK2_CELLS[idx];
+  if (!c || !c.chart || !c.series) return;
+  if (!c._pdot2Canvas || !c._pdot2Ctx) _pdot2CreateCellCanvas(idx);
+  if (!c._pdot2Canvas || !c._pdot2Ctx) return;
+
+  _pdot2ClearCell(idx);
+
+  const cfg = _pdot2GetCfg(c.asset, c.tf);
+  if (!cfg.enabled) return;
+
+  const parentMap = _pdotParentMap(c.asset);   // stateless — shared with SV1
+  const parentTf = parentMap[c.tf];
+  if (!parentTf) return;   // no parent — no dot
+
+  const assetKey = _stackKeyForAsset(c.asset);
+  const co = (typeof cutoffTime === 'number') ? cutoffTime : _pdot2CurrentCutoff();
+
+  const parentData = _pdot2GetData(assetKey, parentTf, null, co);
+  if (!parentData || !parentData.length) return;
+  const latestParent = parentData[parentData.length - 1];
+
+  const childData = _pdot2GetData(assetKey, c.tf, null, co);
+  if (!childData || !childData.length) return;
+
+  // Find first child bar at or after latestParent.time
+  const dotIdx = _pdotFindFirstChildBar(latestParent.time, childData);   // stateless — shared
+  if (dotIdx < 0) return;
+
+  const dotBar = childData[dotIdx];
+  // No live-tick override needed here (unlike SV1's c._lastLTP): during
+  // replay, childData already comes from _liveAggregateAny built off only
+  // the base bars revealed so far, so the forming candle's low is already
+  // exactly what's "known" at this point in the replay — nothing to spoil.
+  const dotLow = dotBar.low;
+
+  const gap = dotLow * 0.0008;
+  const x = c.chart.timeScale().timeToCoordinate(dotBar.time);
+  const y = c.series.priceToCoordinate(dotLow - gap);
+  if (x == null || y == null) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = c._pdot2Canvas.width / dpr, cssH = c._pdot2Canvas.height / dpr;
+  if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) return;
+
+  const alpha = _PDOT_OPACITY_MAP[cfg.opacity] ?? 0.25;
+  const hex = cfg.color.replace('#','');
+  const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+  const dotColor = `rgba(${r},${g},${b},${alpha})`;
+  const radiusPx = _PDOT_SIZE_MAP[cfg.size] ?? 2;
+
+  c._pdot2Ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c._pdot2Ctx.save();
+  c._pdot2Ctx.fillStyle = dotColor;
+  c._pdot2Ctx.beginPath();
+  c._pdot2Ctx.arc(x, y, radiusPx, 0, 2 * Math.PI);
+  c._pdot2Ctx.fill();
+  c._pdot2Ctx.restore();
+}
+
+function _pdot2DrawAll(cutoffTime) {
+  if (typeof STACK2_CELLS === 'undefined') return;
+  STACK2_CELLS.forEach((_, i) => _pdot2Draw(i, cutoffTime));
+}
+
+// ── Lifecycle hooks — called from sv2SwingInit / sv2SwingOnStep so the dot
+//    stays on the exact same clock as SR/replay, never real time. ──────────
+function _pdot2Init(cutoffTime) {
+  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+  if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  _pdot2DrawAll(cutoffTime);
+}
+
+// ── Settings panel rows — independent cfg, same visual controls as SV1 ─────
+function _pdot2SettingsHTML(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return '';
+  const cfg = _pdot2GetCfg(c.asset, c.tf);
+  const parentMap = _pdotParentMap(c.asset);
+  const parentTf = parentMap[c.tf];
+  if (!parentTf) return '';   // no parent = no setting to show
+
+  const ptLabel = tfMinToLabel(parentTf);
+  return `<div class="csp-row" style="border-top:1px solid #2a2e39;margin-top:2px">` +
+    `<span style="font-weight:700;color:#9598a1">Parent Dot (${ptLabel})</span>` +
+    `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">` +
+      `<input type="checkbox" ${cfg.enabled ? 'checked' : ''} onchange="_pdot2SetEnabled(${idx},this.checked)">` +
+      `<span class="sl"></span></label></div>` +
+    `<div class="csp-row"><span>Color</span>` +
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${cfg.color==='#e53935'?'#fff':'#444'};background:#e53935;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();_pdot2SetColor(${idx},'#e53935');this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Red"></button>` +
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${cfg.color==='#ff9800'?'#fff':'#444'};background:#ff9800;cursor:pointer;margin-right:4px" onclick="event.stopPropagation();_pdot2SetColor(${idx},'#ff9800');this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="Orange"></button>` +
+      `<button style="width:20px;height:20px;border-radius:50%;border:2px solid ${cfg.color==='#ffffff'?'#fff':'#444'};background:#ffffff;cursor:pointer" onclick="event.stopPropagation();_pdot2SetColor(${idx},'#ffffff');this.parentElement.querySelectorAll('button').forEach(b=>b.style.borderColor='#444');this.style.borderColor='#fff';" title="White"></button>` +
+    `</div>` +
+    `<div class="csp-row"><span>Size</span>` +
+      `<div style="display:flex;gap:4px">${[1,2,3,4].map(v=>
+        `<button style="width:20px;height:20px;border-radius:3px;border:1.5px solid ${cfg.size===v?'#2962ff':'#363c4e'};background:${cfg.size===v?'#2962ff22':'transparent'};color:${cfg.size===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_pdot2SetSize(${idx},${v});this.closest('.csp-row').querySelectorAll('button').forEach(b=>{b.style.borderColor='#363c4e';b.style.background='transparent';b.style.color='#787b86'});this.style.borderColor='#2962ff';this.style.background='#2962ff22';this.style.color='#2962ff'">${v}</button>`
+      ).join('')}</div>` +
+    `</div>` +
+    `<div class="csp-row"><span>Opacity</span>` +
+      `<div style="display:flex;gap:4px">${[1,2,3,4].map(v=>
+        `<button style="width:20px;height:20px;border-radius:3px;border:1.5px solid ${(cfg.opacity||1)===v?'#2962ff':'#363c4e'};background:${(cfg.opacity||1)===v?'#2962ff22':'transparent'};color:${(cfg.opacity||1)===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_pdot2SetOpacity(${idx},${v});this.closest('.csp-row').querySelectorAll('button').forEach(b=>{b.style.borderColor='#363c4e';b.style.background='transparent';b.style.color='#787b86'});this.style.borderColor='#2962ff';this.style.background='#2962ff22';this.style.color='#2962ff'">${v}</button>`
+      ).join('')}</div>` +
+    `</div>`;
+}
+
+function _pdot2SetEnabled(idx, val) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _pdot2GetCfg(c.asset, c.tf).enabled = val;
+  _pdot2SaveCfg(); _pdot2Draw(idx);
+}
+function _pdot2SetColor(idx, color) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _pdot2GetCfg(c.asset, c.tf).color = color;
+  _pdot2SaveCfg(); _pdot2Draw(idx);
+}
+function _pdot2SetSize(idx, size) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _pdot2GetCfg(c.asset, c.tf).size = Math.max(1, Math.min(4, size));
+  _pdot2SaveCfg(); _pdot2Draw(idx);
+}
+function _pdot2SetOpacity(idx, level) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  _pdot2GetCfg(c.asset, c.tf).opacity = Math.max(1, Math.min(4, level));
+  _pdot2SaveCfg(); _pdot2Draw(idx);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
