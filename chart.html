@@ -7921,26 +7921,53 @@ function _tfArrowHookSeries(c) {
   const s = c.series;
   const origUpdate  = s.update.bind(s);
   const origSetData = s.setData.bind(s);
+  if (!c._taBars) c._taBars = [];
   s.update = function(bar) {
     // Live update() calls are (in this codebase) always a real bar, never
     // whitespace — but guard anyway so a stray whitespace update can't wipe
     // out the last good bar.
-    if (_tfArrowIsRealBar(bar)) c._taLastBar = bar;
+    if (_tfArrowIsRealBar(bar)) {
+      c._taLastBar = bar;
+      // Keep our own running bar cache in sync too — this is what lets us
+      // find the EXACT candle under the cursor later (coordinateToTime only
+      // gives a time; we still need that bar's low/high/close to draw at).
+      const arr = c._taBars;
+      if (arr.length && arr[arr.length - 1].time === bar.time) arr[arr.length - 1] = bar;
+      else arr.push(bar);
+      if (arr.length > 3000) arr.shift();   // safety cap
+    }
     return origUpdate(bar);
   };
   s.setData = function(arr) {
     // SV2 replay appends future-whitespace bars AFTER the real last bar
     // (see buildStack2 live-tick loop: agg = agg.concat(futureWhitespace)),
     // so arr[arr.length-1] is very often whitespace, not the forming
-    // candle. Walk backwards to the last bar that actually has data.
+    // candle. Keep only real bars in our cache, in order.
     if (Array.isArray(arr) && arr.length) {
-      for (let i = arr.length - 1; i >= 0; i--) {
-        if (_tfArrowIsRealBar(arr[i])) { c._taLastBar = arr[i]; break; }
-      }
+      const real = arr.filter(_tfArrowIsRealBar);
+      if (real.length) { c._taBars = real; c._taLastBar = real[real.length - 1]; }
     }
     return origSetData(arr);
   };
   s._taHooked = true;
+}
+
+// ── Finds the specific bar under a given canvas x-coordinate (the candle
+//    the user is actually pointing at) instead of always assuming "the
+//    latest/forming bar". Falls back to the newest cached bar if the
+//    pointer is past the right edge (empty/whitespace area). ──────────────
+function _tfArrowFindBarAtX(c, x) {
+  if (!c || !c.chart || !c._taBars || !c._taBars.length) return null;
+  if (x == null) return c._taBars[c._taBars.length - 1];
+  let t = null;
+  try { t = c.chart.timeScale().coordinateToTime(x); } catch(_) {}
+  if (t == null) return c._taBars[c._taBars.length - 1];
+  let best = c._taBars[0], bestDiff = Math.abs(best.time - t);
+  for (let i = 1; i < c._taBars.length; i++) {
+    const d = Math.abs(c._taBars[i].time - t);
+    if (d < bestDiff) { bestDiff = d; best = c._taBars[i]; }
+  }
+  return best;
 }
 
 // ── Pointer hold-detection — wired once per DOM element, but always reads
@@ -7997,21 +8024,27 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   }, { capture: true, passive: true });
 }
 
-// ── Lock: pin a new FIXED-type arrow to whatever candle is forming now ─────
+// ── Lock: pin a new FIXED-type arrow to whichever candle is actually under
+//    the cursor (found by x-coordinate), not just whatever happens to be
+//    forming right now. If the pointer IS over the forming candle, it will
+//    keep tracking live exactly as before (handled in _tfArrowDrawCell). ──
 function _tfArrowLock(c, elId, getColor, downPt) {
   if (!c || !c.series || !TFARR_TYPE) { _tfArrowDebug('lock SKIPPED — no series or no type picked'); return; }
   _tfArrowHookSeries(c);
-  const bar = c._taLastBar;
-  if (!bar) { _tfArrowDebug('lock SKIPPED — no bar captured yet'); return; }
+  const bar = _tfArrowFindBarAtX(c, downPt ? downPt.x : null);
+  if (!bar) { _tfArrowDebug('lock SKIPPED — no bar found under cursor'); return; }
   if (!c._taArrows) c._taArrows = [];
+  const refPriceNow = _tfArrowRefPrice(bar, TFARR_TYPE);
   c._taArrows.push({
     time: bar.time,
     type: TFARR_TYPE,     // 'up' (below candle) | 'down' (above candle) — FIXED
     color: getColor(c),
+    _lastRef: refPriceNow,  // seed now so it draws immediately even on a non-forming (historical) candle
     _logged: false,
   });
   while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
-  _tfArrowDebug('LOCKED! time=' + c._taArrows[c._taArrows.length - 1].time + ' type=' + c._taArrows[c._taArrows.length - 1].type);
+  const isForming = c._taLastBar && c._taLastBar.time === bar.time;
+  _tfArrowDebug('LOCKED! time=' + bar.time + ' type=' + TFARR_TYPE + ' onForming=' + !!isForming);
 
   // ── Guaranteed-visible test marker — drawn at the raw pointerdown x/y
   //    (element-relative, NOT chart-derived), so it renders regardless of
@@ -8028,10 +8061,9 @@ function _tfArrowLock(c, elId, getColor, downPt) {
   //    now, so we can see immediately if timeToCoordinate/priceToCoordinate
   //    are returning null (which silently skips the draw). ───────────────
   try {
-    const refPrice = _tfArrowRefPrice(bar, TFARR_TYPE);
     const xNow = c.chart.timeScale().timeToCoordinate(bar.time);
-    const yNow = refPrice != null ? c.series.priceToCoordinate(refPrice) : null;
-    _tfArrowDebug('ARROW COORDS ' + elId + ' time=' + bar.time + ' refPrice=' + refPrice +
+    const yNow = refPriceNow != null ? c.series.priceToCoordinate(refPriceNow) : null;
+    _tfArrowDebug('ARROW COORDS ' + elId + ' time=' + bar.time + ' refPrice=' + refPriceNow +
       ' → x=' + (xNow == null ? 'NULL' : Math.round(xNow)) +
       ' y=' + (yNow == null ? 'NULL' : Math.round(yNow)) +
       (xNow == null || yNow == null ? '  ⚠ NULL = will NOT draw (out of visible range or bad ref)' : '  ✓ should be visible'));
@@ -8052,11 +8084,12 @@ function _tfArrowDrawCell(c, elId, getColor) {
   const ctx = c._taCtx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, c._taCanvas.width, c._taCanvas.height);
-  if (!TFARR_ON) return;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Generic hold-preview (3s–5s window) — no direction shown yet
-  if (c._taPreview) {
+  // Generic hold-preview (3s–5s window) — no direction shown yet. Only
+  // meaningful while the tool is actively ON (mid-hold); gated here so it
+  // never lingers after toggling off.
+  if (TFARR_ON && c._taPreview) {
     ctx.save();
     ctx.globalAlpha = 0.55;
     ctx.strokeStyle = '#9598a1'; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]);
@@ -8085,6 +8118,9 @@ function _tfArrowDrawCell(c, elId, getColor) {
     }
   }
 
+  // Locked arrows ALWAYS draw here, regardless of TFARR_ON — turning the
+  // tool off only stops NEW placements (gated at pointerdown), it must
+  // never hide or delete arrows already placed.
   if (!c._taArrows || !c._taArrows.length || !c.series || !c.chart) return;
   const lastBar = c._taLastBar;
 
@@ -8116,13 +8152,26 @@ function _tfArrowDrawCell(c, elId, getColor) {
     if (!a._logged) { _tfArrowDebug('ARROW DRAWN OK time=' + a.time + ' x=' + Math.round(x) + ' y=' + Math.round(yy)); a._logged = true; }
   });
 }
+// ── Hollow (outline-only, no fill) arrowhead with a thin wick trailing away
+//    from the candle — tip points toward the candle, wick points away. ─────
 function _tfArrowDrawTriangle(ctx, x, y, type, color) {
   ctx.save();
-  ctx.fillStyle = color || '#2962ff';
-  ctx.beginPath();
-  if (type === 'up') { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }   // ↑
-  else                { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }   // ↓
-  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = color || '#2962ff';
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  if (type === 'up') {
+    // ↑ sits BELOW the candle: tip points UP toward it, wick trails DOWN away from it
+    ctx.beginPath();
+    ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y + 4); ctx.lineTo(x, y + 13); ctx.stroke();
+  } else {
+    // ↓ sits ABOVE the candle: tip points DOWN toward it, wick trails UP away from it
+    ctx.beginPath();
+    ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y - 13); ctx.stroke();
+  }
   ctx.restore();
 }
 
