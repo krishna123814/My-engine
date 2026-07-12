@@ -7678,28 +7678,68 @@ function _vlRemoveCellCanvas2(idx) {
 // the vLine/parent-dot overlays above, so SV1 and SV2 share one code path.
 //
 // Flow:
-//   pointerdown on a cell → hold 3s  → generic preview (dashed grey circle,
-//                                       no direction yet)
-//                          → hold 5s  → LOCK: an arrow is pinned to the
-//                                       candle that is forming right now in
-//                                       that cell.
-//   While the locked arrow's candle is still the forming (last) bar, its
-//   position flips ABOVE the candle whenever a new HIGH is made, and BELOW
-//   whenever a new LOW is made. Colour = that cell's TF colour.
-//   Max 4 locked arrows kept per cell — 5th push evicts the oldest (FIFO).
+//   Click icon (OFF → ON) → a popup asks: "Upward Arrow" (↑, sits BELOW the
+//   candle) or "Downward Arrow" (↓, sits ABOVE the candle). Whichever is
+//   picked becomes the FIXED type — every arrow placed after this uses that
+//   same type, until you turn the feature OFF and ON again and pick again.
+//   pointerdown on a cell → hold 3s → generic preview (dashed grey circle)
+//                          → hold 5s → LOCK: an arrow (of the fixed type) is
+//                                       pinned to the candle forming right
+//                                       now in that cell.
+//   While the locked arrow's candle is still forming, it stays glued to that
+//   candle's low (Upward type) or high (Downward type) as those move.
+//   Colour = that cell's TF colour. Max 4 locked arrows per cell (FIFO).
 // ════════════════════════════════════════════════════════════════════════════
-const TFARR_LS_KEY = 'tfArrowOn';
-let TFARR_ON = (_LS.getItem(TFARR_LS_KEY) === '1');
+const TFARR_LS_KEY      = 'tfArrowOn';
+const TFARR_TYPE_LS_KEY = 'tfArrowType';   // 'up' | 'down'
+let TFARR_ON   = (_LS.getItem(TFARR_LS_KEY) === '1');
+let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick
 
 function _tfArrowSyncBtn() {
   const btn = document.getElementById('tfarrow-btn');
   if (btn) btn.classList.toggle('active', TFARR_ON);
 }
-function toggleTfArrow() {
-  TFARR_ON = !TFARR_ON;
-  try { _LS.setItem(TFARR_LS_KEY, TFARR_ON ? '1' : '0'); } catch(_) {}
+
+// ── OFF→ON popup: force a type pick before the feature actually turns on ───
+function _tfArrowOpenPicker() {
+  let box = document.getElementById('tfarrow-picker');
+  if (box) { box.style.display = 'flex'; return; }
+  box = document.createElement('div');
+  box.id = 'tfarrow-picker';
+  box.style.cssText = 'position:fixed;inset:0;z-index:10050;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+  box.innerHTML = `
+    <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:260px;box-shadow:0 8px 32px #0009;">
+      <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:10px;text-align:center;">Arrow Type Chuniye</div>
+      <button id="tfarrow-pick-up" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #26a69a;background:#26a69a22;color:#26a69a;font-size:12px;font-weight:600;cursor:pointer;">↑ Upward Arrow<br><span style="font-weight:400;font-size:10px;opacity:0.8">Candle ke NICHE lagega</span></button>
+      <button id="tfarrow-pick-down" style="width:100%;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">↓ Downward Arrow<br><span style="font-weight:400;font-size:10px;opacity:0.8">Candle ke UPAR lagega</span></button>
+      <button id="tfarrow-pick-cancel" style="width:100%;margin-top:10px;padding:6px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Cancel</button>
+    </div>`;
+  document.body.appendChild(box);
+  document.getElementById('tfarrow-pick-up').onclick   = () => _tfArrowConfirmType('up');
+  document.getElementById('tfarrow-pick-down').onclick = () => _tfArrowConfirmType('down');
+  document.getElementById('tfarrow-pick-cancel').onclick = () => { box.style.display = 'none'; };
+}
+function _tfArrowConfirmType(type) {
+  TFARR_TYPE = type;
+  try { _LS.setItem(TFARR_TYPE_LS_KEY, type); } catch(_) {}
+  const box = document.getElementById('tfarrow-picker');
+  if (box) box.style.display = 'none';
+  TFARR_ON = true;
+  try { _LS.setItem(TFARR_LS_KEY, '1'); } catch(_) {}
   _tfArrowSyncBtn();
-  if (!TFARR_ON) _tfArrowClearAllPreviews();
+  _tfArrowRedrawAll();
+}
+function toggleTfArrow() {
+  if (!TFARR_ON) {
+    // OFF → ON: type ek popup se pick karwao (mandatory) — feature tabhi ON hota hai
+    _tfArrowOpenPicker();
+    return;
+  }
+  // ON → OFF
+  TFARR_ON = false;
+  try { _LS.setItem(TFARR_LS_KEY, '0'); } catch(_) {}
+  _tfArrowSyncBtn();
+  _tfArrowClearAllPreviews();
   _tfArrowRedrawAll();
 }
 
@@ -7730,10 +7770,28 @@ function _tfArrowResizeCanvas(c, elId) {
   c._taCanvas.style.height = el.clientHeight + 'px';
 }
 
-// ── Pointer hold-detection (generic — wired once per DOM element) ──────────
-// `getColor(c)` returns this cell's current TF colour hex — SV1 passes
-// (cc => _tfCandleColor(cc.tf)), SV2 passes (cc => _sv2TfCandleColor(cc.tf)).
-function _tfArrowWireCell(c, elId, getColor) {
+// ── series.data() is NOT available in this lightweight-charts build (v4.2 —
+//    confirmed elsewhere in this file). So instead of reading data back, we
+//    hook series.update()/setData() once per series to snoop the latest bar
+//    as it flows through, and cache it on the cell as c._taLastBar. ────────
+function _tfArrowHookSeries(c) {
+  if (!c || !c.series || c.series._taHooked) return;
+  const s = c.series;
+  const origUpdate  = s.update.bind(s);
+  const origSetData = s.setData.bind(s);
+  s.update = function(bar) { c._taLastBar = bar; return origUpdate(bar); };
+  s.setData = function(arr) {
+    if (Array.isArray(arr) && arr.length) c._taLastBar = arr[arr.length - 1];
+    return origSetData(arr);
+  };
+  s._taHooked = true;
+}
+
+// ── Pointer hold-detection — wired once per DOM element, but always reads
+//    the CURRENT cell object via getCell() (index lookup) so it keeps
+//    working correctly even after the cell's chart/series gets rebuilt
+//    (replay steps, symbol change, etc. replace CELLS[i]/STACK2_CELLS[i]). ─
+function _tfArrowWireCell(elId, getCell, getColor) {
   const el = document.getElementById(elId);
   if (!el || el._taWired) return;
   el._taWired = true;
@@ -7743,18 +7801,19 @@ function _tfArrowWireCell(c, elId, getColor) {
     if (holdT1) { clearTimeout(holdT1); holdT1 = null; }
     if (holdT2) { clearTimeout(holdT2); holdT2 = null; }
     downPt = null;
-    c._taPreview = null;
-    _tfArrowDrawCell(c, elId, getColor);
+    const c = getCell();
+    if (c) { c._taPreview = null; _tfArrowDrawCell(c, elId, getColor); }
   }
   el.addEventListener('pointerdown', (ev) => {
     if (!TFARR_ON) return;
     downPt = { x: ev.offsetX, y: ev.offsetY };
     holdT1 = setTimeout(() => {
+      const c = getCell(); if (!c) return;
       c._taPreview = { x: downPt.x, y: downPt.y };
       _tfArrowDrawCell(c, elId, getColor);
     }, 3000);
     holdT2 = setTimeout(() => {
-      _tfArrowLock(c, getColor);
+      const c = getCell(); if (c) _tfArrowLock(c, getColor);
       cancelHold();
     }, 5000);
   }, { passive: true });
@@ -7767,25 +7826,26 @@ function _tfArrowWireCell(c, elId, getColor) {
   }, { passive: true });
 }
 
-// ── Lock: pin a new arrow to whatever candle is forming right now ──────────
+// ── Lock: pin a new FIXED-type arrow to whatever candle is forming now ─────
 function _tfArrowLock(c, getColor) {
-  if (!c || !c.series) return;
-  let data; try { data = c.series.data(); } catch(_) { data = null; }
-  if (!data || !data.length) return;
-  const bar = data[data.length - 1];
+  if (!c || !c.series || !TFARR_TYPE) return;
+  _tfArrowHookSeries(c);
+  const bar = c._taLastBar;
+  if (!bar) return;
   if (!c._taArrows) c._taArrows = [];
   c._taArrows.push({
     time: bar.time,
-    refHigh: bar.high, refLow: bar.low,
-    side: null,               // 'up' | 'down' — set on first new high/low
+    type: TFARR_TYPE,     // 'up' (below candle) | 'down' (above candle) — FIXED
     color: getColor(c),
   });
   while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
 }
 
-// ── Per-cell redraw: refresh locked-arrow sides from live high/low, paint ──
+// ── Per-cell redraw: keep locked arrows glued to their (still forming)
+//    candle's low/high, paint preview + arrows. ────────────────────────────
 function _tfArrowDrawCell(c, elId, getColor) {
   if (!c) return;
+  _tfArrowHookSeries(c);
   if (!c._taCanvas || !c._taCanvas.isConnected) _tfArrowCreateCanvas(c, elId);
   if (!c._taCtx || !c._taCanvas) return;
   _tfArrowResizeCanvas(c, elId);
@@ -7806,31 +7866,33 @@ function _tfArrowDrawCell(c, elId, getColor) {
   }
 
   if (!c._taArrows || !c._taArrows.length || !c.series || !c.chart) return;
-  let data; try { data = c.series.data(); } catch(_) { data = null; }
-  if (!data || !data.length) return;
-  const lastBar = data[data.length - 1];
+  const lastBar = c._taLastBar;
 
   c._taArrows.forEach(a => {
-    // Candle abhi bhi forming (= last bar) hai to live high/low se update lo
-    if (lastBar.time === a.time) {
-      if (lastBar.high > a.refHigh) { a.refHigh = lastBar.high; a.side = 'up'; }
-      if (lastBar.low  < a.refLow)  { a.refLow  = lastBar.low;  a.side = 'down'; }
+    // Jab tak ye arrow ki candle abhi bhi forming (= last bar) hai, uske
+    // live low/high se chipka rahega; candle close ho jaye to jahan thi
+    // wahi reh jayega (frozen) — bas ab live update nahi hoga.
+    let refPrice, barTime = a.time;
+    if (lastBar && lastBar.time === a.time) {
+      refPrice = (a.type === 'up') ? lastBar.low : lastBar.high;
+      a._lastRef = refPrice;   // cache so it stays put after candle closes
+    } else {
+      refPrice = a._lastRef;
     }
-    if (!a.side) return;   // abhi tak koi naya high/low nahi bana
-    const price = a.side === 'up' ? a.refHigh : a.refLow;
-    const x = c.chart.timeScale().timeToCoordinate(a.time);
-    const y = c.series.priceToCoordinate(price);
+    if (refPrice == null) return;
+    const x = c.chart.timeScale().timeToCoordinate(barTime);
+    const y = c.series.priceToCoordinate(refPrice);
     if (x == null || y == null) return;
-    const yy = a.side === 'up' ? y - 10 : y + 10;
-    _tfArrowDrawTriangle(ctx, x, yy, a.side, a.color);
+    const yy = a.type === 'up' ? y + 10 : y - 10;   // up-arrow BELOW candle, down-arrow ABOVE
+    _tfArrowDrawTriangle(ctx, x, yy, a.type, a.color);
   });
 }
-function _tfArrowDrawTriangle(ctx, x, y, side, color) {
+function _tfArrowDrawTriangle(ctx, x, y, type, color) {
   ctx.save();
   ctx.fillStyle = color || '#2962ff';
   ctx.beginPath();
-  if (side === 'up') { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }
-  else                { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }
+  if (type === 'up') { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }   // ↑
+  else                { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }   // ↓
   ctx.closePath(); ctx.fill();
   ctx.restore();
 }
@@ -7844,13 +7906,16 @@ function _tfArrowClearAllPreviews() {
 
 // ── Driver: polled every 300ms so we don't need to hook every live-tick /
 //    replay-step call site scattered through the feed/replay engine. Also
-//    lazily creates the canvas + wires pointer-hold on any new cell. ───────
+//    lazily creates the canvas + wires pointer-hold on any new cell. Cell
+//    objects can get REPLACED (new CELLS[i]/STACK2_CELLS[i]) on rebuild, so
+//    wiring always looks the cell up by index at call time, never captures
+//    the object itself. ──────────────────────────────────────────────────
 function _tfArrowRedrawAll() {
   if (typeof CELLS !== 'undefined') {
     CELLS.forEach((c, i) => {
       if (!c || !c.chart) return;
       const elId = 'cell-chart-' + i;
-      _tfArrowWireCell(c, elId, (cc) => _tfCandleColor(cc.tf));
+      _tfArrowWireCell(elId, () => CELLS[i], (cc) => _tfCandleColor(cc.tf));
       _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
     });
   }
@@ -7858,7 +7923,7 @@ function _tfArrowRedrawAll() {
     STACK2_CELLS.forEach((c, i) => {
       if (!c || !c.chart) return;
       const elId = 'stack2-chart-' + i;
-      _tfArrowWireCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
+      _tfArrowWireCell(elId, () => STACK2_CELLS[i], (cc) => _sv2TfCandleColor(cc.tf));
       _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
     });
   }
