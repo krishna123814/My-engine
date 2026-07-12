@@ -743,6 +743,37 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .stack2-cell .cell-overlay > *{ pointer-events:none; }
 
+/* ── SV1 — Bade TF ka SR chhote TF par Show/Hide — Floating draggable icon ── */
+#sv1-srtoggle-fab{
+  display:none;                          /* sirf SV1 (stack2 inactive) par dikhega */
+  position:fixed;
+  z-index:8500;
+  width:26px;height:26px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:9px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv1-srtoggle-fab.visible{ display:flex; }
+#sv1-srtoggle-fab.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+#sv1-srtoggle-fab.dragging{
+  opacity:.85;
+  box-shadow:0 8px 32px #0009;
+}
+
 /* ── Date Range Selector — Floating Icon ─────────────────────────────── */
 #sv2-drng-fab{
   display:none;                          /* sirf stack2 active hone par dikhega */
@@ -850,6 +881,33 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-color:#555;
   color:#555;
   cursor:not-allowed;
+}
+
+/* ── SV2 — Bade TF ka SR chhote TF par Show/Hide (floating, FAB stack ke saath) ── */
+#sv2-srtoggle-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:8px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-srtoggle-btn.visible{ display:flex; }
+#sv2-srtoggle-btn.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
 }
 
 /* ── Date Range Selector — Bottom Sheet ─────────────────────────────── */
@@ -976,6 +1034,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-cal-month-label{
   flex:1;text-align:center;font-size:13px;font-weight:700;color:#d1d4dc;
 }
+#sv2-cal-month-year-wrap{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+}
+#sv2-cal-month-sel,#sv2-cal-year-sel{
+  background:#2a2e39;color:#d1d4dc;border:1px solid #363c4e;border-radius:5px;
+  font-size:13px;font-weight:700;padding:5px 4px;text-align:center;
+  cursor:pointer;-webkit-appearance:none;appearance:none;
+}
+#sv2-cal-month-sel{flex:1.2;max-width:110px;}
+#sv2-cal-year-sel{flex:0.8;max-width:76px;}
 
 /* Calendar grid */
 #sv2-cal-grid{
@@ -1020,6 +1088,27 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-drng-apply:active{background:#1d8a80}
 #sv2-drng-apply:disabled{background:#2a2e39;color:#555;cursor:not-allowed}
+
+/* Asset selector (BTC / BankNifty) — calendar khud yahi se dono ka alag
+   replay progress track/resume karta hai */
+#sv2-cal-asset-row{ display:flex; gap:8px; padding:10px 16px 0; }
+.sv2-cal-asset-btn{
+  flex:1; padding:9px 4px; font-size:12px; font-weight:700;
+  background:#131722; border:1px solid #2a2e39; color:#787b86;
+  cursor:pointer; border-radius:8px;
+}
+.sv2-cal-asset-btn.active{ background:#2962ff; border-color:#2962ff; color:#fff; }
+.sv2-cal-asset-btn:active{ opacity:.85; }
+
+/* Resume Last Replay — sirf tab dikhta hai jab is asset ka saved progress ho */
+#sv2-drng-resume{
+  display:none; width:calc(100% - 32px); margin:10px 16px 0;
+  height:40px; border-radius:8px;
+  background:#f0b42922; border:1px solid #f0b429; color:#f0b429;
+  font-size:12px; font-weight:700; cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 8px;
+}
+#sv2-drng-resume:active{ background:#f0b42944; }
 
 /* Sheet backdrop */
 #sv2-drng-backdrop{
@@ -2322,6 +2411,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 </div><!-- #app -->
 
+<!-- ═══ SV1 — Bade TF ka SR chhote TF par Show/Hide — Floating draggable icon ═══ -->
+<button id="sv1-srtoggle-fab" title="Bade TF ka SR chhote TF par Show/Hide · jahan marzi move kiya ja sake">SR</button>
+
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
@@ -2329,6 +2421,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
+<button id="sv2-srtoggle-btn" title="Bade TF ka SR chhote TF par Show/Hide" onclick="_sv2SrHierarchyToggle()">SR</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -2343,6 +2436,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button id="sv2-drng-clear" onclick="_sv2DrngClear()">✕ Clear</button>
       <button id="sv2-drng-close" onclick="_sv2DrngClose()">✕</button>
     </div>
+
+    <!-- Asset selector — BTC / BankNifty. Dono ka replay progress alag-alag
+         save/restore hota hai; jo asset yahan select hoga, uska hi calendar
+         aur "Resume Last Replay" niche dikhega. -->
+    <div id="sv2-cal-asset-row">
+      <button class="sv2-cal-asset-btn" id="sv2-cal-asset-btc" onclick="_sv2CalSelectAsset('btc')">₿ BTC</button>
+      <button class="sv2-cal-asset-btn" id="sv2-cal-asset-bn"  onclick="_sv2CalSelectAsset('bn')">📊 BankNifty</button>
+    </div>
+    <button id="sv2-drng-resume" onclick="_sv2ResumeLastReplayFromCal()">▶ Resume Last Replay</button>
 
     <!-- Replay Speed settings row — toggled via the ⚙️ button above -->
     <div id="sv2-speed-panel" style="display:none;">
@@ -2392,7 +2494,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <!-- Calendar nav row -->
     <div id="sv2-cal-nav">
       <button id="sv2-cal-prev" onclick="_sv2CalPrev()">‹</button>
-      <span id="sv2-cal-month-label">-- --</span>
+      <div id="sv2-cal-month-year-wrap">
+        <select id="sv2-cal-month-sel" onchange="_sv2CalMonthSelect(this)"></select>
+        <select id="sv2-cal-year-sel" onchange="_sv2CalYearSelect(this)"></select>
+      </div>
       <button id="sv2-cal-next" onclick="_sv2CalNext()">›</button>
     </div>
 
@@ -2706,6 +2811,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
               <button onclick="_sv2ApplyPreset('BTC')"
                 style="font-size:10px;padding:2px 8px;background:#3a2a10;color:#ffcc80;border:1px solid #ff9800;border-radius:10px;cursor:pointer;">
                 BTCUSDT
+              </button>
+              <button onclick="_sv2ClearAllChips()" title="Sabhi TF chips ek saath hata do"
+                style="font-size:10px;padding:2px 8px;background:#3a1010;color:#ff8a80;border:1px solid #ef5350;border-radius:10px;cursor:pointer;margin-left:auto;">
+                ✕ Clear All
               </button>
             </div>
             <div class="swing-tf-chips" id="sv2-sr-chips"></div>
@@ -5455,6 +5564,7 @@ function ss2ApplyAndClose() {
     _renderCal();
     _updateApplyBtn();
     _sv2UpdateOpenPriceDisplay();
+    try { if (typeof _sv2CalRefreshAssetUI === 'function') _sv2CalRefreshAssetUI(); } catch(_){}
     _backdrop.classList.add('open');
     _sheet.classList.add('open');
   }
@@ -5594,6 +5704,56 @@ function ss2ApplyAndClose() {
   window._sv2CalPrev = _sv2CalPrev;
   window._sv2CalNext = _sv2CalNext;
 
+  // ── Month / Year dropdowns — seedha jump, arrows se ek-ek month ghumane
+  // ki zaroorat nahi. Year list current year ke aas-paas ek reasonable
+  // range me rakhi hai (15 saal peeche, 1 saal aage).
+  function _syncCalSelectors() {
+    var msel = document.getElementById('sv2-cal-month-sel');
+    var ysel = document.getElementById('sv2-cal-year-sel');
+    if (!msel || !ysel) return;
+
+    if (!msel.options.length) {
+      MONTHS.forEach(function(m, i){
+        var o = document.createElement('option');
+        o.value = i; o.textContent = m;
+        msel.appendChild(o);
+      });
+    }
+    msel.value = _calMonth;
+
+    var thisYr = new Date().getFullYear();
+    var minYr = thisYr - 15, maxYr = thisYr + 1;
+    // Agar select ki hui _calYear range se bahar hai (jaise saved data
+    // range se purani), range ko us saal tak extend kar do taaki wo bhi
+    // dropdown me dikhe.
+    if (_calYear < minYr) minYr = _calYear;
+    if (_calYear > maxYr) maxYr = _calYear;
+
+    var needsRebuild = !ysel.options.length ||
+      +ysel.options[0].value !== minYr ||
+      +ysel.options[ysel.options.length - 1].value !== maxYr;
+    if (needsRebuild) {
+      ysel.innerHTML = '';
+      for (var y = maxYr; y >= minYr; y--) {
+        var o = document.createElement('option');
+        o.value = y; o.textContent = y;
+        ysel.appendChild(o);
+      }
+    }
+    ysel.value = _calYear;
+  }
+
+  function _sv2CalMonthSelect(sel) {
+    _calMonth = +sel.value;
+    _renderCal();
+  }
+  function _sv2CalYearSelect(sel) {
+    _calYear = +sel.value;
+    _renderCal();
+  }
+  window._sv2CalMonthSelect = _sv2CalMonthSelect;
+  window._sv2CalYearSelect  = _sv2CalYearSelect;
+
   // ── Date helpers ──────────────────────────────────────────────────────────
   function _dateToEpoch(d) {
     // UTC midnight of the date (seconds)
@@ -5619,11 +5779,9 @@ function ss2ApplyAndClose() {
 
   // ── Render calendar grid ──────────────────────────────────────────────────
   function _renderCal() {
-    var lbl = document.getElementById('sv2-cal-month-label');
     var grid = document.getElementById('sv2-cal-grid');
-    if (!lbl || !grid) return;
-
-    lbl.textContent = MONTHS[_calMonth] + ' ' + _calYear;
+    if (!grid) return;
+    _syncCalSelectors();
     grid.innerHTML = '';
 
     // Day-of-week headers (Mo first)
@@ -5758,6 +5916,7 @@ function ss2ApplyAndClose() {
         buildStack2();
         setTimeout(_startCellTimers, 200);
         setTimeout(function(){ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+        setTimeout(function(){ try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }, 350);
       } catch(_){}
     }
   }
@@ -5820,6 +5979,7 @@ function ss2ApplyAndClose() {
   var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
+  var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -5850,6 +6010,9 @@ function ss2ApplyAndClose() {
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show && stepResetOn);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show && stepResetOn);
+    // SR hierarchy toggle — calendar ki tarah hamesha dikhta hai jab tak
+    // Stack View 2 active hai, replay date range select hone se independent.
+    if (_srToggleBtn) _srToggleBtn.classList.toggle('visible', stack2On);
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -5861,20 +6024,27 @@ function ss2ApplyAndClose() {
       return;
     }
     var r = fab.getBoundingClientRect();
-    // Teeno buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
+    // Sab buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
     // same left, top badhta jaata hai — pehle galti se left badhta jaa
     // raha tha (horizontal row), jisse chart ke upar overlap ho raha tha.
+    // SR toggle sabse pehle (calendar ke turant neeche), phir play/step/reset.
+    var srOn = !!(_srToggleBtn && _srToggleBtn.classList.contains('visible'));
+    var stackOffset = srOn ? 29 : 0;
+    if (_srToggleBtn) {
+      _srToggleBtn.style.left = r.left + 'px';
+      _srToggleBtn.style.top  = (r.bottom + 4) + 'px';
+    }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
-      _playBtn.style.top  = (r.bottom + 4) + 'px';
+      _playBtn.style.top  = (r.bottom + 4 + stackOffset) + 'px';
     }
     if (_onestepBtn) {
       _onestepBtn.style.left = r.left + 'px';
-      _onestepBtn.style.top  = (r.bottom + 4 + 29) + 'px';
+      _onestepBtn.style.top  = (r.bottom + 4 + stackOffset + 29) + 'px';
     }
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
-      _resetBtn.style.top  = (r.bottom + 4 + 29 + 29) + 'px';
+      _resetBtn.style.top  = (r.bottom + 4 + stackOffset + 29 + 29) + 'px';
     }
   }
 
@@ -6272,6 +6442,7 @@ function ss2ApplyAndClose() {
     live.revealIdx++;
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
+    try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
 
     var moreLeft = live.revealIdx < live.baseBars.length;
 
@@ -6418,6 +6589,7 @@ function ss2ApplyAndClose() {
     live.revealIdx = live.startIdx;
     _rebuildAllCells();
     _renderPlayIcon();
+    try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
   }
 
   // Keep old global names working (HTML onclick + external callers use these)
@@ -6465,7 +6637,9 @@ function ss2ApplyAndClose() {
     _playBtn    = document.getElementById('sv2-step-btn');
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
+    _srToggleBtn = document.getElementById('sv2-srtoggle-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
+    if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SWING_STATE.visible);
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
     // Ring play button ki border ke bahar thodi badi (54×54) dikhti hai —
@@ -6513,6 +6687,293 @@ function ss2ApplyAndClose() {
 
 })();
 
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 PER-ASSET "LAST REPLAY" SNAPSHOT — save & restore ────────────────────
+// Har asset (BTC / BankNifty) ka apna alag replay-progress save hota hai —
+// saath me us waqt ki Future Line (vLine) settings aur laage hue Arrow
+// Markers bhi. Calendar sheet me asset select karke "Resume Last Replay"
+// dabane par, wahi asset EXACTLY wahi state me wapas aata hai jahan pichli
+// baar chhoda tha — waqt/time kuch bhi ho.
+// ════════════════════════════════════════════════════════════════════════════
+const SV2_SNAP_KEY = 'sv2ReplaySnapshots';
+
+function _sv2LoadAllSnaps() {
+  try {
+    const raw = _LS.getItem(SV2_SNAP_KEY);
+    return raw ? (JSON.parse(raw) || {}) : {};
+  } catch(_) { return {}; }
+}
+function _sv2SaveAllSnaps(obj) {
+  try { _LS.setItem(SV2_SNAP_KEY, JSON.stringify(obj)); } catch(_) {}
+}
+function _sv2GetSnapshot(assetKey) {
+  const all = _sv2LoadAllSnaps();
+  return all[assetKey] || null;
+}
+function _sv2HasSnapshot(assetKey) {
+  const s = _sv2GetSnapshot(assetKey);
+  return !!(s && s.dateRange && typeof s.revealIdx === 'number');
+}
+
+// Capture CURRENT Stack View 2 replay progress + per-cell Future Line +
+// per-cell Arrow Markers for whichever asset is active right now.
+function _sv2SaveSnapshotForCurrentAsset() {
+  try {
+    if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+    const rng  = window._SV2_DATE_RANGE;
+    const live = window._SV2_LIVE;
+    if (!rng || !live || !live.baseBars) return;
+
+    const assetKey = _stackKeyForAsset(S.asset);
+    if (assetKey !== 'btc' && assetKey !== 'bn') return;   // filhal sirf BTC/BankNifty support
+
+    const cellsSnap = [];
+    if (typeof STACK2_CELLS !== 'undefined') {
+      for (let i = 0; i < STACK2_CELLS.length; i++) {
+        const c = STACK2_CELLS[i];
+        if (!c) { cellsSnap.push(null); continue; }
+        cellsSnap.push({
+          tf:     c.tf || null,
+          vLine:  c.vLine ? Object.assign({}, c.vLine) : null,
+          arrows: Array.isArray(c._taArrows) ? c._taArrows.map(a => Object.assign({}, a)) : [],
+        });
+      }
+    }
+
+    const all = _sv2LoadAllSnaps();
+    all[assetKey] = {
+      dateRange: {
+        from:    rng.from,
+        to:      isFinite(rng.to) ? rng.to : null,
+        toInf:   !isFinite(rng.to),
+        fromStr: rng.fromStr,
+        toStr:   rng.toStr,
+      },
+      revealIdx: live.revealIdx,
+      startIdx:  live.startIdx,
+      arrowType: (typeof TFARR_TYPE !== 'undefined') ? TFARR_TYPE : null,
+      cells:     cellsSnap,
+      savedAt:   Date.now(),
+    };
+    _sv2SaveAllSnaps(all);
+  } catch(_) {}
+}
+
+// ── Resume the last-saved replay for a given asset key ('btc' | 'bn') ──────
+function _sv2ResumeLastReplay(assetKey) {
+  const snap = _sv2GetSnapshot(assetKey);
+  if (!snap) return false;
+
+  const targetAssetName = (assetKey === 'bn') ? BN_ASSET : BTC_ASSET;
+
+  try { if (typeof window._sv2DrngClose === 'function') window._sv2DrngClose(); } catch(_){}
+
+  function _applySnapAfterBuild() {
+    const live = window._SV2_LIVE;
+    if (live && live.baseBars) {
+      const clamped = Math.max(live.startIdx || 0, Math.min(snap.revealIdx, live.baseBars.length));
+      live.revealIdx = clamped;
+    }
+    if (typeof TFARR_TYPE !== 'undefined' && snap.arrowType) {
+      TFARR_TYPE = snap.arrowType;
+      try { _LS.setItem(TFARR_TYPE_LS_KEY, snap.arrowType); } catch(_){}
+    }
+    if (typeof STACK2_CELLS !== 'undefined' && Array.isArray(snap.cells)) {
+      for (let i = 0; i < STACK2_CELLS.length; i++) {
+        const c  = STACK2_CELLS[i];
+        const sc = snap.cells[i];
+        if (!c || !sc) continue;
+        if (sc.vLine) c.vLine = Object.assign({}, sc.vLine);
+        c._taArrows = Array.isArray(sc.arrows) ? sc.arrows.map(a => Object.assign({}, a)) : [];
+      }
+    }
+    try { if (typeof window._sv2RebuildAllCells === 'function') window._sv2RebuildAllCells(); } catch(_){}
+    if (typeof STACK2_CELLS !== 'undefined') {
+      for (let i = 0; i < STACK2_CELLS.length; i++) {
+        try { if (typeof _vlDrawCell2 === 'function') _vlDrawCell2(i); } catch(_){}
+      }
+    }
+    try { if (typeof _tfArrowRedrawAll === 'function') _tfArrowRedrawAll(); } catch(_){}
+    try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
+    try { _startCellTimers(); } catch(_){}
+    try { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); } catch(_){}
+  }
+
+  function _armDateRangeAndBuild() {
+    window._SV2_DATE_RANGE = {
+      from:    snap.dateRange.from,
+      to:      snap.dateRange.toInf ? Infinity : snap.dateRange.to,
+      fromStr: snap.dateRange.fromStr,
+      toStr:   snap.dateRange.toStr,
+    };
+    const fabEl = document.getElementById('sv2-drng-fab');
+    if (fabEl) { fabEl.classList.add('active-range'); fabEl.title = 'Cutoff: ' + snap.dateRange.fromStr + '  (tap to change)'; }
+    try {
+      document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', { detail: window._SV2_DATE_RANGE }));
+    } catch(_){}
+    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
+      try { buildStack2(); } catch(_){}
+      setTimeout(_applySnapAfterBuild, 200);
+    }
+  }
+
+  if (S.asset !== targetAssetName) {
+    // Clean slate — switchAsset() apna khud ka buildStack2() chalayega,
+    // hum uske baad apna saved date-range + progress arm karenge.
+    window._SV2_DATE_RANGE = null;
+    switchAsset(targetAssetName);
+    setTimeout(_armDateRangeAndBuild, 250);
+  } else {
+    _armDateRangeAndBuild();
+  }
+  return true;
+}
+
+// ── Calendar sheet ke asset-toggle pills + Resume button ke liye wiring ────
+function _sv2CalRefreshAssetUI() {
+  const curKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'btc';
+  const btcBtn = document.getElementById('sv2-cal-asset-btc');
+  const bnBtn  = document.getElementById('sv2-cal-asset-bn');
+  if (btcBtn) btcBtn.classList.toggle('active', curKey === 'btc');
+  if (bnBtn)  bnBtn.classList.toggle('active', curKey === 'bn');
+  const resumeBtn = document.getElementById('sv2-drng-resume');
+  if (resumeBtn) {
+    const has = _sv2HasSnapshot(curKey);
+    resumeBtn.style.display = has ? 'block' : 'none';
+    if (has) {
+      const snap = _sv2GetSnapshot(curKey);
+      resumeBtn.textContent = '▶ Resume Last Replay — ' + (snap.dateRange.fromStr || '');
+    }
+  }
+}
+
+function _sv2CalSelectAsset(assetKey) {
+  const targetAssetName = (assetKey === 'bn') ? BN_ASSET : BTC_ASSET;
+  if (S.asset !== targetAssetName) {
+    switchAsset(targetAssetName);
+  }
+  setTimeout(function(){
+    _sv2CalRefreshAssetUI();
+    try { if (typeof window._sv2UpdateOpenPriceDisplay === 'function') window._sv2UpdateOpenPriceDisplay(); } catch(_){}
+  }, 260);
+}
+
+function _sv2ResumeLastReplayFromCal() {
+  const curKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'btc';
+  _sv2ResumeLastReplay(curKey);
+}
+
+// ── Autosave safety-net — Future Line / Arrow edits jahan se bhi hon, sab
+//    capture ho jaayein bina har jagah alag-alag hook lagaye. ───────────────
+setInterval(function(){ try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }, 4000);
+window.addEventListener('beforeunload', function(){ try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} });
+document.addEventListener('visibilitychange', function(){
+  if (document.hidden) { try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV1 — Floating draggable icon: bade TF ka SR chhote TF par Show/Hide
+// (parallel copy of the SV2 date-range fab's drag mechanics — free placement,
+//  no corner-snap, position persisted so it stays wherever user dropped it)
+// ════════════════════════════════════════════════════════════════════════════
+(function(){
+  var _fab = null;
+
+  function _saveFabPos(left, top) {
+    try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
+  }
+  function _loadFabPos() {
+    try {
+      var raw = localStorage.getItem('sv1SrFabPos');
+      if (raw) return JSON.parse(raw);
+    } catch(_){}
+    // Default: right edge, upper-middle area
+    return { left: Math.max(8, window.innerWidth - 34), top: 120 };
+  }
+  function _applyFabPos(pos) {
+    if (!_fab) return;
+    _fab.style.left = pos.left + 'px';
+    _fab.style.top  = pos.top  + 'px';
+  }
+
+  function _wireDrag() {
+    if (!_fab) return;
+    var _dragging = false, _startTX = 0, _startTY = 0;
+    var _origLeft = 0, _origTop = 0, _moved = false;
+
+    function _onStart(cx, cy) {
+      _dragging = true; _moved = false;
+      _startTX = cx; _startTY = cy;
+      var r = _fab.getBoundingClientRect();
+      _origLeft = r.left; _origTop = r.top;
+      _fab.classList.add('dragging');
+    }
+    function _onMove(cx, cy) {
+      if (!_dragging) return;
+      var dx = cx - _startTX, dy = cy - _startTY;
+      if (Math.abs(dx) + Math.abs(dy) > 4) _moved = true;
+      var nl = _origLeft + dx, nt = _origTop + dy;
+      nl = Math.max(0, Math.min(window.innerWidth - 26, nl));
+      nt = Math.max(0, Math.min(window.innerHeight - 26, nt));
+      _fab.style.left = nl + 'px';
+      _fab.style.top  = nt + 'px';
+    }
+    function _onEnd() {
+      if (!_dragging) return;
+      _dragging = false;
+      _fab.classList.remove('dragging');
+      var r = _fab.getBoundingClientRect();
+      _saveFabPos(r.left, r.top);
+      // Barely moved → treat as tap (toggle hierarchy rule)
+      if (!_moved && typeof _sv1SrHierarchyToggle === 'function') {
+        _sv1SrHierarchyToggle();
+      }
+    }
+
+    _fab.addEventListener('touchstart', function(e){
+      if (!e.touches.length) return;
+      _onStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, {passive:true});
+    _fab.addEventListener('touchmove', function(e){
+      if (!e.touches.length) return;
+      e.preventDefault();
+      _onMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, {passive:false});
+    _fab.addEventListener('touchend', function(){ _onEnd(); }, {passive:true});
+
+    _fab.addEventListener('mousedown', function(e){
+      _onStart(e.clientX, e.clientY);
+      var mm = function(ev){ _onMove(ev.clientX, ev.clientY); };
+      var mu = function(){ _onEnd(); document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); };
+      document.addEventListener('mousemove', mm);
+      document.addEventListener('mouseup', mu);
+    });
+  }
+
+  // Visible whenever Stack View 2 (bar-replay) is NOT the active mode —
+  // i.e. 1x1 chart, grid view, ya Stack View 1 sab me yeh dikhega.
+  window._sv1FabSync = function(){
+    if (!_fab) return;
+    var stack2On = (typeof _stack2Active !== 'undefined') && _stack2Active;
+    _fab.classList.toggle('visible', !stack2On);
+  };
+
+  function _init() {
+    _fab = document.getElementById('sv1-srtoggle-fab');
+    if (!_fab) return;
+    _applyFabPos(_loadFabPos());
+    _fab.classList.toggle('on', !!(typeof SWING_STATE !== 'undefined' && SWING_STATE.visible));
+    _wireDrag();
+    window._sv1FabSync();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _init);
+  } else {
+    _init();
+  }
+})();
+
 // ── Patch selectStack2View and _deactivateStack2 to sync FAB ──────────────
 // (Run after both functions are defined — appended at end of SV2 block)
 (function(){
@@ -6523,6 +6984,7 @@ function ss2ApplyAndClose() {
     if (typeof _origActivate === 'function') _origActivate.apply(this, arguments);
     try { if (typeof window._sv2DrngOnActivate === 'function') window._sv2DrngOnActivate(); } catch(_){}
     try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
+    try { if (typeof window._sv1FabSync === 'function') window._sv1FabSync(); } catch(_){}
   };
 
   // _deactivateStack2 is a local function so we re-assign the global reference
@@ -6534,6 +6996,7 @@ function ss2ApplyAndClose() {
         _orig2.apply(this, arguments);
         try { if (typeof window._sv2DrngOnDeactivate === 'function') window._sv2DrngOnDeactivate(); } catch(_){}
         try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
+        try { if (typeof window._sv1FabSync === 'function') window._sv1FabSync(); } catch(_){}
       };
     }
   });
@@ -10480,6 +10943,9 @@ function _openAssetPicker(btn) {
 function switchAsset(name) {
   if (!ASSET_NAMES.includes(name)) return;
   _closeAssetPicker();
+  // Switch se pehle purane asset ka replay progress (Future Line + Arrow
+  // Marker state samet) save kar lo, taaki baad me wapas aane par resume ho sake.
+  try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
   S.asset = name;
   _swingPresetOnAssetChange(name);  // auto-apply preset if locked
   const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
@@ -13278,6 +13744,13 @@ function _sv2ChipDel(i) {
   _sv2SwingTFSave(); _sv2RenderChips(); sv2SwingRefresh();
 }
 
+// Ek click me sabhi TF chips clear — one-by-one delete ki jagah shortcut
+function _sv2ClearAllChips() {
+  if (!SV2_SWING_TF_LIST.length) return;
+  SV2_SWING_TF_LIST = [];
+  _sv2SwingTFSave(); _sv2RenderChips(); sv2SwingRefresh();
+}
+
 function _sv2AddSwingTF() {
   const inp = document.getElementById('sv2-sr-tf-input');
   if (!inp) return;
@@ -13360,8 +13833,25 @@ function _sv2ApplyPreset(presetName) {
 }
 
 function onSv2SwingToggle(cb) {
-  SV2_SWING_STATE.visible = cb.checked;
-  if (cb.checked) { sv2SwingRefresh(); } else { sv2SwingClear(); }
+  _sv2SetSrHierarchy(cb.checked);
+}
+
+// Single source of truth for the "bade TF ka SR chhote TF par show/hide"
+// state — called from the settings checkbox AND the floating fab icon,
+// so both stay in sync with each other no matter which one is used.
+function _sv2SetSrHierarchy(on) {
+  SV2_SWING_STATE.visible = on;
+  if (on) { sv2SwingRefresh(); } else { sv2SwingClear(); }
+  const ck = document.getElementById('ck-sv2-swing');
+  if (ck) ck.checked = on;
+  const fab = document.getElementById('sv2-srtoggle-btn');
+  if (fab) fab.classList.toggle('on', on);
+}
+
+// Floating icon (calendar/play/step ke saath) — ek click me hierarchy rule
+// hata do, agle click me wapas lag jaaye.
+function _sv2SrHierarchyToggle() {
+  _sv2SetSrHierarchy(!SV2_SWING_STATE.visible);
 }
 
 function _sv2OpenChipColor(btn, tfMin, type) {
@@ -14457,8 +14947,15 @@ function _updateBtc2TfColorRow(){
 }
 
 function onSwingToggle(cb) {
-  SWING_STATE.visible = cb.checked;
-  if (cb.checked) {
+  _setSwingHierarchy(cb.checked);
+}
+
+// Single source of truth for SV1's "bade TF ka SR chhote TF par show/hide"
+// state — called from the settings checkbox AND the floating fab icon,
+// so both stay in sync no matter which one is used.
+function _setSwingHierarchy(on) {
+  SWING_STATE.visible = on;
+  if (on) {
     if (S.layout === '1x1') {
       swingAfterRebuild();
     } else {
@@ -14476,6 +14973,16 @@ function onSwingToggle(cb) {
     // SV2 cells se bhi SR hatao
     try { sv2SwingClear(); } catch(_) {}
   }
+  const ck = document.getElementById('ck-swing');
+  if (ck) ck.checked = on;
+  const fab = document.getElementById('sv1-srtoggle-fab');
+  if (fab) fab.classList.toggle('on', on);
+}
+
+// Floating draggable icon — ek click me hierarchy rule hata do, agle click
+// me wapas lag jaaye.
+function _sv1SrHierarchyToggle() {
+  _setSwingHierarchy(!SWING_STATE.visible);
 }
 
 
