@@ -7897,14 +7897,47 @@ function _tfArrowResizeCanvas(c, elId) {
 //    confirmed elsewhere in this file). So instead of reading data back, we
 //    hook series.update()/setData() once per series to snoop the latest bar
 //    as it flows through, and cache it on the cell as c._taLastBar. ────────
+// ── A "real" bar has actual price data; a whitespace bar (used for the
+//    future-line tail) only has {time} and nothing else — must never be
+//    mistaken for the latest live/forming bar. ─────────────────────────────
+function _tfArrowIsRealBar(b) {
+  return !!b && (b.close != null || b.value != null || b.low != null || b.high != null);
+}
+
+// ── Ref-price for a given arrow type, with a fallback chain so this works
+//    regardless of series type: candlestick/bar bars have low/high, but
+//    line/area bars (and some partial updates) only have close or value. ──
+function _tfArrowRefPrice(bar, type) {
+  if (!bar) return null;
+  if (type === 'up'   && bar.low  != null) return bar.low;
+  if (type === 'down' && bar.high != null) return bar.high;
+  if (bar.close != null) return bar.close;
+  if (bar.value != null) return bar.value;
+  return null;
+}
+
 function _tfArrowHookSeries(c) {
   if (!c || !c.series || c.series._taHooked) return;
   const s = c.series;
   const origUpdate  = s.update.bind(s);
   const origSetData = s.setData.bind(s);
-  s.update = function(bar) { c._taLastBar = bar; return origUpdate(bar); };
+  s.update = function(bar) {
+    // Live update() calls are (in this codebase) always a real bar, never
+    // whitespace — but guard anyway so a stray whitespace update can't wipe
+    // out the last good bar.
+    if (_tfArrowIsRealBar(bar)) c._taLastBar = bar;
+    return origUpdate(bar);
+  };
   s.setData = function(arr) {
-    if (Array.isArray(arr) && arr.length) c._taLastBar = arr[arr.length - 1];
+    // SV2 replay appends future-whitespace bars AFTER the real last bar
+    // (see buildStack2 live-tick loop: agg = agg.concat(futureWhitespace)),
+    // so arr[arr.length-1] is very often whitespace, not the forming
+    // candle. Walk backwards to the last bar that actually has data.
+    if (Array.isArray(arr) && arr.length) {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (_tfArrowIsRealBar(arr[i])) { c._taLastBar = arr[i]; break; }
+      }
+    }
     return origSetData(arr);
   };
   s._taHooked = true;
@@ -7995,9 +8028,9 @@ function _tfArrowLock(c, elId, getColor, downPt) {
   //    now, so we can see immediately if timeToCoordinate/priceToCoordinate
   //    are returning null (which silently skips the draw). ───────────────
   try {
-    const refPrice = (TFARR_TYPE === 'up') ? bar.low : bar.high;
+    const refPrice = _tfArrowRefPrice(bar, TFARR_TYPE);
     const xNow = c.chart.timeScale().timeToCoordinate(bar.time);
-    const yNow = c.series.priceToCoordinate(refPrice);
+    const yNow = refPrice != null ? c.series.priceToCoordinate(refPrice) : null;
     _tfArrowDebug('ARROW COORDS ' + elId + ' time=' + bar.time + ' refPrice=' + refPrice +
       ' → x=' + (xNow == null ? 'NULL' : Math.round(xNow)) +
       ' y=' + (yNow == null ? 'NULL' : Math.round(yNow)) +
@@ -8057,12 +8090,14 @@ function _tfArrowDrawCell(c, elId, getColor) {
 
   c._taArrows.forEach(a => {
     // Jab tak ye arrow ki candle abhi bhi forming (= last bar) hai, uske
-    // live low/high se chipka rahega; candle close ho jaye to jahan thi
-    // wahi reh jayega (frozen) — bas ab live update nahi hoga.
+    // live low/high (ya close/value fallback) se chipka rahega; candle
+    // close ho jaye to jahan thi wahi reh jayega (frozen) — bas ab live
+    // update nahi hoga.
     let refPrice, barTime = a.time;
     if (lastBar && lastBar.time === a.time) {
-      refPrice = (a.type === 'up') ? lastBar.low : lastBar.high;
-      a._lastRef = refPrice;   // cache so it stays put after candle closes
+      refPrice = _tfArrowRefPrice(lastBar, a.type);
+      if (refPrice != null) a._lastRef = refPrice;   // cache so it stays put after candle closes
+      else refPrice = a._lastRef;
     } else {
       refPrice = a._lastRef;
     }
