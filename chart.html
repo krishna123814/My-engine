@@ -7692,126 +7692,6 @@ function _vlRemoveCellCanvas2(idx) {
 //   Colour = that cell's TF colour. Max 4 locked arrows per cell (FIFO).
 // ════════════════════════════════════════════════════════════════════════════
 const TFARR_LS_KEY      = 'tfArrowOn';
-
-// ── On-screen debug panel — mobile pe console nahi khulta, isliye same
-//    log-lines yahan bhi dikhengi. Feature ON hote hi ye panel bhi dikhta
-//    hai; ✕ se hata sakte ho. ─────────────────────────────────────────────
-let _TFARR_LOG = [];   // full history buffer, used by the Copy button (kept separate from
-                        // the trimmed on-screen list so copy always gets everything logged)
-function _tfArrowDebug(msg) {
-  try { console.log('[TFArrow]', msg); } catch(_) {}
-  const stamped = new Date().toLocaleTimeString() + ' — ' + msg;
-  _TFARR_LOG.push(stamped);
-  if (_TFARR_LOG.length > 500) _TFARR_LOG.shift();
-
-  let box = document.getElementById('tfarrow-debug');
-  if (!box) {
-    box = document.createElement('div');
-    box.id = 'tfarrow-debug';
-    box.style.cssText = 'position:fixed;left:6px;width:calc(100% - 12px);max-width:520px;bottom:28px;z-index:10060;background:#000000cc;color:#7CFC00;font-size:10px;font-family:monospace;border-radius:6px;overflow:hidden;box-shadow:0 4px 18px #0009;';
-
-    // ── header: drag handle + Copy + Close ──────────────────────────────
-    const header = document.createElement('div');
-    header.id = 'tfarrow-debug-header';
-    header.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 8px;background:#111418;cursor:grab;user-select:none;touch-action:none;border-bottom:1px solid #2a2e39;';
-
-    const title = document.createElement('div');
-    title.textContent = '⠿ TF Arrow Debug';
-    title.style.cssText = 'flex:1;color:#9598a1;font-weight:700;';
-    header.appendChild(title);
-
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = 'Copy';
-    copyBtn.style.cssText = 'background:#2962ff;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;font-family:monospace;font-weight:700;cursor:pointer;';
-    copyBtn.onclick = (ev) => {
-      ev.stopPropagation();
-      const text = _TFARR_LOG.join('\n');
-      const done = () => { copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy', 1200); };
-      const fail = () => { copyBtn.textContent = 'Failed'; setTimeout(() => copyBtn.textContent = 'Copy', 1200); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done).catch(() => _tfArrowFallbackCopy(text, done, fail));
-      } else {
-        _tfArrowFallbackCopy(text, done, fail);
-      }
-    };
-    header.appendChild(copyBtn);
-
-    const close = document.createElement('button');
-    close.textContent = '✕';
-    close.style.cssText = 'background:transparent;color:#f23645;border:none;font-weight:700;font-size:13px;cursor:pointer;padding:0 4px;';
-    close.onclick = (ev) => { ev.stopPropagation(); box.remove(); };
-    header.appendChild(close);
-
-    box.appendChild(header);
-
-    const body = document.createElement('div');
-    body.id = 'tfarrow-debug-body';
-    body.style.cssText = 'max-height:160px;overflow-y:auto;white-space:pre-wrap;line-height:1.4;padding:6px 8px;';
-    box.appendChild(body);
-
-    document.body.appendChild(box);
-    _tfArrowMakeDraggable(box, header);
-  }
-
-  const body = document.getElementById('tfarrow-debug-body');
-  const line = document.createElement('div');
-  line.textContent = stamped;
-  body.appendChild(line);
-  while (body.children.length > 40) body.removeChild(body.firstChild);   // keep last 40 on screen
-  body.scrollTop = body.scrollHeight;
-}
-
-// ── execCommand fallback for browsers/webviews without navigator.clipboard ─
-function _tfArrowFallbackCopy(text, done, fail) {
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
-    document.body.appendChild(ta);
-    ta.focus(); ta.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(ta);
-    ok ? done() : fail();
-  } catch(_) { fail(); }
-}
-
-// ── makes any panel drag-anywhere-on-screen via its header, mouse + touch ──
-function _tfArrowMakeDraggable(box, handle) {
-  let sx = 0, sy = 0, startLeft = 0, startTop = 0, dragging = false;
-  function down(ev) {
-    dragging = true;
-    const r = box.getBoundingClientRect();
-    // switch from left/bottom to left/top so it doesn't jump, then track from there
-    box.style.top = r.top + 'px';
-    box.style.left = r.left + 'px';
-    box.style.bottom = 'auto';
-    box.style.width = r.width + 'px';
-    startLeft = r.left; startTop = r.top;
-    sx = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-    sy = (ev.touches ? ev.touches[0].clientY : ev.clientY);
-    handle.style.cursor = 'grabbing';
-    ev.preventDefault();
-  }
-  function move(ev) {
-    if (!dragging) return;
-    const cx = (ev.touches ? ev.touches[0].clientX : ev.clientX);
-    const cy = (ev.touches ? ev.touches[0].clientY : ev.clientY);
-    let nl = startLeft + (cx - sx);
-    let nt = startTop + (cy - sy);
-    // keep it on-screen
-    nl = Math.max(0, Math.min(window.innerWidth - 40, nl));
-    nt = Math.max(0, Math.min(window.innerHeight - 30, nt));
-    box.style.left = nl + 'px';
-    box.style.top  = nt + 'px';
-  }
-  function up() { dragging = false; handle.style.cursor = 'grab'; }
-  handle.addEventListener('mousedown', down);
-  window.addEventListener('mousemove', move);
-  window.addEventListener('mouseup', up);
-  handle.addEventListener('touchstart', down, { passive: false });
-  window.addEventListener('touchmove', move, { passive: false });
-  window.addEventListener('touchend', up);
-}
 const TFARR_TYPE_LS_KEY = 'tfArrowType';   // 'up' | 'down'
 let TFARR_ON   = (_LS.getItem(TFARR_LS_KEY) === '1');
 let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick
@@ -7849,7 +7729,6 @@ function _tfArrowConfirmType(type) {
   try { _LS.setItem(TFARR_LS_KEY, '1'); } catch(_) {}
   _tfArrowSyncBtn();
   _tfArrowRedrawAll();
-  _tfArrowDebug('ON, type = ' + TFARR_TYPE);
 }
 function toggleTfArrow() {
   if (!TFARR_ON) {
@@ -7870,7 +7749,7 @@ function _tfArrowCreateCanvas(c, elId) {
   if (!c) return;
   if (c._taCanvas) { c._taCanvas.remove(); c._taCanvas = null; c._taCtx = null; }
   const el = document.getElementById(elId);
-  if (!el) { _tfArrowDebug('CANVAS CREATE FAIL ' + elId + ' — element not found in DOM'); return; }
+  if (!el) return;
   el.style.position = 'relative';
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;z-index:999;';
@@ -7879,7 +7758,6 @@ function _tfArrowCreateCanvas(c, elId) {
   canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
   canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
   c._taCanvas = canvas; c._taCtx = canvas.getContext('2d');
-  _tfArrowDebug('CANVAS CREATED ' + elId + ' size=' + el.clientWidth + 'x' + el.clientHeight + (el.clientWidth === 0 || el.clientHeight === 0 ? '  ⚠ ZERO SIZE — element not laid out yet' : ''));
 }
 function _tfArrowResizeCanvas(c, elId) {
   if (!c || !c._taCanvas) return;
@@ -7978,7 +7856,6 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   const el = document.getElementById(elId);
   if (!el || el._taWired) return;
   el._taWired = true;
-  _tfArrowDebug('wired ' + elId);
   let holdT1 = null, holdT2 = null, downPt = null;
 
   function ptFromEvent(ev) {
@@ -8000,16 +7877,13 @@ function _tfArrowWireCell(elId, getCell, getColor) {
   el.addEventListener('pointerdown', (ev) => {
     if (!TFARR_ON) return;
     downPt = ptFromEvent(ev);
-    _tfArrowDebug('pointerdown ' + elId + ' x=' + Math.round(downPt.x) + ' y=' + Math.round(downPt.y));
     holdT1 = setTimeout(() => {
       const c = getCell(); if (!c) return;
       c._taPreview = { x: downPt.x, y: downPt.y };
-      _tfArrowDebug('3s preview ' + elId);
       _tfArrowDrawCell(c, elId, getColor);
     }, 3000);
     holdT2 = setTimeout(() => {
       const c = getCell();
-      _tfArrowDebug('5s lock attempt ' + elId + ' type=' + TFARR_TYPE + ' hasBar=' + !!(c && c._taLastBar));
       if (c) _tfArrowLock(c, elId, getColor, downPt);
       cancelHold();
     }, 5000);
@@ -8029,10 +7903,10 @@ function _tfArrowWireCell(elId, getCell, getColor) {
 //    forming right now. If the pointer IS over the forming candle, it will
 //    keep tracking live exactly as before (handled in _tfArrowDrawCell). ──
 function _tfArrowLock(c, elId, getColor, downPt) {
-  if (!c || !c.series || !TFARR_TYPE) { _tfArrowDebug('lock SKIPPED — no series or no type picked'); return; }
+  if (!c || !c.series || !TFARR_TYPE) return;
   _tfArrowHookSeries(c);
   const bar = _tfArrowFindBarAtX(c, downPt ? downPt.x : null);
-  if (!bar) { _tfArrowDebug('lock SKIPPED — no bar found under cursor'); return; }
+  if (!bar) return;
   if (!c._taArrows) c._taArrows = [];
   const refPriceNow = _tfArrowRefPrice(bar, TFARR_TYPE);
   c._taArrows.push({
@@ -8040,36 +7914,8 @@ function _tfArrowLock(c, elId, getColor, downPt) {
     type: TFARR_TYPE,     // 'up' (below candle) | 'down' (above candle) — FIXED
     color: getColor(c),
     _lastRef: refPriceNow,  // seed now so it draws immediately even on a non-forming (historical) candle
-    _logged: false,
   });
   while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
-  const isForming = c._taLastBar && c._taLastBar.time === bar.time;
-  _tfArrowDebug('LOCKED! time=' + bar.time + ' type=' + TFARR_TYPE + ' onForming=' + !!isForming);
-
-  // ── Guaranteed-visible test marker — drawn at the raw pointerdown x/y
-  //    (element-relative, NOT chart-derived), so it renders regardless of
-  //    whether timeToCoordinate()/priceToCoordinate() succeed. If THIS
-  //    doesn't show up, the canvas itself is hidden/covered/mispositioned.
-  //    If this shows but the real arrow doesn't, the bug is in the
-  //    time/price → coordinate conversion below, not the canvas. ─────────
-  if (downPt) {
-    c._taTestMarker = { x: downPt.x, y: downPt.y, until: Date.now() + 5000 };
-    _tfArrowDebug('TEST MARKER dropped ' + elId + ' at raw x=' + Math.round(downPt.x) + ' y=' + Math.round(downPt.y) + ' (element-relative, canvas check)');
-  }
-
-  // ── Log the exact coordinates the real arrow will try to draw at, right
-  //    now, so we can see immediately if timeToCoordinate/priceToCoordinate
-  //    are returning null (which silently skips the draw). ───────────────
-  try {
-    const xNow = c.chart.timeScale().timeToCoordinate(bar.time);
-    const yNow = refPriceNow != null ? c.series.priceToCoordinate(refPriceNow) : null;
-    _tfArrowDebug('ARROW COORDS ' + elId + ' time=' + bar.time + ' refPrice=' + refPriceNow +
-      ' → x=' + (xNow == null ? 'NULL' : Math.round(xNow)) +
-      ' y=' + (yNow == null ? 'NULL' : Math.round(yNow)) +
-      (xNow == null || yNow == null ? '  ⚠ NULL = will NOT draw (out of visible range or bad ref)' : '  ✓ should be visible'));
-  } catch (e) {
-    _tfArrowDebug('ARROW COORDS ' + elId + ' ERROR computing: ' + e.message);
-  }
 }
 
 // ── Per-cell redraw: keep locked arrows glued to their (still forming)
@@ -8097,27 +7943,6 @@ function _tfArrowDrawCell(c, elId, getColor) {
     ctx.restore();
   }
 
-  // ── Guaranteed-visible test marker — big, bright, drawn straight at raw
-  //    canvas coords (no chart math at all). If this doesn't appear on
-  //    screen after a lock, the canvas/z-index/positioning is the problem,
-  //    not the arrow math below. Auto-clears after 5s. ────────────────────
-  if (c._taTestMarker) {
-    if (Date.now() > c._taTestMarker.until) {
-      c._taTestMarker = null;
-    } else {
-      const m = c._taTestMarker;
-      ctx.save();
-      ctx.strokeStyle = '#ffeb3b'; ctx.fillStyle = '#ffeb3b';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(m.x, m.y, 20, 0, 2 * Math.PI); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(m.x - 26, m.y); ctx.lineTo(m.x + 26, m.y); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(m.x, m.y - 26); ctx.lineTo(m.x, m.y + 26); ctx.stroke();
-      ctx.font = 'bold 10px monospace';
-      ctx.fillText(Math.round(m.x) + ',' + Math.round(m.y), m.x + 10, m.y - 10);
-      ctx.restore();
-    }
-  }
-
   // Locked arrows ALWAYS draw here, regardless of TFARR_ON — turning the
   // tool off only stops NEW placements (gated at pointerdown), it must
   // never hide or delete arrows already placed.
@@ -8137,43 +7962,23 @@ function _tfArrowDrawCell(c, elId, getColor) {
     } else {
       refPrice = a._lastRef;
     }
-    if (refPrice == null) {
-      if (!a._logged) { _tfArrowDebug('ARROW DRAW SKIP time=' + a.time + ' — refPrice is null (no _lastRef cached, candle rolled off before first draw)'); a._logged = true; }
-      return;
-    }
+    if (refPrice == null) return;
     const x = c.chart.timeScale().timeToCoordinate(barTime);
     const y = c.series.priceToCoordinate(refPrice);
-    if (x == null || y == null) {
-      if (!a._logged) { _tfArrowDebug('ARROW DRAW SKIP time=' + a.time + ' — x=' + x + ' y=' + y + ' (candle scrolled off visible range?)'); a._logged = true; }
-      return;
-    }
+    if (x == null || y == null) return;
     const yy = a.type === 'up' ? y + 10 : y - 10;   // up-arrow BELOW candle, down-arrow ABOVE
     _tfArrowDrawTriangle(ctx, x, yy, a.type, a.color);
-    if (!a._logged) { _tfArrowDebug('ARROW DRAWN OK time=' + a.time + ' x=' + Math.round(x) + ' y=' + Math.round(yy)); a._logged = true; }
   });
 }
-// ── Open V-shape arrowhead (chevron, no base line) flowing straight into a
-//    thin stem — matches simple hand-drawn arrow style. Tip points toward
-//    the candle, stem trails away from it. ──────────────────────────────
+
+// ── Solid filled triangle marker. ───────────────────────────────────────
 function _tfArrowDrawTriangle(ctx, x, y, type, color) {
   ctx.save();
-  ctx.strokeStyle = color || '#2962ff';
-  ctx.lineWidth = 1;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  if (type === 'up') {
-    // ↑ sits BELOW the candle: V-apex points UP toward it, stem trails DOWN away from it
-    ctx.beginPath();
-    ctx.moveTo(x - 5, y + 4); ctx.lineTo(x, y - 6); ctx.lineTo(x + 5, y + 4);
-    ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x, y + 4); ctx.lineTo(x, y + 13); ctx.stroke();
-  } else {
-    // ↓ sits ABOVE the candle: V-apex points DOWN toward it, stem trails UP away from it
-    ctx.beginPath();
-    ctx.moveTo(x - 5, y - 4); ctx.lineTo(x, y + 6); ctx.lineTo(x + 5, y - 4);
-    ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y - 13); ctx.stroke();
-  }
+  ctx.fillStyle = color || '#2962ff';
+  ctx.beginPath();
+  if (type === 'up') { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }   // ↑
+  else                { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }   // ↓
+  ctx.closePath(); ctx.fill();
   ctx.restore();
 }
 
@@ -8198,7 +8003,7 @@ function _tfArrowRedrawAll() {
         const elId = 'cell-chart-' + i;
         _tfArrowWireCell(elId, () => CELLS[i], (cc) => _tfCandleColor(cc.tf));
         _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
-      } catch(e) { _tfArrowDebug('SV1 cell ' + i + ' ERROR: ' + e.message); }
+      } catch(e) {}
     });
   }
   if (typeof STACK2_CELLS !== 'undefined') {
@@ -8208,12 +8013,11 @@ function _tfArrowRedrawAll() {
         const elId = 'stack2-chart-' + i;
         _tfArrowWireCell(elId, () => STACK2_CELLS[i], (cc) => _sv2TfCandleColor(cc.tf));
         _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
-      } catch(e) { _tfArrowDebug('SV2 cell ' + i + ' ERROR: ' + e.message); }
+      } catch(e) {}
     });
   }
 }
 setInterval(_tfArrowRedrawAll, 300);
-setTimeout(() => _tfArrowDebug('module loaded, CELLS=' + (typeof CELLS!=='undefined'?CELLS.length:'undef') + ' STACK2_CELLS=' + (typeof STACK2_CELLS!=='undefined'?STACK2_CELLS.length:'undef')), 500);
 setTimeout(_tfArrowSyncBtn, 0);
 // ════════════════════════════════════════════════════════ END TF ARROW ═════
 
