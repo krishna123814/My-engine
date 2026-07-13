@@ -13976,12 +13976,11 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     const _pk2 = p => Math.round(p * 100) / 100;
     const _swingByPrice  = new Map();
     const _candleByPrice = new Map();
-    // Biggest-TF candle line seen at each price — tracked separately from
-    // _candleByPrice (jo sirf "latest startTime" wala candle rakhta hai,
-    // TF ignore karke). Isse hume pata chalta hai ki is exact price par
-    // koi aur bhi bade TF ka candle H/L maujood hai ya nahi, chahe wo
-    // latest-startTime rule me har gaya ho.
-    const _maxTfCandleByPrice = new Map();
+    // CHANGE: candle-bucket dedup ab "latest startTime" se nahi, balki
+    // "sabse BADE TF" se hota hai — same price par jitne candle H/L lines
+    // hon, unme se sabse bade levelTf wala survive karega. Agar do candle
+    // lines ka TF barabar ho, tabhi startTime tie-breaker ke taur par
+    // istemal hota hai (latest startTime wala jeetega).
     for (const line of allLines) {
       const _isSwing = (line.kind === 'sh' || line.kind === 'sl');
       const _key = _pk2(line.price);
@@ -13990,38 +13989,27 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
         if (!ex || line.levelTf > ex.levelTf) _swingByPrice.set(_key, line);
       } else {
         const ex = _candleByPrice.get(_key);
-        if (!ex || line.startTime > ex.startTime) _candleByPrice.set(_key, line);
-        const exMax = _maxTfCandleByPrice.get(_key);
-        if (!exMax || line.levelTf > exMax.levelTf) _maxTfCandleByPrice.set(_key, line);
+        if (!ex
+            || line.levelTf > ex.levelTf
+            || (line.levelTf === ex.levelTf && line.startTime > ex.startTime)) {
+          _candleByPrice.set(_key, line);
+        }
       }
     }
     // Same price par collision resolve karo (SV2-only rule):
-    //   - Sabse pehle: agar isi price par koi BADE TF ka candle H/L maujood
-    //     hai (levelTf us swing se strictly bada) — chahe wo candle "latest
-    //     startTime" ki race jeeta ho ya nahi — to wo bada-TF candle jeetega
-    //     (swing hategi, aur _candleByPrice me wahi bada candle final set
-    //     ho jaata hai). FIX: pehle ye check SIRF tab hota tha jab _cd
-    //     (latest-time wala candle) ka TF swing ke TF se match karta ho —
-    //     real data me latest candle aksar ek chhote/recent TF ka hota hai
-    //     (swing se alag TF), isliye ye exception kabhi trigger hi nahi hota
-    //     tha aur bada-TF candle silently drop ho jaata tha. Ab _bigCd
-    //     hamesha (dono cases me) check hota hai.
-    //   - SAME TF (levelTf match) aur koi bada-TF candle na mile
-    //     → Swing WIN karega, candle line hategi.
-    //   - DIFFERENT TF, koi bada-TF candle na mile
-    //     → purana rule unchanged: Candle WIN karega, swing line hategi.
+    // _candleByPrice ab hamesha us price ka SABSE BADA-TF candle H/L rakhta
+    // hai (upar wale step ki wajah se), isliye seedha compare kar sakte hain:
+    //   - SAME TF (levelTf match) → Swing WIN karega, candle line hategi.
+    //   - DIFFERENT TF (chahe candle ka TF swing se bada ho ya chhota)
+    //     → Candle WIN karega, swing line hategi (unchanged rule).
     for (const k of _candleByPrice.keys()) {
       const _sw = _swingByPrice.get(k);
       if (!_sw) continue;
-      const _cd    = _candleByPrice.get(k);
-      const _bigCd = _maxTfCandleByPrice.get(k);
-      if (_bigCd && _bigCd.levelTf > _sw.levelTf) {
-        _swingByPrice.delete(k);        // bade-TF candle jeeta — swing hategi
-        _candleByPrice.set(k, _bigCd);  // ...aur wahi bada candle final rahega
-      } else if (_sw.levelTf === _cd.levelTf) {
-        _candleByPrice.delete(k);       // same TF, koi bada candle nahi → swing jeetega (unchanged)
+      const _cd = _candleByPrice.get(k);
+      if (_sw.levelTf === _cd.levelTf) {
+        _candleByPrice.delete(k);       // same TF → swing jeetega (unchanged)
       } else {
-        _swingByPrice.delete(k);        // different TF, koi bada candle nahi → candle wins (unchanged)
+        _swingByPrice.delete(k);        // different TF → candle (bada-TF wala) jeetega
       }
     }
     const _result = [..._swingByPrice.values(), ..._candleByPrice.values()];
