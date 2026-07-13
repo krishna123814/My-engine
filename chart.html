@@ -13996,28 +13996,32 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       }
     }
     // Same price par collision resolve karo (SV2-only rule):
-    //   - SAME TF (levelTf match, e.g. 15m candle H/L vs 15m swing H/L)
-    //     → Swing WIN karega, candle line hategi —
-    //       LEKIN agar isi price par kisi BADE TF ka candle H/L bhi maujood
-    //       hai (levelTf us swing se strictly bada), to wo bada-TF candle
-    //       jeetega (swing aur same-TF candle, dono hategi). Agar koi
-    //       bada-TF candle nahi mila, to purana rule hi chalega — swing jeetega.
-    //   - DIFFERENT TF (e.g. 15m candle H/L vs 5m swing H/L)
+    //   - Sabse pehle: agar isi price par koi BADE TF ka candle H/L maujood
+    //     hai (levelTf us swing se strictly bada) — chahe wo candle "latest
+    //     startTime" ki race jeeta ho ya nahi — to wo bada-TF candle jeetega
+    //     (swing hategi, aur _candleByPrice me wahi bada candle final set
+    //     ho jaata hai). FIX: pehle ye check SIRF tab hota tha jab _cd
+    //     (latest-time wala candle) ka TF swing ke TF se match karta ho —
+    //     real data me latest candle aksar ek chhote/recent TF ka hota hai
+    //     (swing se alag TF), isliye ye exception kabhi trigger hi nahi hota
+    //     tha aur bada-TF candle silently drop ho jaata tha. Ab _bigCd
+    //     hamesha (dono cases me) check hota hai.
+    //   - SAME TF (levelTf match) aur koi bada-TF candle na mile
+    //     → Swing WIN karega, candle line hategi.
+    //   - DIFFERENT TF, koi bada-TF candle na mile
     //     → purana rule unchanged: Candle WIN karega, swing line hategi.
     for (const k of _candleByPrice.keys()) {
       const _sw = _swingByPrice.get(k);
       if (!_sw) continue;
-      const _cd = _candleByPrice.get(k);
-      if (_sw.levelTf === _cd.levelTf) {
-        const _bigCd = _maxTfCandleByPrice.get(k);
-        if (_bigCd && _bigCd.levelTf > _sw.levelTf) {
-          _swingByPrice.delete(k);        // bade-TF candle jeeta — swing hategi
-          _candleByPrice.set(k, _bigCd);  // ...aur wahi bada candle final rahega
-        } else {
-          _candleByPrice.delete(k);       // koi bada candle nahi → swing jeetega (unchanged)
-        }
+      const _cd    = _candleByPrice.get(k);
+      const _bigCd = _maxTfCandleByPrice.get(k);
+      if (_bigCd && _bigCd.levelTf > _sw.levelTf) {
+        _swingByPrice.delete(k);        // bade-TF candle jeeta — swing hategi
+        _candleByPrice.set(k, _bigCd);  // ...aur wahi bada candle final rahega
+      } else if (_sw.levelTf === _cd.levelTf) {
+        _candleByPrice.delete(k);       // same TF, koi bada candle nahi → swing jeetega (unchanged)
       } else {
-        _swingByPrice.delete(k);    // different TF → candle wins (unchanged)
+        _swingByPrice.delete(k);        // different TF, koi bada candle nahi → candle wins (unchanged)
       }
     }
     const _result = [..._swingByPrice.values(), ..._candleByPrice.values()];
