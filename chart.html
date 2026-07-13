@@ -13481,7 +13481,9 @@ function swingComputeMultiTF(asset, currentTf) {
   }
 
   // Step 1: Swing dedup — exact same price → highest TF rakho
-  // Step 2: Candle dedup — exact same price → latest startTime rakho
+  // Step 2: Candle dedup — exact same price → SABSE BADE TF wali candle rakho
+  //   (startTime sirf tab dekha jaata hai jab do candles ka TF barabar ho —
+  //   pure tie-breaker ke roop me. SV2 (_sv2ComputeCellSR) wala hi rule.)
   // FIX: isInfinite kabhi true nahi hota (swingCompute sabko false set karta hai).
   // Sahi check: kind 'sh'/'sl' = swing, 'ch'/'cl' = candle H/L.
   // Floating-point safety: price ko 2 decimal tak round karke Map key banao.
@@ -13497,7 +13499,9 @@ function swingComputeMultiTF(asset, currentTf) {
         _swingByPrice.set(_key, line);
     } else {
       const ex = _candleByPrice.get(_key);
-      if (!ex || line.startTime > ex.startTime)
+      if (!ex
+          || line.levelTf > ex.levelTf
+          || (line.levelTf === ex.levelTf && line.startTime > ex.startTime))
         _candleByPrice.set(_key, line);
     }
   }
@@ -13506,6 +13510,8 @@ function swingComputeMultiTF(asset, currentTf) {
   //     → Swing WIN karega, candle line hategi.
   //   - DIFFERENT TF (e.g. 15m candle H/L vs 5m swing H/L)
   //     → purana rule unchanged: Candle WIN karega, swing line hategi.
+  //     (_candleByPrice ab hamesha us price ka sabse bada-TF candle hota hai,
+  //     isliye ye "candle wins" ab effectively "biggest-TF candle wins" hai.)
   for (const key of _candleByPrice.keys()) {
     const _sw = _swingByPrice.get(key);
     if (!_sw) continue;
