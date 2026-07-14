@@ -1624,6 +1624,36 @@ select.s-select, input.s-select{
   line-height:1;font-weight:600;letter-spacing:-0.3px;
   pointer-events:none;white-space:nowrap;
 }
+/* ── Market remaining-time badge — sirf cell 0 (top/first chart) par ────
+   Same style/size jaisa .cell-screen-badge — bas fixed 14px width ki jagah
+   auto-width (taaki "HH:MM:SS" poora fit ho), right-anchored isliye text
+   left ki taraf grow karta hai, screen-badge se overlap nahi hota. ──────── */
+.cell-market-timer{
+  position:absolute;top:3px;right:35px;z-index:20;
+  height:14px;padding:0 2px;
+  background:transparent;border:none;
+  color:#555;font-size:7px;font-weight:600;letter-spacing:-0.3px;
+  display:flex;align-items:center;justify-content:center;
+  line-height:1;pointer-events:none;white-space:nowrap;
+}
+/* ── TF-Just-Closed widget — sirf cell 0 par, market-timer ke thik neeche.
+   White background (as requested) — sirf abhi-abhi close hui candles ke
+   TF labels dikhaata hai, kuch second baad apne aap hide ho jaata hai. ──── */
+.cell-tf-closed-widget{
+  display:none;
+  position:absolute;top:19px;right:3px;z-index:20;
+  max-width:120px;
+  background:#ffffff;border-radius:3px;
+  color:#111;font-size:7px;font-weight:700;letter-spacing:-0.2px;
+  padding:2px 4px;
+  align-items:center;justify-content:flex-end;
+  line-height:1.3;
+  pointer-events:none;
+  white-space:nowrap;
+  box-shadow:0 1px 4px #0006;
+  gap:4px;
+}
+.cell-tf-closed-widget.show{display:flex}
 .cell-settings-panel{
   display:none;position:fixed;z-index:10000;
   background:#1e222d;border:1px solid #363c4e;border-radius:6px;
@@ -5092,6 +5122,18 @@ function buildStack2() {
     screenBadge.textContent = (i+1) + ':' + total;
     cell.appendChild(screenBadge);
 
+    // Market remaining-time badge — sirf pehle (top) cell par
+    if (i === 0) {
+      const marketTimer = document.createElement('span');
+      marketTimer.className = 'cell-market-timer';
+      cell.appendChild(marketTimer);
+
+      const tfClosedWidget = document.createElement('div');
+      tfClosedWidget.className = 'cell-tf-closed-widget';
+      tfClosedWidget.id = 'sv2-tf-closed-widget';
+      cell.appendChild(tfClosedWidget);
+    }
+
     // Go-to-latest button
     const gotoBtn = document.createElement('button');
     gotoBtn.className = 'cell-goto-btn';
@@ -7422,6 +7464,18 @@ function buildStack() {
     screenBadge.textContent = (i + 1) + ':' + total;
     cell.appendChild(screenBadge);
 
+    // Market remaining-time badge — sirf pehle (top) cell par
+    if (i === 0) {
+      const marketTimer = document.createElement('span');
+      marketTimer.className = 'cell-market-timer';
+      cell.appendChild(marketTimer);
+
+      const tfClosedWidget = document.createElement('div');
+      tfClosedWidget.className = 'cell-tf-closed-widget';
+      tfClosedWidget.id = 'sv1-tf-closed-widget';
+      cell.appendChild(tfClosedWidget);
+    }
+
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
     overlay.innerHTML =
@@ -8260,6 +8314,148 @@ function _isMarketOpen(asset) {
   if (NSE_HOLIDAYS.has(_utcDateStr(Math.floor(istMs / 1000)))) return false;
   const mins  = ist.getUTCHours() * 60 + ist.getUTCMinutes();
   return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
+}
+
+// ── Market Remaining-Time Badge (cell 0 / top chart only) ──────────────
+// BankNifty (NSE): market open hone par close (15:30 IST) tak remaining;
+//   band hone par agle trading-session open (9:15 IST, weekend+holiday
+//   skip karke) tak remaining.
+// BTC (crypto): 24/7 — 5:30am IST (00:00 UTC) se shuru hone waale 24-ghante
+//   cycle ka remaining time (agla 5:30am IST kitni der me aayega).
+function _marketRemainingSeconds(asset) {
+  const nowSec = Date.now() / 1000;
+  const istSec = nowSec + _IST_OFF;
+  if (isCryptoSymbol(asset !== undefined ? asset : S.asset)) {
+    const _anchor = 5.5 * 3600;  // BTC cycle starts 5:30am IST (00:00 UTC)
+    const secSinceAnchor = (((istSec - _anchor) % 86400) + 86400) % 86400;
+    return 86400 - secSinceAnchor;
+  }
+  const dayStart  = Math.floor(istSec / 86400) * 86400;
+  const secOfDay  = istSec - dayStart;
+  const dow       = new Date(dayStart * 1000).getUTCDay();
+  const isHoliday = NSE_HOLIDAYS.has(_utcDateStr(dayStart));
+  const isTradingDay = dow !== 0 && dow !== 6 && !isHoliday;
+  if (isTradingDay && secOfDay >= _SESS_START_SEC && secOfDay <= _SESS_END_SEC) {
+    return _SESS_END_SEC - secOfDay;   // market open → remaining to close
+  }
+  if (isTradingDay && secOfDay < _SESS_START_SEC) {
+    return (dayStart + _SESS_START_SEC) - istSec;  // pre-open today
+  }
+  // Market band hai — agla trading day dhoondo (weekend + holiday skip)
+  let d = dayStart;
+  do {
+    d += 86400;
+    const dw  = new Date(d * 1000).getUTCDay();
+    const hol = NSE_HOLIDAYS.has(_utcDateStr(d));
+    if (dw !== 0 && dw !== 6 && !hol) break;
+  } while (true);
+  return (d + _SESS_START_SEC) - istSec;
+}
+function _fmtHMS(totalSec) {
+  totalSec = Math.max(0, Math.floor(totalSec));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = n => String(n).padStart(2, '0');
+  return pad(h) + ':' + pad(m) + ':' + pad(s);
+}
+function _updateMarketTimers() {
+  try {
+    const el1 = document.querySelector('.grid-cell[data-idx="0"] .cell-market-timer');
+    if (el1 && typeof CELLS !== 'undefined' && CELLS[0]) {
+      el1.textContent = _fmtHMS(_marketRemainingSeconds(CELLS[0].asset));
+    }
+  } catch(_) {}
+  try {
+    const el2 = document.querySelector('.stack2-cell[data-idx2="0"] .cell-market-timer');
+    if (el2 && typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS[0]) {
+      el2.textContent = _fmtHMS(_marketRemainingSeconds(STACK2_CELLS[0].asset));
+    }
+  } catch(_) {}
+}
+setInterval(_updateMarketTimers, 1000);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _updateMarketTimers);
+} else {
+  _updateMarketTimers();
+}
+
+// ── TF "Closing Soon / Just Closed" Widget ───────────────────────────────
+// Har second BankNifty aur BTC ke sabhi TFs (base TF chhodkar — BN 5m,
+// BTC 160m) ke liye check karta hai. Do windows combine hote hain:
+//   1) PRE-close: candle close hone se 10 second PEHLE se hi dikhna shuru
+//      ho jaata hai (lookahead: abhi ka bucket vs 10-sec-baad ka bucket).
+//   2) POST-close: candle actually close hone ke baad bhi 15 second tak
+//      dikhta rehta hai (bucket-transition detect karke timestamp store).
+// Dono conditions independent hain — ek TF dono windows se guzarta hai:
+// close se 10s pehle → dikhna shuru, close ke exact instant pe continue,
+// close ke 15s baad tak dikhta rehta hai (total ~25s span, seamlessly).
+const _TF_CLOSE_WATCH_BN   = [15, 45, 135, 1440, 4320, 12960, 38880]; // 15m,45m,135m,1D,3D,9D,27D (5m base excluded)
+const _TF_CLOSE_WATCH_BTC  = [480, 1440, 4320, 12960, 38880];         // 8H,1D,3D,9D,27D (160m base excluded)
+const _TF_CLOSE_WARN_SEC   = 10;     // kitne second PEHLE dikhana shuru karna hai
+const _TF_CLOSE_DISPLAY_MS = 15000;  // close ke baad kitni der tak dikhna hai
+let _tfCloseLastBucket = {};   // key: "BN_15" / "BTC_480" → last known bucket start time
+let _tfCloseRecent = [];       // post-close list: [{label, tfMin, closedAt}]
+let _tfClosingSoon = [];       // pre-close list (is second): [{label, tfMin}]
+
+function _tfCloseCheck() {
+  const nowSec = Date.now() / 1000;
+
+  // PRE-close: is TF ka bucket agle _TF_CLOSE_WARN_SEC second ke andar badal raha hai?
+  const preActive = [];
+  const seenPre = new Set();
+  const _checkPre = (tfMin, isBN) => {
+    const bucketNow    = _liveGetBucketTime(nowSec, tfMin, isBN);
+    const bucketFuture = _liveGetBucketTime(nowSec + _TF_CLOSE_WARN_SEC, tfMin, isBN);
+    if (bucketFuture !== bucketNow && !seenPre.has(tfMin)) {
+      seenPre.add(tfMin);
+      preActive.push({ label: tfMinToLabel(tfMin), tfMin: tfMin });
+    }
+  };
+
+  // POST-close: bucket abhi-abhi (is tick par) badla — candle close ho gayi.
+  const _checkPost = (assetTag, tfMin, isBN) => {
+    const key = assetTag + '_' + tfMin;
+    const bucket = _liveGetBucketTime(nowSec, tfMin, isBN);
+    const prev = _tfCloseLastBucket[key];
+    if (prev !== undefined && bucket !== prev) {
+      _tfCloseRecent.push({ label: tfMinToLabel(tfMin), tfMin: tfMin, closedAt: Date.now() });
+    }
+    _tfCloseLastBucket[key] = bucket;
+  };
+
+  _TF_CLOSE_WATCH_BN.forEach(tf  => { _checkPre(tf, true);  _checkPost('BN',  tf, true); });
+  _TF_CLOSE_WATCH_BTC.forEach(tf => { _checkPre(tf, false); _checkPost('BTC', tf, false); });
+
+  _tfClosingSoon = preActive;
+  const cutoff = Date.now() - _TF_CLOSE_DISPLAY_MS;
+  _tfCloseRecent = _tfCloseRecent.filter(e => e.closedAt >= cutoff);
+}
+function _renderTfCloseWidget(el) {
+  if (!el) return;
+  const seen = new Set();
+  const merged = [];
+  _tfClosingSoon.forEach(e => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
+  _tfCloseRecent.forEach(e  => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
+  if (!merged.length) { el.classList.remove('show'); el.innerHTML = ''; return; }
+  el.innerHTML = merged.map(e => {
+    const clr = (typeof _tfCandleColor === 'function') ? _tfCandleColor(e.tfMin) : '#111';
+    return '<span style="color:'+clr+'">'+e.label+'</span>';
+  }).join('<span style="color:#111"> &nbsp; </span>');
+  el.classList.add('show');
+}
+function _updateTfCloseWidgets() {
+  try {
+    _tfCloseCheck();
+    _renderTfCloseWidget(document.getElementById('sv1-tf-closed-widget'));
+    _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'));
+  } catch(_) {}
+}
+setInterval(_updateTfCloseWidgets, 1000);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _updateTfCloseWidgets);
+} else {
+  _updateTfCloseWidgets();
 }
 
 // Route helper: asset-aware multi-day resampling.
