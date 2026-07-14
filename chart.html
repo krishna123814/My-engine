@@ -818,6 +818,33 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv1-sropacity-val{ color:#2962ff;font-weight:700; }
 #sv1-sropacity-slider{ width:100%; }
 
+/* ── SV1 — SR Dedup Rule Toggle (icon below opacity button) ───────────── */
+#sv1-srdedup-fab{
+  display:none;
+  position:fixed;
+  z-index:8500;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:9px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv1-srdedup-fab.visible{ display:flex; }
+#sv1-srdedup-fab.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+
 /* ── SV2 — Higher-TF SR Opacity control (button + slider panel) ───────── */
 #sv2-sropacity-btn{
   display:none;
@@ -861,6 +888,33 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-sropacity-val{ color:#2962ff;font-weight:700; }
 #sv2-sropacity-slider{ width:100%; }
+
+/* ── SV2 — SR Dedup Rule Toggle (icon below opacity button) ───────────── */
+#sv2-srdedup-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:9px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-srdedup-btn.visible{ display:flex; }
+#sv2-srdedup-btn.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
 
 /* ── Date Range Selector — Floating Icon ─────────────────────────────── */
 #sv2-drng-fab{
@@ -2512,6 +2566,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <input type="range" id="sv1-sropacity-slider" min="0" max="100" value="100" oninput="_onSr1OpacityInput(this)">
 </div>
 
+<!-- ═══ SV1 — SR Dedup Rule Toggle ═══════════════════════════════════════ -->
+<button id="sv1-srdedup-fab" title="SR Dedup Rule On/Off" onclick="_sv1SrDedupToggle()">DD</button>
+
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
@@ -2530,6 +2587,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
   <input type="range" id="sv2-sropacity-slider" min="0" max="100" value="100" oninput="_onSr2OpacityInput(this)">
 </div>
+
+<!-- ═══ SV2 — SR Dedup Rule Toggle ═══════════════════════════════════════ -->
+<button id="sv2-srdedup-btn" title="SR Dedup Rule On/Off" onclick="_sv2SrDedupToggle()">DD</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -6096,6 +6156,7 @@ function ss2ApplyAndClose() {
   var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
   var _srOpacityBtn = null;   // #sv2-sropacity-btn
   var _srOpacityPanel = null; // #sv2-sropacity-panel
+  var _srDedupBtn = null;     // #sv2-srdedup-btn
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -6130,6 +6191,7 @@ function ss2ApplyAndClose() {
     // Stack View 2 active hai, replay date range select hone se independent.
     if (_srToggleBtn) _srToggleBtn.classList.toggle('visible', stack2On);
     if (_srOpacityBtn) _srOpacityBtn.classList.toggle('visible', stack2On);
+    if (_srDedupBtn) _srDedupBtn.classList.toggle('visible', stack2On);
     if (!stack2On && _srOpacityPanel) _srOpacityPanel.classList.remove('open');
     if (!show) { _pause(); }
     _renderPlayIcon();
@@ -6148,7 +6210,7 @@ function ss2ApplyAndClose() {
     // SR toggle sabse pehle (calendar ke turant neeche), phir opacity
     // button, phir play/step/reset.
     var srOn = !!(_srToggleBtn && _srToggleBtn.classList.contains('visible'));
-    var stackOffset = srOn ? 58 : 0;   // SR toggle (29) + opacity btn (29)
+    var stackOffset = srOn ? 87 : 0;   // SR toggle (29) + opacity btn (29) + dedup btn (29)
     if (_srToggleBtn) {
       _srToggleBtn.style.left = r.left + 'px';
       _srToggleBtn.style.top  = (r.bottom + 4) + 'px';
@@ -6157,6 +6219,10 @@ function ss2ApplyAndClose() {
       _srOpacityBtn.style.left = r.left + 'px';
       _srOpacityBtn.style.top  = (r.bottom + 4 + 29) + 'px';
       if (_srOpacityPanel && _srOpacityPanel.classList.contains('open')) _positionSrOpacityPanel();
+    }
+    if (_srDedupBtn) {
+      _srDedupBtn.style.left = r.left + 'px';
+      _srDedupBtn.style.top  = (r.bottom + 4 + 58) + 'px';
     }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
@@ -6779,8 +6845,10 @@ function ss2ApplyAndClose() {
     _srToggleBtn = document.getElementById('sv2-srtoggle-btn');
     _srOpacityBtn = document.getElementById('sv2-sropacity-btn');
     _srOpacityPanel = document.getElementById('sv2-sropacity-panel');
+    _srDedupBtn = document.getElementById('sv2-srdedup-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
+    if (_srDedupBtn) _srDedupBtn.classList.toggle('on', !!SV2_SR_DEDUP_ON);
     if (_srOpacityBtn) _srOpacityBtn.addEventListener('click', _toggleSrOpacityPanel);
     // Slider ko persisted opacity ke saath init karo
     var _sr2Slider = document.getElementById('sv2-sropacity-slider');
@@ -7034,6 +7102,7 @@ document.addEventListener('visibilitychange', function(){
   var _fab = null;
   var _opFab = null;
   var _opPanel = null;
+  var _dedupFab = null;
 
   function _saveFabPos(left, top) {
     try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
@@ -7052,12 +7121,19 @@ document.addEventListener('visibilitychange', function(){
     _fab.style.top  = pos.top  + 'px';
     _syncOpFabPos();
   }
-  // Opacity button always sits 29px directly below the SR fab, moving with it.
+  // Opacity button always sits 29px directly below the SR fab, moving with
+  // it. Dedup button sits another 29px below that.
   function _syncOpFabPos() {
-    if (!_fab || !_opFab) return;
+    if (!_fab) return;
     var r = _fab.getBoundingClientRect();
-    _opFab.style.left = r.left + 'px';
-    _opFab.style.top  = (r.top + 29) + 'px';
+    if (_opFab) {
+      _opFab.style.left = r.left + 'px';
+      _opFab.style.top  = (r.top + 29) + 'px';
+    }
+    if (_dedupFab) {
+      _dedupFab.style.left = r.left + 'px';
+      _dedupFab.style.top  = (r.top + 58) + 'px';
+    }
     if (_opPanel && _opPanel.classList.contains('open')) _positionPanel();
   }
   function _positionPanel() {
@@ -7139,16 +7215,19 @@ document.addEventListener('visibilitychange', function(){
     var stack2On = (typeof _stack2Active !== 'undefined') && _stack2Active;
     _fab.classList.toggle('visible', !stack2On);
     if (_opFab) _opFab.classList.toggle('visible', !stack2On);
+    if (_dedupFab) _dedupFab.classList.toggle('visible', !stack2On);
     if (stack2On && _opPanel) _opPanel.classList.remove('open');
   };
 
   function _init() {
-    _fab     = document.getElementById('sv1-srtoggle-fab');
-    _opFab   = document.getElementById('sv1-sropacity-fab');
-    _opPanel = document.getElementById('sv1-sropacity-panel');
+    _fab      = document.getElementById('sv1-srtoggle-fab');
+    _opFab    = document.getElementById('sv1-sropacity-fab');
+    _opPanel  = document.getElementById('sv1-sropacity-panel');
+    _dedupFab = document.getElementById('sv1-srdedup-fab');
     if (!_fab) return;
     _applyFabPos(_loadFabPos());
     _fab.classList.toggle('on', !!(typeof SR_HTF_VISIBLE !== 'undefined' && SR_HTF_VISIBLE));
+    if (_dedupFab) _dedupFab.classList.toggle('on', !!SR_DEDUP_ON);
     // Slider ko persisted opacity ke saath init karo
     var slider = document.getElementById('sv1-sropacity-slider');
     var val    = document.getElementById('sv1-sropacity-val');
@@ -12596,6 +12675,20 @@ let SR_HTF_OPACITY = 100;
   } catch(_) {}
 })();
 
+// ── SR Dedup Rule (SV1) — OFF by default. When OFF, all overlapping SR
+// lines (any price collision) are shown as-is. When ON, the existing
+// collision-resolution rule (swing wins same-TF, biggest-TF candle wins
+// cross-TF) applies. Persisted.
+const _SR1_DEDUP_KEY = 'sr1DedupOn';
+let SR_DEDUP_ON = false;
+(function(){
+  try {
+    const v = _LS.getItem(_SR1_DEDUP_KEY);
+    if (v === 'true') SR_DEDUP_ON = true;
+    else if (v === 'false') SR_DEDUP_ON = false;
+  } catch(_) {}
+})();
+
 // ── Shared helper: apply an opacity percentage to a hex or rgba color ────
 function _colorWithAlpha(color, opacityPct) {
   const a = Math.max(0, Math.min(100, (opacityPct == null ? 100 : opacityPct))) / 100;
@@ -13068,6 +13161,17 @@ function _advanceTradingSeconds(fromSec, deltaSec, tfMin, isNSE) {
     return tAdv;
   }
   let t = fromSec, remaining = deltaSec;
+  // FIX: isNSE check missing tha yahan (sirf daily+ branch ke upar tha).
+  // Isliye BTC (isNSE=false) ke intraday TFs (160m, 8h — dono <1440 min,
+  // isliye upar wale _isDailyPlusTF branch me nahi jaate) par bhi galti se
+  // NSE session-hour bounds (9:15-15:30 IST) + weekend-skip apply ho rahe
+  // the, jabki BTC 24/7 trade karta hai. Isse SR/swing lines ka endTime
+  // extrapolation (jab target index available data se aage ho) BTC ke liye
+  // asal se kahin zyada real-calendar time le leta tha — lines apni intended
+  // "length" se kahin zyada der tak alive/extended reh jaati thi, jisse ek
+  // saath zyada SR lines accumulate ho jaati thi (BankNifty par ye theek
+  // tha kyunki wahi iska intended sahi use-case hai).
+  if (!isNSE) return fromSec + deltaSec;
   let guard = 0;
   while (remaining > 1e-6 && guard++ < 5000) {
     const istSec  = t + _IST_OFF;
@@ -13731,6 +13835,11 @@ function swingComputeMultiTF(asset, currentTf) {
     }
   }
 
+  // Dedup rule: OFF by default (SR_DEDUP_ON toggle) — sabhi overlapping
+  // lines dikhengi bina kisi price-collision removal ke. ON karne par neeche
+  // wala existing rule chalega.
+  if (!SR_DEDUP_ON) return allLines;
+
   // Step 1: Swing dedup — exact same price → highest TF rakho
   // Step 2: Candle dedup — exact same price → SABSE BADE TF wali candle rakho
   //   (startTime sirf tab dekha jaata hai jab do candles ka TF barabar ho —
@@ -13870,6 +13979,17 @@ let SV2_SR_HTF_OPACITY = 100;
   try {
     const v = parseInt(_LS.getItem(_SR2_OPACITY_KEY), 10);
     if (!isNaN(v) && v >= 0 && v <= 100) SV2_SR_HTF_OPACITY = v;
+  } catch(_) {}
+})();
+
+// ── SR Dedup Rule (SV2) — OFF by default, independent of SV1's toggle. ───
+const _SR2_DEDUP_KEY = 'sr2DedupOn';
+let SV2_SR_DEDUP_ON = false;
+(function(){
+  try {
+    const v = _LS.getItem(_SR2_DEDUP_KEY);
+    if (v === 'true') SV2_SR_DEDUP_ON = true;
+    else if (v === 'false') SV2_SR_DEDUP_ON = false;
   } catch(_) {}
 })();
 
@@ -14152,6 +14272,15 @@ function _onSr2OpacityInput(inp) {
   setSv2SrHtfOpacity(inp.value);
 }
 
+// ── SR Dedup Rule Toggle (SV2) ──────────────────────────────────────────
+function _sv2SrDedupToggle() {
+  SV2_SR_DEDUP_ON = !SV2_SR_DEDUP_ON;
+  try { _LS.setItem(_SR2_DEDUP_KEY, SV2_SR_DEDUP_ON ? 'true' : 'false'); } catch(_) {}
+  const btn = document.getElementById('sv2-srdedup-btn');
+  if (btn) btn.classList.toggle('on', SV2_SR_DEDUP_ON);
+  if (SV2_SWING_STATE.visible) { sv2SwingRefresh(); }
+}
+
 function _sv2OpenChipColor(btn, tfMin, type) {
   const cur = btn.dataset.color || '#ffffff';
   _tvcOpen(btn, cur, (hex) => {
@@ -14270,6 +14399,15 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
         swingCompute(data, tf.min, liveNowSec, _srCfg2)
           .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push({ ...l, isHTF: true }); });
       }
+    }
+
+    // Dedup rule: OFF by default (SV2_SR_DEDUP_ON toggle) — sabhi overlapping
+    // lines dikhengi bina kisi price-collision removal ke. ON karne par
+    // neeche wala existing rule chalega.
+    if (!SV2_SR_DEDUP_ON) {
+      allLines.cellRawData = dataCur;
+      allLines.isNSE = _isNSE;
+      return allLines;
     }
 
     // Step 3: Dedup — same price par highest TF swing rakho; candle line ko
@@ -15315,6 +15453,18 @@ function _onSr1OpacityInput(inp) {
   const val = document.getElementById('sv1-sropacity-val');
   if (val) val.textContent = inp.value + '%';
   setSrHtfOpacity(inp.value);
+}
+
+// ── SR Dedup Rule Toggle (SV1) ──────────────────────────────────────────
+function _sv1SrDedupToggle() {
+  SR_DEDUP_ON = !SR_DEDUP_ON;
+  try { _LS.setItem(_SR1_DEDUP_KEY, SR_DEDUP_ON ? 'true' : 'false'); } catch(_) {}
+  const btn = document.getElementById('sv1-srdedup-fab');
+  if (btn) btn.classList.toggle('on', SR_DEDUP_ON);
+  if (SWING_STATE.visible) {
+    if (S.layout === '1x1') { swingAfterRebuild(); }
+    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
+  }
 }
 
 
