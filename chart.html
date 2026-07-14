@@ -774,6 +774,94 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   box-shadow:0 8px 32px #0009;
 }
 
+/* ── SV1 — Higher-TF SR Opacity control (button + slider panel) ───────── */
+#sv1-sropacity-fab{
+  display:none;
+  position:fixed;
+  z-index:8500;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:11px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv1-sropacity-fab.visible{ display:flex; }
+#sv1-sropacity-fab.open{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+#sv1-sropacity-panel{
+  display:none;
+  position:fixed;
+  z-index:8600;
+  width:190px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  box-shadow:0 8px 24px #0009;
+  padding:10px 12px;
+}
+#sv1-sropacity-panel.open{ display:block; }
+#sv1-sropacity-hdr{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:10px;color:#9598a1;margin-bottom:8px;
+}
+#sv1-sropacity-val{ color:#2962ff;font-weight:700; }
+#sv1-sropacity-slider{ width:100%; }
+
+/* ── SV2 — Higher-TF SR Opacity control (button + slider panel) ───────── */
+#sv2-sropacity-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:11px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-sropacity-btn.visible{ display:flex; }
+#sv2-sropacity-btn.open{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+#sv2-sropacity-panel{
+  display:none;
+  position:fixed;
+  z-index:8600;
+  width:190px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  box-shadow:0 8px 24px #0009;
+  padding:10px 12px;
+}
+#sv2-sropacity-panel.open{ display:block; }
+#sv2-sropacity-hdr{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:10px;color:#9598a1;margin-bottom:8px;
+}
+#sv2-sropacity-val{ color:#2962ff;font-weight:700; }
+#sv2-sropacity-slider{ width:100%; }
+
 /* ── Date Range Selector — Floating Icon ─────────────────────────────── */
 #sv2-drng-fab{
   display:none;                          /* sirf stack2 active hone par dikhega */
@@ -2414,6 +2502,16 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ SV1 — Bade TF ka SR chhote TF par Show/Hide — Floating draggable icon ═══ -->
 <button id="sv1-srtoggle-fab" title="Bade TF ka SR chhote TF par Show/Hide · jahan marzi move kiya ja sake">SR</button>
 
+<!-- ═══ SV1 — Higher-TF SR Opacity Control ══════════════════════════════ -->
+<button id="sv1-sropacity-fab" title="Bade TF ka SR opacity control karo">◐</button>
+<div id="sv1-sropacity-panel">
+  <div id="sv1-sropacity-hdr">
+    <span>Higher-TF SR Opacity</span>
+    <span id="sv1-sropacity-val">100%</span>
+  </div>
+  <input type="range" id="sv1-sropacity-slider" min="0" max="100" value="100" oninput="_onSr1OpacityInput(this)">
+</div>
+
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
@@ -2422,6 +2520,16 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
 <button id="sv2-srtoggle-btn" title="Bade TF ka SR chhote TF par Show/Hide" onclick="_sv2SrHierarchyToggle()">SR</button>
+
+<!-- ═══ SV2 — Higher-TF SR Opacity Control ══════════════════════════════ -->
+<button id="sv2-sropacity-btn" title="Bade TF ka SR opacity control karo">◐</button>
+<div id="sv2-sropacity-panel">
+  <div id="sv2-sropacity-hdr">
+    <span>Higher-TF SR Opacity</span>
+    <span id="sv2-sropacity-val">100%</span>
+  </div>
+  <input type="range" id="sv2-sropacity-slider" min="0" max="100" value="100" oninput="_onSr2OpacityInput(this)">
+</div>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -3715,6 +3823,7 @@ function _currentSnapshot(name) {
     cells:       CELLS.map(c => ({ asset: c.asset, tf: c.tf, vLine: c.vLine ? {...c.vLine} : null })),
     drawings:    JSON.parse(JSON.stringify(_DT.drawings || [])),
     indSwing:    SWING_STATE.visible,
+    srHtf:       SR_HTF_VISIBLE,
     indBTC2:     BTC2_SWING_STATE.visible,
     swingLineW:  SWING_LINE_WIDTH,
     swingTFList: JSON.parse(JSON.stringify(SWING_TF_LIST || [])),
@@ -3914,6 +4023,11 @@ function loadFromSlot(idx) {
     SWING_STATE.visible = slot.indSwing;
     const ckSwing = document.getElementById('ck-swing');
     if (ckSwing) ckSwing.checked = slot.indSwing;
+  }
+  if (typeof slot.srHtf === 'boolean') {
+    SR_HTF_VISIBLE = slot.srHtf;
+    const fabHtf = document.getElementById('sv1-srtoggle-fab');
+    if (fabHtf) fabHtf.classList.toggle('on', slot.srHtf);
   }
   if (typeof slot.indBTC2 === 'boolean') {
     BTC2_SWING_STATE.visible = slot.indBTC2;
@@ -5980,6 +6094,8 @@ function ss2ApplyAndClose() {
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
   var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
+  var _srOpacityBtn = null;   // #sv2-sropacity-btn
+  var _srOpacityPanel = null; // #sv2-sropacity-panel
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -6013,6 +6129,8 @@ function ss2ApplyAndClose() {
     // SR hierarchy toggle — calendar ki tarah hamesha dikhta hai jab tak
     // Stack View 2 active hai, replay date range select hone se independent.
     if (_srToggleBtn) _srToggleBtn.classList.toggle('visible', stack2On);
+    if (_srOpacityBtn) _srOpacityBtn.classList.toggle('visible', stack2On);
+    if (!stack2On && _srOpacityPanel) _srOpacityPanel.classList.remove('open');
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -6027,12 +6145,18 @@ function ss2ApplyAndClose() {
     // Sab buttons FAB ke neeche, ek dusre ke NEECHE (vertically stacked) —
     // same left, top badhta jaata hai — pehle galti se left badhta jaa
     // raha tha (horizontal row), jisse chart ke upar overlap ho raha tha.
-    // SR toggle sabse pehle (calendar ke turant neeche), phir play/step/reset.
+    // SR toggle sabse pehle (calendar ke turant neeche), phir opacity
+    // button, phir play/step/reset.
     var srOn = !!(_srToggleBtn && _srToggleBtn.classList.contains('visible'));
-    var stackOffset = srOn ? 29 : 0;
+    var stackOffset = srOn ? 58 : 0;   // SR toggle (29) + opacity btn (29)
     if (_srToggleBtn) {
       _srToggleBtn.style.left = r.left + 'px';
       _srToggleBtn.style.top  = (r.bottom + 4) + 'px';
+    }
+    if (_srOpacityBtn) {
+      _srOpacityBtn.style.left = r.left + 'px';
+      _srOpacityBtn.style.top  = (r.bottom + 4 + 29) + 'px';
+      if (_srOpacityPanel && _srOpacityPanel.classList.contains('open')) _positionSrOpacityPanel();
     }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
@@ -6046,6 +6170,21 @@ function ss2ApplyAndClose() {
       _resetBtn.style.left = r.left + 'px';
       _resetBtn.style.top  = (r.bottom + 4 + stackOffset + 29 + 29) + 'px';
     }
+  }
+
+  function _positionSrOpacityPanel() {
+    if (!_srOpacityBtn || !_srOpacityPanel) return;
+    var r = _srOpacityBtn.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - 200);
+    _srOpacityPanel.style.left = Math.max(4, left) + 'px';
+    _srOpacityPanel.style.top  = (r.bottom + 6) + 'px';
+  }
+  function _toggleSrOpacityPanel() {
+    if (!_srOpacityPanel) return;
+    var willOpen = !_srOpacityPanel.classList.contains('open');
+    _srOpacityPanel.classList.toggle('open', willOpen);
+    if (_srOpacityBtn) _srOpacityBtn.classList.toggle('open', willOpen);
+    if (willOpen) _positionSrOpacityPanel();
   }
 
   // ── Real intrabar path helper ─────────────────────────────────────────────
@@ -6638,8 +6777,23 @@ function ss2ApplyAndClose() {
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
     _srToggleBtn = document.getElementById('sv2-srtoggle-btn');
+    _srOpacityBtn = document.getElementById('sv2-sropacity-btn');
+    _srOpacityPanel = document.getElementById('sv2-sropacity-panel');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
-    if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SWING_STATE.visible);
+    if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
+    if (_srOpacityBtn) _srOpacityBtn.addEventListener('click', _toggleSrOpacityPanel);
+    // Slider ko persisted opacity ke saath init karo
+    var _sr2Slider = document.getElementById('sv2-sropacity-slider');
+    var _sr2Val    = document.getElementById('sv2-sropacity-val');
+    if (_sr2Slider) _sr2Slider.value = SV2_SR_HTF_OPACITY;
+    if (_sr2Val)    _sr2Val.textContent = SV2_SR_HTF_OPACITY + '%';
+    // Panel bahar click karne pe close ho jaaye
+    document.addEventListener('click', function(e){
+      if (!_srOpacityPanel || !_srOpacityPanel.classList.contains('open')) return;
+      if (_srOpacityPanel.contains(e.target) || e.target === _srOpacityBtn) return;
+      _srOpacityPanel.classList.remove('open');
+      if (_srOpacityBtn) _srOpacityBtn.classList.remove('open');
+    });
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
     // Ring play button ki border ke bahar thodi badi (54×54) dikhti hai —
@@ -6878,6 +7032,8 @@ document.addEventListener('visibilitychange', function(){
 // ════════════════════════════════════════════════════════════════════════════
 (function(){
   var _fab = null;
+  var _opFab = null;
+  var _opPanel = null;
 
   function _saveFabPos(left, top) {
     try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
@@ -6894,6 +7050,29 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     _fab.style.left = pos.left + 'px';
     _fab.style.top  = pos.top  + 'px';
+    _syncOpFabPos();
+  }
+  // Opacity button always sits 29px directly below the SR fab, moving with it.
+  function _syncOpFabPos() {
+    if (!_fab || !_opFab) return;
+    var r = _fab.getBoundingClientRect();
+    _opFab.style.left = r.left + 'px';
+    _opFab.style.top  = (r.top + 29) + 'px';
+    if (_opPanel && _opPanel.classList.contains('open')) _positionPanel();
+  }
+  function _positionPanel() {
+    if (!_opFab || !_opPanel) return;
+    var r = _opFab.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - 200);
+    _opPanel.style.left = Math.max(4, left) + 'px';
+    _opPanel.style.top  = (r.bottom + 6) + 'px';
+  }
+  function _togglePanel() {
+    if (!_opPanel) return;
+    var willOpen = !_opPanel.classList.contains('open');
+    _opPanel.classList.toggle('open', willOpen);
+    if (_opFab) _opFab.classList.toggle('open', willOpen);
+    if (willOpen) _positionPanel();
   }
 
   function _wireDrag() {
@@ -6917,6 +7096,7 @@ document.addEventListener('visibilitychange', function(){
       nt = Math.max(0, Math.min(window.innerHeight - 26, nt));
       _fab.style.left = nl + 'px';
       _fab.style.top  = nt + 'px';
+      _syncOpFabPos();
     }
     function _onEnd() {
       if (!_dragging) return;
@@ -6948,6 +7128,8 @@ document.addEventListener('visibilitychange', function(){
       document.addEventListener('mousemove', mm);
       document.addEventListener('mouseup', mu);
     });
+
+    if (_opFab) _opFab.addEventListener('click', _togglePanel);
   }
 
   // Visible whenever Stack View 2 (bar-replay) is NOT the active mode —
@@ -6956,15 +7138,31 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     var stack2On = (typeof _stack2Active !== 'undefined') && _stack2Active;
     _fab.classList.toggle('visible', !stack2On);
+    if (_opFab) _opFab.classList.toggle('visible', !stack2On);
+    if (stack2On && _opPanel) _opPanel.classList.remove('open');
   };
 
   function _init() {
-    _fab = document.getElementById('sv1-srtoggle-fab');
+    _fab     = document.getElementById('sv1-srtoggle-fab');
+    _opFab   = document.getElementById('sv1-sropacity-fab');
+    _opPanel = document.getElementById('sv1-sropacity-panel');
     if (!_fab) return;
     _applyFabPos(_loadFabPos());
-    _fab.classList.toggle('on', !!(typeof SWING_STATE !== 'undefined' && SWING_STATE.visible));
+    _fab.classList.toggle('on', !!(typeof SR_HTF_VISIBLE !== 'undefined' && SR_HTF_VISIBLE));
+    // Slider ko persisted opacity ke saath init karo
+    var slider = document.getElementById('sv1-sropacity-slider');
+    var val    = document.getElementById('sv1-sropacity-val');
+    if (slider) slider.value = SR_HTF_OPACITY;
+    if (val)    val.textContent = SR_HTF_OPACITY + '%';
     _wireDrag();
     window._sv1FabSync();
+    // Panel bahar click karne pe close ho jaaye
+    document.addEventListener('click', function(e){
+      if (!_opPanel || !_opPanel.classList.contains('open')) return;
+      if (_opPanel.contains(e.target) || e.target === _opFab) return;
+      _opPanel.classList.remove('open');
+      if (_opFab) _opFab.classList.remove('open');
+    });
   }
 
   if (document.readyState === 'loading') {
@@ -12380,6 +12578,44 @@ let _swingLines = [];
 // untouched (swingCanvas/swingDraw).
 let _bnMainSrSeries = [];
 const SWING_STATE = { visible: true };
+// Separate flag: controls ONLY the "bigger TF's SR overlaid on smaller TF"
+// layer (Step 2 inside swingComputeMultiTF). The current chart's OWN-TF SR
+// (Step 1) is never affected by this — it stays governed solely by
+// SWING_STATE.visible (the master Indicator Settings checkbox). This is what
+// the floating SR FAB button toggles.
+let SR_HTF_VISIBLE = true;
+
+// ── Higher-TF SR Opacity (SV1) — controls ONLY the isHTF-tagged lines' ────
+// visual opacity, independent of SV2's own opacity setting. Persisted.
+const _SR1_OPACITY_KEY = 'sr1HtfOpacity';
+let SR_HTF_OPACITY = 100;
+(function(){
+  try {
+    const v = parseInt(_LS.getItem(_SR1_OPACITY_KEY), 10);
+    if (!isNaN(v) && v >= 0 && v <= 100) SR_HTF_OPACITY = v;
+  } catch(_) {}
+})();
+
+// ── Shared helper: apply an opacity percentage to a hex or rgba color ────
+function _colorWithAlpha(color, opacityPct) {
+  const a = Math.max(0, Math.min(100, (opacityPct == null ? 100 : opacityPct))) / 100;
+  if (!color) return color;
+  if (color[0] === '#') {
+    let hex = color.slice(1);
+    if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return color;
+    return `rgba(${r},${g},${b},${a})`;
+  }
+  const m = color.match(/rgba?\(([^)]+)\)/);
+  if (m) {
+    const parts = m[1].split(',').map(s => s.trim());
+    return `rgba(${parts[0]},${parts[1]},${parts[2]},${a})`;
+  }
+  return color;
+}
 
 // ── S/R line width (user-configurable, persisted) ────────────────────────
 const _SW_WIDTH_KEY = 'swingLineWidth';
@@ -13277,8 +13513,16 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
 
   for (const ln of lines) {
     try {
+      // isHTF lines get their configured opacity applied (SV1 vs SV2 uses a
+      // different persisted value — avoidAutoScroll=true is how SV2 call-
+      // sites already distinguish themselves from SV1/main-chart call-sites).
+      let _lineColor = ln.color;
+      if (ln.isHTF) {
+        const _opacityPct = avoidAutoScroll ? SV2_SR_HTF_OPACITY : SR_HTF_OPACITY;
+        _lineColor = _colorWithAlpha(ln.color, _opacityPct);
+      }
       const s = chartObj.addLineSeries({
-        color: ln.color,
+        color: _lineColor,
         lineWidth: (_lineWidthOvr != null ? _lineWidthOvr : SWING_LINE_WIDTH),
         lastValueVisible: false,
         priceLineVisible: false,
@@ -13465,9 +13709,14 @@ function swingComputeMultiTF(asset, currentTf) {
 
   // Step 2: Compute for user-added chip TFs that are HIGHER than current TF.
   // Lower-TF chips are automatically ignored here.
-  const enabledTFs = SWING_TF_LIST
-    .filter(t => t.enabled && t.min > currentTf)  // strictly > to avoid duplicate logic
-    .sort((a, b) => a.min - b.min);
+  // Gated by SR_HTF_VISIBLE (the FAB toggle) — NOT by SWING_STATE.visible,
+  // so turning this off only removes the higher-TF overlay, never the
+  // current chart's own-TF SR computed above in Step 1.
+  const enabledTFs = SR_HTF_VISIBLE
+    ? SWING_TF_LIST
+        .filter(t => t.enabled && t.min > currentTf)  // strictly > to avoid duplicate logic
+        .sort((a, b) => a.min - b.min)
+    : [];
 
   for (const tf of enabledTFs) {
     const raw  = _baseDataFor(asset, tf.min);
@@ -13475,7 +13724,9 @@ function swingComputeMultiTF(asset, currentTf) {
     if (data.length >= 3) {
         const htfLines = swingCompute(data, tf.min, undefined, { isNSE: _isNSE });
         // Strict rule check: Current_Chart_TF <= Level_TF
-        const validHtfLines = htfLines.filter(line => currentTf <= line.levelTf);
+        const validHtfLines = htfLines
+          .filter(line => currentTf <= line.levelTf)
+          .map(line => ({ ...line, isHTF: true }));
         allLines.push(...validHtfLines);
     }
   }
@@ -13607,6 +13858,20 @@ function swingAfterRebuildBtc2() {
 
 // ── SV2 Independent State ─────────────────────────────────────────────────
 const SV2_SWING_STATE = { visible: true };
+// SV2 equivalent of SR_HTF_VISIBLE — controls ONLY the higher-TF SR overlay
+// (Step 2 inside _sv2ComputeCellSR), leaving each cell's own-TF SR (Step 1)
+// untouched. This is what the SV2 floating SR② button toggles.
+let SV2_SR_HTF_VISIBLE = true;
+
+// ── Higher-TF SR Opacity (SV2) — independent of SV1's opacity setting. ────
+const _SR2_OPACITY_KEY = 'sr2HtfOpacity';
+let SV2_SR_HTF_OPACITY = 100;
+(function(){
+  try {
+    const v = parseInt(_LS.getItem(_SR2_OPACITY_KEY), 10);
+    if (!isNaN(v) && v >= 0 && v <= 100) SV2_SR_HTF_OPACITY = v;
+  } catch(_) {}
+})();
 
 let SV2_SWING_TF_LIST = [];
 const _SV2_SWING_STORE_KEY = 'sv2SwingTFList1';
@@ -13854,10 +14119,37 @@ function _sv2SetSrHierarchy(on) {
   if (fab) fab.classList.toggle('on', on);
 }
 
-// Floating icon (calendar/play/step ke saath) — ek click me hierarchy rule
-// hata do, agle click me wapas lag jaaye.
+// Floating icon (calendar/play/step ke saath) — ek click me sirf "bade TF ka
+// SR" hata do, agle click me wapas lag jaaye. Har cell ka apna-TF SR (Step 1
+// of _sv2ComputeCellSR) ise kabhi touch nahi hota. Master SV2 indicator
+// on/off (ck-sv2-swing checkbox / SV2_SWING_STATE.visible) is se independent hai.
+function _sv2SetSrHtfVisible(on) {
+  SV2_SR_HTF_VISIBLE = on;
+  // Master indicator off ho to kuch bhi dikhna nahi chahiye — refresh sirf
+  // tab karo jab SV2_SWING_STATE.visible (master) already on ho.
+  if (SV2_SWING_STATE.visible) { sv2SwingRefresh(); }
+  const fab = document.getElementById('sv2-srtoggle-btn');
+  if (fab) fab.classList.toggle('on', on);
+}
 function _sv2SrHierarchyToggle() {
-  _sv2SetSrHierarchy(!SV2_SWING_STATE.visible);
+  _sv2SetSrHtfVisible(!SV2_SR_HTF_VISIBLE);
+}
+
+// ── Higher-TF SR Opacity (SV2) ──────────────────────────────────────────
+let _sr2OpacityTimer = null;
+function setSv2SrHtfOpacity(v) {
+  SV2_SR_HTF_OPACITY = Math.max(0, Math.min(100, +v || 0));
+  try { _LS.setItem(_SR2_OPACITY_KEY, SV2_SR_HTF_OPACITY); } catch(_) {}
+  clearTimeout(_sr2OpacityTimer);
+  _sr2OpacityTimer = setTimeout(() => {
+    if (!SV2_SWING_STATE.visible) return;   // master indicator off → nothing to refresh
+    sv2SwingRefresh();
+  }, 60);
+}
+function _onSr2OpacityInput(inp) {
+  const val = document.getElementById('sv2-sropacity-val');
+  if (val) val.textContent = inp.value + '%';
+  setSv2SrHtfOpacity(inp.value);
 }
 
 function _sv2OpenChipColor(btn, tfMin, type) {
@@ -13963,15 +14255,20 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     }
 
     // Step 2: SV2_SWING_TF_LIST se enabled higher TFs (SV1 se independent)
-    const enabledHTFs = (SV2_SWING_TF_LIST || [])
-      .filter(t => t.enabled && t.min > cellTFMin)
-      .sort((a, b) => a.min - b.min);
+    // Gated by SV2_SR_HTF_VISIBLE (the SR② FAB) — NOT by SV2_SWING_STATE.visible,
+    // so toggling this only removes the higher-TF overlay, never the cell's
+    // own-TF SR computed above in Step 1.
+    const enabledHTFs = SV2_SR_HTF_VISIBLE
+      ? (SV2_SWING_TF_LIST || [])
+          .filter(t => t.enabled && t.min > cellTFMin)
+          .sort((a, b) => a.min - b.min)
+      : [];
 
     for (const tf of enabledHTFs) {
       const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
         swingCompute(data, tf.min, liveNowSec, _srCfg2)
-          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
+          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push({ ...l, isHTF: true }); });
       }
     }
 
@@ -14977,10 +15274,47 @@ function _setSwingHierarchy(on) {
   if (fab) fab.classList.toggle('on', on);
 }
 
-// Floating draggable icon — ek click me hierarchy rule hata do, agle click
-// me wapas lag jaaye.
+// Floating draggable icon — ek click me sirf "bade TF ka SR" hata do, agle
+// click me wapas lag jaaye. Current chart ka apna-TF SR (Step 1 of
+// swingComputeMultiTF) ise kabhi touch nahi hota — sirf higher-TF chip
+// overlay is se control hota hai. Master indicator on/off (ck-swing
+// checkbox / SWING_STATE.visible) is se bilkul independent hai.
+function _setSrHtfVisible(on) {
+  SR_HTF_VISIBLE = on;
+  // Master indicator off ho to kuch bhi dikhna nahi chahiye — recompute
+  // sirf tab karo jab SWING_STATE.visible (master) already on ho.
+  if (SWING_STATE.visible) {
+    if (S.layout === '1x1') {
+      swingAfterRebuild();
+    } else {
+      CELLS.forEach((_, i) => buildCellSwing(i));
+    }
+  }
+  const fab = document.getElementById('sv1-srtoggle-fab');
+  if (fab) fab.classList.toggle('on', on);
+}
 function _sv1SrHierarchyToggle() {
-  _setSwingHierarchy(!SWING_STATE.visible);
+  _setSrHtfVisible(!SR_HTF_VISIBLE);
+}
+
+// ── Higher-TF SR Opacity (SV1) ──────────────────────────────────────────
+let _sr1OpacityTimer = null;
+function setSrHtfOpacity(v) {
+  SR_HTF_OPACITY = Math.max(0, Math.min(100, +v || 0));
+  try { _LS.setItem(_SR1_OPACITY_KEY, SR_HTF_OPACITY); } catch(_) {}
+  // Debounce: slider fires many events per drag — only rebuild ~60ms after
+  // the last change, so dragging stays smooth.
+  clearTimeout(_sr1OpacityTimer);
+  _sr1OpacityTimer = setTimeout(() => {
+    if (!SWING_STATE.visible) return;   // master indicator off → nothing to refresh
+    if (S.layout === '1x1') { swingAfterRebuild(); }
+    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
+  }, 60);
+}
+function _onSr1OpacityInput(inp) {
+  const val = document.getElementById('sv1-sropacity-val');
+  if (val) val.textContent = inp.value + '%';
+  setSrHtfOpacity(inp.value);
 }
 
 
