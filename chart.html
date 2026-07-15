@@ -2338,6 +2338,25 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 }
 .pt-card-del{background:none;border:none;color:#5b606c;font-size:14px;cursor:pointer;padding:2px 6px}
 .pt-card-del:active{color:#f23645}
+.pt-target-startdate{font-size:10.5px;color:#8b93a3;font-weight:600;margin-bottom:10px}
+.pt-target-startdate b{color:#c7cad1}
+
+.pt-log-details{margin-top:12px;background:#161a25;border:1px solid #2a2e39;border-radius:10px;overflow:hidden}
+.pt-log-details summary{
+  list-style:none;cursor:pointer;padding:9px 12px;font-size:11.5px;font-weight:700;
+  color:#9598a1;display:flex;align-items:center;justify-content:space-between;
+}
+.pt-log-details summary::-webkit-details-marker{display:none}
+.pt-log-details summary::after{content:'▾';font-size:10px;color:#5b606c}
+.pt-log-details[open] summary::after{content:'▴'}
+.pt-log-list{max-height:220px;overflow-y:auto;border-top:1px solid #2a2e39}
+.pt-log-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:7px 12px;font-size:11.5px;color:#c7cad1;border-bottom:1px solid #1e222d;
+}
+.pt-log-row:last-child{border-bottom:none}
+.pt-log-row b{color:#4fd1a5;font-weight:800}
+.pt-log-empty{padding:10px 12px;font-size:11px;color:#5b606c;border-top:1px solid #2a2e39}
 
 .pt-card-main{display:flex;align-items:center;gap:14px}
 .pt-ring-wrap{position:relative;width:78px;height:78px;flex-shrink:0}
@@ -17668,6 +17687,10 @@ if (document.readyState === 'loading') {
     const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${dd}`;
   }
+  function ptFmtDMY(d) {
+    const dd = String(d.getDate()).padStart(2, '0'), m = String(d.getMonth() + 1).padStart(2, '0'), y = d.getFullYear();
+    return `${dd}/${m}/${y}`;
+  }
   function ptParse(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
   function ptAddDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
   function ptDayDiff(a, b) { return Math.round((b - a) / 86400000); }
@@ -17938,6 +17961,26 @@ if (document.readyState === 'loading') {
     return html;
   }
 
+  // ── Exact record of jin dates par study hui, kitne study-din ke saath ─────
+  function ptStudyDatesListHtml(assetKey, rangeKey, stats) {
+    const log = ptData[assetKey].log;
+    const today = ptToday();
+    const rows = [];
+    for (let d = new Date(stats.start); d <= today; d = ptAddDays(d, 1)) {
+      const ds = ptFmt(d);
+      const v = log[ds] || 0;
+      if (v > 0) rows.push({ ds, v, dmy: ptFmtDMY(d) });
+    }
+    if (!rows.length) {
+      return `<details class="pt-log-details"><summary>📋 Study Record (0 din)</summary>
+        <div class="pt-log-empty">Abhi tak koi din log nahi hua.</div></details>`;
+    }
+    rows.reverse(); // sabse latest upar
+    const items = rows.map(r => `<div class="pt-log-row"><span>${r.dmy}</span><b>${r.v} din</b></div>`).join('');
+    return `<details class="pt-log-details"><summary>📋 Study Record (${rows.length} din)</summary>
+      <div class="pt-log-list">${items}</div></details>`;
+  }
+
   // ── Weekly consistency strip ────────────────────────────────────────────
   function ptWeekStripHtml(assetKey) {
     const log = ptData[assetKey].log;
@@ -18014,8 +18057,16 @@ if (document.readyState === 'loading') {
   };
   window._ptStartPractice = function () {
     if (!ptPendingRanges.size) return;
-    const today = ptFmt(ptToday());
-    ptPendingRanges.forEach(k => { ptData[ptCurrentAsset].targets[k] = { start: today }; });
+    const asset = ptCurrentAsset;
+    const today = ptToday();
+    // Agar aaj ka din pehle se hi log ho chuka hai (auto-tracking ya kisi
+    // dusre target ki wajah se), to naya target us purani entry ko turant
+    // "inherit" nahi karega — warna naya target start hote hi already-progress
+    // dikhane lagta hai jabki user ne is target ke liye kuch log nahi kiya.
+    // Is case mein naya target kal se count start karega.
+    const alreadyLoggedToday = !!ptData[asset].log[ptFmt(today)];
+    const startDate = ptFmt(alreadyLoggedToday ? ptAddDays(today, 1) : today);
+    ptPendingRanges.forEach(k => { ptData[asset].targets[k] = { start: startDate }; });
     ptPendingRanges = new Set();
     ptSave(ptData);
     ptUpdateHeaderDot();
@@ -18154,6 +18205,7 @@ if (document.readyState === 'loading') {
             <span class="pt-card-title">${ptRangeInfo(rangeKey).label} Practice<span class="pt-range-tag">${stats.finished ? '🏁 Complete' : `${stats.doneStudyDays}/${stats.totalDays} din`}</span></span>
             <button class="pt-card-del" onclick="_ptRemoveTarget('${assetKey}','${rangeKey}')" title="Target hatao">🗑</button>
           </div>
+          <div class="pt-target-startdate">📅 Start Date: <b>${ptFmtDMY(stats.start)}</b></div>
           <div class="pt-card-main">
             <div class="pt-ring-wrap">${ptRingSvg(stats.percent)}
               <div class="pt-ring-pct"><b>${stats.percent}%</b><span>OVERALL</span></div>
@@ -18167,6 +18219,7 @@ if (document.readyState === 'loading') {
           </div>
           <div class="pt-bar-outer"><div class="pt-bar-inner" style="width:${stats.percent}%"></div></div>
           <div class="pt-heatmap">${ptHeatmapHtml(assetKey, rangeKey, stats)}</div>
+          ${ptStudyDatesListHtml(assetKey, rangeKey, stats)}
         </div>`;
       });
 
