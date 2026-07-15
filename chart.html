@@ -1338,14 +1338,120 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .sv2-practice-static-hint{ font-size:11px;font-weight:500;color:#787b86; }
 
+/* Settings heading — Target Setup fields (Total/Per-Day Target, dates,
+   Lock Period, Resume) ke upar, taaki niche ke Progress Tracker /
+   Analysis boxed-cards se ye clearly ek alag section lage. */
+.sv2-practice-section-title{
+  font-size:12px;font-weight:700;color:#787b86;margin-bottom:14px;
+  text-transform:uppercase;letter-spacing:.4px;
+}
+
 /* Progress Tracker — Total Target / Per Day Target ke against automatic
-   progress, resume-last-replay ke neeche */
+   progress, resume-last-replay ke neeche. Ab ek boxed "card" ki tarah
+   style kiya hai (background + border) taaki settings section se
+   clearly alag dikhe, sirf ek top-border se zyada. */
 .sv2-practice-tracker{
-  margin-top:16px;padding-top:14px;border-top:1px solid #2a2e39;
+  margin-top:18px;padding:14px;border-radius:10px;
+  background:#171b26;border:1px solid #262b3a;
 }
 .sv2-practice-tracker-title{
   font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:12px;
+  display:flex;align-items:center;gap:6px;
 }
+
+/* ── Analysis section — streak / rating / bar chart / achievements ──────── */
+.sv2-analysis-stat-row{
+  display:flex;gap:8px;margin-bottom:14px;
+}
+.sv2-analysis-stat{
+  flex:1;background:#1a1e29;border:1px solid #2a2e3e;border-radius:8px;
+  padding:10px 6px;text-align:center;
+}
+.sv2-analysis-stat-val{
+  font-size:17px;font-weight:800;color:#f0b429;line-height:1.1;
+}
+.sv2-analysis-stars{ font-size:14px;letter-spacing:1px;color:#f0b429; }
+.sv2-analysis-stat-lbl{
+  font-size:10px;font-weight:600;color:#848da0;margin-top:4px;
+  text-transform:uppercase;letter-spacing:.3px;
+}
+.sv2-analysis-sublabel{
+  font-size:11px;font-weight:600;color:#848da0;margin:12px 0 8px;
+  text-transform:uppercase;letter-spacing:.3px;
+}
+.sv2-analysis-chart{
+  display:flex;align-items:flex-end;gap:6px;
+  height:80px;background:#1a1e29;border:1px solid #2a2e3e;border-radius:8px;
+  padding:8px 8px 6px;
+}
+.sv2-analysis-bar-col{
+  flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:flex-end;height:100%;gap:4px;
+}
+.sv2-analysis-bar{
+  width:100%;max-width:18px;border-radius:3px 3px 0 0;
+  background:#363c4e;min-height:3px;transition:height .25s ease;
+}
+.sv2-analysis-bar.hit{ background:#26a69a; }
+.sv2-analysis-bar-day{ font-size:9px;color:#787b86;font-weight:600; }
+.sv2-analysis-badges{
+  display:flex;flex-wrap:wrap;gap:6px;
+}
+.sv2-analysis-badge{
+  font-size:11px;font-weight:600;padding:6px 9px;border-radius:14px;
+  background:#1a1e29;border:1px solid #2a2e3e;color:#4b5062;
+  display:flex;align-items:center;gap:5px;
+}
+.sv2-analysis-badge.unlocked{
+  background:#f0b42918;border-color:#f0b429;color:#f0b429;
+}
+
+/* ── Reward Popup — Total Target complete hone par seedha chart ke upar ─── */
+#sv2-reward-overlay{
+  display:none;position:fixed;inset:0;z-index:10500;
+  background:radial-gradient(circle at 50% 30%,#000c,#000d 70%);
+  align-items:center;justify-content:center;
+}
+#sv2-reward-overlay.open{ display:flex; }
+#sv2-reward-confetti{
+  position:absolute;inset:0;pointer-events:none;overflow:hidden;
+}
+#sv2-reward-confetti span{
+  position:absolute;top:-10%;width:8px;height:14px;opacity:.9;
+  animation:sv2ConfettiFall 2.6s linear infinite;
+}
+@keyframes sv2ConfettiFall{
+  0%{ transform:translateY(0) rotate(0deg); opacity:1; }
+  100%{ transform:translateY(115vh) rotate(540deg); opacity:.4; }
+}
+#sv2-reward-card{
+  position:relative;width:88%;max-width:360px;
+  background:linear-gradient(180deg,#1e222d,#171b26);
+  border:1px solid #f0b429;border-radius:16px;
+  padding:28px 22px 22px;text-align:center;
+  box-shadow:0 20px 60px #000a,0 0 0 1px #f0b42933;
+  animation:sv2RewardPop .45s cubic-bezier(.34,1.56,.64,1);
+}
+@keyframes sv2RewardPop{
+  0%{ transform:scale(.6); opacity:0; }
+  100%{ transform:scale(1); opacity:1; }
+}
+#sv2-reward-emoji{ font-size:52px;line-height:1;margin-bottom:8px; }
+#sv2-reward-title{
+  font-size:19px;font-weight:800;color:#f0b429;margin-bottom:6px;
+}
+#sv2-reward-msg{
+  font-size:13px;font-weight:500;color:#d1d4dc;margin-bottom:14px;line-height:1.4;
+}
+#sv2-reward-badges{
+  display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:18px;
+}
+#sv2-reward-close{
+  width:100%;height:44px;border-radius:10px;border:none;
+  background:#f0b429;color:#131722;font-size:14px;font-weight:800;
+  cursor:pointer;
+}
+#sv2-reward-close:active{ opacity:.85; }
 
 /* Resume Last Replay — practice tabs ke andar, calendar wale exact
    snapshot (SV2_SNAP_KEY) ko hi read/apply karta hai — dono jagah linked. */
@@ -2828,6 +2934,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
     <!-- BTC tab -->
     <div class="sv2-practice-tab" id="sv2-practice-tab-btc">
+      <div class="sv2-practice-section-title">🎯 Target Setup</div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Total Target (days)</label>
         <input type="number" class="sv2-practice-input" id="sv2-practice-total-btc" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('btc'); _sv2PracticeSyncTracker('btc')">
@@ -2854,6 +2961,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <div class="sv2-practice-tracker">
         <div class="sv2-practice-tracker-title">📊 Progress Tracker</div>
         <div class="sv2-practice-field">
+          <label class="sv2-practice-label">Current Day Progress</label>
+          <div class="sv2-practice-static" id="sv2-practice-tracker-daypct-btc">--</div>
+        </div>
+        <div class="sv2-practice-field">
           <label class="sv2-practice-label">Per Day Target Progress</label>
           <div class="sv2-practice-static" id="sv2-practice-tracker-today-btc">--</div>
         </div>
@@ -2862,10 +2973,37 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           <div class="sv2-practice-static" id="sv2-practice-tracker-total-btc">--</div>
         </div>
       </div>
+
+      <!-- Analysis — streak, rating, daily bar chart, achievements + reward -->
+      <div class="sv2-practice-tracker sv2-analysis">
+        <div class="sv2-practice-tracker-title">📈 Analysis</div>
+
+        <div class="sv2-analysis-stat-row">
+          <div class="sv2-analysis-stat">
+            <div class="sv2-analysis-stat-val" id="sv2-analysis-streak-btc">0</div>
+            <div class="sv2-analysis-stat-lbl">🔥 Streak</div>
+          </div>
+          <div class="sv2-analysis-stat">
+            <div class="sv2-analysis-stat-val" id="sv2-analysis-best-btc">0</div>
+            <div class="sv2-analysis-stat-lbl">🏅 Best</div>
+          </div>
+          <div class="sv2-analysis-stat">
+            <div class="sv2-analysis-stat-val sv2-analysis-stars" id="sv2-analysis-rating-btc">☆☆☆☆☆</div>
+            <div class="sv2-analysis-stat-lbl">Rating</div>
+          </div>
+        </div>
+
+        <div class="sv2-analysis-sublabel">Last 7 Days</div>
+        <div class="sv2-analysis-chart" id="sv2-analysis-chart-btc"></div>
+
+        <div class="sv2-analysis-sublabel">🏆 Achievements</div>
+        <div class="sv2-analysis-badges" id="sv2-analysis-badges-btc"></div>
+      </div>
     </div>
 
     <!-- BankNifty tab -->
     <div class="sv2-practice-tab" id="sv2-practice-tab-bn" style="display:none">
+      <div class="sv2-practice-section-title">🎯 Target Setup</div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Total Target (days)</label>
         <input type="number" class="sv2-practice-input" id="sv2-practice-total-bn" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('bn'); _sv2PracticeSyncTracker('bn')">
@@ -2892,6 +3030,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <div class="sv2-practice-tracker">
         <div class="sv2-practice-tracker-title">📊 Progress Tracker</div>
         <div class="sv2-practice-field">
+          <label class="sv2-practice-label">Current Day Progress</label>
+          <div class="sv2-practice-static" id="sv2-practice-tracker-daypct-bn">--</div>
+        </div>
+        <div class="sv2-practice-field">
           <label class="sv2-practice-label">Per Day Target Progress</label>
           <div class="sv2-practice-static" id="sv2-practice-tracker-today-bn">--</div>
         </div>
@@ -2900,7 +3042,48 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
           <div class="sv2-practice-static" id="sv2-practice-tracker-total-bn">--</div>
         </div>
       </div>
+
+      <!-- Analysis — streak, rating, daily bar chart, achievements + reward -->
+      <div class="sv2-practice-tracker sv2-analysis">
+        <div class="sv2-practice-tracker-title">📈 Analysis</div>
+
+        <div class="sv2-analysis-stat-row">
+          <div class="sv2-analysis-stat">
+            <div class="sv2-analysis-stat-val" id="sv2-analysis-streak-bn">0</div>
+            <div class="sv2-analysis-stat-lbl">🔥 Streak</div>
+          </div>
+          <div class="sv2-analysis-stat">
+            <div class="sv2-analysis-stat-val" id="sv2-analysis-best-bn">0</div>
+            <div class="sv2-analysis-stat-lbl">🏅 Best</div>
+          </div>
+          <div class="sv2-analysis-stat">
+            <div class="sv2-analysis-stat-val sv2-analysis-stars" id="sv2-analysis-rating-bn">☆☆☆☆☆</div>
+            <div class="sv2-analysis-stat-lbl">Rating</div>
+          </div>
+        </div>
+
+        <div class="sv2-analysis-sublabel">Last 7 Days</div>
+        <div class="sv2-analysis-chart" id="sv2-analysis-chart-bn"></div>
+
+        <div class="sv2-analysis-sublabel">🏆 Achievements</div>
+        <div class="sv2-analysis-badges" id="sv2-analysis-badges-bn"></div>
+      </div>
     </div>
+  </div>
+</div>
+
+<!-- Reward Popup — Total Target complete hone par SEEDHA CHART ke upar
+     dikhta hai (practice sheet band ho tab bhi), asset name + emoji ke
+     saath. Ek baar target complete hone par hi trigger hota hai
+     (t.rewardShown flag se dedupe). -->
+<div id="sv2-reward-overlay">
+  <div id="sv2-reward-confetti"></div>
+  <div id="sv2-reward-card">
+    <div id="sv2-reward-emoji">🏆</div>
+    <div id="sv2-reward-title">Target Complete!</div>
+    <div id="sv2-reward-msg">--</div>
+    <div id="sv2-reward-badges"></div>
+    <button id="sv2-reward-close" onclick="_sv2RewardClose()">Nice! Continue 🚀</button>
   </div>
 </div>
 
@@ -5417,23 +5600,46 @@ function _sv2TrackerSyncSettings(assetKey, startDate, totalTarget, perDayTarget)
       perDayTarget:   perDayTarget,
       practicedDates: (cur && cur.startDate === startDate) ? cur.practicedDates : [],
       dailyLog:       (cur && cur.startDate === startDate) ? cur.dailyLog : {},
+      // Current in-progress (not-yet-complete) trading date + kitna % us din
+      // ka session abhi tak replay hua hai. Ye sirf UI dikhane ke liye hai —
+      // isse practicedDates/totalDone kabhi count nahi hota jab tak din
+      // 100% (poora session) replay na ho jaaye.
+      curDate:        (cur && cur.startDate === startDate) ? (cur.curDate || null) : null,
+      curPct:         (cur && cur.startDate === startDate) ? (cur.curPct  || 0)    : 0,
+      // Reward popup dedupe-flag — sirf jab startDate same rahe (yaani
+      // wahi practice cycle continue ho raha hai) tab carry hota hai.
+      // Naya startDate = naya cycle = popup phir se eligible.
+      rewardShown:    (cur && cur.startDate === startDate) ? (cur.rewardShown || false) : false,
     };
     _sv2TrackerSaveAll(all);
   }
   return all[assetKey];
 }
 
-// Replay ke har candle-reveal (tick) par call hota hai. barDateStr =
-// jis trading/calendar date ki candle abhi reveal hui (YYYY-MM-DD).
-function _sv2TrackerOnStep(assetKey, barDateStr) {
+// Replay ke har candle-reveal (tick) par call hota hai. barDateStr = jis
+// trading/calendar date ki candle abhi reveal hui (YYYY-MM-DD). dayPct =
+// us trading date ka poora session (BankNifty 9:15→15:30, BTC 5:30am→
+// agle din 5:30am) ab tak kitna % replay ho chuka hai (0-100). isDayComplete
+// = true sirf tab jab us date ka AKHRI bar (poora session) reveal ho chuka
+// hai — sirf tabhi ye date "1 day complete" gin ke Total/Per-Day Target
+// Progress me count hoti hai. Beech ki candles sirf % progress update
+// karti hain, day-count NAHI badhati.
+function _sv2TrackerOnStep(assetKey, barDateStr, dayPct, isDayComplete) {
   const all = _sv2TrackerLoadAll();
   const t = all[assetKey];
   if (!t || !t.totalTarget) return;   // is asset ke liye tracker configured nahi
 
-  if (t.practicedDates.indexOf(barDateStr) === -1) {
+  t.curDate = barDateStr;
+  t.curPct  = (typeof dayPct === 'number') ? Math.max(0, Math.min(100, Math.round(dayPct))) : 0;
+
+  let changed = true;
+  if (isDayComplete && t.practicedDates.indexOf(barDateStr) === -1) {
     t.practicedDates.push(barDateStr);
     const today = _sv2PracticeTodayStr();
     t.dailyLog[today] = (t.dailyLog[today] || 0) + 1;
+    t.curPct = 100;
+  }
+  if (changed) {
     _sv2TrackerSaveAll(all);
     _sv2TrackerRefreshUI(assetKey);
   }
@@ -5443,9 +5649,12 @@ function _sv2TrackerRefreshUI(assetKey) {
   const t      = _sv2TrackerGet(assetKey);
   const totEl  = document.getElementById('sv2-practice-tracker-total-' + assetKey);
   const dayEl  = document.getElementById('sv2-practice-tracker-today-' + assetKey);
+  const pctEl  = document.getElementById('sv2-practice-tracker-daypct-' + assetKey);
   if (!t) {
     if (totEl) totEl.textContent = '--';
     if (dayEl) dayEl.textContent = '--';
+    if (pctEl) pctEl.textContent = '--';
+    _sv2AnalysisRender(assetKey);
     return;
   }
   const totalDone = t.practicedDates.length;
@@ -5453,7 +5662,189 @@ function _sv2TrackerRefreshUI(assetKey) {
   const todayDone = t.dailyLog[today] || 0;
   if (totEl) totEl.textContent = totalDone + ' / ' + t.totalTarget + ' days';
   if (dayEl) dayEl.textContent = todayDone + ' / ' + t.perDayTarget + ' dates';
+  if (pctEl) {
+    if (t.curDate) {
+      const isDone = t.practicedDates.indexOf(t.curDate) !== -1;
+      pctEl.textContent = t.curDate + '  —  ' + (isDone ? 100 : t.curPct) + '%' + (isDone ? ' ✅ complete' : '');
+    } else {
+      pctEl.textContent = '--';
+    }
+  }
+  _sv2AnalysisRender(assetKey);
+  _sv2RewardCheck(assetKey, t, totalDone);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// ── SV2 Practice Analysis — streak / rating / bar chart / achievements ────
+// Sab kuch tracker ke existing data (practicedDates + dailyLog) se hi
+// derive hota hai, koi naya localStorage key nahi lagta (rewardShown chhod
+// ke, jo sirf ek baar ka popup dedupe karne ke liye hai).
+// ════════════════════════════════════════════════════════════════════════════
+function _sv2DateDiffDays(a, b) {
+  const da = new Date(a + 'T00:00:00');
+  const db = new Date(b + 'T00:00:00');
+  return Math.round((db - da) / 86400000);
+}
+
+// Current streak = consecutive REAL calendar days (ending aaj ya kal tak)
+// jinme us din ka Per Day Target poora hua. Best streak = ab tak ka
+// sabse lamba aisa run, poore history me.
+function _sv2AnalysisStreaks(t) {
+  const dates = Object.keys(t.dailyLog || {}).sort();
+  let best = 0, run = 0, prevDate = null;
+  dates.forEach(function(d) {
+    const met = (t.dailyLog[d] || 0) >= t.perDayTarget;
+    if (met) {
+      run = (prevDate && _sv2DateDiffDays(prevDate, d) === 1) ? run + 1 : 1;
+      if (run > best) best = run;
+      prevDate = d;
+    } else {
+      run = 0;
+      prevDate = d;
+    }
+  });
+  let current = 0;
+  if (dates.length) {
+    const lastDate = dates[dates.length - 1];
+    const gap = _sv2DateDiffDays(lastDate, _sv2PracticeTodayStr());
+    if (gap <= 1) current = run;   // streak abhi tak "alive" hai
+  }
+  return { current: current, best: best };
+}
+
+// 0-5 stars — 60% weightage consistency (kitne logged dinon me Per Day
+// Target hit hua) + 40% weightage overall completion (Total Target).
+function _sv2AnalysisRating(t) {
+  const dates = Object.keys(t.dailyLog || {});
+  const metCount = dates.filter(function(d) { return (t.dailyLog[d] || 0) >= t.perDayTarget; }).length;
+  const consistency = dates.length ? (metCount / dates.length) : 0;
+  const completion  = t.totalTarget ? Math.min(1, t.practicedDates.length / t.totalTarget) : 0;
+  const score = (consistency * 0.6 + completion * 0.4) * 5;
+  return Math.round(score);   // nearest whole star
+}
+
+function _sv2AnalysisAchievements(t, streaks, rating) {
+  const totalDone = t.practicedDates.length;
+  const list = [
+    { id: 'first',     emoji: '🥉', label: 'First Step',     unlocked: totalDone >= 1 },
+    { id: 'streak3',   emoji: '🔥', label: '3-Day Streak',   unlocked: streaks.best >= 3 },
+    { id: 'streak7',   emoji: '🔥', label: '7-Day Streak',   unlocked: streaks.best >= 7 },
+    { id: 'halfway',   emoji: '⚡', label: 'Halfway There',  unlocked: t.totalTarget > 0 && totalDone >= t.totalTarget / 2 },
+    { id: 'complete',  emoji: '🏆', label: 'Target Complete',unlocked: t.totalTarget > 0 && totalDone >= t.totalTarget },
+    { id: 'perfect',   emoji: '🌟', label: 'Perfectionist',  unlocked: rating >= 5 },
+  ];
+  return list;
+}
+
+function _sv2AnalysisRender(assetKey) {
+  const t = _sv2TrackerGet(assetKey);
+  const streakEl = document.getElementById('sv2-analysis-streak-' + assetKey);
+  const bestEl   = document.getElementById('sv2-analysis-best-'   + assetKey);
+  const rateEl   = document.getElementById('sv2-analysis-rating-' + assetKey);
+  const chartEl  = document.getElementById('sv2-analysis-chart-'  + assetKey);
+  const badgesEl = document.getElementById('sv2-analysis-badges-' + assetKey);
+  if (!streakEl || !bestEl || !rateEl || !chartEl || !badgesEl) return;
+
+  if (!t) {
+    streakEl.textContent = '0'; bestEl.textContent = '0'; rateEl.textContent = '☆☆☆☆☆';
+    chartEl.innerHTML = ''; badgesEl.innerHTML = '';
+    return;
+  }
+
+  const streaks = _sv2AnalysisStreaks(t);
+  const rating  = _sv2AnalysisRating(t);
+  streakEl.textContent = streaks.current;
+  bestEl.textContent   = streaks.best;
+  rateEl.textContent   = '★★★★★☆☆☆☆☆'.slice(5 - rating, 10 - rating);
+
+  // Last 7 real calendar days ka bar chart — height = us din kitni
+  // dates practice hui (Per Day Target ke against).
+  const todayStr = _sv2PracticeTodayStr();
+  const todayD   = new Date(todayStr + 'T00:00:00');
+  let barsHtml = '';
+  const maxVal = Math.max(t.perDayTarget || 1, 1,
+    ...[0,1,2,3,4,5,6].map(function(i){
+      const dd = new Date(todayD); dd.setDate(dd.getDate() - (6 - i));
+      const ds = dd.toISOString().slice(0,10);
+      return t.dailyLog[ds] || 0;
+    }));
+  for (let i = 0; i < 7; i++) {
+    const dd = new Date(todayD); dd.setDate(dd.getDate() - (6 - i));
+    const ds = dd.toISOString().slice(0,10);
+    const val = t.dailyLog[ds] || 0;
+    const pct = Math.max(6, Math.round((val / maxVal) * 100));
+    const hit = val >= (t.perDayTarget || 1) && val > 0;
+    const dayLbl = ['S','M','T','W','T','F','S'][dd.getDay()];
+    barsHtml += '<div class="sv2-analysis-bar-col">' +
+      '<div class="sv2-analysis-bar' + (hit ? ' hit' : '') + '" style="height:' + pct + '%"></div>' +
+      '<div class="sv2-analysis-bar-day">' + dayLbl + '</div>' +
+      '</div>';
+  }
+  chartEl.innerHTML = barsHtml;
+
+  const achievements = _sv2AnalysisAchievements(t, streaks, rating);
+  badgesEl.innerHTML = achievements.map(function(a) {
+    return '<div class="sv2-analysis-badge' + (a.unlocked ? ' unlocked' : '') + '">' +
+      a.emoji + ' ' + a.label + '</div>';
+  }).join('');
+}
+
+// Total Target poora hone par — ek hi baar (rewardShown flag se dedupe) —
+// seedha chart ke upar reward popup dikhata hai, chahe practice sheet
+// khula ho ya band.
+function _sv2RewardCheck(assetKey, t, totalDone) {
+  if (!t || !t.totalTarget) return;
+  if (totalDone >= t.totalTarget && !t.rewardShown) {
+    const all = _sv2TrackerLoadAll();
+    if (all[assetKey]) {
+      all[assetKey].rewardShown = true;
+      _sv2TrackerSaveAll(all);
+    }
+    _sv2ShowRewardPopup(assetKey, t);
+  }
+}
+
+function _sv2ShowRewardPopup(assetKey, t) {
+  const overlay  = document.getElementById('sv2-reward-overlay');
+  const msgEl    = document.getElementById('sv2-reward-msg');
+  const badgesEl = document.getElementById('sv2-reward-badges');
+  const confetti = document.getElementById('sv2-reward-confetti');
+  if (!overlay) return;
+
+  const assetLabel = assetKey === 'btc' ? '₿ BTC' : '📊 BankNifty';
+  if (msgEl) {
+    msgEl.textContent = assetLabel + ' practice target complete — ' +
+      t.totalTarget + '/' + t.totalTarget + ' din poore ho gaye! 🎉';
+  }
+  if (badgesEl) {
+    const streaks = _sv2AnalysisStreaks(t);
+    const rating  = _sv2AnalysisRating(t);
+    badgesEl.innerHTML = _sv2AnalysisAchievements(t, streaks, rating)
+      .filter(function(a){ return a.unlocked; })
+      .map(function(a){ return '<div class="sv2-analysis-badge unlocked">' + a.emoji + ' ' + a.label + '</div>'; })
+      .join('');
+  }
+  if (confetti) {
+    const colors = ['#f0b429','#26a69a','#2962ff','#ef5350','#ab47bc'];
+    let html = '';
+    for (let i = 0; i < 40; i++) {
+      const left = Math.random() * 100;
+      const delay = (Math.random() * 2).toFixed(2);
+      const dur = (2 + Math.random() * 1.4).toFixed(2);
+      const color = colors[i % colors.length];
+      html += '<span style="left:' + left + '%;background:' + color +
+        ';animation-delay:' + delay + 's;animation-duration:' + dur + 's;"></span>';
+    }
+    confetti.innerHTML = html;
+  }
+  overlay.classList.add('open');
+}
+
+function _sv2RewardClose() {
+  const overlay = document.getElementById('sv2-reward-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+window._sv2RewardClose = _sv2RewardClose;
 
 // Practice sheet ke Total Target / Per Day Target / Start Date inputs
 // se call hota hai — current values read karke tracker settings sync
@@ -7175,7 +7566,31 @@ function ss2ApplyAndClose() {
         var _trackKey = _stackKeyForAsset(S.asset);
         if (_trackKey === 'btc' || _trackKey === 'bn') {
           var _barDateStr = _utcDateStr(live.baseBars[live.revealIdx - 1].time);
-          _sv2TrackerOnStep(_trackKey, _barDateStr);
+          // Us trading date ke saare base bars (poore session ke) count
+          // karo vs abhi tak kitne reveal ho chuke — isse % progress aur
+          // "poora din complete hua ya nahi" dono maloom chalta hai.
+          // BankNifty = 9:15→15:30 IST session, BTC = 5:30am→agle din
+          // 5:30am IST (24h) — baseBars array me sirf usi date/session ke
+          // andar aane waale bars hi is date ke "total" me count honge.
+          var _dayTotalBars = 0, _dayDoneBars = 0;
+          for (var _bi = 0; _bi < live.baseBars.length; _bi++) {
+            if (_utcDateStr(live.baseBars[_bi].time) === _barDateStr) {
+              _dayTotalBars++;
+              if (_bi < live.revealIdx) _dayDoneBars++;
+            }
+          }
+          var _dayPct = _dayTotalBars > 0 ? (_dayDoneBars / _dayTotalBars) * 100 : 0;
+          // Poora din tabhi "complete" mana jayega jab is date ke saare
+          // bars reveal ho chuke hon AAUR ya to replay data hi khatam ho
+          // gaya ho, ya agla revealed bar kisi doosri date ka ho (yaani
+          // is date ka session poora play ho chuka, ab agle din shuru
+          // ho raha hai). Sirf ek candle ban jaane se din complete NAHI
+          // hota — jab tak socha hua poora session (BankNifty 9:15-15:30,
+          // BTC 24h cycle) khatam na ho.
+          var _nextBarDifferentDay = (live.revealIdx >= live.baseBars.length) ||
+            (_utcDateStr(live.baseBars[live.revealIdx].time) !== _barDateStr);
+          var _isDayComplete = (_dayDoneBars >= _dayTotalBars) && _nextBarDifferentDay;
+          _sv2TrackerOnStep(_trackKey, _barDateStr, _dayPct, _isDayComplete);
         }
       }
     } catch(_) {}
