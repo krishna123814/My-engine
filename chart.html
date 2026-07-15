@@ -1338,6 +1338,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .sv2-practice-static-hint{ font-size:11px;font-weight:500;color:#787b86; }
 
+/* Progress Tracker — Total Target / Per Day Target ke against automatic
+   progress, resume-last-replay ke neeche */
+.sv2-practice-tracker{
+  margin-top:16px;padding-top:14px;border-top:1px solid #2a2e39;
+}
+.sv2-practice-tracker-title{
+  font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:12px;
+}
+
 /* Resume Last Replay — practice tabs ke andar, calendar wale exact
    snapshot (SV2_SNAP_KEY) ko hi read/apply karta hai — dono jagah linked. */
 .sv2-practice-resume-btn{
@@ -2821,15 +2830,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div class="sv2-practice-tab" id="sv2-practice-tab-btc">
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Total Target (days)</label>
-        <input type="number" class="sv2-practice-input" id="sv2-practice-total-btc" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('btc')">
+        <input type="number" class="sv2-practice-input" id="sv2-practice-total-btc" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('btc'); _sv2PracticeSyncTracker('btc')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Per Day Target</label>
-        <input type="number" class="sv2-practice-input" id="sv2-practice-perday-btc" min="1" step="1" value="3">
+        <input type="number" class="sv2-practice-input" id="sv2-practice-perday-btc" min="1" step="1" value="3" oninput="_sv2PracticeSyncTracker('btc')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Practice Start Date</label>
-        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-btc" onchange="_sv2PracticeUpdateEndDate('btc'); _sv2PracticeApplyStartDate('btc')">
+        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-btc" onchange="_sv2PracticeUpdateEndDate('btc'); _sv2PracticeApplyStartDate('btc'); _sv2PracticeSyncTracker('btc')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Practice End Date</label>
@@ -2840,21 +2849,34 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="sv2-practice-static" id="sv2-practice-lockperiod-btc">-- → --</div>
       </div>
       <button id="sv2-practice-resume-btc" class="sv2-practice-resume-btn" onclick="_sv2PracticeResume('btc')">▶ Resume Last Replay</button>
+
+      <!-- Progress Tracker — auto-updates jab replay Play/Step chalta hai -->
+      <div class="sv2-practice-tracker">
+        <div class="sv2-practice-tracker-title">📊 Progress Tracker</div>
+        <div class="sv2-practice-field">
+          <label class="sv2-practice-label">Per Day Target Progress</label>
+          <div class="sv2-practice-static" id="sv2-practice-tracker-today-btc">--</div>
+        </div>
+        <div class="sv2-practice-field">
+          <label class="sv2-practice-label">Total Target Progress</label>
+          <div class="sv2-practice-static" id="sv2-practice-tracker-total-btc">--</div>
+        </div>
+      </div>
     </div>
 
     <!-- BankNifty tab -->
     <div class="sv2-practice-tab" id="sv2-practice-tab-bn" style="display:none">
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Total Target (days)</label>
-        <input type="number" class="sv2-practice-input" id="sv2-practice-total-bn" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('bn')">
+        <input type="number" class="sv2-practice-input" id="sv2-practice-total-bn" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('bn'); _sv2PracticeSyncTracker('bn')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Per Day Target</label>
-        <input type="number" class="sv2-practice-input" id="sv2-practice-perday-bn" min="1" step="1" value="3">
+        <input type="number" class="sv2-practice-input" id="sv2-practice-perday-bn" min="1" step="1" value="3" oninput="_sv2PracticeSyncTracker('bn')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Practice Start Date</label>
-        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-bn" onchange="_sv2PracticeUpdateEndDate('bn'); _sv2PracticeApplyStartDate('bn')">
+        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-bn" onchange="_sv2PracticeUpdateEndDate('bn'); _sv2PracticeApplyStartDate('bn'); _sv2PracticeSyncTracker('bn')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Practice End Date</label>
@@ -2865,6 +2887,19 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <div class="sv2-practice-static" id="sv2-practice-lockperiod-bn">-- → --</div>
       </div>
       <button id="sv2-practice-resume-bn" class="sv2-practice-resume-btn" onclick="_sv2PracticeResume('bn')">▶ Resume Last Replay</button>
+
+      <!-- Progress Tracker — auto-updates jab replay Play/Step chalta hai -->
+      <div class="sv2-practice-tracker">
+        <div class="sv2-practice-tracker-title">📊 Progress Tracker</div>
+        <div class="sv2-practice-field">
+          <label class="sv2-practice-label">Per Day Target Progress</label>
+          <div class="sv2-practice-static" id="sv2-practice-tracker-today-bn">--</div>
+        </div>
+        <div class="sv2-practice-field">
+          <label class="sv2-practice-label">Total Target Progress</label>
+          <div class="sv2-practice-static" id="sv2-practice-tracker-total-bn">--</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -5194,6 +5229,8 @@ function _sv2PracticeToggle() {
   _sv2PracticeUpdateEndDate('btc');
   _sv2PracticeUpdateEndDate('bn');
   _sv2PracticeRefreshResumeUI();
+  _sv2PracticeSyncTracker('btc');
+  _sv2PracticeSyncTracker('bn');
 
   sheet.classList.add('open');
   backdrop.classList.add('open');
@@ -5335,6 +5372,108 @@ function _sv2PracticeRefreshResumeUI() {
 function _sv2PracticeResume(assetKey) {
   _sv2PracticeClose();
   if (typeof _sv2ResumeLastReplay === 'function') _sv2ResumeLastReplay(assetKey);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 PRACTICE — PROGRESS TRACKER (automatic, persisted) ───────────────────
+// Bar-replay me Play/Step chalte hi, jo bhi trading/calendar date pehli
+// baar reveal hoti hai use "practiced" mark kar diya jaata hai — Total
+// Target (cumulative) aur Per Day Target (aaj, real-world day) dono me
+// count hoti hai. localStorage me save hota hai, isliye app beech me
+// exit ho jaaye to bhi progress khoti nahi — reopen hone par wahi se
+// continue. Kisi din target se zyada practice ho jaaye (jaise 3 ki jagah
+// 4), to wo extra bhi total me count ho jaata hai — isliye agle dinon
+// me apne aap kam bacha hua target dikhega (compensate).
+// ════════════════════════════════════════════════════════════════════════════
+const SV2_TRACKER_KEY = 'sv2PracticeTracker';
+
+function _sv2TrackerLoadAll() {
+  try {
+    const raw = _LS.getItem(SV2_TRACKER_KEY);
+    return raw ? (JSON.parse(raw) || {}) : {};
+  } catch(_) { return {}; }
+}
+function _sv2TrackerSaveAll(obj) {
+  try { _LS.setItem(SV2_TRACKER_KEY, JSON.stringify(obj)); } catch(_) {}
+}
+function _sv2TrackerGet(assetKey) {
+  const all = _sv2TrackerLoadAll();
+  return all[assetKey] || null;
+}
+
+// Practice ke Total Target / Per Day Target / Start Date jab bhi
+// set/change hote hain, yahan se sync hota hai. Agar in teeno me se
+// koi bhi pehle se saved tracker state se alag hai, to naya target =
+// naya tracking maan ke progress fresh (0) se shuru hoti hai.
+function _sv2TrackerSyncSettings(assetKey, startDate, totalTarget, perDayTarget) {
+  const all = _sv2TrackerLoadAll();
+  const cur = all[assetKey];
+  const changed = !cur || cur.startDate !== startDate ||
+                  cur.totalTarget !== totalTarget || cur.perDayTarget !== perDayTarget;
+  if (changed) {
+    all[assetKey] = {
+      startDate:      startDate,
+      totalTarget:    totalTarget,
+      perDayTarget:   perDayTarget,
+      practicedDates: (cur && cur.startDate === startDate) ? cur.practicedDates : [],
+      dailyLog:       (cur && cur.startDate === startDate) ? cur.dailyLog : {},
+    };
+    _sv2TrackerSaveAll(all);
+  }
+  return all[assetKey];
+}
+
+// Replay ke har candle-reveal (tick) par call hota hai. barDateStr =
+// jis trading/calendar date ki candle abhi reveal hui (YYYY-MM-DD).
+function _sv2TrackerOnStep(assetKey, barDateStr) {
+  const all = _sv2TrackerLoadAll();
+  const t = all[assetKey];
+  if (!t || !t.totalTarget) return;   // is asset ke liye tracker configured nahi
+
+  if (t.practicedDates.indexOf(barDateStr) === -1) {
+    t.practicedDates.push(barDateStr);
+    const today = _sv2PracticeTodayStr();
+    t.dailyLog[today] = (t.dailyLog[today] || 0) + 1;
+    _sv2TrackerSaveAll(all);
+    _sv2TrackerRefreshUI(assetKey);
+  }
+}
+
+function _sv2TrackerRefreshUI(assetKey) {
+  const t      = _sv2TrackerGet(assetKey);
+  const totEl  = document.getElementById('sv2-practice-tracker-total-' + assetKey);
+  const dayEl  = document.getElementById('sv2-practice-tracker-today-' + assetKey);
+  if (!t) {
+    if (totEl) totEl.textContent = '--';
+    if (dayEl) dayEl.textContent = '--';
+    return;
+  }
+  const totalDone = t.practicedDates.length;
+  const today     = _sv2PracticeTodayStr();
+  const todayDone = t.dailyLog[today] || 0;
+  if (totEl) totEl.textContent = totalDone + ' / ' + t.totalTarget + ' days';
+  if (dayEl) dayEl.textContent = todayDone + ' / ' + t.perDayTarget + ' dates';
+}
+
+// Practice sheet ke Total Target / Per Day Target / Start Date inputs
+// se call hota hai — current values read karke tracker settings sync
+// karta hai aur UI refresh kar deta hai.
+function _sv2PracticeSyncTracker(assetKey) {
+  const totalEl  = document.getElementById('sv2-practice-total-' + assetKey);
+  const perdayEl = document.getElementById('sv2-practice-perday-' + assetKey);
+  const startEl  = document.getElementById('sv2-practice-startdate-' + assetKey);
+  if (!totalEl || !perdayEl || !startEl) return;
+
+  const totalTarget  = parseInt(totalEl.value, 10);
+  const perDayTarget = parseInt(perdayEl.value, 10);
+  const startDate    = startEl.value;
+
+  if (!startDate || !totalTarget || totalTarget < 1 || !perDayTarget || perDayTarget < 1) {
+    _sv2TrackerRefreshUI(assetKey);
+    return;
+  }
+  _sv2TrackerSyncSettings(assetKey, startDate, totalTarget, perDayTarget);
+  _sv2TrackerRefreshUI(assetKey);
 }
 
 function selectStack2View() {
@@ -7031,6 +7170,15 @@ function ss2ApplyAndClose() {
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
+    try {
+      if (typeof _sv2TrackerOnStep === 'function' && typeof _stackKeyForAsset === 'function' && typeof _utcDateStr === 'function') {
+        var _trackKey = _stackKeyForAsset(S.asset);
+        if (_trackKey === 'btc' || _trackKey === 'bn') {
+          var _barDateStr = _utcDateStr(live.baseBars[live.revealIdx - 1].time);
+          _sv2TrackerOnStep(_trackKey, _barDateStr);
+        }
+      }
+    } catch(_) {}
 
     var moreLeft = live.revealIdx < live.baseBars.length;
 
