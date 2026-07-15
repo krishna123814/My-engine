@@ -2275,6 +2275,17 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 .pt-section-lbl{font-size:11px;font-weight:800;letter-spacing:.03em;color:#767b86;text-transform:uppercase;margin:14px 0 8px}
 .pt-section-lbl:first-child{margin-top:2px}
 
+.pt-perday-row{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:#1c2029;border:1px solid #2a2e39;border-radius:10px;padding:10px 12px;margin-bottom:10px;
+}
+.pt-perday-row span{font-size:12px;color:#c7cad1;font-weight:600;flex:1}
+.pt-perday-row input{
+  width:52px;background:#161a25;border:1px solid #2a2e39;border-radius:7px;
+  color:#d1d4dc;font-size:13px;font-weight:800;text-align:center;padding:6px 4px;outline:none;
+}
+#pt-mark-today:disabled{opacity:.75;cursor:default}
+
 /* Range picker (jab koi target active nahi ya naya add karna ho) */
 #pt-range-picker{
   background:#1c2029;border:1px solid #2a2e39;border-radius:12px;padding:12px;
@@ -17663,7 +17674,14 @@ if (document.readyState === 'loading') {
 
   // ── Storage ──────────────────────────────────────────────────────────────
   function ptDefaultData() {
-    return { bn: { targets: {}, log: {}, notes: {} }, btc: { targets: {}, log: {}, notes: {} }, badges: [] };
+    return { bn: { targets: {}, log: {}, notes: {}, perDay: 3 }, btc: { targets: {}, log: {}, notes: {}, perDay: 3 }, badges: [] };
+  }
+  // Purane data mein log[date] = true (boolean) hota tha — ab log[date] = number
+  // (us din kitne "study-din" cover kiye, e.g. 10/03 + 11/03 = 2). Migration: true -> 1.
+  function _ptMigrateLog(log) {
+    const out = {};
+    Object.keys(log || {}).forEach(k => { out[k] = log[k] === true ? 1 : (Number(log[k]) || 0); });
+    return out;
   }
   function ptLoad() {
     const base = ptDefaultData();
@@ -17672,8 +17690,8 @@ if (document.readyState === 'loading') {
       if (!raw) return base;
       const p = JSON.parse(raw);
       return {
-        bn:  { targets: (p.bn  && p.bn.targets)  || {}, log: (p.bn  && p.bn.log)  || {}, notes: (p.bn  && p.bn.notes)  || {} },
-        btc: { targets: (p.btc && p.btc.targets) || {}, log: (p.btc && p.btc.log) || {}, notes: (p.btc && p.btc.notes) || {} },
+        bn:  { targets: (p.bn  && p.bn.targets)  || {}, log: _ptMigrateLog(p.bn  && p.bn.log),  notes: (p.bn  && p.bn.notes)  || {}, perDay: (p.bn  && p.bn.perDay)  || 3 },
+        btc: { targets: (p.btc && p.btc.targets) || {}, log: _ptMigrateLog(p.btc && p.btc.log), notes: (p.btc && p.btc.notes) || {}, perDay: (p.btc && p.btc.perDay) || 3 },
         badges: p.badges || [],
       };
     } catch (_) { return base; }
@@ -17692,67 +17710,60 @@ if (document.readyState === 'loading') {
   let ptReminder = ptLoadReminder();
 
   // ── Log today's practice for an asset (called automatically + manually) ───
-  function ptLogToday(assetKey) {
+  // amount = us din kitne "study-din" cover kiye (default = asset ka perDay setting, e.g. 3)
+  function ptLogToday(assetKey, amount) {
     if (!ptData[assetKey]) return;
     const today = ptFmt(ptToday());
     if (ptData[assetKey].log[today]) return;
-    ptData[assetKey].log[today] = true;
+    const amt = Math.max(1, Number(amount) || ptData[assetKey].perDay || 3);
+    ptData[assetKey].log[today] = amt;
     ptSave(ptData);
     ptUpdateHeaderDot();
     ptCheckBadges();
     if (document.getElementById('pt-overlay').classList.contains('open')) ptRenderBody();
   }
   window._ptLogToday = ptLogToday;
+  window._ptSetPerDay = function (assetKey, val) {
+    const n = Math.max(1, parseInt(val, 10) || 3);
+    ptData[assetKey].perDay = n;
+    ptSave(ptData);
+  };
 
-  // ── Stats for one target (ab weekly-frequency target ke saath) ─────────
+  // ── Stats for one target ────────────────────────────────────────────────
+  // Ab target = total "study-din" ka number (jaise 27), aur har real calendar
+  // din ko log[date] mein utne study-din count kiye ja sakte hain (jaise ek
+  // din BankNifty ke 10/03/2026 aur 11/03/2026 dono cover kiye => 2). Progress
+  // in study-din ke cumulative sum se calculate hota hai, sirf din-count se nahi.
   function ptStatsFor(assetKey, rangeKey) {
     const t = ptData[assetKey].targets[rangeKey];
     if (!t) return null;
     const start = ptParse(t.start);
-    const freq = t.freq || 7; // purane targets (freq na ho) = daily maana jaayega
-    const totalDays = ptRangeInfo(rangeKey).days;
+    const totalDays = ptRangeInfo(rangeKey).days; // total study-din target
     const today = ptToday();
-    const elapsedDays = Math.min(Math.max(ptDayDiff(start, today) + 1, 0), totalDays);
-    const endDate = ptAddDays(start, totalDays - 1);
     const log = ptData[assetKey].log;
 
-    const totalWeeks = Math.ceil(totalDays / 7);
-    const weeks = [];
-    let doneDaysTotal = 0, missedDaysTotal = 0, targetTotalDays = 0, currentWeekIdx = -1;
-    for (let w = 0; w < totalWeeks; w++) {
-      const weekStart = ptAddDays(start, w * 7);
-      const daysInWeek = Math.min(7, totalDays - w * 7);
-      const weekTarget = Math.min(freq, daysInWeek);
-      targetTotalDays += weekTarget;
-      let doneCount = 0, missedCount = 0;
-      for (let i = 0; i < daysInWeek; i++) {
-        const d = ptAddDays(weekStart, i), ds = ptFmt(d);
-        if (d <= today) { if (log[ds]) { doneCount++; doneDaysTotal++; } else { missedCount++; missedDaysTotal++; } }
-      }
-      const weekEnd = ptAddDays(weekStart, daysInWeek - 1);
-      const isCurrent = today >= weekStart && today <= weekEnd;
-      const isFuture = weekStart > today;
-      if (isCurrent) currentWeekIdx = w;
-      weeks.push({ idx: w, weekStart, weekEnd, daysInWeek, weekTarget, doneCount, missedCount, achieved: doneCount >= weekTarget, isCurrent, isFuture });
+    let doneStudyDays = 0, daysPracticed = 0, missedDays = 0;
+    for (let d = new Date(start); d <= today; d = ptAddDays(d, 1)) {
+      const ds = ptFmt(d);
+      const v = log[ds] || 0;
+      if (v > 0) { doneStudyDays += v; daysPracticed++; } else { missedDays++; }
     }
 
-    const percent = targetTotalDays ? Math.round((doneDaysTotal / targetTotalDays) * 100) : 0;
-    const remainingDays = Math.max(totalDays - elapsedDays, 0);
-    const finished = ptDayDiff(today, endDate) < 0;
+    const percent = totalDays ? Math.min(100, Math.round((doneStudyDays / totalDays) * 100)) : 0;
+    const remainingDays = Math.max(totalDays - doneStudyDays, 0);
+    const finished = doneStudyDays >= totalDays;
+
+    // Streak = kitne consecutive real din se lagatar practice ho rahi hai (aaj se peeche)
     let streak = 0;
-    for (let i = elapsedDays - 1; i >= 0; i--) {
-      const ds = ptFmt(ptAddDays(start, i));
+    for (let d = new Date(today); d >= start; d = ptAddDays(d, -1)) {
+      const ds = ptFmt(d);
       if (log[ds]) streak++; else break;
     }
-    const achievedWeeksCount = weeks.filter(w => !w.isFuture && w.achieved).length;
-    const totalWeeksSoFar = weeks.filter(w => !w.isFuture).length;
-    const currentWeek = currentWeekIdx >= 0 ? weeks[currentWeekIdx] : null;
-    const currentWeekPercent = currentWeek && currentWeek.weekTarget ? Math.round((currentWeek.doneCount / currentWeek.weekTarget) * 100) : 0;
 
     return {
-      start, freq, totalDays, elapsedDays, elapsed: elapsedDays, doneDays: doneDaysTotal, missedDays: missedDaysTotal,
-      doneDaysTotal, missedDaysTotal, percent, remainingDays, endDate, finished, streak, weeks, targetTotalDays,
-      achievedWeeksCount, totalWeeksSoFar, currentWeek, currentWeekPercent,
+      start, totalDays, doneStudyDays, daysPracticed, missedDays,
+      doneDaysTotal: doneStudyDays, missedDaysTotal: missedDays,
+      percent, remainingDays, finished, streak,
     };
   }
 
@@ -17903,20 +17914,26 @@ if (document.readyState === 'loading') {
   // ── Calendar heatmap for a target (clickable → note journal) ───────────
   function ptHeatmapHtml(assetKey, rangeKey, stats) {
     const log = ptData[assetKey].log, notes = ptData[assetKey].notes;
+    const today = ptToday();
+    // totalDays ab ek study-din TARGET hai (calendar duration nahi), isliye heatmap
+    // start se aaj tak jitne real din beete hain unhe dikhata hai (thoda future padding ke saath).
+    const elapsedCalendarDays = ptDayDiff(stats.start, today) + 1;
+    const cellCount = Math.max(elapsedCalendarDays + 3, 14);
     let html = '';
-    for (let i = 0; i < stats.totalDays; i++) {
+    for (let i = 0; i < cellCount; i++) {
       const d = ptAddDays(stats.start, i);
       const ds = ptFmt(d);
-      const isToday = ds === ptFmt(ptToday());
-      const isFuture = d > ptToday();
+      const isToday = ds === ptFmt(today);
+      const isFuture = d > today;
+      const v = log[ds] || 0;
       let cls = 'pt-hcell';
       if (isFuture) cls += ' future';
-      else if (log[ds]) cls += ' done';
+      else if (v > 0) cls += ' done';
       else cls += ' missed';
       if (isToday) cls += ' today';
       if (notes[ds]) cls += ' has-note';
       const clickAttr = isFuture ? '' : ` onclick="_ptOpenNote('${assetKey}','${ds}')"`;
-      html += `<div class="${cls}" title="${ds}${log[ds] ? ' ✓' : ''}${notes[ds] ? ' 📝' : ''}"${clickAttr}></div>`;
+      html += `<div class="${cls}" title="${ds}${v > 0 ? ' ✓ ' + v + ' din' : ''}${notes[ds] ? ' 📝' : ''}"${clickAttr}></div>`;
     }
     return html;
   }
@@ -17963,28 +17980,20 @@ if (document.readyState === 'loading') {
     </div>`;
   }
 
-  // ── Range picker (naya target start karne ke liye) ─────────────────────
+  // ── Range picker (naya target start karne ke liye) — ab SIRF custom din ──
   function ptRangePickerHtml(existingKeys) {
-    const chips = Object.keys(PT_RANGES).filter(k => !existingKeys.includes(k)).map(k => {
-      const r = PT_RANGES[k];
-      const sel = ptPendingRanges.has(k) ? ' sel' : '';
-      return `<div class="pt-range-chip${sel}" onclick="_ptToggleRange('${k}')">${r.label}<span class="pt-rc-sub">${r.sub}</span></div>`;
-    }).join('');
     const customChips = Array.from(ptPendingRanges).filter(k => k[0] === 'c' && !existingKeys.includes(k)).map(k => {
       const info = ptRangeInfo(k);
       return `<div class="pt-range-chip sel" onclick="_ptToggleRange('${k}')">${info.label}<span class="pt-rc-sub">${info.sub}</span></div>`;
     }).join('');
-    const allLeft = Object.keys(PT_RANGES).filter(k => !existingKeys.includes(k));
     return `
-      <div class="pt-section-lbl">${existingKeys.length ? '➕ Naya Range Add Karo' : '🎯 Practice Range Chuno'}</div>
+      <div class="pt-section-lbl">${existingKeys.length ? '➕ Naya Target Add Karo' : '🎯 Total Target Din Set Karo'}</div>
       <div id="pt-range-picker">
-        <div class="pt-range-opts">${chips}${customChips}</div>
-        ${allLeft.length > 1 ? `<button id="pt-range-all-btn" onclick="_ptSelectAllRanges()">✅ Teeno Select Karo</button>` : ''}
+        <div class="pt-range-opts">${customChips}</div>
         <div class="pt-custom-days-row">
-          <input type="number" id="pt-custom-days-input" min="1" max="400" placeholder="Ya din khud likho (e.g. 9, 27, 45)">
+          <input type="number" id="pt-custom-days-input" min="1" max="2000" placeholder="Total target din likho (e.g. 27)">
           <button id="pt-custom-days-btn" onclick="_ptAddCustomDays()">➕ Add</button>
         </div>
-        ${ptFreqPickerHtml()}
         <button id="pt-start-btn" onclick="_ptStartPractice()" ${ptPendingRanges.size ? '' : 'disabled'}>▶ Practice Shuru Karo</button>
       </div>`;
   }
@@ -17993,40 +18002,21 @@ if (document.readyState === 'loading') {
     if (!inp) return;
     let n = parseInt(inp.value, 10);
     if (!n || n <= 0) { inp.focus(); return; }
-    n = Math.min(400, n);
+    n = Math.min(2000, n);
     const key = 'c' + n;
     if (ptData[ptCurrentAsset].targets[key]) { inp.value = ''; return; } // already ek active target isi din-count ka
     ptPendingRanges.add(key);
     ptRenderBody();
   };
-  function ptFreqPickerHtml() {
-    if (!ptPendingRanges.size) return '';
-    let chips = '';
-    for (let n = 1; n <= 7; n++) {
-      chips += `<div class="pt-freq-chip${ptPendingFreq === n ? ' sel' : ''}" onclick="_ptSetFreq(${n})">${n}</div>`;
-    }
-    return `<div class="pt-freq-row-wrap">
-      <div class="pt-freq-lbl">📅 Hafte mein kitne din practice karni hai?</div>
-      <div class="pt-freq-row">${chips}</div>
-      <div class="pt-freq-sub">${ptPendingFreq} din / week ka target set hoga</div>
-    </div>`;
-  }
-  window._ptSetFreq = function (n) { ptPendingFreq = n; ptRenderBody(); };
   window._ptToggleRange = function (k) {
     if (ptPendingRanges.has(k)) ptPendingRanges.delete(k); else ptPendingRanges.add(k);
-    ptRenderBody();
-  };
-  window._ptSelectAllRanges = function () {
-    Object.keys(PT_RANGES).forEach(k => { if (!ptData[ptCurrentAsset].targets[k]) ptPendingRanges.add(k); });
     ptRenderBody();
   };
   window._ptStartPractice = function () {
     if (!ptPendingRanges.size) return;
     const today = ptFmt(ptToday());
-    const freq = ptPendingFreq;
-    ptPendingRanges.forEach(k => { ptData[ptCurrentAsset].targets[k] = { start: today, freq }; });
+    ptPendingRanges.forEach(k => { ptData[ptCurrentAsset].targets[k] = { start: today }; });
     ptPendingRanges = new Set();
-    ptPendingFreq = 7;
     ptSave(ptData);
     ptUpdateHeaderDot();
     ptRenderBody();
@@ -18132,18 +18122,26 @@ if (document.readyState === 'loading') {
     const today = ptFmt(ptToday());
     const doneToday = !!ptData[assetKey].log[today];
 
+    const perDay = ptData[assetKey].perDay || 3;
+
     let html = '';
     html += ptLevelBarHtml();
     html += ptBadgesHtml();
     html += ptWeekStripHtml(assetKey);
 
-    html += `<button id="pt-mark-today" class="${doneToday ? 'done' : ''}" onclick="_ptMarkTodayManual('${assetKey}')">
-      ${doneToday ? '✅ Aaj Practice Ho Gayi!' : `☑️ Aaj ${PT_ASSET_LABEL[assetKey]} Practice Ki? Yahan Tap Karo`}
+    html += `<div class="pt-perday-row">
+      <span>📚 Per din kitne study-din cover karte ho (${PT_ASSET_LABEL[assetKey]})?</span>
+      <input type="number" id="pt-perday-input" min="1" max="50" value="${perDay}"
+        onchange="_ptSetPerDay('${assetKey}', this.value)">
+    </div>`;
+
+    html += `<button id="pt-mark-today" class="${doneToday ? 'done' : ''}" onclick="_ptMarkTodayManual('${assetKey}')" ${doneToday ? 'disabled' : ''}>
+      ${doneToday ? `✅ Aaj ke ${ptData[assetKey].log[today]} Study-Din Log Ho Gaye!` : `☑️ Aaj ${PT_ASSET_LABEL[assetKey]} Practice Ki? (${perDay} Din Log Karo)`}
     </button>`;
 
     if (!keys.length) {
       html += `<div class="pt-empty-hint"><span class="pt-emoji-big">📈</span>
-        Abhi tak koi target set nahi hai.<br>Neeche se range chuno aur roz ki practice track karna shuru karo!</div>`;
+        Abhi tak koi target set nahi hai.<br>Neeche total target din daalo aur roz ki practice track karna shuru karo!</div>`;
       html += ptRangePickerHtml([]);
     } else {
       html += `<div class="pt-section-lbl">📊 Active Targets</div>`;
@@ -18153,42 +18151,21 @@ if (document.readyState === 'loading') {
         html += `
         <div class="pt-card">
           <div class="pt-card-top">
-            <span class="pt-card-title">${ptRangeInfo(rangeKey).label} Practice<span class="pt-range-tag">${stats.finished ? '🏁 Complete' : `Day ${stats.elapsedDays}/${stats.totalDays}`}</span></span>
+            <span class="pt-card-title">${ptRangeInfo(rangeKey).label} Practice<span class="pt-range-tag">${stats.finished ? '🏁 Complete' : `${stats.doneStudyDays}/${stats.totalDays} din`}</span></span>
             <button class="pt-card-del" onclick="_ptRemoveTarget('${assetKey}','${rangeKey}')" title="Target hatao">🗑</button>
           </div>
-          <div class="pt-freq-badge">🎯 Target: <b>${stats.freq} din / week</b></div>
           <div class="pt-card-main">
             <div class="pt-ring-wrap">${ptRingSvg(stats.percent)}
               <div class="pt-ring-pct"><b>${stats.percent}%</b><span>OVERALL</span></div>
             </div>
             <div class="pt-stats">
-              <div class="pt-stat done"><b>${stats.doneDaysTotal}</b><span>Practiced</span></div>
-              <div class="pt-stat miss"><b>${stats.missedDaysTotal}</b><span>Miss Hui</span></div>
+              <div class="pt-stat done"><b>${stats.doneStudyDays}</b><span>Study-Din Ho Gaye</span></div>
               <div class="pt-stat"><b>${stats.remainingDays}</b><span>Din Bache</span></div>
+              <div class="pt-stat"><b>${stats.daysPracticed}</b><span>Real Din Practice</span></div>
               <div class="pt-stat streak"><b>🔥${stats.streak}</b><span>Streak</span></div>
             </div>
           </div>
           <div class="pt-bar-outer"><div class="pt-bar-inner" style="width:${stats.percent}%"></div></div>
-          ${stats.currentWeek ? `
-          <div class="pt-curweek-card${stats.currentWeek.achieved ? ' achieved' : ''}">
-            <div class="pt-curweek-top">
-              <span>📆 Is Hafte Ka Target</span>
-              <span class="pt-curweek-status">${stats.currentWeek.achieved ? '✅ Achieved!' : `🕓 ${stats.currentWeek.doneCount}/${stats.currentWeek.weekTarget} din`}</span>
-            </div>
-            <div class="pt-bar-outer"><div class="pt-bar-inner" style="width:${Math.min(100, stats.currentWeekPercent)}%"></div></div>
-            <div class="pt-curweek-pct">${Math.min(100, stats.currentWeekPercent)}% is hafte ka target complete</div>
-          </div>` : ''}
-          ${stats.weeks.length > 1 ? `
-          <div class="pt-section-lbl" style="margin-top:12px">📋 Har Hafte Ka Status</div>
-          <div class="pt-week-history">${stats.weeks.map(w => {
-            let cls = 'pt-wk-chip', icon = 'W' + (w.idx + 1);
-            if (w.isFuture) cls += ' future';
-            else if (w.isCurrent) { cls += ' current'; icon = '🕓'; }
-            else if (w.achieved) { cls += ' achieved'; icon = '✅'; }
-            else { cls += ' missed'; icon = '❌'; }
-            return `<div class="${cls}" title="Week ${w.idx + 1}: ${w.doneCount}/${w.weekTarget} din">${icon}</div>`;
-          }).join('')}</div>
-          <div class="pt-wk-summary">${stats.achievedWeeksCount}/${stats.totalWeeksSoFar} hafte target achieve hue</div>` : ''}
           <div class="pt-heatmap">${ptHeatmapHtml(assetKey, rangeKey, stats)}</div>
         </div>`;
       });
@@ -18207,7 +18184,12 @@ if (document.readyState === 'loading') {
     if (canvas) ptDrawTrend(canvas, assetKey);
   }
 
-  window._ptMarkTodayManual = function (assetKey) { ptLogToday(assetKey); ptRenderBody(); };
+  window._ptMarkTodayManual = function (assetKey) {
+    const inp = document.getElementById('pt-perday-input');
+    const amt = inp ? parseInt(inp.value, 10) : null;
+    ptLogToday(assetKey, amt);
+    ptRenderBody();
+  };
 
   // ── Note journal (per day, per asset) ────────────────────────────────────
   window._ptOpenNote = function (assetKey, dateStr) {
