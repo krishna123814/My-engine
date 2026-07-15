@@ -7927,6 +7927,10 @@ function ss2ApplyAndClose() {
     var live = window._SV2_LIVE;
     if (!live) return;
     live.revealIdx = live.startIdx;
+    // TF-just-closed widget ka SV2 track bhi reset karo — warna reveal
+    // pointer peeche jump hone par purani bucket-history se galat "just
+    // closed" event fire ho sakta hai.
+    try { if (typeof _tfCloseState !== 'undefined') _tfCloseState.sv2 = { lastBucket: {}, recent: [], closingSoon: [] }; } catch(_) {}
     _rebuildAllCells();
     _renderPlayIcon();
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
@@ -8130,6 +8134,7 @@ function _sv2ResumeLastReplay(assetKey) {
     if (live && live.baseBars) {
       const clamped = Math.max(live.startIdx || 0, Math.min(snap.revealIdx, live.baseBars.length));
       live.revealIdx = clamped;
+      try { if (typeof _tfCloseState !== 'undefined') _tfCloseState.sv2 = { lastBucket: {}, recent: [], closingSoon: [] }; } catch(_) {}
     }
     if (typeof TFARR_TYPE !== 'undefined' && snap.arrowType) {
       TFARR_TYPE = snap.arrowType;
@@ -9410,14 +9415,34 @@ function _isMarketOpen(asset) {
   return mins >= (9 * 60 + 15) && mins <= (15 * 60 + 30);
 }
 
+// ── SV2 Replay Virtual Clock ─────────────────────────────────────────────
+// Jab ek Stack View 2 bar-replay session active hai (window._SV2_LIVE set
+// hai aur kam-se-kam ek bar reveal ho chuki hai), replay ka "abhi ka time"
+// real Date.now() nahi — us TARAH ki timestamp hai jo ab-tak ki AAKHRI
+// revealed base bar par hai (same convention jo _sv2ComputeCellSR bhi
+// swing/SR ke liye use karta hai). Replay active nahi hai (ya SV2 abhi
+// live/non-replay mode me hai) to null return karta hai — caller real
+// clock par fallback kar leta hai, taaki SV2 ka normal (non-replay) live
+// view SV1 jaisa hi behave kare.
+function _sv2ReplayVirtualNowSec() {
+  const live = window._SV2_LIVE;
+  if (live && Array.isArray(live.baseBars) && live.revealIdx > 0 && live.baseBars[live.revealIdx - 1]) {
+    return live.baseBars[live.revealIdx - 1].time;
+  }
+  return null;
+}
+
 // ── Market Remaining-Time Badge (cell 0 / top chart only) ──────────────
 // BankNifty (NSE): market open hone par close (15:30 IST) tak remaining;
 //   band hone par agle trading-session open (9:15 IST, weekend+holiday
 //   skip karke) tak remaining.
 // BTC (crypto): 24/7 — 5:30am IST (00:00 UTC) se shuru hone waale 24-ghante
 //   cycle ka remaining time (agla 5:30am IST kitni der me aayega).
-function _marketRemainingSeconds(asset) {
-  const nowSec = Date.now() / 1000;
+// nowSecOverride: SV2 replay ke liye pass kiya jaata hai (virtual bar-time).
+//   SV1 hamesha real clock (Date.now()) hi use karta hai — undefined pass
+//   karke.
+function _marketRemainingSeconds(asset, nowSecOverride) {
+  const nowSec = (typeof nowSecOverride === 'number') ? nowSecOverride : Date.now() / 1000;
   const istSec = nowSec + _IST_OFF;
   if (isCryptoSymbol(asset !== undefined ? asset : S.asset)) {
     const _anchor = 5.5 * 3600;  // BTC cycle starts 5:30am IST (00:00 UTC)
@@ -9463,7 +9488,13 @@ function _updateMarketTimers() {
   try {
     const el2 = document.querySelector('.stack2-cell[data-idx2="0"] .cell-market-timer');
     if (el2 && typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS[0]) {
-      el2.textContent = _fmtHMS(_marketRemainingSeconds(STACK2_CELLS[0].asset));
+      // SV2 replay ke dauraan real Date.now() nahi — replay ka virtual
+      // (last-revealed-bar) time use karo, taaki closed/replayed market
+      // ke liye "live" jaisa fake countdown na dikhe. Replay active nahi
+      // hai to _sv2ReplayVirtualNowSec() null deta hai aur SV1 jaisa hi
+      // real-clock behavior mil jaata hai.
+      const vNow = _sv2ReplayVirtualNowSec();
+      el2.textContent = _fmtHMS(_marketRemainingSeconds(STACK2_CELLS[0].asset, vNow));
     }
   } catch(_) {}
 }
@@ -9488,13 +9519,17 @@ const _TF_CLOSE_WATCH_BN   = [15, 45, 135, 1440, 4320, 12960, 38880]; // 15m,45m
 const _TF_CLOSE_WATCH_BTC  = [480, 1440, 4320, 12960, 38880];         // 8H,1D,3D,9D,27D (160m base excluded)
 const _TF_CLOSE_WARN_SEC   = 10;     // kitne second PEHLE dikhana shuru karna hai
 const _TF_CLOSE_DISPLAY_MS = 15000;  // close ke baad kitni der tak dikhna hai
-let _tfCloseLastBucket = {};   // key: "BN_15" / "BTC_480" → last known bucket start time
-let _tfCloseRecent = [];       // post-close list: [{label, tfMin, closedAt}]
-let _tfClosingSoon = [];       // pre-close list (is second): [{label, tfMin}]
+// Do independent tracks — SV1 hamesha real clock, SV2 replay ke dauraan
+// apne virtual (last-revealed-bar) clock par. Pehle dono cells ek hi
+// shared Date.now()-based state share karte the, isliye SV2 replay me bhi
+// (closed/paused market ke liye) "abhi close hui" TF labels galat-galat
+// real-time ke hisaab se dikhte the, replay ki position ke hisaab se nahi.
+let _tfCloseState = {
+  sv1: { lastBucket: {}, recent: [], closingSoon: [] },
+  sv2: { lastBucket: {}, recent: [], closingSoon: [] }
+};
 
-function _tfCloseCheck() {
-  const nowSec = Date.now() / 1000;
-
+function _tfCloseCheck(state, nowSec) {
   // PRE-close: is TF ka bucket agle _TF_CLOSE_WARN_SEC second ke andar badal raha hai?
   const preActive = [];
   const seenPre = new Set();
@@ -9511,26 +9546,26 @@ function _tfCloseCheck() {
   const _checkPost = (assetTag, tfMin, isBN) => {
     const key = assetTag + '_' + tfMin;
     const bucket = _liveGetBucketTime(nowSec, tfMin, isBN);
-    const prev = _tfCloseLastBucket[key];
+    const prev = state.lastBucket[key];
     if (prev !== undefined && bucket !== prev) {
-      _tfCloseRecent.push({ label: tfMinToLabel(tfMin), tfMin: tfMin, closedAt: Date.now() });
+      state.recent.push({ label: tfMinToLabel(tfMin), tfMin: tfMin, closedAt: nowSec * 1000 });
     }
-    _tfCloseLastBucket[key] = bucket;
+    state.lastBucket[key] = bucket;
   };
 
   _TF_CLOSE_WATCH_BN.forEach(tf  => { _checkPre(tf, true);  _checkPost('BN',  tf, true); });
   _TF_CLOSE_WATCH_BTC.forEach(tf => { _checkPre(tf, false); _checkPost('BTC', tf, false); });
 
-  _tfClosingSoon = preActive;
-  const cutoff = Date.now() - _TF_CLOSE_DISPLAY_MS;
-  _tfCloseRecent = _tfCloseRecent.filter(e => e.closedAt >= cutoff);
+  state.closingSoon = preActive;
+  const cutoff = (nowSec * 1000) - _TF_CLOSE_DISPLAY_MS;
+  state.recent = state.recent.filter(e => e.closedAt >= cutoff);
 }
-function _renderTfCloseWidget(el) {
+function _renderTfCloseWidget(el, state) {
   if (!el) return;
   const seen = new Set();
   const merged = [];
-  _tfClosingSoon.forEach(e => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
-  _tfCloseRecent.forEach(e  => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
+  state.closingSoon.forEach(e => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
+  state.recent.forEach(e  => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
   if (!merged.length) { el.classList.remove('show'); el.innerHTML = ''; return; }
   el.innerHTML = merged.map(e => {
     const clr = (typeof _tfCandleColor === 'function') ? _tfCandleColor(e.tfMin) : '#111';
@@ -9540,9 +9575,17 @@ function _renderTfCloseWidget(el) {
 }
 function _updateTfCloseWidgets() {
   try {
-    _tfCloseCheck();
-    _renderTfCloseWidget(document.getElementById('sv1-tf-closed-widget'));
-    _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'));
+    // SV1 — hamesha live/real market clock (jaisa pehle tha, unchanged).
+    _tfCloseCheck(_tfCloseState.sv1, Date.now() / 1000);
+    _renderTfCloseWidget(document.getElementById('sv1-tf-closed-widget'), _tfCloseState.sv1);
+  } catch(_) {}
+  try {
+    // SV2 — replay active hai to virtual (last-revealed-bar) clock, warna
+    // (normal non-replay SV2) real clock par SV1 jaisa hi fallback.
+    const vNow2 = _sv2ReplayVirtualNowSec();
+    const nowSec2 = (vNow2 != null) ? vNow2 : (Date.now() / 1000);
+    _tfCloseCheck(_tfCloseState.sv2, nowSec2);
+    _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'), _tfCloseState.sv2);
   } catch(_) {}
 }
 setInterval(_updateTfCloseWidgets, 1000);
