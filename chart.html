@@ -2821,7 +2821,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div class="sv2-practice-tab" id="sv2-practice-tab-btc">
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Total Target (days)</label>
-        <input type="number" class="sv2-practice-input" id="sv2-practice-total-btc" min="1" step="1" placeholder="e.g. 5, 7, 30">
+        <input type="number" class="sv2-practice-input" id="sv2-practice-total-btc" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('btc')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Per Day Target</label>
@@ -2829,7 +2829,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Practice Start Date</label>
-        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-btc">
+        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-btc" onchange="_sv2PracticeUpdateEndDate('btc'); _sv2PracticeApplyStartDate('btc')">
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Practice End Date</label>
+        <div class="sv2-practice-static" id="sv2-practice-enddate-btc">--</div>
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">🔒 Lock Period</label>
+        <div class="sv2-practice-static" id="sv2-practice-lockperiod-btc">-- → --</div>
       </div>
       <button id="sv2-practice-resume-btc" class="sv2-practice-resume-btn" onclick="_sv2PracticeResume('btc')">▶ Resume Last Replay</button>
     </div>
@@ -2838,7 +2846,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div class="sv2-practice-tab" id="sv2-practice-tab-bn" style="display:none">
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Total Target (days)</label>
-        <input type="number" class="sv2-practice-input" id="sv2-practice-total-bn" min="1" step="1" placeholder="e.g. 5, 7, 30">
+        <input type="number" class="sv2-practice-input" id="sv2-practice-total-bn" min="1" step="1" placeholder="e.g. 5, 7, 30" oninput="_sv2PracticeUpdateEndDate('bn')">
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Per Day Target</label>
@@ -2846,7 +2854,15 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       </div>
       <div class="sv2-practice-field">
         <label class="sv2-practice-label">Practice Start Date</label>
-        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-bn">
+        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-bn" onchange="_sv2PracticeUpdateEndDate('bn'); _sv2PracticeApplyStartDate('bn')">
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Practice End Date</label>
+        <div class="sv2-practice-static" id="sv2-practice-enddate-bn">--</div>
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">🔒 Lock Period</label>
+        <div class="sv2-practice-static" id="sv2-practice-lockperiod-bn">-- → --</div>
       </div>
       <button id="sv2-practice-resume-bn" class="sv2-practice-resume-btn" onclick="_sv2PracticeResume('bn')">▶ Resume Last Replay</button>
     </div>
@@ -5175,6 +5191,8 @@ function _sv2PracticeToggle() {
   var dBn  = document.getElementById('sv2-practice-startdate-bn');
   if (dBtc && !dBtc.value) dBtc.value = today;
   if (dBn  && !dBn.value)  dBn.value  = today;
+  _sv2PracticeUpdateEndDate('btc');
+  _sv2PracticeUpdateEndDate('bn');
   _sv2PracticeRefreshResumeUI();
 
   sheet.classList.add('open');
@@ -5198,6 +5216,104 @@ function _sv2PracticeSelectAsset(asset) {
   if (bnBtn)  bnBtn.classList.toggle('active', !isBtc);
   if (btcTab) btcTab.style.display = isBtc ? '' : 'none';
   if (bnTab)  bnTab.style.display  = isBtc ? 'none' : '';
+}
+
+// Practice End Date — Total Target (days) + Start Date se auto-calculate.
+// BankNifty: Start Date se Total Target ki utni WORKING days count karo
+// (Saturday, Sunday, aur NSE_HOLIDAYS skip — same list jo chart replay/
+// resample me use hoti hai), jo date par count Total Target tak pahunche
+// wahi End Date hai.
+// BTC: koi holiday nahi — seedha calendar-based (Start Date + Total Target
+// - 1 din).
+function _sv2PracticeCalcEndDate(startStr, totalDays, isBn) {
+  var d = new Date(startStr + 'T00:00:00Z');
+  if (isNaN(d.getTime()) || !totalDays || totalDays < 1) return null;
+
+  if (!isBn) {
+    d.setUTCDate(d.getUTCDate() + (totalDays - 1));
+    return d;
+  }
+
+  var count = 0, guard = 0;
+  while (guard < 5000) {
+    var day = d.getUTCDay(); // 0=Sun, 6=Sat
+    var ds  = d.getUTCFullYear() + '-' +
+              String(d.getUTCMonth() + 1).padStart(2, '0') + '-' +
+              String(d.getUTCDate()).padStart(2, '0');
+    var isTradingDay = (day !== 0 && day !== 6 && !NSE_HOLIDAYS.has(ds));
+    if (isTradingDay) {
+      count++;
+      if (count === totalDays) return d;
+    }
+    d.setUTCDate(d.getUTCDate() + 1);
+    guard++;
+  }
+  return d;
+}
+
+function _sv2PracticeFmtDDMMYYYY(d) {
+  var dd = String(d.getUTCDate()).padStart(2, '0');
+  var mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  var yy = d.getUTCFullYear();
+  return dd + '/' + mm + '/' + yy;
+}
+
+function _sv2PracticeUpdateEndDate(assetKey) {
+  var totalEl = document.getElementById('sv2-practice-total-' + assetKey);
+  var startEl = document.getElementById('sv2-practice-startdate-' + assetKey);
+  var endEl   = document.getElementById('sv2-practice-enddate-' + assetKey);
+  var lockEl  = document.getElementById('sv2-practice-lockperiod-' + assetKey);
+  if (!totalEl || !startEl || !endEl) return;
+
+  var totalDays = parseInt(totalEl.value, 10);
+  var startStr  = startEl.value;
+  if (!startStr || !totalDays || totalDays < 1) {
+    endEl.textContent = '--';
+    if (lockEl) lockEl.textContent = '-- → --';
+    return;
+  }
+  var endDate = _sv2PracticeCalcEndDate(startStr, totalDays, assetKey === 'bn');
+  var endStr  = endDate ? _sv2PracticeFmtDDMMYYYY(endDate) : '--';
+  endEl.textContent = endStr;
+
+  // Lock Period — Start Date aur End Date dono ek saath, kyunki practice
+  // sirf inhi dates ke beech hogi.
+  if (lockEl) {
+    var startParts = startStr.split('-');
+    var startDisp  = startParts.length === 3
+      ? (startParts[2] + '/' + startParts[1] + '/' + startParts[0])
+      : startStr;
+    lockEl.textContent = startDisp + '  →  ' + endStr;
+  }
+}
+
+// Practice Start Date set/change hote hi:
+//  1) SV2 replay calendar (📅) me wahi date "cutoff" ke roop me set ho jaaye
+//     — taaki calendar sheet khulne par bhi yahi date selected dikhe.
+//  2) Us date tak ka data turant Replay me khul jaaye (calendar ke
+//     "Apply & Start Replay" jaisa hi — same underlying function reuse
+//     ki gayi hai).
+function _sv2PracticeApplyStartDate(assetKey) {
+  var startEl = document.getElementById('sv2-practice-startdate-' + assetKey);
+  if (!startEl || !startEl.value) return;
+  var parts = startEl.value.split('-');   // YYYY-MM-DD
+  if (parts.length !== 3) return;
+  var y = +parts[0], m = +parts[1] - 1, day = +parts[2];
+  if (!y || isNaN(m) || !day) return;
+
+  var targetAssetName = (assetKey === 'bn') ? BN_ASSET : BTC_ASSET;
+
+  function _apply() {
+    if (typeof window._sv2DrngSetDate === 'function') window._sv2DrngSetDate(y, m, day);
+    if (typeof window._sv2DrngApply   === 'function') window._sv2DrngApply();
+  }
+
+  if (typeof S !== 'undefined' && S.asset !== targetAssetName && typeof switchAsset === 'function') {
+    switchAsset(targetAssetName);
+    setTimeout(_apply, 260);
+  } else {
+    _apply();
+  }
 }
 
 // "Resume Last Replay" — practice ke andar bhi wahi shared snapshot
@@ -6299,6 +6415,14 @@ function ss2ApplyAndClose() {
     _updateApplyBtn();
     _sv2UpdateOpenPriceDisplay();   // Live BankNifty jaisa opening-price preview
   }
+
+  // ── Practice sheet se date set karne ke liye (calendar ke internal
+  // _selStart ko wahi date bana deta hai jo Practice me start date chuni
+  // gayi hai — taaki calendar sheet khulne par bhi wahi date selected
+  // dikhe). y/m/day = local Date components (m 0-indexed). ───────────────
+  window._sv2DrngSetDate = function(y, m, day) {
+    _onDayTap(_dateObjOnly(y, m, day));
+  };
 
   // ── Apply button — single-date mode ──────────────────────────────────────
   function _updateApplyBtn() {
