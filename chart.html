@@ -1258,6 +1258,96 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#0006;
 }
 #sv2-drng-backdrop.open{display:block}
+
+/* ── Practice Mode — Bottom Sheet (BTC / BankNifty tabs) ─────────────── */
+#sv2-practice-backdrop{
+  display:none;position:fixed;inset:0;z-index:9599;
+  background:#0006;
+}
+#sv2-practice-backdrop.open{display:block}
+#sv2-practice-sheet{
+  display:none;
+  position:fixed;
+  bottom:0;left:0;right:0;
+  z-index:9600;
+  background:#1e222d;
+  border-radius:16px 16px 0 0;
+  border-top:1px solid #2a2e39;
+  box-shadow:0 -8px 40px #000a;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  transform:translateY(100%);
+  transition:transform .28s cubic-bezier(.32,.72,0,1);
+}
+#sv2-practice-sheet.open{
+  display:block;
+  transform:translateY(0);
+}
+#sv2-practice-sheet-inner{
+  max-height:88vh;
+  overflow-y:auto;
+  padding:0 0 16px;
+}
+#sv2-practice-handle{
+  width:36px;height:4px;
+  background:#363c4e;border-radius:2px;
+  margin:10px auto 4px;
+}
+#sv2-practice-hdr{
+  display:flex;align-items:center;
+  padding:8px 16px 10px;
+  border-bottom:1px solid #2a2e39;
+  gap:8px;
+}
+#sv2-practice-title{
+  flex:1;font-size:13px;font-weight:700;color:#d1d4dc;
+}
+#sv2-practice-close{
+  width:26px;height:26px;border-radius:50%;
+  background:#2a2e39;border:none;color:#d1d4dc;
+  font-size:15px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+#sv2-practice-asset-row{ display:flex; gap:8px; padding:14px 16px 0; }
+.sv2-practice-asset-btn{
+  flex:1; padding:9px 4px; font-size:12px; font-weight:700;
+  background:#131722; border:1px solid #2a2e39; color:#787b86;
+  cursor:pointer; border-radius:8px;
+}
+.sv2-practice-asset-btn.active{ background:#2962ff; border-color:#2962ff; color:#fff; }
+.sv2-practice-asset-btn:active{ opacity:.85; }
+
+.sv2-practice-tab{ padding:16px; }
+.sv2-practice-field{ margin-bottom:14px; }
+.sv2-practice-field:last-child{ margin-bottom:2px; }
+.sv2-practice-label{
+  display:block;font-size:11px;font-weight:600;color:#848da0;
+  margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px;
+}
+.sv2-practice-input{
+  width:100%;height:42px;border-radius:8px;
+  background:#131722;border:1px solid #2a2e39;color:#d1d4dc;
+  font-size:14px;font-weight:600;padding:0 12px;box-sizing:border-box;
+  -webkit-appearance:none;appearance:none;
+}
+.sv2-practice-input:focus{ outline:none;border-color:#2962ff; }
+.sv2-practice-static{
+  display:flex;align-items:baseline;gap:6px;
+  height:42px;border-radius:8px;
+  background:#1a1e29;border:1px solid #2a2e3e;color:#d1d4dc;
+  font-size:15px;font-weight:700;padding:0 12px;
+}
+.sv2-practice-static-hint{ font-size:11px;font-weight:500;color:#787b86; }
+
+/* Resume Last Replay — practice tabs ke andar, calendar wale exact
+   snapshot (SV2_SNAP_KEY) ko hi read/apply karta hai — dono jagah linked. */
+.sv2-practice-resume-btn{
+  display:none; width:100%; margin:4px 0 0;
+  height:40px; border-radius:8px;
+  background:#f0b42922; border:1px solid #f0b429; color:#f0b429;
+  font-size:12px; font-weight:700; cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 8px;
+}
+.sv2-practice-resume-btn:active{ background:#f0b42944; }
 /* Top strip — reuses the existing symbol/TF/letter overlay line.
    Purely visual now: pointer-events:none so touches pass straight through
    to the chart underneath (no more touch capture / drag-to-scroll here). */
@@ -2239,6 +2329,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
   <div id="hdr-right">
     <button id="tf-menu-btn" onclick="toggleTfDropdown()" title="Timeframes">&#9201; <span id="tf-menu-label">1m</span></button>
+    <button class="hdr-icon-btn" id="sv2-practice-btn" onclick="_sv2PracticeToggle()" title="Practice Mode" style="display:none">🎯</button>
     <button id="draw-btn" onclick="toggleDrawPanel()" title="Drawing Tools">✏️ Draw</button>
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
@@ -2705,6 +2796,60 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
     <!-- Apply -->
     <button id="sv2-drng-apply" onclick="_sv2DrngApply()" disabled>✓ Apply &amp; Start Replay</button>
+  </div>
+</div>
+
+<!-- ═══ SV2 PRACTICE MODE — Bottom Sheet Backdrop ════════════════════════ -->
+<div id="sv2-practice-backdrop" onclick="_sv2PracticeClose()"></div>
+
+<!-- ═══ SV2 PRACTICE MODE — Bottom Sheet (BTC / BankNifty tabs) ══════════ -->
+<div id="sv2-practice-sheet">
+  <div id="sv2-practice-sheet-inner">
+    <div id="sv2-practice-handle"></div>
+    <div id="sv2-practice-hdr">
+      <span id="sv2-practice-title">🎯 Practice</span>
+      <button id="sv2-practice-close" onclick="_sv2PracticeClose()">✕</button>
+    </div>
+
+    <!-- Asset selector — BTC / BankNifty, alag alag tab -->
+    <div id="sv2-practice-asset-row">
+      <button class="sv2-practice-asset-btn active" id="sv2-practice-asset-btc" onclick="_sv2PracticeSelectAsset('btc')">₿ BTC</button>
+      <button class="sv2-practice-asset-btn" id="sv2-practice-asset-bn" onclick="_sv2PracticeSelectAsset('bn')">📊 BankNifty</button>
+    </div>
+
+    <!-- BTC tab -->
+    <div class="sv2-practice-tab" id="sv2-practice-tab-btc">
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Total Target (days)</label>
+        <input type="number" class="sv2-practice-input" id="sv2-practice-total-btc" min="1" step="1" placeholder="e.g. 5, 7, 30">
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Per Day Target</label>
+        <input type="number" class="sv2-practice-input" id="sv2-practice-perday-btc" min="1" step="1" value="3">
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Practice Start Date</label>
+        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-btc">
+      </div>
+      <button id="sv2-practice-resume-btc" class="sv2-practice-resume-btn" onclick="_sv2PracticeResume('btc')">▶ Resume Last Replay</button>
+    </div>
+
+    <!-- BankNifty tab -->
+    <div class="sv2-practice-tab" id="sv2-practice-tab-bn" style="display:none">
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Total Target (days)</label>
+        <input type="number" class="sv2-practice-input" id="sv2-practice-total-bn" min="1" step="1" placeholder="e.g. 5, 7, 30">
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Per Day Target</label>
+        <input type="number" class="sv2-practice-input" id="sv2-practice-perday-bn" min="1" step="1" value="3">
+      </div>
+      <div class="sv2-practice-field">
+        <label class="sv2-practice-label">Practice Start Date</label>
+        <input type="date" class="sv2-practice-input" id="sv2-practice-startdate-bn">
+      </div>
+      <button id="sv2-practice-resume-bn" class="sv2-practice-resume-btn" onclick="_sv2PracticeResume('bn')">▶ Resume Last Replay</button>
+    </div>
   </div>
 </div>
 
@@ -4929,6 +5074,7 @@ function _deactivateStack2() {
   if (u) u.style.display = 'none';
   if (d) d.style.display = 'none';
   const _srb = document.getElementById('sv2-sr-btn'); if (_srb) _srb.style.display = 'none';
+  const _prb = document.getElementById('sv2-practice-btn'); if (_prb) _prb.style.display = 'none';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 }
@@ -5006,6 +5152,75 @@ function destroyStack2Cells() {
   if (sc) sc.innerHTML = '';
 }
 
+// ── SV2 Practice Mode — bottom sheet with BTC / BankNifty tabs ─────────────
+// Abhi sirf UI: Total Target (edit), Per Day Target (fixed = 3), Start Date.
+// Start/logic wiring baad me hoga.
+function _sv2PracticeTodayStr() {
+  var d = new Date();
+  var tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
+function _sv2PracticeToggle() {
+  var sheet = document.getElementById('sv2-practice-sheet');
+  var backdrop = document.getElementById('sv2-practice-backdrop');
+  if (!sheet || !backdrop) return;
+  if (sheet.classList.contains('open')) {
+    _sv2PracticeClose();
+    return;
+  }
+  // Start date default = aaj (dono assets ke liye, agar khaali ho)
+  var today = _sv2PracticeTodayStr();
+  var dBtc = document.getElementById('sv2-practice-startdate-btc');
+  var dBn  = document.getElementById('sv2-practice-startdate-bn');
+  if (dBtc && !dBtc.value) dBtc.value = today;
+  if (dBn  && !dBn.value)  dBn.value  = today;
+  _sv2PracticeRefreshResumeUI();
+
+  sheet.classList.add('open');
+  backdrop.classList.add('open');
+}
+
+function _sv2PracticeClose() {
+  var sheet = document.getElementById('sv2-practice-sheet');
+  var backdrop = document.getElementById('sv2-practice-backdrop');
+  if (sheet) sheet.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+}
+
+function _sv2PracticeSelectAsset(asset) {
+  var isBtc = (asset === 'btc');
+  var btcBtn = document.getElementById('sv2-practice-asset-btc');
+  var bnBtn  = document.getElementById('sv2-practice-asset-bn');
+  var btcTab = document.getElementById('sv2-practice-tab-btc');
+  var bnTab  = document.getElementById('sv2-practice-tab-bn');
+  if (btcBtn) btcBtn.classList.toggle('active', isBtc);
+  if (bnBtn)  bnBtn.classList.toggle('active', !isBtc);
+  if (btcTab) btcTab.style.display = isBtc ? '' : 'none';
+  if (bnTab)  bnTab.style.display  = isBtc ? 'none' : '';
+}
+
+// "Resume Last Replay" — practice ke andar bhi wahi shared snapshot
+// (SV2_SNAP_KEY, per-asset) use hota hai jo bar-replay ke calendar sheet
+// wala "Resume Last Replay" use karta hai — dono jagah same link/state.
+function _sv2PracticeRefreshResumeUI() {
+  ['btc', 'bn'].forEach(function(key){
+    var btn = document.getElementById('sv2-practice-resume-' + key);
+    if (!btn) return;
+    var has = (typeof _sv2HasSnapshot === 'function') && _sv2HasSnapshot(key);
+    btn.style.display = has ? 'block' : 'none';
+    if (has) {
+      var snap = _sv2GetSnapshot(key);
+      btn.textContent = '▶ Resume Last Replay — ' + ((snap && snap.dateRange && snap.dateRange.fromStr) || '');
+    }
+  });
+}
+
+function _sv2PracticeResume(assetKey) {
+  _sv2PracticeClose();
+  if (typeof _sv2ResumeLastReplay === 'function') _sv2ResumeLastReplay(assetKey);
+}
+
 function selectStack2View() {
   // Deactivate Stack View 1 if active
   if (_stackActive) {
@@ -5057,6 +5272,7 @@ function selectStack2View() {
   if (s2u) s2u.style.display = '';
   if (s2d) s2d.style.display = '';
   const _sv2srb = document.getElementById('sv2-sr-btn'); if (_sv2srb) _sv2srb.style.display = '';
+  const _sv2prb = document.getElementById('sv2-practice-btn'); if (_sv2prb) _sv2prb.style.display = '';
   try { _sv2IndSectionShow(true); } catch(_) {}
 
   buildStack2();
@@ -7357,6 +7573,7 @@ function selectStackView() {
   if (_s2u) _s2u.style.display = 'none';
   if (_s2d) _s2d.style.display = 'none';
   const _srb2 = document.getElementById('sv2-sr-btn'); if (_srb2) _srb2.style.display = 'none';
+  const _prb2 = document.getElementById('sv2-practice-btn'); if (_prb2) _prb2.style.display = 'none';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 
