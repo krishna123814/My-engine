@@ -1814,17 +1814,17 @@ select.s-select, input.s-select{
   position:absolute;top:3px;right:3px;z-index:20;
   width:14px;height:14px;border-radius:2px;
   background:transparent;border:none;
-  color:#555;font-size:9px;cursor:pointer;
+  color:#2962ff;font-size:9px;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
   line-height:1;transition:color .15s;
 }
-.cell-settings-btn:hover{color:#d1d4dc;background:#2a2e3966}
+.cell-settings-btn:hover{color:#5b8dff;background:#2a2e3966}
 /* ── Screen counter badge (e.g. 1:6) — left of settings icon ─── */
 .cell-screen-badge{
   position:absolute;top:3px;right:19px;z-index:20;
   width:14px;height:14px;border-radius:2px;
   background:transparent;border:none;
-  color:#555;font-size:7px;cursor:default;
+  color:#26a69a;font-size:7px;cursor:default;
   display:flex;align-items:center;justify-content:center;
   line-height:1;font-weight:600;letter-spacing:-0.3px;
   pointer-events:none;white-space:nowrap;
@@ -1837,7 +1837,7 @@ select.s-select, input.s-select{
   position:absolute;top:19px;right:3px;z-index:20;
   height:14px;padding:0 2px;
   background:transparent;border:none;
-  color:#555;font-size:7px;font-weight:600;letter-spacing:-0.3px;
+  color:#f0b429;font-size:7px;font-weight:600;letter-spacing:-0.3px;
   display:flex;align-items:center;justify-content:center;
   line-height:1;pointer-events:none;white-space:nowrap;
 }
@@ -2961,10 +2961,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <div class="sv2-practice-tracker">
         <div class="sv2-practice-tracker-title">📊 Progress Tracker</div>
         <div class="sv2-practice-field">
-          <label class="sv2-practice-label">Current Day Progress</label>
-          <div class="sv2-practice-static" id="sv2-practice-tracker-daypct-btc">--</div>
-        </div>
-        <div class="sv2-practice-field">
           <label class="sv2-practice-label">Per Day Target Progress</label>
           <div class="sv2-practice-static" id="sv2-practice-tracker-today-btc">--</div>
         </div>
@@ -3029,10 +3025,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <!-- Progress Tracker — auto-updates jab replay Play/Step chalta hai -->
       <div class="sv2-practice-tracker">
         <div class="sv2-practice-tracker-title">📊 Progress Tracker</div>
-        <div class="sv2-practice-field">
-          <label class="sv2-practice-label">Current Day Progress</label>
-          <div class="sv2-practice-static" id="sv2-practice-tracker-daypct-bn">--</div>
-        </div>
         <div class="sv2-practice-field">
           <label class="sv2-practice-label">Per Day Target Progress</label>
           <div class="sv2-practice-static" id="sv2-practice-tracker-today-bn">--</div>
@@ -5649,27 +5641,19 @@ function _sv2TrackerRefreshUI(assetKey) {
   const t      = _sv2TrackerGet(assetKey);
   const totEl  = document.getElementById('sv2-practice-tracker-total-' + assetKey);
   const dayEl  = document.getElementById('sv2-practice-tracker-today-' + assetKey);
-  const pctEl  = document.getElementById('sv2-practice-tracker-daypct-' + assetKey);
   if (!t) {
     if (totEl) totEl.textContent = '--';
     if (dayEl) dayEl.textContent = '--';
-    if (pctEl) pctEl.textContent = '--';
     _sv2AnalysisRender(assetKey);
     return;
   }
-  const totalDone = t.practicedDates.length;
-  const today     = _sv2PracticeTodayStr();
-  const todayDone = t.dailyLog[today] || 0;
-  if (totEl) totEl.textContent = totalDone + ' / ' + t.totalTarget + ' days';
-  if (dayEl) dayEl.textContent = todayDone + ' / ' + t.perDayTarget + ' dates';
-  if (pctEl) {
-    if (t.curDate) {
-      const isDone = t.practicedDates.indexOf(t.curDate) !== -1;
-      pctEl.textContent = t.curDate + '  —  ' + (isDone ? 100 : t.curPct) + '%' + (isDone ? ' ✅ complete' : '');
-    } else {
-      pctEl.textContent = '--';
-    }
-  }
+  const totalDone   = t.practicedDates.length;
+  const today       = _sv2PracticeTodayStr();
+  const todayDone   = t.dailyLog[today] || 0;
+  const totalPct    = t.totalTarget  ? Math.min(100, Math.round((totalDone / t.totalTarget)  * 100)) : 0;
+  const perDayPct   = t.perDayTarget ? Math.min(100, Math.round((todayDone / t.perDayTarget) * 100)) : 0;
+  if (totEl) totEl.textContent = totalDone + ' / ' + t.totalTarget + ' days  (' + totalPct + '%)';
+  if (dayEl) dayEl.textContent = todayDone + ' / ' + t.perDayTarget + ' dates  (' + perDayPct + '%)';
   _sv2AnalysisRender(assetKey);
   _sv2RewardCheck(assetKey, t, totalDone);
 }
