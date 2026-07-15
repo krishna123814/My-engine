@@ -1453,6 +1453,78 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-reward-close:active{ opacity:.85; }
 
+/* ── "View Full Record" button — Analysis section ke neeche ─────────────── */
+.sv2-record-btn{
+  display:block;width:100%;margin-top:14px;
+  height:38px;border-radius:8px;
+  background:#1a1e29;border:1px solid #2a2e3e;color:#848da0;
+  font-size:12px;font-weight:700;cursor:pointer;
+}
+.sv2-record-btn:active{ background:#2a2e3966; }
+
+/* ── Full Practice Record modal ──────────────────────────────────────────── */
+#sv2-record-overlay{
+  display:none;position:fixed;inset:0;z-index:10500;
+  background:#000a;align-items:center;justify-content:center;
+}
+#sv2-record-overlay.open{ display:flex; }
+#sv2-record-card{
+  width:90%;max-width:400px;max-height:82vh;
+  background:#1e222d;border:1px solid #2a2e39;border-radius:14px;
+  padding:16px;display:flex;flex-direction:column;
+  box-shadow:0 20px 60px #000a;
+}
+#sv2-record-hdr{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:10px;
+}
+#sv2-record-title{ font-size:15px;font-weight:800;color:#d1d4dc; }
+#sv2-record-close{
+  width:26px;height:26px;border-radius:50%;
+  background:#2a2e39;border:none;color:#d1d4dc;
+  font-size:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+}
+#sv2-record-summary{
+  font-size:13px;font-weight:700;color:#f0b429;margin-bottom:8px;
+}
+#sv2-record-note{
+  font-size:10.5px;color:#787b86;line-height:1.4;margin-bottom:12px;
+  background:#171b26;border:1px solid #262b3a;border-radius:8px;padding:8px 10px;
+}
+#sv2-record-list{
+  flex:1;overflow-y:auto;min-height:60px;max-height:38vh;
+  border-top:1px solid #2a2e39;border-bottom:1px solid #2a2e39;
+  padding:6px 0;margin-bottom:10px;
+}
+.sv2-record-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:7px 2px;font-size:12.5px;color:#d1d4dc;
+  border-bottom:1px solid #22252f;
+}
+.sv2-record-row:last-child{ border-bottom:none; }
+.sv2-record-row-date{ font-weight:700; }
+.sv2-record-row-wd{ color:#787b86;font-size:11px; }
+.sv2-record-empty{
+  text-align:center;color:#555;font-size:12px;padding:20px 0;
+}
+#sv2-record-backup-label{
+  font-size:10.5px;font-weight:600;color:#848da0;margin-bottom:6px;
+  text-transform:uppercase;letter-spacing:.3px;
+}
+#sv2-record-backup{
+  width:100%;height:80px;resize:none;box-sizing:border-box;
+  background:#131722;border:1px solid #2a2e39;border-radius:8px;
+  color:#787b86;font-size:10px;font-family:monospace;padding:8px;
+}
+#sv2-record-clear-btn{
+  display:block;width:100%;margin-top:12px;
+  height:42px;border-radius:8px;
+  background:#ef535018;border:1px solid #ef5350;color:#ef5350;
+  font-size:13px;font-weight:800;cursor:pointer;
+}
+#sv2-record-clear-btn:active{ background:#ef535033; }
+
 /* Resume Last Replay — practice tabs ke andar, calendar wale exact
    snapshot (SV2_SNAP_KEY) ko hi read/apply karta hai — dono jagah linked. */
 .sv2-practice-resume-btn{
@@ -2994,6 +3066,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
         <div class="sv2-analysis-sublabel">🏆 Achievements</div>
         <div class="sv2-analysis-badges" id="sv2-analysis-badges-btc"></div>
+
+        <button class="sv2-record-btn" onclick="_sv2RecordOpen('btc')">📋 View Full Record</button>
       </div>
     </div>
 
@@ -3059,6 +3133,8 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
         <div class="sv2-analysis-sublabel">🏆 Achievements</div>
         <div class="sv2-analysis-badges" id="sv2-analysis-badges-bn"></div>
+
+        <button class="sv2-record-btn" onclick="_sv2RecordOpen('bn')">📋 View Full Record</button>
       </div>
     </div>
   </div>
@@ -3076,6 +3152,30 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div id="sv2-reward-msg">--</div>
     <div id="sv2-reward-badges"></div>
     <button id="sv2-reward-close" onclick="_sv2RewardClose()">Nice! Continue 🚀</button>
+  </div>
+</div>
+
+<!-- Full Practice Record — poori history: kaunse dates ki practice complete
+     hui, kab (real calendar day par) hui. Ye sab wahi localStorage data
+     (sv2PracticeTracker) se banta hai jo already save ho raha hai — is
+     modal ka kaam sirf use dikhana + ek copy-able backup text dena hai. -->
+<div id="sv2-record-overlay">
+  <div id="sv2-record-card">
+    <div id="sv2-record-hdr">
+      <div id="sv2-record-title">📋 Practice Record</div>
+      <button id="sv2-record-close" onclick="_sv2RecordClose()">✕</button>
+    </div>
+    <div id="sv2-record-summary">--</div>
+    <div id="sv2-record-note">
+      💾 Ye data is browser/device par save hota hai (localStorage) — app/tab
+      band karke wapas kholne par bhi safe rehta hai. Sirf tab khatam hota
+      hai agar browser data/cache clear karo ya kisi doosre device/browser
+      se kholo.
+    </div>
+    <div id="sv2-record-list"></div>
+    <div id="sv2-record-backup-label">Backup (select all → copy kar ke kahin safe save kar sakte ho)</div>
+    <textarea id="sv2-record-backup" readonly onclick="this.select()"></textarea>
+    <button id="sv2-record-clear-btn" onclick="_sv2RecordClear()">🗑 Clear Record</button>
   </div>
 </div>
 
@@ -5829,6 +5929,111 @@ function _sv2RewardClose() {
   if (overlay) overlay.classList.remove('open');
 }
 window._sv2RewardClose = _sv2RewardClose;
+
+// ════════════════════════════════════════════════════════════════════════════
+// ── Full Practice Record — poori list dikhata hai ki kaunse (trading)
+// dates ki practice complete ho chuki hai, real calendar day ke saath
+// (jab practice ki thi). Data wahi localStorage (sv2PracticeTracker) se
+// aata hai jo already auto-save hota hai — is modal ka kaam sirf usko
+// dikhana + ek copy-able text backup dena hai.
+// ════════════════════════════════════════════════════════════════════════════
+const _SV2_WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+let _sv2RecordCurAsset = null;   // jis asset ka record modal abhi khula hai
+
+function _sv2RecordOpen(assetKey) {
+  _sv2RecordCurAsset = assetKey;
+  const t = _sv2TrackerGet(assetKey);
+  const overlay  = document.getElementById('sv2-record-overlay');
+  const titleEl  = document.getElementById('sv2-record-title');
+  const summEl   = document.getElementById('sv2-record-summary');
+  const listEl   = document.getElementById('sv2-record-list');
+  const backupEl = document.getElementById('sv2-record-backup');
+  if (!overlay) return;
+
+  const assetLabel = assetKey === 'btc' ? '₿ BTC' : '📊 BankNifty';
+  if (titleEl) titleEl.textContent = '📋 ' + assetLabel + ' — Practice Record';
+
+  if (!t) {
+    if (summEl) summEl.textContent = 'Abhi koi target set nahi hai.';
+    if (listEl) listEl.innerHTML = '<div class="sv2-record-empty">Koi record nahi hai</div>';
+    if (backupEl) backupEl.value = '';
+    overlay.classList.add('open');
+    return;
+  }
+
+  const dates = (t.practicedDates || []).slice().sort();   // ascending
+  if (summEl) {
+    summEl.textContent = dates.length + ' / ' + t.totalTarget + ' din complete  ·  Target set: ' + t.startDate;
+  }
+
+  if (!dates.length) {
+    if (listEl) listEl.innerHTML = '<div class="sv2-record-empty">Abhi tak koi din poora replay nahi hua</div>';
+  } else {
+    // Sabse recent pehle dikhao
+    const rowsHtml = dates.slice().reverse().map(function(ds, idxRev) {
+      const idx = dates.length - idxRev;   // 1-based serial (chronological)
+      const wd = _SV2_WEEKDAYS[new Date(ds + 'T00:00:00').getDay()];
+      return '<div class="sv2-record-row">' +
+        '<span class="sv2-record-row-date">#' + idx + '&nbsp;&nbsp;' + ds + '</span>' +
+        '<span class="sv2-record-row-wd">' + wd + ' ✅</span>' +
+        '</div>';
+    }).join('');
+    if (listEl) listEl.innerHTML = rowsHtml;
+  }
+
+  if (backupEl) {
+    const backup = {
+      asset:          assetLabel,
+      startDate:      t.startDate,
+      totalTarget:    t.totalTarget,
+      perDayTarget:   t.perDayTarget,
+      practicedDates: dates,
+      dailyLog:       t.dailyLog || {},
+    };
+    backupEl.value = JSON.stringify(backup, null, 2);
+  }
+
+  overlay.classList.add('open');
+}
+window._sv2RecordOpen = _sv2RecordOpen;
+
+function _sv2RecordClose() {
+  const overlay = document.getElementById('sv2-record-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+window._sv2RecordClose = _sv2RecordClose;
+
+// Practice record clear — SIRF record data (practicedDates + dailyLog)
+// reset hota hai, aur kuch nahi chhua jaata — Target Setup (Total/Per Day
+// Target, Start Date), current-day % progress, reward-shown flag, sab
+// waisa hi rehta hai. Destructive action hai isliye confirm dialog ke
+// baad hi clear hota hai.
+function _sv2RecordClear() {
+  const assetKey = _sv2RecordCurAsset;
+  if (!assetKey) return;
+  const t = _sv2TrackerGet(assetKey);
+  if (!t) return;
+
+  const assetLabel = assetKey === 'btc' ? 'BTC' : 'BankNifty';
+  const ok = window.confirm(
+    '⚠️ ' + assetLabel + ' ka practice record clear karna hai?\n\n' +
+    'Saari practiced dates aur daily log hamesha ke liye delete ho jayengi. ' +
+    'Ye undo nahi ho sakta.\n\n(Baaki kuch nahi badlega — Target Setup, current progress, sab waisa hi rahega.)'
+  );
+  if (!ok) return;
+
+  const all = _sv2TrackerLoadAll();
+  const cur = all[assetKey];
+  if (cur) {
+    cur.practicedDates = [];
+    cur.dailyLog       = {};
+    _sv2TrackerSaveAll(all);
+  }
+
+  _sv2TrackerRefreshUI(assetKey);   // Progress Tracker + Analysis turant update
+  _sv2RecordOpen(assetKey);         // record modal ko cleared state ke saath re-render karo
+}
+window._sv2RecordClear = _sv2RecordClear;
 
 // Practice sheet ke Total Target / Per Day Target / Start Date inputs
 // se call hota hai — current values read karke tracker settings sync
