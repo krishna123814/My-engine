@@ -2217,21 +2217,17 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
    ══════════════════════════════════════════════════════════════════════ */
 #practice-btn{
   display:none; /* sirf Stack View 2 active hone par JS se dikhaya jaata hai */
-  align-items:center;gap:3px;
-  background:linear-gradient(135deg,#ff9f43,#ff6b35);
-  color:#fff;border:none;border-radius:7px;
-  padding:5px 9px;font-size:12px;font-weight:700;
-  cursor:pointer;box-shadow:0 2px 6px #ff6b3555;
-  animation:ptPulseIcon 2.4s ease-in-out infinite;
+  position:relative;
+  align-items:center;justify-content:center;
+  width:22px;height:18px;
+  background:#2a2e39;border:1px solid #363c4e;border-radius:3px;
+  font-size:11px;cursor:pointer;flex-shrink:0;padding:0;
 }
-#practice-btn.has-progress{animation:none}
-@keyframes ptPulseIcon{
-  0%,100%{box-shadow:0 2px 6px #ff6b3555}
-  50%{box-shadow:0 2px 14px #ff6b35aa}
-}
+#practice-btn.has-progress{border-color:#ff9f43}
 #practice-btn .pt-dot{
-  width:7px;height:7px;border-radius:50%;background:#26a69a;
-  display:none;box-shadow:0 0 0 2px #fff4;
+  position:absolute;top:-3px;right:-3px;
+  width:7px;height:7px;border-radius:50%;background:#f23645;
+  display:none;box-shadow:0 0 0 1.5px #131722;
 }
 #practice-btn.has-progress .pt-dot{display:inline-block}
 
@@ -2283,9 +2279,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 #pt-range-picker{
   background:#1c2029;border:1px solid #2a2e39;border-radius:12px;padding:12px;
 }
-.pt-range-opts{display:flex;gap:8px;margin-bottom:10px}
+.pt-range-opts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
 .pt-range-chip{
-  flex:1;text-align:center;padding:10px 4px;border-radius:9px;cursor:pointer;
+  flex:1 1 28%;min-width:70px;text-align:center;padding:10px 4px;border-radius:9px;cursor:pointer;
   background:#232734;border:1.5px solid #363c4e;color:#c7cad1;font-size:12px;font-weight:700;
   transition:.15s;
 }
@@ -2296,6 +2292,17 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   width:100%;padding:6px;margin-bottom:10px;background:none;border:1px dashed #3a3f4d;
   color:#8b93a3;border-radius:8px;font-size:11px;cursor:pointer;
 }
+.pt-custom-days-row{display:flex;gap:7px;margin-bottom:10px}
+#pt-custom-days-input{
+  flex:1;min-width:0;background:#161a25;border:1px solid #2a2e39;border-radius:8px;
+  color:#d1d4dc;font-size:12px;padding:9px 10px;outline:none;
+}
+#pt-custom-days-input::placeholder{color:#5b606c}
+#pt-custom-days-btn{
+  flex-shrink:0;padding:0 14px;background:#232734;border:1px solid #363c4e;border-radius:8px;
+  color:#c7cad1;font-size:12px;font-weight:800;cursor:pointer;
+}
+#pt-custom-days-btn:active{background:#2a2e39}
 #pt-start-btn{
   width:100%;padding:12px;border:none;border-radius:10px;font-size:13px;font-weight:800;
   background:linear-gradient(135deg,#2962ff,#1e53e5);color:#fff;cursor:pointer;
@@ -2479,6 +2486,83 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 #pt-reminder-banner button{
   background:#fff3;border:none;color:#fff;padding:5px 9px;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer;
 }
+/* ── Weekly frequency picker (kitne din/week) ───────────────────────── */
+.pt-freq-row-wrap{margin-bottom:10px}
+.pt-freq-lbl{font-size:11px;color:#9598a1;font-weight:700;margin-bottom:6px}
+.pt-freq-row{display:flex;gap:5px}
+.pt-freq-chip{
+  flex:1;text-align:center;padding:8px 0;border-radius:8px;cursor:pointer;
+  background:#232734;border:1.5px solid #363c4e;color:#c7cad1;font-size:12px;font-weight:800;
+}
+.pt-freq-chip.sel{background:#12213f;border-color:#2962ff;color:#7fb0ff}
+.pt-freq-sub{font-size:10px;color:#767b86;margin-top:5px;text-align:center}
+
+/* ── Weekly target badge on card ────────────────────────────────────── */
+.pt-freq-badge{
+  display:inline-block;font-size:10.5px;color:#9598a1;background:#161a25;
+  border:1px solid #2a2e39;border-radius:20px;padding:3px 10px;margin-bottom:10px;
+}
+.pt-freq-badge b{color:#7fb0ff}
+
+/* ── Current week target card ───────────────────────────────────────── */
+.pt-curweek-card{background:#161a25;border:1px solid #2a2e39;border-radius:10px;padding:10px;margin-top:12px}
+.pt-curweek-card.achieved{border-color:#26a69a}
+.pt-curweek-top{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:#9598a1;font-weight:700;margin-bottom:6px}
+.pt-curweek-status{color:#ffb020;font-weight:800}
+.pt-curweek-card.achieved .pt-curweek-status{color:#26a69a}
+.pt-curweek-pct{font-size:10px;color:#767b86;margin-top:5px;text-align:right}
+
+/* ── Week-by-week history strip ─────────────────────────────────────── */
+.pt-week-history{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.pt-wk-chip{
+  min-width:26px;height:22px;padding:0 4px;border-radius:6px;background:#232734;
+  display:flex;align-items:center;justify-content:center;font-size:10px;color:#767b86;font-weight:700;
+}
+.pt-wk-chip.achieved{background:#123a2a;color:#4fd1a5}
+.pt-wk-chip.missed{background:#2a1418;color:#e07a82}
+.pt-wk-chip.current{background:#122040;color:#7fb0ff;box-shadow:0 0 0 1.5px #2962ff}
+.pt-wk-chip.future{background:#181b23;color:#3a3f4d}
+.pt-wk-summary{font-size:10px;color:#767b86;margin-top:6px;text-align:right}
+
+/* ── Timeframe Start-Dates table (folder icon) ──────────────────────── */
+#pt-hdr-dates{background:#232734;border:none;color:#9598a1;width:28px;height:28px;border-radius:50%;font-size:13px;cursor:pointer;margin-right:6px}
+#pt-hdr-dates:active{background:#2a2e39}
+
+#pt-dates-overlay{
+  display:none;position:fixed;inset:0;z-index:20200;
+  background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);
+}
+#pt-dates-overlay.open{display:flex;align-items:flex-end;justify-content:center}
+#pt-dates-modal{
+  width:100%;max-width:480px;max-height:86vh;overflow-y:auto;
+  background:#161a25;border:1px solid #2a2e39;border-radius:16px 16px 0 0;
+  box-shadow:0 -8px 32px #000a;animation:ptSlideUp .25s ease-out;
+  padding-bottom:env(safe-area-inset-bottom,0);
+}
+@media(min-width:520px){
+  #pt-dates-overlay.open{align-items:center}
+  #pt-dates-modal{border-radius:16px;max-height:80vh}
+}
+#pt-dates-hdr{
+  position:sticky;top:0;z-index:2;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px 10px;background:#161a25;border-bottom:1px solid #2a2e39;
+}
+#pt-dates-hdr span{font-size:15px;font-weight:800;color:#e8eaed}
+#pt-dates-hdr button{background:#232734;border:none;color:#9598a1;width:28px;height:28px;border-radius:50%;font-size:14px;cursor:pointer}
+#pt-dates-asset-tabs{display:flex;gap:8px;padding:12px 16px 0}
+#pt-dates-body{padding:14px 16px 22px}
+
+.pt-dates-table-wrap{overflow-x:auto;border:1px solid #2a2e39;border-radius:10px}
+.pt-dates-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}
+.pt-dates-table th{
+  background:#1c2029;color:#7fb0ff;font-weight:800;padding:8px 10px;text-align:center;
+  border-bottom:1px solid #2a2e39;position:sticky;top:0;
+}
+.pt-dates-table td{padding:7px 10px;text-align:center;color:#c7cad1;border-bottom:1px solid #1e222d}
+.pt-dates-table tr:last-child td{border-bottom:none}
+.pt-dates-table tr.pt-dates-current-row td{background:#122040;color:#7fb0ff;font-weight:800}
+.pt-dates-hint{font-size:10.5px;color:#767b86;margin-top:10px;line-height:1.6}
 </style>
 </head>
 <body>
@@ -2506,7 +2590,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
   <div id="hdr-right">
     <button id="tf-menu-btn" onclick="toggleTfDropdown()" title="Timeframes">&#9201; <span id="tf-menu-label">1m</span></button>
-    <button id="practice-btn" onclick="openPracticeModal()" title="Practice Tracker"><span class="pt-dot"></span>🎯 Practice</button>
+    <button id="practice-btn" onclick="openPracticeModal()" title="Practice Tracker"><span class="pt-dot"></span>🎯</button>
     <button id="draw-btn" onclick="toggleDrawPanel()" title="Drawing Tools">✏️ Draw</button>
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
@@ -2524,6 +2608,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div id="pt-hdr">
       <span id="pt-hdr-title">🎯 Practice Tracker</span>
       <div>
+        <button id="pt-hdr-dates" onclick="_ptOpenDatesTable()" title="Timeframe Start Dates">📁</button>
         <button id="pt-hdr-reminder" onclick="_ptToggleReminderPanel()" title="Daily Reminder">⏰</button>
         <button id="pt-hdr-close" onclick="closePracticeModal()">✕</button>
       </div>
@@ -2560,6 +2645,21 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button id="pt-note-del" onclick="_ptDeleteNote()">🗑 Delete</button>
       <button id="pt-note-save" onclick="_ptSaveNote()">💾 Save</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ TIMEFRAME START-DATES TABLE ═══════════════════════════════════════ -->
+<div id="pt-dates-overlay" onclick="if(event.target===this) _ptCloseDatesTable()">
+  <div id="pt-dates-modal">
+    <div id="pt-dates-hdr">
+      <span>📅 Timeframe Start Dates</span>
+      <button onclick="_ptCloseDatesTable()">✕</button>
+    </div>
+    <div id="pt-dates-asset-tabs">
+      <div class="pt-asset-tab" id="pt-dates-tab-bn" onclick="_ptDatesSwitchAsset('bn')">📊 BankNifty</div>
+      <div class="pt-asset-tab asset-btc" id="pt-dates-tab-btc" onclick="_ptDatesSwitchAsset('btc')">₿ BTC</div>
+    </div>
+    <div id="pt-dates-body"></div>
   </div>
 </div>
 
@@ -17523,6 +17623,16 @@ if (document.readyState === 'loading') {
                          '1y': { label: '1 Year',  sub: '365 din', days: 365 } };
   const PT_ASSET_LABEL = { bn: '📊 BankNifty', btc: '₿ BTC' };
 
+  // Custom day-count ranges (e.g. "c9" = 9 din) ke liye label/days nikalne wala helper
+  function ptRangeInfo(rangeKey) {
+    if (PT_RANGES[rangeKey]) return PT_RANGES[rangeKey];
+    if (rangeKey && rangeKey[0] === 'c') {
+      const days = parseInt(rangeKey.slice(1), 10) || 0;
+      return { label: `${days} Din`, sub: `${days} din`, days };
+    }
+    return { label: rangeKey, sub: '', days: 0 };
+  }
+
   const PT_BADGES = [
     { id: 'streak3',    emoji: '🔥',   name: '3-Day Streak',     desc: 'Lagatar 3 din practice',      check: s => s.maxStreak >= 3 },
     { id: 'streak7',    emoji: '🔥🔥',  name: '7-Day Streak',     desc: 'Lagatar 7 din practice',      check: s => s.maxStreak >= 7 },
@@ -17537,6 +17647,7 @@ if (document.readyState === 'loading') {
 
   let ptCurrentAsset  = 'bn';
   let ptPendingRanges = new Set();
+  let ptPendingFreq   = 7;
   let ptNoteCtx       = null;   // { asset, date }
   let ptNoteMood      = null;
 
@@ -17593,30 +17704,56 @@ if (document.readyState === 'loading') {
   }
   window._ptLogToday = ptLogToday;
 
-  // ── Stats for one target ───────────────────────────────────────────────
+  // ── Stats for one target (ab weekly-frequency target ke saath) ─────────
   function ptStatsFor(assetKey, rangeKey) {
     const t = ptData[assetKey].targets[rangeKey];
     if (!t) return null;
     const start = ptParse(t.start);
-    const totalDays = PT_RANGES[rangeKey].days;
+    const freq = t.freq || 7; // purane targets (freq na ho) = daily maana jaayega
+    const totalDays = ptRangeInfo(rangeKey).days;
     const today = ptToday();
-    const elapsed = Math.min(Math.max(ptDayDiff(start, today) + 1, 0), totalDays);
+    const elapsedDays = Math.min(Math.max(ptDayDiff(start, today) + 1, 0), totalDays);
     const endDate = ptAddDays(start, totalDays - 1);
-    let doneDays = 0, missedDays = 0;
     const log = ptData[assetKey].log;
-    for (let i = 0; i < elapsed; i++) {
-      const ds = ptFmt(ptAddDays(start, i));
-      if (log[ds]) doneDays++; else if (ptAddDays(start, i) < today) missedDays++;
+
+    const totalWeeks = Math.ceil(totalDays / 7);
+    const weeks = [];
+    let doneDaysTotal = 0, missedDaysTotal = 0, targetTotalDays = 0, currentWeekIdx = -1;
+    for (let w = 0; w < totalWeeks; w++) {
+      const weekStart = ptAddDays(start, w * 7);
+      const daysInWeek = Math.min(7, totalDays - w * 7);
+      const weekTarget = Math.min(freq, daysInWeek);
+      targetTotalDays += weekTarget;
+      let doneCount = 0, missedCount = 0;
+      for (let i = 0; i < daysInWeek; i++) {
+        const d = ptAddDays(weekStart, i), ds = ptFmt(d);
+        if (d <= today) { if (log[ds]) { doneCount++; doneDaysTotal++; } else { missedCount++; missedDaysTotal++; } }
+      }
+      const weekEnd = ptAddDays(weekStart, daysInWeek - 1);
+      const isCurrent = today >= weekStart && today <= weekEnd;
+      const isFuture = weekStart > today;
+      if (isCurrent) currentWeekIdx = w;
+      weeks.push({ idx: w, weekStart, weekEnd, daysInWeek, weekTarget, doneCount, missedCount, achieved: doneCount >= weekTarget, isCurrent, isFuture });
     }
-    const percent = Math.round((doneDays / totalDays) * 100);
-    const remainingDays = Math.max(totalDays - elapsed, 0);
+
+    const percent = targetTotalDays ? Math.round((doneDaysTotal / targetTotalDays) * 100) : 0;
+    const remainingDays = Math.max(totalDays - elapsedDays, 0);
     const finished = ptDayDiff(today, endDate) < 0;
     let streak = 0;
-    for (let i = elapsed - 1; i >= 0; i--) {
+    for (let i = elapsedDays - 1; i >= 0; i--) {
       const ds = ptFmt(ptAddDays(start, i));
       if (log[ds]) streak++; else break;
     }
-    return { start, totalDays, elapsed, doneDays, missedDays, percent, remainingDays, endDate, finished, streak };
+    const achievedWeeksCount = weeks.filter(w => !w.isFuture && w.achieved).length;
+    const totalWeeksSoFar = weeks.filter(w => !w.isFuture).length;
+    const currentWeek = currentWeekIdx >= 0 ? weeks[currentWeekIdx] : null;
+    const currentWeekPercent = currentWeek && currentWeek.weekTarget ? Math.round((currentWeek.doneCount / currentWeek.weekTarget) * 100) : 0;
+
+    return {
+      start, freq, totalDays, elapsedDays, elapsed: elapsedDays, doneDays: doneDaysTotal, missedDays: missedDaysTotal,
+      doneDaysTotal, missedDaysTotal, percent, remainingDays, endDate, finished, streak, weeks, targetTotalDays,
+      achievedWeeksCount, totalWeeksSoFar, currentWeek, currentWeekPercent,
+    };
   }
 
   // ── Global (both-asset) stats for XP / badges ──────────────────────────
@@ -17730,6 +17867,7 @@ if (document.readyState === 'loading') {
       ptCurrentAsset = (key === 'btc') ? 'btc' : 'bn';
     } catch (_) {}
     ptPendingRanges = new Set();
+    ptPendingFreq = 7;
     document.getElementById('pt-overlay').classList.add('open');
     document.getElementById('pt-reminder-panel').classList.remove('open');
     ptSyncReminderUI();
@@ -17740,6 +17878,7 @@ if (document.readyState === 'loading') {
   window.ptSwitchAsset = function (assetKey) {
     ptCurrentAsset = assetKey;
     ptPendingRanges = new Set();
+    ptPendingFreq = 7;
     ptRenderTabs();
     ptRenderBody();
   };
@@ -17831,16 +17970,48 @@ if (document.readyState === 'loading') {
       const sel = ptPendingRanges.has(k) ? ' sel' : '';
       return `<div class="pt-range-chip${sel}" onclick="_ptToggleRange('${k}')">${r.label}<span class="pt-rc-sub">${r.sub}</span></div>`;
     }).join('');
-    if (!chips) return '';
+    const customChips = Array.from(ptPendingRanges).filter(k => k[0] === 'c' && !existingKeys.includes(k)).map(k => {
+      const info = ptRangeInfo(k);
+      return `<div class="pt-range-chip sel" onclick="_ptToggleRange('${k}')">${info.label}<span class="pt-rc-sub">${info.sub}</span></div>`;
+    }).join('');
     const allLeft = Object.keys(PT_RANGES).filter(k => !existingKeys.includes(k));
     return `
       <div class="pt-section-lbl">${existingKeys.length ? '➕ Naya Range Add Karo' : '🎯 Practice Range Chuno'}</div>
       <div id="pt-range-picker">
-        <div class="pt-range-opts">${chips}</div>
+        <div class="pt-range-opts">${chips}${customChips}</div>
         ${allLeft.length > 1 ? `<button id="pt-range-all-btn" onclick="_ptSelectAllRanges()">✅ Teeno Select Karo</button>` : ''}
+        <div class="pt-custom-days-row">
+          <input type="number" id="pt-custom-days-input" min="1" max="400" placeholder="Ya din khud likho (e.g. 9, 27, 45)">
+          <button id="pt-custom-days-btn" onclick="_ptAddCustomDays()">➕ Add</button>
+        </div>
+        ${ptFreqPickerHtml()}
         <button id="pt-start-btn" onclick="_ptStartPractice()" ${ptPendingRanges.size ? '' : 'disabled'}>▶ Practice Shuru Karo</button>
       </div>`;
   }
+  window._ptAddCustomDays = function () {
+    const inp = document.getElementById('pt-custom-days-input');
+    if (!inp) return;
+    let n = parseInt(inp.value, 10);
+    if (!n || n <= 0) { inp.focus(); return; }
+    n = Math.min(400, n);
+    const key = 'c' + n;
+    if (ptData[ptCurrentAsset].targets[key]) { inp.value = ''; return; } // already ek active target isi din-count ka
+    ptPendingRanges.add(key);
+    ptRenderBody();
+  };
+  function ptFreqPickerHtml() {
+    if (!ptPendingRanges.size) return '';
+    let chips = '';
+    for (let n = 1; n <= 7; n++) {
+      chips += `<div class="pt-freq-chip${ptPendingFreq === n ? ' sel' : ''}" onclick="_ptSetFreq(${n})">${n}</div>`;
+    }
+    return `<div class="pt-freq-row-wrap">
+      <div class="pt-freq-lbl">📅 Hafte mein kitne din practice karni hai?</div>
+      <div class="pt-freq-row">${chips}</div>
+      <div class="pt-freq-sub">${ptPendingFreq} din / week ka target set hoga</div>
+    </div>`;
+  }
+  window._ptSetFreq = function (n) { ptPendingFreq = n; ptRenderBody(); };
   window._ptToggleRange = function (k) {
     if (ptPendingRanges.has(k)) ptPendingRanges.delete(k); else ptPendingRanges.add(k);
     ptRenderBody();
@@ -17852,8 +18023,10 @@ if (document.readyState === 'loading') {
   window._ptStartPractice = function () {
     if (!ptPendingRanges.size) return;
     const today = ptFmt(ptToday());
-    ptPendingRanges.forEach(k => { ptData[ptCurrentAsset].targets[k] = { start: today }; });
+    const freq = ptPendingFreq;
+    ptPendingRanges.forEach(k => { ptData[ptCurrentAsset].targets[k] = { start: today, freq }; });
     ptPendingRanges = new Set();
+    ptPendingFreq = 7;
     ptSave(ptData);
     ptUpdateHeaderDot();
     ptRenderBody();
@@ -17913,7 +18086,7 @@ if (document.readyState === 'loading') {
   window._ptShareImage = function (assetKey) {
     const targets = Object.keys(ptData[assetKey].targets);
     let bestPct = 0, bestLabel = 'Practice';
-    targets.forEach(k => { const st = ptStatsFor(assetKey, k); if (st && st.percent >= bestPct) { bestPct = st.percent; bestLabel = PT_RANGES[k].label; } });
+    targets.forEach(k => { const st = ptStatsFor(assetKey, k); if (st && st.percent >= bestPct) { bestPct = st.percent; bestLabel = ptRangeInfo(k).label; } });
     const gs = ptGlobalStats();
     const cw = 600, ch = 400;
     const canvas = document.createElement('canvas');
@@ -17974,27 +18147,48 @@ if (document.readyState === 'loading') {
       html += ptRangePickerHtml([]);
     } else {
       html += `<div class="pt-section-lbl">📊 Active Targets</div>`;
-      keys.sort((a, b) => PT_RANGES[a].days - PT_RANGES[b].days).forEach(rangeKey => {
+      keys.sort((a, b) => ptRangeInfo(a).days - ptRangeInfo(b).days).forEach(rangeKey => {
         const stats = ptStatsFor(assetKey, rangeKey);
         if (!stats) return;
         html += `
         <div class="pt-card">
           <div class="pt-card-top">
-            <span class="pt-card-title">${PT_RANGES[rangeKey].label} Practice<span class="pt-range-tag">${stats.finished ? '🏁 Complete' : `Day ${stats.elapsed}/${stats.totalDays}`}</span></span>
+            <span class="pt-card-title">${ptRangeInfo(rangeKey).label} Practice<span class="pt-range-tag">${stats.finished ? '🏁 Complete' : `Day ${stats.elapsedDays}/${stats.totalDays}`}</span></span>
             <button class="pt-card-del" onclick="_ptRemoveTarget('${assetKey}','${rangeKey}')" title="Target hatao">🗑</button>
           </div>
+          <div class="pt-freq-badge">🎯 Target: <b>${stats.freq} din / week</b></div>
           <div class="pt-card-main">
             <div class="pt-ring-wrap">${ptRingSvg(stats.percent)}
-              <div class="pt-ring-pct"><b>${stats.percent}%</b><span>DONE</span></div>
+              <div class="pt-ring-pct"><b>${stats.percent}%</b><span>OVERALL</span></div>
             </div>
             <div class="pt-stats">
-              <div class="pt-stat done"><b>${stats.doneDays}</b><span>Practiced</span></div>
-              <div class="pt-stat miss"><b>${stats.missedDays}</b><span>Miss Hui</span></div>
+              <div class="pt-stat done"><b>${stats.doneDaysTotal}</b><span>Practiced</span></div>
+              <div class="pt-stat miss"><b>${stats.missedDaysTotal}</b><span>Miss Hui</span></div>
               <div class="pt-stat"><b>${stats.remainingDays}</b><span>Din Bache</span></div>
               <div class="pt-stat streak"><b>🔥${stats.streak}</b><span>Streak</span></div>
             </div>
           </div>
           <div class="pt-bar-outer"><div class="pt-bar-inner" style="width:${stats.percent}%"></div></div>
+          ${stats.currentWeek ? `
+          <div class="pt-curweek-card${stats.currentWeek.achieved ? ' achieved' : ''}">
+            <div class="pt-curweek-top">
+              <span>📆 Is Hafte Ka Target</span>
+              <span class="pt-curweek-status">${stats.currentWeek.achieved ? '✅ Achieved!' : `🕓 ${stats.currentWeek.doneCount}/${stats.currentWeek.weekTarget} din`}</span>
+            </div>
+            <div class="pt-bar-outer"><div class="pt-bar-inner" style="width:${Math.min(100, stats.currentWeekPercent)}%"></div></div>
+            <div class="pt-curweek-pct">${Math.min(100, stats.currentWeekPercent)}% is hafte ka target complete</div>
+          </div>` : ''}
+          ${stats.weeks.length > 1 ? `
+          <div class="pt-section-lbl" style="margin-top:12px">📋 Har Hafte Ka Status</div>
+          <div class="pt-week-history">${stats.weeks.map(w => {
+            let cls = 'pt-wk-chip', icon = 'W' + (w.idx + 1);
+            if (w.isFuture) cls += ' future';
+            else if (w.isCurrent) { cls += ' current'; icon = '🕓'; }
+            else if (w.achieved) { cls += ' achieved'; icon = '✅'; }
+            else { cls += ' missed'; icon = '❌'; }
+            return `<div class="${cls}" title="Week ${w.idx + 1}: ${w.doneCount}/${w.weekTarget} din">${icon}</div>`;
+          }).join('')}</div>
+          <div class="pt-wk-summary">${stats.achievedWeeksCount}/${stats.totalWeeksSoFar} hafte target achieve hue</div>` : ''}
           <div class="pt-heatmap">${ptHeatmapHtml(assetKey, rangeKey, stats)}</div>
         </div>`;
       });
@@ -18005,8 +18199,7 @@ if (document.readyState === 'loading') {
 
       html += `<button class="pt-share-btn" onclick="_ptShareImage('${assetKey}')">📤 Progress Image Share Karo</button>`;
 
-      const remainingRangeKeys = Object.keys(PT_RANGES).filter(k => !keys.includes(k));
-      if (remainingRangeKeys.length) html += ptRangePickerHtml(keys);
+      html += ptRangePickerHtml(keys);
     }
 
     body.innerHTML = html;
@@ -18046,6 +18239,81 @@ if (document.readyState === 'loading') {
     ptSave(ptData);
     window._ptCloseNote();
     ptRenderBody();
+  };
+
+  // ── Timeframe Start-Dates table ─────────────────────────────────────────
+  // App ke apne resample functions (resampleWorkingDays / resampleCryptoDaily)
+  // hi use karte hain — yahi wahi anchor/boundary logic hai jo chart khud
+  // candles banane ke liye use karta hai (BankNifty = trading-day skip
+  // weekends+holidays, BTC = continuous calendar days). Koi naya formula
+  // nahi banaya — jo already app mein hai wahi reuse ho raha hai.
+  let _ptDatesAsset = 'bn';
+  function _ptFmtDateDDMMYYYY(timeSec) {
+    if (timeSec === undefined || timeSec === null) return '—';
+    const d = new Date(timeSec * 1000);
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+  }
+  function ptDatesTableHtml(assetKey) {
+    let dayCounts = Object.keys(ptData[assetKey].targets).map(k => ptRangeInfo(k).days).filter(d => d > 0);
+    dayCounts = Array.from(new Set(dayCounts)).sort((a, b) => a - b);
+    if (!dayCounts.length) dayCounts = [3, 9, 27]; // koi target nahi to example wale defaults
+
+    const ROWS = 15;
+    const cols = dayCounts.map(nDays => {
+      let arr = [];
+      try {
+        if (assetKey === 'btc') {
+          if (typeof resampleCryptoDaily === 'function' && typeof BTC_DAILY !== 'undefined' && BTC_DAILY.length) arr = resampleCryptoDaily(BTC_DAILY, nDays);
+        } else {
+          if (typeof resampleWorkingDays === 'function' && typeof BN_DAILY !== 'undefined' && BN_DAILY.length) arr = resampleWorkingDays(BN_DAILY, nDays);
+        }
+      } catch (_) { arr = []; }
+      const recent = arr.slice(-ROWS).reverse(); // sabse latest period upar
+      return { nDays, dates: recent.map(c => _ptFmtDateDDMMYYYY(c.time)) };
+    });
+
+    if (!cols.length || cols.every(c => !c.dates.length)) {
+      return `<div class="pt-empty-hint"><span class="pt-emoji-big">📅</span>
+        Data abhi load nahi hai.<br>Chart pe ${PT_ASSET_LABEL[assetKey]} ek baar khol lo, fir yahan wapas aao.</div>`;
+    }
+
+    const maxRows = Math.max(...cols.map(c => c.dates.length));
+    const thead = cols.map(c => `<th>${c.nDays}D</th>`).join('');
+    let rowsHtml = '';
+    for (let r = 0; r < maxRows; r++) {
+      rowsHtml += `<tr${r === 0 ? ' class="pt-dates-current-row"' : ''}>${cols.map(c => `<td>${c.dates[r] || '—'}</td>`).join('')}</tr>`;
+    }
+    return `
+      <div class="pt-section-lbl">📊 ${PT_ASSET_LABEL[assetKey]} — Naya se Purana</div>
+      <div class="pt-dates-table-wrap">
+        <table class="pt-dates-table"><thead><tr>${thead}</tr></thead><tbody>${rowsHtml}</tbody></table>
+      </div>
+      <div class="pt-dates-hint">Top row (highlighted) = current/latest period ka start date. Isi date se chart par replay shuru karo us timeframe ki practice ke liye.<br>Columns tumhare active practice targets ke range se aa rahe hain (target na ho to 3D/9D/27D example dikhaya ja raha hai).</div>`;
+  }
+  function _ptRenderDatesTabs() {
+    document.getElementById('pt-dates-tab-bn').classList.toggle('active', _ptDatesAsset === 'bn');
+    document.getElementById('pt-dates-tab-btc').classList.toggle('active', _ptDatesAsset === 'btc');
+  }
+  function _ptRenderDatesBody() {
+    const body = document.getElementById('pt-dates-body');
+    if (body) body.innerHTML = ptDatesTableHtml(_ptDatesAsset);
+  }
+  window._ptOpenDatesTable = function () {
+    _ptDatesAsset = ptCurrentAsset || 'bn';
+    document.getElementById('pt-dates-overlay').classList.add('open');
+    _ptRenderDatesTabs();
+    _ptRenderDatesBody();
+  };
+  window._ptCloseDatesTable = function () {
+    document.getElementById('pt-dates-overlay').classList.remove('open');
+  };
+  window._ptDatesSwitchAsset = function (assetKey) {
+    _ptDatesAsset = assetKey;
+    _ptRenderDatesTabs();
+    _ptRenderDatesBody();
   };
 
   // ── Reminder settings ────────────────────────────────────────────────────
