@@ -4078,6 +4078,24 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
 //     e.g. 135m ka aakhri bucket sirf 90 min ka hota hai), to sessionEnd hi
 //     asli boundary hai — jo bhi pehle aaye.
 //   - BTC/24x7: naturalEnd = bucketStart + tfMin*60.
+// Actual end-of-DAY boundary for the calendar day containing `dayBucketTime`
+// — used ONLY to decide if TODAY's still-forming daily+ bar has finished
+// collecting data (3:30pm IST cutoff for BN, calendar-day for BTC). Unlike
+// _liveBucketExpectedEnd()'s daily+ branch (jo agle trading din ka pehla
+// bar backend array se DHOOND kar uska start-time deta hai — jo sirf tab
+// milta hai jab agla din already reveal ho chuka ho), ye function seedha
+// TODAY ki tareeq se 15:30 IST calculate karta hai — kisi bhi "agla din"
+// data ki zaroorat nahi. Isse SR/todayForming check replay ke agle din ka
+// wait kiye bina, sahi 3:30pm par hi "complete" maan leta hai.
+function _dailyPlusTodayEnd(dayBucketTime, isBN) {
+  if (!isBN) return dayBucketTime + 86400; // BTC: 24/7, plain calendar day
+  var IST = 5.5 * 3600;
+  var istSec      = dayBucketTime + IST;
+  var dayStart    = istSec - (istSec % 86400);
+  var SESSION_END = 15 * 60 + 30;           // 15:30 IST in minutes
+  return (dayStart + SESSION_END * 60) - IST;
+}
+
 function _liveBucketExpectedEnd(bucketTime, tfMin, isBN) {
   if (_isDailyPlusTF(tfMin)) {
     var nDays = Math.max(1, Math.round(tfMin / 1440)); // 1D→1, 3D→3, 9D→9, 27D→27
@@ -4263,7 +4281,17 @@ function _liveAggregateDailyPlus(dailyFull, baseBars, revealIdx, nDays, isBN) {
       if (todayBars[k].low  < l) l = todayBars[k].low;
     }
     todayBar = { time: curDayBucket, open: o, high: h, low: l, close: c };
-    var dayEnd = _liveBucketExpectedEnd(curDayBucket, 1440, isBN);
+    // FIX: pehle yahan _liveBucketExpectedEnd(curDayBucket, 1440, isBN) call
+    // hota tha, jo daily+ TF ke liye AGLE trading din ka pehla bar dhoondh
+    // kar uska start-time deta hai (backend daily array se) — jo sirf tab
+    // milta jab agla din already reveal ho chuka ho. Isse "todayForming"
+    // hamesha true rehta tha jab tak agli din ki pehli candle reveal na ho,
+    // chahe aaj session 3:30pm IST par khatam ho chuka ho — isi wajah se 1D
+    // aur usse upar TF par SR sirf agle din ki pehli candle close hone par
+    // draw hota tha, 3:30pm par nahi. Ab seedha AAJ ke session-end (3:30pm
+    // IST for BN / calendar-day for BTC) se compare karte hain — koi
+    // "agle din" data ki zaroorat nahi.
+    var dayEnd = _dailyPlusTodayEnd(curDayBucket, isBN);
     var lastBaseDur = (baseBars.length > 1) ? (baseBars[1].time - baseBars[0].time) : 300;
     todayForming = (todayBars[todayBars.length - 1].time + lastBaseDur) < dayEnd;
   }
