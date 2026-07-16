@@ -1934,6 +1934,33 @@ select.s-select, input.s-select{
   gap:4px;
 }
 .cell-tf-closed-widget.show{display:flex}
+/* ── SV2 BankNifty Market-Close popup (Bar Replay) ─────────────────────────
+   Jab replay 15:30 IST session-boundary paar karta hai, user ko batao +
+   control do. Sirf BankNifty ke liye (BTC 24/7 hai, close event hi nahi
+   hota). Koi bhi button chart/replay data ko RESET nahi karta — sirf
+   tick-loop (play/pause/continuous) control karta hai. ─────────────────── */
+#sv2-mktclose-overlay{
+  display:none;position:fixed;inset:0;z-index:100000;
+  background:#0009;backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;
+}
+#sv2-mktclose-overlay.open{display:flex}
+.sv2-mktclose-card{
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  padding:20px 22px;max-width:280px;width:88%;
+  box-shadow:0 16px 64px #0009;text-align:center;
+}
+.sv2-mktclose-icon{font-size:26px;margin-bottom:8px}
+.sv2-mktclose-title{color:#e0e3eb;font-size:14px;font-weight:700;margin-bottom:4px}
+.sv2-mktclose-sub{color:#848da0;font-size:11px;margin-bottom:16px;line-height:1.4}
+.sv2-mktclose-btns{display:flex;flex-direction:column;gap:8px}
+.sv2-mktclose-btn{
+  border:none;border-radius:6px;padding:9px 10px;font-size:12.5px;font-weight:600;
+  cursor:pointer;color:#fff;
+}
+.sv2-mktclose-btn.continue{background:#2962ff}
+.sv2-mktclose-btn.pause{background:#363c4e;color:#d1d4dc}
+.sv2-mktclose-btn.stop{background:#7a2a2a}
 .cell-settings-panel{
   display:none;position:fixed;z-index:10000;
   background:#1e222d;border:1px solid #363c4e;border-radius:6px;
@@ -4381,6 +4408,43 @@ function fmtChartTime(t) {
   return g('day')+'/'+g('month')+'/'+g('year')+' '+time;
 }
 
+// ── Timezone-aware TIME-AXIS tick formatter (right-side whitespace bhi) ─────
+// fmtChartTime() (upar) sirf crosshair/hover label control karta hai. Lightweight
+// Charts apni time-axis ke regular tick marks — jo hamesha neeche dikhte hain,
+// bar-replay/right-side whitespace area mein bhi — apne internal UTC-based
+// default se banata hai jab tak hum khud `tickMarkFormatter` na den. Isi wajah
+// se axis abhi tak UTC/browser-locale mein aa raha tha, IST mein nahi.
+// Ye function wahi S.tz (IST) + S.hour12 (12h/24h) setting follow karta hai
+// jo fmtChartTime crosshair ke liye karta hai, taaki dono jagah match karein.
+// tickMarkType: 0=Year, 1=Month, 2=DayOfMonth, 3=Time, 4=TimeWithSeconds
+function fmtTickMark(time, tickMarkType, locale) {
+  const d      = new Date(time * 1000);
+  const cfg    = TZ_MAP[S.tz] || TZ_MAP.IST;
+  const use12h = S.hour12 === true;
+
+  if (tickMarkType === 0) {   // Year
+    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, year: 'numeric' }).format(d);
+  }
+  if (tickMarkType === 1) {   // Month
+    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, month: 'short' }).format(d);
+  }
+  if (tickMarkType === 2) {   // DayOfMonth
+    return new Intl.DateTimeFormat('en-GB', { timeZone: cfg.zone, day: '2-digit', month: 'short' }).format(d);
+  }
+
+  // Time / TimeWithSeconds — same HH:MM (ya hh:MM AM/PM) jaisa crosshair dikhata hai
+  const opts = { timeZone: cfg.zone, hour: '2-digit', minute: '2-digit', hour12: use12h };
+  if (tickMarkType === 4) opts.second = '2-digit';
+  const parts = new Intl.DateTimeFormat('en-GB', opts).formatToParts(d);
+  const g2 = ty => (parts.find(p => p.type === ty) || {}).value || '';
+  let out = g2('hour') + ':' + g2('minute') + (tickMarkType === 4 ? ':' + g2('second') : '');
+  if (use12h) {
+    const dayp = (parts.find(p => p.type === 'dayPeriod') || {}).value || '';
+    out += ' ' + dayp.toUpperCase();
+  }
+  return out;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // SAVE / RESTORE STATE  (localStorage)
 // ════════════════════════════════════════════════════════════════════════════
@@ -6194,11 +6258,29 @@ function buildStack2() {
   if (!sc) return;
   sc.innerHTML = '';
 
+  // Market remaining-time badge ab hamesha i===0 par nahi — us cell par
+  // jaata hai jiska TF label current selected BASE timeframe se match
+  // karta hai (jaise base 15m hai to "15m" wale cell par shift). Agar
+  // koi cell base TF se match na kare (edge case), i===0 par fallback.
+  const _baseTfLabelForBadge = (typeof _sv2GetBaseTF === 'function')
+    ? _sv2GetBaseTF(assetKey === 'bn')
+    : null;
+  let _badgeCellIdx = 0;
+  if (_baseTfLabelForBadge && cfg.tfs) {
+    const _foundIdx = cfg.tfs.indexOf(_baseTfLabelForBadge);
+    if (_foundIdx !== -1) _badgeCellIdx = _foundIdx;
+  }
+
   for (let i = 0; i < total; i++) {
     const label = (cfg.tfs && cfg.tfs[i]) || (STACK_LETTERS[i] || (i+1));
     const cellObj = {
       asset: S.asset, tf: 1440, chart: null, series: null, el: null, vLine: null,
       _stack2: true,   // marker so buildCellChart2 is used instead
+      _followLive2: true,   // false once user manually pans/zooms this cell —
+                             // mirrors SV1's per-cell _followLive flag, used by
+                             // the tick-update logic below to decide whether to
+                             // advance the view (scrollToRealTime) or preserve
+                             // the user's own scroll position.
     };
     STACK2_CELLS.push(cellObj);
 
@@ -6226,6 +6308,8 @@ function buildStack2() {
     chartDiv.className = 'cell-chart';
     chartDiv.id = 'stack2-chart-' + i;
     chartDiv.style.position = 'relative';
+    chartDiv.addEventListener('pointerdown', ()=>{ cellObj._followLive2 = false; }, {passive:true});
+    chartDiv.addEventListener('wheel', ()=>{ cellObj._followLive2 = false; }, {passive:true});
 
     // Settings gear button
     const csetBtn = document.createElement('button');
@@ -6241,8 +6325,9 @@ function buildStack2() {
     screenBadge.textContent = (i+1) + ':' + total;
     cell.appendChild(screenBadge);
 
-    // Market remaining-time badge — sirf pehle (top) cell par
-    if (i === 0) {
+    // Market remaining-time badge — ab base-TF wale cell par (sirf i===0
+    // par nahi) — dekho _badgeCellIdx computation loop se pehle.
+    if (i === _badgeCellIdx) {
       const marketTimer = document.createElement('span');
       marketTimer.className = 'cell-market-timer';
       cell.appendChild(marketTimer);
@@ -6260,7 +6345,10 @@ function buildStack2() {
     gotoBtn.textContent = '⏭';
     gotoBtn.onclick = function(e){
       const c2 = STACK2_CELLS[i];
-      if (c2 && c2.chart) try{ c2.chart.timeScale().scrollToRealTime(); }catch(_){}
+      if (c2) {
+        c2._followLive2 = true;
+        if (c2.chart) try{ c2.chart.timeScale().scrollToRealTime(); }catch(_){}
+      }
       e.stopPropagation();
     };
 
@@ -6388,7 +6476,7 @@ function _buildStack2CellChart(idx) {
     grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
     crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: (S.futureOffset || 30), barSpacing: 6, minBarSpacing: 2 },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: (S.futureOffset || 30), barSpacing: 6, minBarSpacing: 2, tickMarkFormatter: (t, type, locale) => fmtTickMark(t, type, locale) },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -7664,15 +7752,28 @@ function ss2ApplyAndClose() {
       cell._lastClose = agg[agg.length - 1].close;
       var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
       if (_fw1.length) agg = agg.concat(_fw1);
+      // Same follow-live vs manual-scroll distinction as _rebuildAllCells()
+      // — is function ke andar aggregated bar-count generally constant
+      // rehta hai (sirf OHLC update, koi naya bar nahi), lekin consistency
+      // aur future-proofing ke liye wahi logic yahan bhi.
       var _preRange = null;
-      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
+      if (!cell._followLive2) {
+        try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
+      }
       try { cell.series.setData(agg); } catch(_e) {}
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_e) {}
+      } else if (cell._followLive2 && cell.chart) {
+        try { cell.chart.timeScale().scrollToRealTime(); } catch(_e) {}
       }
 
       cell._vlTime = _aggLastReal;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_e) {}
+      // Forming candle ka low yahin update hota hai (mid-candle animation
+      // tick) — dot ko bhi yahin redraw karo, warna wo forming candle par
+      // stale/missing reh jaata hai jab tak koi resize/pan/SR-init trigger
+      // na ho.
+      if (typeof _pdot2Draw === 'function') try { _pdot2Draw(ci); } catch(_e) {}
       _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal, pct);
     }
   }
@@ -7870,21 +7971,39 @@ function ss2ApplyAndClose() {
       }
       // setData() poora series data replace karta hai — jiski wajah se
       // Lightweight Charts apna visible time-range reset/re-fit kar deta
-      // hai (default rightOffset view par). Isse replay ke har tick par
-      // chart "right ki taraf bhaagta" dikhta tha. Fix: setData() se pehle
-      // current viewport save karo, baad mein wahi restore kar do — same
-      // pattern jo _sv2ApplyCellSR() SR lines ke liye already use karta hai.
+      // hai (default rightOffset view par). Pehle iska fix tha: HAMESHA
+      // purani logical index-range wapas restore kar do. Lekin usse ek
+      // ULTA bug ban gaya — jab cell "live follow" kar raha ho (user ne
+      // scroll nahi kiya), purani index-window fix rehti thi jabki naye
+      // real bars usi window ke andar "future" slots ko bhar dete the,
+      // yani camera kabhi aage nahi badhta aur naya candle window ke
+      // andar hi grow karta dikhta — asli TradingView ulta karta hai:
+      // camera hamesha latest bar ke saath aage (right) badhta hai, jisse
+      // purani candles screen par LEFT ki taraf sarakti dikhti hain.
+      // Fix: agar cell abhi "follow live" mode mein hai (user ne is cell
+      // ko manually pan/zoom nahi kiya — dekho _followLive2), to camera ko
+      // scrollToRealTime() se aage badhne do (candles left sarakti hain,
+      // TradingView jaisा). Sirf tabhi purani index-range preserve karo
+      // jab user ne khud scroll/zoom karke history dekhni shuru ki ho.
       var _preRange = null;
-      try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_) {}
+      if (!cell._followLive2) {
+        try { _preRange = cell.chart ? cell.chart.timeScale().getVisibleLogicalRange() : null; } catch(_) {}
+      }
       try { cell.series.setData(agg); } catch(_) {}
       if (_preRange && cell.chart) {
         try { cell.chart.timeScale().setVisibleLogicalRange(_preRange); } catch(_) {}
+      } else if (cell._followLive2 && cell.chart) {
+        try { cell.chart.timeScale().scrollToRealTime(); } catch(_) {}
       }
       // Future Line ko is cell ke apne last REAL (aggregated) bucket ke
       // sath rakho — whitespace tail ke sath nahi, aur base-resolution
       // time ke sath bhi nahi (upar comment dekhein).
       if (_aggLastReal2 != null) cell._vlTime = _aggLastReal2;
       if (typeof _vlDrawCell2 === 'function') try { _vlDrawCell2(ci); } catch(_) {}
+      // Parent-dot ko bhi har tick par redraw karo — pehle sirf resize/pan/
+      // SR-init par chalta tha, isliye forming (abhi-abhi ban rahi) candle
+      // par dot update nahi hota tha jab tak koi aur trigger na aaye.
+      if (typeof _pdot2Draw === 'function') try { _pdot2Draw(ci); } catch(_) {}
       _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal2, 0);
     }
   }
@@ -7909,6 +8028,56 @@ function ss2ApplyAndClose() {
     _renderContPlaySwitch();
   }
   window._sv2ContPlayToggle = _sv2ContPlayToggle;
+
+  // ── BankNifty-only Market-Close popup (Bar Replay) ────────────────────────
+  // Jab replay ka revealed bar us trading-din ka AAKHRI base bar hota hai
+  // (agla bar kisi doosre din ka hai, ya data hi khatam ho gaya) — user ko
+  // batao ki BankNifty market 15:30 IST par close ho gaya, aur control do:
+  // Continue (agle session mein aage badho), Pause (yahin ruko), ya Stop
+  // (continuous auto-play band karo). BTC 24/7 hai isliye ye popup sirf
+  // BankNifty replay ke liye trigger hota hai — _tick() ke andar dekhein.
+  // KOI BHI option chart/replay POSITION ya data ko reset nahi karta.
+  var _mktCloseEl = null;
+  function _sv2EnsureMktCloseEl() {
+    if (_mktCloseEl) return _mktCloseEl;
+    var wrap = document.createElement('div');
+    wrap.id = 'sv2-mktclose-overlay';
+    wrap.innerHTML =
+      '<div class="sv2-mktclose-card">' +
+        '<div class="sv2-mktclose-icon">\ud83d\udd14</div>' +
+        '<div class="sv2-mktclose-title">BankNifty Market Closed</div>' +
+        '<div class="sv2-mktclose-sub">Session khatam ho gaya (3:30 PM IST).<br>Aage kya karna hai?</div>' +
+        '<div class="sv2-mktclose-btns">' +
+          '<button class="sv2-mktclose-btn continue" id="sv2-mktclose-continue">\u25b6 Continue (agle din)</button>' +
+          '<button class="sv2-mktclose-btn pause" id="sv2-mktclose-pause">\u23f8 Pause yahin</button>' +
+          '<button class="sv2-mktclose-btn stop" id="sv2-mktclose-stop">\u23f9 Stop</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(wrap);
+    _mktCloseEl = wrap;
+
+    wrap.querySelector('#sv2-mktclose-continue').onclick = function(){
+      _sv2HideMktClosePopup();
+      // Replay ko wahi se aage badhao jahan ruka tha — koi rebuild/reset
+      // nahi, sirf normal Play flow (continuous tha to wahi resume hoga).
+      _play();
+    };
+    wrap.querySelector('#sv2-mktclose-pause').onclick = function(){
+      _sv2HideMktClosePopup();
+      // Already paused hai (popup dikhaane se pehle tick-loop ruk chuka
+      // tha) — bas popup band karo, replay wahin ruka rahega.
+    };
+    wrap.querySelector('#sv2-mktclose-stop').onclick = function(){
+      _sv2HideMktClosePopup();
+      // Continuous auto-play band kar do taaki agla manual Play sirf EK
+      // candle chale, khud-ba-khud agle session mein na ghus jaaye. Chart/
+      // replay position bilkul untouched — koi reset nahi.
+      if (_continuousPlay) { _continuousPlay = false; _saveContPlay(false); _renderContPlaySwitch(); }
+    };
+    return wrap;
+  }
+  function _sv2ShowMktClosePopup() { _sv2EnsureMktCloseEl().classList.add('open'); }
+  function _sv2HideMktClosePopup() { if (_mktCloseEl) _mktCloseEl.classList.remove('open'); }
 
   // ── One tick = reveal exactly ONE more base bar, then rebuild all cells ──
   function _tick() {
@@ -7955,6 +8124,30 @@ function ss2ApplyAndClose() {
             (_utcDateStr(live.baseBars[live.revealIdx].time) !== _barDateStr);
           var _isDayComplete = (_dayDoneBars >= _dayTotalBars) && _nextBarDifferentDay;
           _sv2TrackerOnStep(_trackKey, _barDateStr, _dayPct, _isDayComplete);
+        }
+      }
+    } catch(_) {}
+
+    // ── BankNifty market-close detection (BTC excluded — 24/7, no close) ───
+    // Jo bar abhi reveal hua, agar wo is trading-din ka AAKHRI base bar hai
+    // (agla bar kisi doosre din ka hai, ya data hi khatam), to market close
+    // ho chuka — popup dikhao aur tick-loop yahin rok do. Same bar ke liye
+    // dubara popup na aaye isliye dedupe (_mktCloseShownFor) rakha hai.
+    try {
+      if (live.isBN) {
+        var _justBar = live.baseBars[live.revealIdx - 1];
+        var _justDateStr = _utcDateStr(_justBar.time);
+        var _sessionJustEnded = (live.revealIdx >= live.baseBars.length) ||
+          (_utcDateStr(live.baseBars[live.revealIdx].time) !== _justDateStr);
+        if (_sessionJustEnded && live._mktCloseShownFor !== _justBar.time) {
+          live._mktCloseShownFor = _justBar.time;
+          _running = false;
+          if (_timerId) { clearTimeout(_timerId); _timerId = null; }
+          _pausedAt = null;   // agla Play/Continue fresh candle se shuru ho
+          _stopRing();
+          _renderPlayIcon();
+          _sv2ShowMktClosePopup();
+          return;   // user ka Continue/Pause/Stop choice hi aage decide karega
         }
       }
     } catch(_) {}
@@ -8329,6 +8522,7 @@ function _sv2ResumeLastReplay(assetKey) {
     if (typeof STACK2_CELLS !== 'undefined') {
       for (let i = 0; i < STACK2_CELLS.length; i++) {
         try { if (typeof _vlDrawCell2 === 'function') _vlDrawCell2(i); } catch(_){}
+        try { if (typeof _pdot2Draw === 'function') _pdot2Draw(i); } catch(_){}
       }
     }
     try { if (typeof _tfArrowRedrawAll === 'function') _tfArrowRedrawAll(); } catch(_){}
@@ -9663,15 +9857,25 @@ function _updateMarketTimers() {
     }
   } catch(_) {}
   try {
-    const el2 = document.querySelector('.stack2-cell[data-idx2="0"] .cell-market-timer');
-    if (el2 && typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS[0]) {
-      // SV2 replay ke dauraan real Date.now() nahi — replay ka virtual
-      // (last-revealed-bar) time use karo, taaki closed/replayed market
-      // ke liye "live" jaisa fake countdown na dikhe. Replay active nahi
-      // hai to _sv2ReplayVirtualNowSec() null deta hai aur SV1 jaisa hi
-      // real-clock behavior mil jaata hai.
-      const vNow = _sv2ReplayVirtualNowSec();
-      el2.textContent = _fmtHMS(_marketRemainingSeconds(STACK2_CELLS[0].asset, vNow));
+    // Badge ab kisi bhi cell par ho sakta hai (jo current base TF se
+    // match karta hai) — idx2="0" assume karne ke bajaye jahan bhi
+    // ".cell-market-timer" element bana hai wahi dhoondo, phir uske
+    // apne parent cell ka data-idx2 nikaal ke sahi STACK2_CELLS entry
+    // ka asset use karo.
+    const el2Cell = document.querySelector('.stack2-cell .cell-market-timer');
+    if (el2Cell) {
+      const el2 = el2Cell;
+      const cellEl2 = el2.closest('.stack2-cell');
+      const idx2 = cellEl2 ? parseInt(cellEl2.dataset.idx2, 10) : 0;
+      if (typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS[idx2]) {
+        // SV2 replay ke dauraan real Date.now() nahi — replay ka virtual
+        // (last-revealed-bar) time use karo, taaki closed/replayed market
+        // ke liye "live" jaisa fake countdown na dikhe. Replay active nahi
+        // hai to _sv2ReplayVirtualNowSec() null deta hai aur SV1 jaisa hi
+        // real-clock behavior mil jaata hai.
+        const vNow = _sv2ReplayVirtualNowSec();
+        el2.textContent = _fmtHMS(_marketRemainingSeconds(STACK2_CELLS[idx2].asset, vNow));
+      }
     }
   } catch(_) {}
 }
@@ -9759,11 +9963,19 @@ function _sv2NotifyBarClosedTFs(barTime, isBN) {
 }
 window._sv2NotifyBarClosedTFs = _sv2NotifyBarClosedTFs;
 
-function _renderTfCloseWidget(el, state) {
+function _renderTfCloseWidget(el, state, minExclusiveTfMin) {
   if (!el) return;
   const seen = new Set();
   const merged = [];
-  state.recent.forEach(e => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
+  state.recent.forEach(e => {
+    // Base TF aur usse chhoti/barabar TFs kabhi bhi widget mein nahi
+    // dikhni chahiye — chahe state.recent mein purani (stale) entry ho
+    // (jaise base TF change hone ke turant baad). Render-time par hamesha
+    // current base ke against re-check karo, sirf push-time filter par
+    // depend mat karo.
+    if (typeof minExclusiveTfMin === 'number' && e.tfMin <= minExclusiveTfMin) return;
+    if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); }
+  });
   if (!merged.length) { el.classList.remove('show'); el.innerHTML = ''; return; }
   el.innerHTML = merged.map(e => {
     const clr = (typeof _tfCandleColor === 'function') ? _tfCandleColor(e.tfMin) : '#111';
@@ -9779,10 +9991,17 @@ function _updateTfCloseWidgets() {
   } catch(_) {}
   try {
     // SV2 — detection ab _tick() ke bar-reveal hook se hoti hai, yahan
-    // sirf 15-second real-time expiry prune + render hota hai.
+    // sirf 15-second real-time expiry prune + render hota hai. Base TF
+    // (aur usse chhoti TFs) hamesha exclude — current base ka minute
+    // value nikaal ke render-time filter mein pass karo.
     const cutoff = Date.now() - _TF_CLOSE_DISPLAY_MS;
     _tfCloseState.sv2.recent = _tfCloseState.sv2.recent.filter(e => e.closedAt >= cutoff);
-    _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'), _tfCloseState.sv2);
+    let _sv2BaseMinNow = null;
+    try {
+      const _isBNNow = (typeof _stackKeyForAsset === 'function') ? (_stackKeyForAsset(S.asset) === 'bn') : true;
+      _sv2BaseMinNow = (typeof _sv2BaseTfMin === 'function') ? _sv2BaseTfMin(_isBNNow) : null;
+    } catch(_) {}
+    _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'), _tfCloseState.sv2, _sv2BaseMinNow);
   } catch(_) {}
 }
 setInterval(_updateTfCloseWidgets, 1000);
@@ -9847,6 +10066,7 @@ function chartOpts(el, h) {
     timeScale: {
       borderColor:'#2a2e39', timeVisible:true, secondsVisible:false,
       rightOffset:5, barSpacing:6, minBarSpacing:2,
+      tickMarkFormatter: (t, type, locale) => fmtTickMark(t, type, locale),
     },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
@@ -11663,7 +11883,7 @@ async function buildCellChart(idx) {
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
     crosshair:{mode:0, vertLine:{labelVisible:true}, horzLine:{labelVisible:true}},  // always Normal (free) for grid cells — never Magnet
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
-    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLineSV1&&S.vLineSV1.offset||5)+1)),barSpacing:4,minBarSpacing:1},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLineSV1&&S.vLineSV1.offset||5)+1)),barSpacing:4,minBarSpacing:1,tickMarkFormatter:(t,type,locale)=>fmtTickMark(t,type,locale)},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{axisPressedMouseMove:true,mouseWheel:true,pinch:true},
@@ -12182,7 +12402,7 @@ function _buildOverlayChart(bodyEl, idx, tf) {
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
     crosshair:{mode:0,vertLine:{color:S.crossColor||'#758696',width:S.crossWidth||1,style:(S.crossStyle!=null?+S.crossStyle:1),labelBackgroundColor:'#131722'},horzLine:{color:S.crossColor||'#758696',width:S.crossWidth||1,style:(S.crossStyle!=null?+S.crossStyle:1),labelBackgroundColor:'#131722'}},
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
-    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,barSpacing:6,rightOffset:5},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,barSpacing:6,rightOffset:5,tickMarkFormatter:(t,type,locale)=>fmtTickMark(t,type,locale)},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true},
