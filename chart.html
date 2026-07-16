@@ -1138,6 +1138,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-speed-opts{
   display:flex;flex-wrap:wrap;gap:6px;
 }
+#sv2-basetf-opts{
+  display:flex;flex-wrap:wrap;gap:6px;
+}
 .sv2-speed-opt{
   flex:1 1 calc(25% - 5px);min-width:56px;padding:8px 4px;font-size:12px;font-weight:700;
   background:#131722;border:1px solid #2a2e39;color:#787b86;
@@ -3881,13 +3884,15 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 // data pehle se load hai (SV2_BN / SV2_BTC keys) — kyunki base se chhoti
 // koi bhi TF replay mein reconstruct nahi ho sakti (info already discarded
 // jab coarser TF resample hui thi).
-//   BN  → 5m/15m/45m/135m sabka full-history data maujood hai.
-//   BTC → abhi sirf 160m ka full-history intraday data maujood hai; 40m/80m
-//         jaisi options ke liye pehle backend (main.py) mein unka resample
-//         add karna padega.
+//   BN  → 5m/15m/45m/135m sabka full-history data maujood hai. Ab
+//         1D/3D/9D/27D ka bhi FULL-HISTORY pre-resampled data maujood hai
+//         (SV2_BN['1D']/['3D']/['9D']/['27D'] — backend main.py se
+//         already inject hote hain), isliye ye bhi valid base options hain.
+//   BTC → 160m ke saath-saath 8H/1D/3D/9D/27D ka bhi full-history data
+//         maujood hai (SV2_BTC['8H']/['1D']/['3D']/['9D']/['27D']).
 const _SV2_BASE_TF_OPTIONS = {
-  bn:  ['5m', '15m', '45m', '135m'],
-  btc: ['160m'],
+  bn:  ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
+  btc: ['160m', '8H', '1D', '3D', '9D', '27D'],
 };
 // Har TF (base ho ya na ho) ke minutes — close-watch list banane ke liye.
 const _TF_ALL_MIN_BN  = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
@@ -7673,22 +7678,41 @@ function ss2ApplyAndClose() {
   }
 
   // ── Per-cell "next candle in..." countdown ───────────────────────────────
-  // Base tick speed (TICK_MS/1000, from Settings) = time for ONE base bar
-  // (BN=5m, BTC=160m). Har higher TF ki candle utne hi base-bars se milkar
-  // banti hai — TRADING/SESSION days ke hisaab se, calendar days ke hisaab
-  // se NAHI (isliye BN daily+ TFs ke liye hardcoded session-bar table use
-  // hoti hai, calendar tf/5 nahi — ek trading din mein sirf 375 min hote
-  // hain, 1440 nahi).
-  var _SV2_BN_BARS_PER_BUCKET = {
-    5: 1, 15: 3, 45: 9, 135: 27,
-    1440: 75, 4320: 225, 12960: 675, 38880: 2025
-  };
-  function _sv2BarsPerBucket(tfMin, isBN) {
-    if (isBN) {
-      if (_SV2_BN_BARS_PER_BUCKET[tfMin] != null) return _SV2_BN_BARS_PER_BUCKET[tfMin];
-      return Math.max(1, Math.round(tfMin / 5));
+  // Base tick speed (TICK_MS/1000, from Settings) = time for ONE base bar.
+  // Har higher TF ki candle utne hi base-bars se milkar banti hai —
+  // TRADING/SESSION days ke hisaab se, calendar days ke hisaab se NAHI.
+  //
+  // NOTE: base timeframe ab user-changeable hai (5m/15m/45m/135m for BN,
+  // 160m for BTC — settings panel), isliye ek FIXED 5m-base hardcoded table
+  // se bars-per-bucket nikalna galat ho jaata (e.g. base=15m par 45m bucket
+  // ke liye 9 nahi, 3 hi bars chahiye). Ab bucket ki asli duration seedha
+  // _liveBucketExpectedEnd() (already-trusted, session/working-day-aware
+  // boundary calc — same function jo "just closed" widget aur future-
+  // whitespace generator bhi use karte hain) se nikalte hain, phir usko
+  // CURRENT selected base-bar duration (_sv2BaseTfSec, dynamic) se divide
+  // karte hain — is tarah kisi bhi base TF ke liye automatically sahi
+  // bars-per-bucket count milta hai, koi hardcoded table maintain nahi
+  // karni padti.
+  function _sv2BarsPerBucket(tfMin, isBN, bucketStart) {
+    var baseMin = _sv2BaseTfMin(isBN);   // follows current selected base TF
+    // Base khud daily+ hai (1D/3D/9D/27D) — in bars ke beech ka REAL
+    // calendar gap weekends/holidays ki wajah se ghatta-badhta rehta hai
+    // (Fri→Mon jump), isliye bucketEnd-bucketStart ko flat baseSec se
+    // divide karna gine hue bars ko galat kar dega. Daily+ base bars
+    // hamesha "poore trading din" ke discrete units hote hain, isliye
+    // yahan seedha simple integer DAY-COUNT ratio use karo (1D/3D/9D/27D
+    // hamesha ek-dusre ke exact multiples hain — 3D/1D=3, 27D/9D=3, etc).
+    if (_isDailyPlusTF(baseMin)) {
+      return Math.max(1, Math.round(tfMin / baseMin));
     }
-    return Math.max(1, Math.round(tfMin / 160));   // BTC: 24/7, calendar == session
+    var baseSec = _sv2BaseTfSec(isBN);
+    if (bucketStart == null) {
+      // Fallback (bucket boundary maloom nahi) — seedha ratio se estimate.
+      return Math.max(1, Math.round((tfMin * 60) / baseSec));
+    }
+    var bucketEnd = _liveBucketExpectedEnd(bucketStart, tfMin, isBN);
+    var bars = (bucketEnd - bucketStart) / baseSec;
+    return Math.max(1, bars);
   }
 
   // D:H:M:S — sirf largest non-zero unit se shuru, leading-zero units hide.
@@ -7719,7 +7743,6 @@ function ss2ApplyAndClose() {
       timerEl.style.visibility = 'hidden';
       return;
     }
-    var barsPerBucket = _sv2BarsPerBucket(tfMin, live.isBN);
     // Bucket start = is cell ki aakhri aggregated candle ka REAL time
     // (caller se pass hota hai — future-whitespace-concat hone SE PEHLE
     // wala time, warna whitespace tail ka time aa jaata hai jo hamesha
@@ -7727,6 +7750,11 @@ function ss2ApplyAndClose() {
     // base-bar ke baad full duration par reset ho jaata tha).
     var bucketStart = (realBucketTime != null) ? realBucketTime : null;
     if (bucketStart == null) { timerEl.style.visibility = 'hidden'; return; }
+    // bucketStart pass karo taaki bars-per-bucket current SELECTED base TF
+    // ke hisaab se, real session/working-day-aware boundary se nikle
+    // (base TF badalte hi ye apne aap sahi ho jaata hai — koi refresh
+    // ya extra wiring nahi chahiye).
+    var barsPerBucket = _sv2BarsPerBucket(tfMin, live.isBN, bucketStart);
     var barsElapsedBeforeForming = 0;
     for (var bi = live.revealIdx - 1; bi >= 0; bi--) {
       if (live.baseBars[bi].time >= bucketStart) barsElapsedBeforeForming++;
