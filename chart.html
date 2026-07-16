@@ -6491,6 +6491,51 @@ function _sv2ShowBelowBaseHint(idx, el, tfLabel, baseLabel) {
   el.appendChild(hint);
 }
 
+// ── SV2 Bar-Replay "Preview Price" — dashed horizontal line ────────────────
+// Shows, on EVERY timeframe cell, the opening price of the very next base
+// bar that Bar-Replay hasn't revealed yet — i.e. the price at which the
+// next candle is about to start. This is visible as soon as a replay date
+// is selected (before ▶ Play is ever pressed), and keeps refreshing itself
+// after every tick to point at the new "next" bar. BankNifty-only — BTC
+// gets no preview line, per requirement.
+function _sv2UpdatePreviewLine(idx) {
+  var cell = (typeof STACK2_CELLS !== 'undefined') ? STACK2_CELLS[idx] : null;
+  if (!cell || !cell.series) return;
+
+  // Purani line hamesha pehle hata do — stale price par kabhi na reh jaaye
+  if (cell._previewLine) {
+    try { cell.series.removePriceLine(cell._previewLine); } catch(_) {}
+    cell._previewLine = null;
+  }
+
+  // Sirf BankNifty ke liye
+  var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'btc';
+  if (assetKey !== 'bn') return;
+
+  // User ne "📍 Opening Price Preview" switch off kar rakha ho to mat dikhao
+  if (typeof window._sv2GetOpenPxOnOff === 'function' && !window._sv2GetOpenPxOnOff()) return;
+
+  // Replay session armed honi chahiye (date select ho chuki ho)
+  var live = window._SV2_LIVE;
+  if (!live || !live.baseBars || !live.isBN) return;
+  if (live.revealIdx >= live.baseBars.length) return;   // replay khatam — koi future bar bacha nahi
+
+  var nextBar = live.baseBars[live.revealIdx];
+  if (!nextBar || nextBar.open == null) return;
+
+  try {
+    cell._previewLine = cell.series.createPriceLine({
+      price:            nextBar.open,
+      color:            '#f5a623',
+      lineWidth:         1,
+      lineStyle:         LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible:  true,
+      title:            'Preview',
+    });
+  } catch(_) {}
+}
+window._sv2UpdatePreviewLine = _sv2UpdatePreviewLine;
+
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
   const el = document.getElementById('stack2-chart-' + idx);
@@ -6671,6 +6716,7 @@ function _buildStack2CellChart(idx) {
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
           c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
+          try { _sv2UpdatePreviewLine(idx); } catch(_) {}
           return;
         }
         try {
@@ -6686,6 +6732,7 @@ function _buildStack2CellChart(idx) {
           try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
           c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
+          try { _sv2UpdatePreviewLine(idx); } catch(_) {}
         }
       }
       setTimeout(feedChunk, idx * 30);
@@ -6897,6 +6944,10 @@ function ss2ApplyAndClose() {
   }
   function _saveOpenPxOnOff(on) { _LS.setItem(_OPENPX_KEY, on ? '1' : '0'); }
   var _showOpenPx = _loadOpenPxOnOff();
+  // Read-only getter — chart-side preview-line code (outside this closure)
+  // needs to know if the toggle is ON without duplicating the localStorage
+  // read/parse logic.
+  window._sv2GetOpenPxOnOff = function() { return _showOpenPx; };
 
   // ── Step / Reset icons visibility — on/off (persisted) ────────────────────
   // Calendar ki ⚙️ Settings se control hota hai. Default OFF rakha gaya hai
@@ -7096,6 +7147,12 @@ function ss2ApplyAndClose() {
     _saveOpenPxOnOff(_showOpenPx);
     _renderOpenPxSwitch();
     _sv2UpdateOpenPriceDisplay();
+    // Turant sabhi SV2 cells ki dashed preview line refresh karo (on ya off)
+    try {
+      if (typeof STACK2_CELLS !== 'undefined' && typeof _sv2UpdatePreviewLine === 'function') {
+        for (var _pi = 0; _pi < STACK2_CELLS.length; _pi++) _sv2UpdatePreviewLine(_pi);
+      }
+    } catch(_) {}
   }
   window._sv2OpenPxToggle = _sv2OpenPxToggle;
 
@@ -8035,6 +8092,7 @@ function ss2ApplyAndClose() {
       // SR-init par chalta tha, isliye forming (abhi-abhi ban rahi) candle
       // par dot update nahi hota tha jab tak koi aur trigger na aaye.
       if (typeof _pdot2Draw === 'function') try { _pdot2Draw(ci); } catch(_) {}
+      if (typeof _sv2UpdatePreviewLine === 'function') try { _sv2UpdatePreviewLine(ci); } catch(_) {}
       _sv2UpdateCellTimer(ci, tfMin, live, _aggLastReal2, 0);
     }
   }
