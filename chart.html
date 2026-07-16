@@ -2935,6 +2935,9 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <button id="sv2-stepreset-switch" class="gp-switch" onclick="_sv2StepResetToggle()"></button>
       </div>
       <div id="sv2-stepreset-hint">Off (default) = ⏭ Step aur ⟲ Reset icons hidden rahenge, sirf ▶ Play aur 📅 Calendar dikhenge. On = dono wapas dikhenge.</div>
+      <div id="sv2-basetf-title">🧱 Replay Base Timeframe</div>
+      <div id="sv2-basetf-opts"></div>
+      <div id="sv2-basetf-hint">Base se CHHOTI koi bhi TF replay mein disabled ho jaayegi (uska data load hi nahi hoga). Base badalte hi replay is date se fresh restart hota hai.</div>
       <div id="sv2-speed-title">⏱ Candle Speed (1 candle = X real seconds)</div>
       <div id="sv2-speed-opts">
         <button class="sv2-speed-opt" data-sec="5"   onclick="_sv2SpeedSet(5)">5s</button>
@@ -3868,6 +3871,65 @@ const SV2_BTC = {
 
 const ASSET_NAMES = ['\u20bf BTC/USDT', '\ud83d\udcca BANKNIFTY'];
 const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 REPLAY — Configurable Base Timeframe
+// ────────────────────────────────────────────────────────────────────────────
+// "Base" = jis TF ke bars se replay ek-ek karke reveal hota hai, aur jinse
+// baaki saari higher TFs live-aggregate hoti hain (_liveAggregateAny).
+// Sirf wahi TF base ban sakti hai jiske liye FULL-HISTORY pre-resampled
+// data pehle se load hai (SV2_BN / SV2_BTC keys) — kyunki base se chhoti
+// koi bhi TF replay mein reconstruct nahi ho sakti (info already discarded
+// jab coarser TF resample hui thi).
+//   BN  → 5m/15m/45m/135m sabka full-history data maujood hai.
+//   BTC → abhi sirf 160m ka full-history intraday data maujood hai; 40m/80m
+//         jaisi options ke liye pehle backend (main.py) mein unka resample
+//         add karna padega.
+const _SV2_BASE_TF_OPTIONS = {
+  bn:  ['5m', '15m', '45m', '135m'],
+  btc: ['160m'],
+};
+// Har TF (base ho ya na ho) ke minutes — close-watch list banane ke liye.
+const _TF_ALL_MIN_BN  = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
+const _TF_ALL_MIN_BTC = [160, 480, 1440, 4320, 12960, 38880];
+
+const _SV2_BASE_TF_KEY = 'sv2BaseTf1';
+function _sv2LoadBaseTfCfg() {
+  try {
+    var raw = _LS.getItem(_SV2_BASE_TF_KEY);
+    if (raw) {
+      var o = JSON.parse(raw);
+      if (o && _SV2_BASE_TF_OPTIONS.bn.indexOf(o.bn) !== -1 && _SV2_BASE_TF_OPTIONS.btc.indexOf(o.btc) !== -1) return o;
+    }
+  } catch(_) {}
+  return { bn: '5m', btc: '160m' };   // defaults — same as the old hardcoded behaviour
+}
+function _sv2SaveBaseTfCfg(o) { try { _LS.setItem(_SV2_BASE_TF_KEY, JSON.stringify(o)); } catch(_) {} }
+let _sv2BaseTfCfg = _sv2LoadBaseTfCfg();
+
+function _sv2GetBaseTF(isBN) { return isBN ? (_sv2BaseTfCfg.bn || '5m') : (_sv2BaseTfCfg.btc || '160m'); }
+function _sv2BaseTfMin(isBN) { return _parseTFMin(_sv2GetBaseTF(isBN)) || (isBN ? 5 : 160); }
+function _sv2BaseTfSec(isBN) { return _sv2BaseTfMin(isBN) * 60; }
+function _sv2SetBaseTF(isBN, label) {
+  var opts = isBN ? _SV2_BASE_TF_OPTIONS.bn : _SV2_BASE_TF_OPTIONS.btc;
+  if (opts.indexOf(label) === -1) return false;
+  if (isBN) _sv2BaseTfCfg.bn = label; else _sv2BaseTfCfg.btc = label;
+  _sv2SaveBaseTfCfg(_sv2BaseTfCfg);
+  return true;
+}
+// SV2 replay ke close-watch list — jo bhi TF selected base se BADI hai,
+// wahi "close" event ke roop mein watch hoti hai (base khud tick hai,
+// koi "close" nahi; base se chhoti TFs already disabled hain).
+function _sv2CloseWatchList(isBN) {
+  var all = isBN ? _TF_ALL_MIN_BN : _TF_ALL_MIN_BTC;
+  var baseMin = _sv2BaseTfMin(isBN);
+  return all.filter(function(tf){ return tf > baseMin; });
+}
+window._sv2GetBaseTF     = _sv2GetBaseTF;
+window._sv2BaseTfMin     = _sv2BaseTfMin;
+window._sv2BaseTfSec     = _sv2BaseTfSec;
+window._sv2SetBaseTF     = _sv2SetBaseTF;
+window._sv2CloseWatchList = _sv2CloseWatchList;
 
 // ════════════════════════════════════════════════════════════════════════════
 // LIVE BAR-REPLAY: bottom-up TF aggregation (NO server pre-resample used)
@@ -6286,6 +6348,28 @@ function _sv2ShowNoPeriodHint(idx, el) {
   el.appendChild(hint);
 }
 
+function _sv2ShowBelowBaseHint(idx, el, tfLabel, baseLabel) {
+  if (!el) return;
+  var old = el.querySelector('._sv2-basehint');
+  if (old) return;   // already shown
+  el.style.position = 'relative';
+  var hint = document.createElement('div');
+  hint.className = '_sv2-basehint';
+  hint.style.cssText = [
+    'position:absolute','inset:0','display:flex','flex-direction:column',
+    'align-items:center','justify-content:center',
+    'background:rgba(19,23,34,0.96)','color:#848da0',
+    'font-size:12px','text-align:center','padding:16px','z-index:20','gap:6px',
+    'border-radius:4px','pointer-events:none'
+  ].join(';');
+  hint.innerHTML =
+    '<div style="font-size:16px">\ud83d\udd12</div>'
+    + '<div style="color:#c4cad4;font-weight:600;font-size:12px">' + tfLabel + ' disabled</div>'
+    + '<div style="font-size:9px;color:#4a5068;margin-top:2px">Replay base = ' + baseLabel + ' hai<br>'
+      + tfLabel + ' usse chhoti TF hai, isliye replay mein load nahi hogi</div>';
+  el.appendChild(hint);
+}
+
 function _buildStack2CellChart(idx) {
   const c = STACK2_CELLS[idx];
   const el = document.getElementById('stack2-chart-' + idx);
@@ -6403,10 +6487,21 @@ function _buildStack2CellChart(idx) {
         // will keep using — so there's zero seam between "history" and
         // "live forming" candles once replay starts. (Normal static view,
         // i.e. no range active, still uses pre-resampled `data` above.)
-        const baseKeyLive   = (assetKey2 === 'bn') ? '5m' : '160m';
+        const baseKeyLive   = _sv2GetBaseTF(assetKey2 === 'bn');
+        const baseTfMin     = _sv2BaseTfMin(assetKey2 === 'bn');
         const baseStoreLive = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
         const baseBarsLive  = baseStoreLive[baseKeyLive] || [];
         const tfMinCell     = _parseTFMin(tfLabel) || 5;
+
+        // ── Cell ki TF selected base se CHHOTI hai → replay mein reconstruct
+        // nahi ho sakti (base-resample ke waqt hi wo resolution discard ho
+        // chuki hoti hai). Data load hi mat karo, disabled hint dikhao. ──────
+        if (tfMinCell < baseTfMin) {
+          _sv2ShowBelowBaseHint(idx, el, tfLabel, baseKeyLive);
+          _dbg.push('BELOW_BASE tfMin='+tfMinCell+' < baseTfMin='+baseTfMin+' → disabled');
+          return;
+        }
+
         let revealCount = 0;
         for (let bi = 0; bi < baseBarsLive.length; bi++) {
           if (baseBarsLive[bi].time < rng.from) revealCount = bi + 1; else break;
@@ -6416,11 +6511,12 @@ function _buildStack2CellChart(idx) {
         // Stash for the live-replay engine (shared base array + start point)
         window._SV2_LIVE = window._SV2_LIVE || {};
         window._SV2_LIVE.baseBars  = baseBarsLive;
+        window._SV2_LIVE.baseTfMin = baseTfMin;
         window._SV2_LIVE.isBN      = (assetKey2 === 'bn');
         window._SV2_LIVE.startIdx  = revealCount;
         window._SV2_LIVE.revealIdx = revealCount;
 
-        _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
+        _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseTF='+baseKeyLive+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
       }
 
       // ── Right-offset whitespace: khud sahi future time generate karke ────
@@ -6902,6 +6998,48 @@ function ss2ApplyAndClose() {
   // ⏭ Step / ⟲ Reset buttons should be shown (independent of this file's
   // own closure scope).
   window._sv2StepResetVisible = function() { return _showStepReset; };
+
+  // ── Base Timeframe selector — asset-aware (BN vs BTC options differ) ──────
+  function _sv2RenderBaseTfRow() {
+    var box = document.getElementById('sv2-basetf-opts');
+    if (!box) return;
+    var curKey  = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'btc';
+    var isBN    = (curKey === 'bn');
+    var opts    = isBN ? _SV2_BASE_TF_OPTIONS.bn : _SV2_BASE_TF_OPTIONS.btc;
+    var current = _sv2GetBaseTF(isBN);
+    box.innerHTML = '';
+    opts.forEach(function(label){
+      var b = document.createElement('button');
+      b.className = 'sv2-speed-opt';
+      b.textContent = label;
+      b.classList.toggle('active', label === current);
+      b.onclick = function(){ _sv2SetBaseTfFromUI(isBN, label); };
+      box.appendChild(b);
+    });
+    if (opts.length <= 1) {
+      var note = document.createElement('div');
+      note.style.cssText = 'font-size:9px;color:#4a5068;padding:4px 2px;';
+      note.textContent = 'BTC ke liye abhi sirf 160m base available hai (backend mein aur granularity resample karke isme aur options add ho sakte hain).';
+      box.appendChild(note);
+    }
+  }
+  window._sv2RenderBaseTfRow = _sv2RenderBaseTfRow;
+
+  function _sv2SetBaseTfFromUI(isBN, label) {
+    if (!_sv2SetBaseTF(isBN, label)) return;
+    _sv2RenderBaseTfRow();
+    // Base badla → purani baseBars reference ab galat hai; replay session
+    // reset karo (cutoff date wahi rehti hai, sirf live-tick state fresh).
+    window._SV2_LIVE = null;
+    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
+      try {
+        buildStack2();
+        setTimeout(_startCellTimers, 200);
+        setTimeout(() => { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
+      } catch(_){}
+    }
+  }
+  window._sv2SetBaseTfFromUI = _sv2SetBaseTfFromUI;
 
   // Selected calendar date ke liye us din ka opening price dhoondo.
   // SV2_BN['1D'] / SV2_BTC['1D'] pehle se hi Python se resampled aake hue
@@ -7425,8 +7563,12 @@ function ss2ApplyAndClose() {
 
     var o = nb.open;
     var formingBar;
-    // Base-bar duration: BN base bar = 5m (300s), BTC base bar = 160m (9600s)
-    var baseSec = live.isBN ? 300 : 9600;
+    // Base-bar duration: baseBars ke apne consecutive timestamps se hi nikalo
+    // (jo bhi TF ab base hai — dynamic, user-selectable), 300/9600 wala
+    // hardcode ab sirf edge-case fallback hai jab baseBars me <2 bars hon.
+    var baseSec = (live.baseBars.length > 1)
+      ? (live.baseBars[1].time - live.baseBars[0].time)
+      : (live.baseTfMin ? live.baseTfMin * 60 : _sv2BaseTfSec(live.isBN));
     var subArr  = live.isBN
       ? (typeof SV2_BN  !== 'undefined' ? SV2_BN['1m_raw']  : null)
       : (typeof SV2_BTC !== 'undefined' ? SV2_BTC['5m_raw'] : null);
@@ -7868,6 +8010,7 @@ function ss2ApplyAndClose() {
       _syncSpeedBtns();
       _renderContPlaySwitch();
       if (typeof window._sv2RenderStepResetSwitch === 'function') try { window._sv2RenderStepResetSwitch(); } catch(_){}
+      if (typeof window._sv2RenderBaseTfRow === 'function') try { window._sv2RenderBaseTfRow(); } catch(_){}
     }
   }
 
@@ -8203,6 +8346,7 @@ function _sv2CalRefreshAssetUI() {
   const bnBtn  = document.getElementById('sv2-cal-asset-bn');
   if (btcBtn) btcBtn.classList.toggle('active', curKey === 'btc');
   if (bnBtn)  bnBtn.classList.toggle('active', curKey === 'bn');
+  if (typeof window._sv2RenderBaseTfRow === 'function') try { window._sv2RenderBaseTfRow(); } catch(_){}
   const resumeBtn = document.getElementById('sv2-drng-resume');
   if (resumeBtn) {
     const has = _sv2HasSnapshot(curKey);
@@ -9544,8 +9688,8 @@ let _tfCloseState = {
 // kaun-kaun se watched higher-TFs ka boundary bhi complete karta hai, wahi
 // list return karta hai — koi prediction nahi, sirf actual math.
 function _tfsClosedAtBarTime(barTime, isBN) {
-  const watch   = isBN ? _TF_CLOSE_WATCH_BN : _TF_CLOSE_WATCH_BTC;
-  const baseSec = isBN ? _TF_BASE_SEC_BN : _TF_BASE_SEC_BTC;
+  const watch   = _sv2CloseWatchList(isBN);   // SV2-only: dynamic, follows selected base TF
+  const baseSec = _sv2BaseTfSec(isBN);
   const closed  = [];
   watch.forEach(tf => {
     const bThis = _liveGetBucketTime(barTime, tf, isBN);
