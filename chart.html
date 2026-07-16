@@ -8400,31 +8400,34 @@ function ss2ApplyAndClose() {
     });
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
-    // Ring play button ki border ke bahar thodi badi (54×54) dikhti hai —
+    // Ring ab button/icon (#sv2-step-btn) ke EXACT size (24×24) ke barabar —
+    // pehle ring 54×54 thi (button ki border ke bahar tak phaili hui, icon
+    // se kaafi badi dikhti thi). Ab 0,0 se hi start hoti hai aur radius bhi
+    // 24px circle ke andar fit hone ke hisaab se chhota kiya gaya hai.
     // 30 sec countdown visually fill hoti hai, har naye candle par reset.
     if (_playBtn) {
-      var R    = 21;
-      var CIRC = parseFloat((2 * Math.PI * R).toFixed(2));   // ≈ 131.95
+      var R    = 10;
+      var CIRC = parseFloat((2 * Math.PI * R).toFixed(2));   // ≈ 62.83
       _ringCirc = CIRC;
       var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 48 48');
+      svg.setAttribute('viewBox', '0 0 24 24');
       svg.style.cssText = [
         'position:absolute',
-        'top:-3px',
-        'left:-3px',
-        'width:54px',
-        'height:54px',
+        'top:0',
+        'left:0',
+        'width:24px',
+        'height:24px',
         'pointer-events:none',
         'transform:rotate(-90deg)',
         'z-index:1'
       ].join(';');
       var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', '24');
-      circle.setAttribute('cy', '24');
+      circle.setAttribute('cx', '12');
+      circle.setAttribute('cy', '12');
       circle.setAttribute('r', String(R));
       circle.setAttribute('fill', 'none');
       circle.setAttribute('stroke', '#26a69a');
-      circle.setAttribute('stroke-width', '3');
+      circle.setAttribute('stroke-width', '2');
       circle.setAttribute('stroke-dasharray', CIRC);
       circle.setAttribute('stroke-dashoffset', CIRC);   // empty = 0% filled
       circle.setAttribute('stroke-linecap', 'round');
