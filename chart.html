@@ -6986,7 +6986,7 @@ function ss2ApplyAndClose() {
     function _onMove(cx, cy) {
       if (!_dragging) return;
       var dx = cx - _startTX, dy = cy - _startTY;
-      if (Math.abs(dx) + Math.abs(dy) > 4) _moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 10) _moved = true;   // pehle 4px — normal tap jitter ko drag samajh leta tha
       var nl = _origLeft + dx, nt = _origTop + dy;
       // Clamp to viewport
       nl = Math.max(0, Math.min(window.innerWidth - 24, nl));
@@ -7571,31 +7571,34 @@ function ss2ApplyAndClose() {
     // SR toggle sabse pehle (calendar ke turant neeche), phir opacity
     // button, phir play/step/reset.
     var srOn = !!(_srToggleBtn && _srToggleBtn.classList.contains('visible'));
+    var GAP  = 8;   // FAB aur pehle button ke beech buffer — pehle 4px thi,
+                     // ring/finger-imprecision se FAB ke taps churaane se
+                     // bachne ke liye 8px kar diya.
     var stackOffset = srOn ? 87 : 0;   // SR toggle (29) + opacity btn (29) + dedup btn (29)
     if (_srToggleBtn) {
       _srToggleBtn.style.left = r.left + 'px';
-      _srToggleBtn.style.top  = (r.bottom + 4) + 'px';
+      _srToggleBtn.style.top  = (r.bottom + GAP) + 'px';
     }
     if (_srOpacityBtn) {
       _srOpacityBtn.style.left = r.left + 'px';
-      _srOpacityBtn.style.top  = (r.bottom + 4 + 29) + 'px';
+      _srOpacityBtn.style.top  = (r.bottom + GAP + 29) + 'px';
       if (_srOpacityPanel && _srOpacityPanel.classList.contains('open')) _positionSrOpacityPanel();
     }
     if (_srDedupBtn) {
       _srDedupBtn.style.left = r.left + 'px';
-      _srDedupBtn.style.top  = (r.bottom + 4 + 58) + 'px';
+      _srDedupBtn.style.top  = (r.bottom + GAP + 58) + 'px';
     }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
-      _playBtn.style.top  = (r.bottom + 4 + stackOffset) + 'px';
+      _playBtn.style.top  = (r.bottom + GAP + stackOffset) + 'px';
     }
     if (_onestepBtn) {
       _onestepBtn.style.left = r.left + 'px';
-      _onestepBtn.style.top  = (r.bottom + 4 + stackOffset + 29) + 'px';
+      _onestepBtn.style.top  = (r.bottom + GAP + stackOffset + 29) + 'px';
     }
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
-      _resetBtn.style.top  = (r.bottom + 4 + stackOffset + 29 + 29) + 'px';
+      _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
     }
   }
 
@@ -8400,30 +8403,40 @@ function ss2ApplyAndClose() {
     });
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
-    // Ring ab button/icon (#sv2-step-btn) ke EXACT size (24×24) ke barabar —
-    // pehle ring 54×54 thi (button ki border ke bahar tak phaili hui, icon
-    // se kaafi badi dikhti thi). Ab 0,0 se hi start hoti hai aur radius bhi
-    // 24px circle ke andar fit hone ke hisaab se chhota kiya gaya hai.
-    // 30 sec countdown visually fill hoti hai, har naye candle par reset.
+    // HARD LOCK: ring ki width/height/viewBox aur radius R sab isi
+    // RING_BOX constant se derive hote hain — koi bhi future edit agar
+    // sirf R badha de (viewBox/width/height chhode bina) toh ring button
+    // ke box se BAHAR phailegi aur upar wale 📅 Calendar FAB (jo sirf
+    // GAP_ABOVE_FAB px door hai) ke taps ko chura legi — ye exactly wo
+    // bug tha jisme calendar khulta nahi tha aur replay reset ho jaata
+    // tha. Isliye R ko box/2 - stroke se zyada NAHI hona chahiye, aur
+    // pointer-events:none svg + circle dono par explicit rakha hai taaki
+    // ring kabhi bhi click/touch capture na kare, sirf visual hai.
     if (_playBtn) {
-      var R    = 10;
-      var CIRC = parseFloat((2 * Math.PI * R).toFixed(2));   // ≈ 62.83
+      var RING_BOX = 24;                       // button ke exact box jitna
+      var R        = Math.min(10, (RING_BOX / 2) - 2);  // stroke ke liye margin
+      var CIRC     = parseFloat((2 * Math.PI * R).toFixed(2));   // ≈ 62.83
       _ringCirc = CIRC;
       var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('viewBox', '0 0 ' + RING_BOX + ' ' + RING_BOX);
+      svg.setAttribute('width', RING_BOX);
+      svg.setAttribute('height', RING_BOX);
       svg.style.cssText = [
         'position:absolute',
         'top:0',
         'left:0',
-        'width:24px',
-        'height:24px',
+        'width:' + RING_BOX + 'px',
+        'height:' + RING_BOX + 'px',
+        'max-width:' + RING_BOX + 'px',
+        'max-height:' + RING_BOX + 'px',
+        'overflow:hidden',
         'pointer-events:none',
         'transform:rotate(-90deg)',
         'z-index:1'
       ].join(';');
       var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      circle.setAttribute('cx', '12');
-      circle.setAttribute('cy', '12');
+      circle.setAttribute('cx', String(RING_BOX / 2));
+      circle.setAttribute('cy', String(RING_BOX / 2));
       circle.setAttribute('r', String(R));
       circle.setAttribute('fill', 'none');
       circle.setAttribute('stroke', '#26a69a');
@@ -8431,6 +8444,7 @@ function ss2ApplyAndClose() {
       circle.setAttribute('stroke-dasharray', CIRC);
       circle.setAttribute('stroke-dashoffset', CIRC);   // empty = 0% filled
       circle.setAttribute('stroke-linecap', 'round');
+      circle.style.pointerEvents = 'none';
       svg.appendChild(circle);
       _playBtn.appendChild(svg);
       _ringCircle = circle;
@@ -8708,7 +8722,7 @@ document.addEventListener('visibilitychange', function(){
     function _onMove(cx, cy) {
       if (!_dragging) return;
       var dx = cx - _startTX, dy = cy - _startTY;
-      if (Math.abs(dx) + Math.abs(dy) > 4) _moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 10) _moved = true;   // pehle 4px — normal tap jitter ko drag samajh leta tha
       var nl = _origLeft + dx, nt = _origTop + dy;
       nl = Math.max(0, Math.min(window.innerWidth - 26, nl));
       nt = Math.max(0, Math.min(window.innerHeight - 26, nt));
