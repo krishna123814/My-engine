@@ -44,6 +44,11 @@ CREDS_FILE        = ".fyers_creds.json"
 BN_LIVE_FILE      = "bn_live.json"
 DAILY_CACHE_FILE  = "btc_daily_cache.json"
 BN_DAILY_CACHE    = "bn_daily_cache.json"
+# Historical (closed, immutable) chunks are cached SEPARATELY and forever —
+# past days' candles never change, so there's no reason to re-download them.
+# Only these small "current chunk" files get refreshed on DAILY_CACHE_TTL.
+BTC_DAILY_HIST_CACHE = "btc_daily_hist_cache.json"
+BN_DAILY_HIST_CACHE  = "bn_daily_hist_cache.json"
 DAILY_CACHE_TTL   = 300        # 5 min — aaj ki candle bhi update rahe
 HIST_CACHE_TTL    = 300       # seconds for intraday cache (5 min — reduces API load)
 
@@ -830,16 +835,21 @@ def _fyers_history_chunk(resolution: str, from_date: str, to_date: str) -> list:
     return []
 
 def load_bn_daily() -> list:
-    """Fetch BankNifty daily candles 2020→now in yearly chunks (~1200 bars)."""
-    if os.path.exists(BN_DAILY_CACHE):
-        try:
-            with open(BN_DAILY_CACHE) as f:
-                cache = json.load(f)
-            if time.time() - cache.get("ts", 0) < DAILY_CACHE_TTL:
-                return cache.get("data", [])
-        except Exception:
-            pass
+    """Fetch BankNifty daily candles 2020→now.
 
+    PEHLE: har DAILY_CACHE_TTL (5 min) expire hote hi, 2020 se AAJ tak ki
+    SAARI history dobara 12-13 sequential chunk API calls (+ sleep delays)
+    ke through re-download hoti thi — chahe sirf AAJ ki candle update karni
+    ho. Isi wajah se login ke baad chart load hone mein (aur har ~5 min baad
+    refresh par) lambi wait aati thi.
+
+    AB: purani (band ho chuki, kabhi na badalne wali) chunks EK BAAR fetch
+    karke permanently cache ki jaati hain (BN_DAILY_HIST_CACHE). Sirf CURRENT
+    (abhi chal raha) half-year chunk — jisme aaj ka din aata hai — har
+    DAILY_CACHE_TTL par choti si refresh call se update hota hai. Isse
+    loading bahut fast ho jaati hai kyunki 99% history dobara download hi
+    nahi hoti.
+    """
     today = _ist_now()
     today_str = today.strftime("%Y-%m-%d")
     start_year = 2020
@@ -850,21 +860,69 @@ def load_bn_daily() -> list:
     for yr in range(start_year, cur_year + 1):
         chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
         chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+    chunks = [c for c in chunks if c[0] <= today_str]
+    if not chunks:
+        return []
 
-    all_candles: list = []
-    seen_times: set  = set()
-    for i, (from_d, to_d) in enumerate(chunks):
-        if from_d > today_str:
-            break
-        actual_to = min(to_d, today_str)
-        if i > 0:
-            time.sleep(0.25)  # avoid Fyers rate-limit on rapid chunk calls
-        chunk = _fyers_history_chunk("D", from_d, actual_to)
-        for c in chunk:
-            if c[0] not in seen_times:
-                seen_times.add(c[0])
-                all_candles.append(c)
+    cur_chunk  = chunks[-1]           # possibly still-forming half-year
+    hist_chunks = chunks[:-1]         # everything strictly before — immutable
 
+    # ── 1) Historical (immutable) part — fetch once, cache forever ─────────
+    hist_key = f"{start_year}:{hist_chunks[-1][1]}" if hist_chunks else "none"
+    hist_candles: list = []
+    hist_cache_valid = False
+    if os.path.exists(BN_DAILY_HIST_CACHE):
+        try:
+            with open(BN_DAILY_HIST_CACHE) as f:
+                hc = json.load(f)
+            if hc.get("key") == hist_key:
+                hist_candles = hc.get("data", [])
+                hist_cache_valid = True
+        except Exception:
+            pass
+
+    if not hist_cache_valid and hist_chunks:
+        seen_times: set = set()
+        for i, (from_d, to_d) in enumerate(hist_chunks):
+            if i > 0:
+                time.sleep(0.25)  # avoid Fyers rate-limit on rapid chunk calls
+            chunk = _fyers_history_chunk("D", from_d, to_d)
+            for c in chunk:
+                if c[0] not in seen_times:
+                    seen_times.add(c[0])
+                    hist_candles.append(c)
+        hist_candles.sort(key=lambda x: x[0])
+        try:
+            with open(BN_DAILY_HIST_CACHE, "w") as f:
+                json.dump({"key": hist_key, "data": hist_candles}, f)
+        except Exception:
+            pass
+
+    # ── 2) Current (still-updating) chunk — short-TTL refresh only ─────────
+    cur_from, cur_to = cur_chunk
+    cur_actual_to = min(cur_to, today_str)
+    cur_candles: list = []
+    cur_cache_ok = False
+    if os.path.exists(BN_DAILY_CACHE):
+        try:
+            with open(BN_DAILY_CACHE) as f:
+                cc = json.load(f)
+            if cc.get("key") == cur_from and time.time() - cc.get("ts", 0) < DAILY_CACHE_TTL:
+                cur_candles = cc.get("data", [])
+                cur_cache_ok = True
+        except Exception:
+            pass
+
+    if not cur_cache_ok:
+        cur_candles = _fyers_history_chunk("D", cur_from, cur_actual_to)
+        try:
+            with open(BN_DAILY_CACHE, "w") as f:
+                json.dump({"ts": time.time(), "key": cur_from, "data": cur_candles}, f)
+        except Exception:
+            pass
+
+    seen_times2 = {c[0] for c in hist_candles}
+    all_candles = list(hist_candles) + [c for c in cur_candles if c[0] not in seen_times2]
     all_candles.sort(key=lambda x: x[0])
 
     # Normalize timestamps to 9:15 AM IST of each IST calendar day.
@@ -882,12 +940,6 @@ def load_bn_daily() -> list:
         normalized.append([t_fixed * 1000] + list(c[1:]))
     all_candles = normalized
 
-    if all_candles:
-        try:
-            with open(BN_DAILY_CACHE, "w") as f:
-                json.dump({"ts": time.time(), "data": all_candles}, f)
-        except Exception:
-            pass
     return all_candles
 
 # ─── BTC (Binance) ────────────────────────────────────────────────────────────
@@ -904,24 +956,15 @@ def fetch_btc(interval: str = "1m", limit: int = 1000) -> list:
         return []
 
 def load_btc_daily() -> list:
-    """Fetch BTC daily candles 2017->now in yearly chunks (same as BankNifty pattern)."""
-    today_str = _ist_now().strftime("%Y-%m-%d")
-    if os.path.exists(DAILY_CACHE_FILE):
-        try:
-            with open(DAILY_CACHE_FILE) as f:
-                c = json.load(f)
-            data = c.get("data", [])
-            cache_ok = time.time() - c.get("ts", 0) < DAILY_CACHE_TTL
-            if cache_ok and data:
-                last_ts = data[-1][0] // 1000
-                last_date = datetime.datetime.utcfromtimestamp(last_ts).strftime("%Y-%m-%d")
-                if last_date < today_str:
-                    cache_ok = False
-            if cache_ok:
-                return data
-        except Exception:
-            pass
+    """Fetch BTC daily candles 2017->now.
 
+    Same fix as load_bn_daily(): purani (band ho chuki) half-year chunks ek
+    baar fetch karke forever cache hoti hain (BTC_DAILY_HIST_CACHE); sirf
+    CURRENT chunk DAILY_CACHE_TTL par refresh hota hai. Isse BTC-without-
+    login mode bhi fast load hota hai — pehle har baar 2017 se ab tak
+    saari history (~18-19 sequential API calls) dobara download hoti thi.
+    """
+    today_str = _ist_now().strftime("%Y-%m-%d")
     start_year = 2017
     cur_year   = _ist_now().year
 
@@ -929,18 +972,23 @@ def load_btc_daily() -> list:
     for yr in range(start_year, cur_year + 1):
         chunks.append((f"{yr}-01-01", f"{yr}-06-30"))
         chunks.append((f"{yr}-07-01", f"{yr}-12-31"))
+    chunks = [c for c in chunks if c[0] <= today_str]
+    if not chunks:
+        return []
 
-    all_candles: list = []
-    seen_times: set   = set()
+    cur_chunk   = chunks[-1]
+    hist_chunks = chunks[:-1]
 
-    for i, (from_d, to_d) in enumerate(chunks):
-        if from_d > today_str:
-            break
-        actual_to = min(to_d, today_str)
+    def _to_ms_range(from_d: str, to_d: str) -> tuple[int, int]:
         from_ms = int(datetime.datetime.strptime(from_d, "%Y-%m-%d").replace(
             tzinfo=datetime.timezone.utc).timestamp() * 1000)
-        to_ms   = int(datetime.datetime.strptime(actual_to, "%Y-%m-%d").replace(
+        to_ms   = int(datetime.datetime.strptime(to_d, "%Y-%m-%d").replace(
             tzinfo=datetime.timezone.utc).timestamp() * 1000) + 86400000
+        return from_ms, to_ms
+
+    def _fetch_btc_chunk(from_d: str, to_d: str) -> list:
+        from_ms, to_ms = _to_ms_range(from_d, to_d)
+        out = []
         try:
             r = requests.get(
                 f"https://api.binance.com/api/v3/klines"
@@ -949,24 +997,68 @@ def load_btc_daily() -> list:
             ).json()
             if isinstance(r, list):
                 for x in r:
-                    ts = int(x[0])
-                    if ts not in seen_times:
-                        seen_times.add(ts)
-                        all_candles.append([ts, float(x[1]), float(x[2]),
-                                            float(x[3]), float(x[4]), float(x[5])])
+                    out.append([int(x[0]), float(x[1]), float(x[2]),
+                                float(x[3]), float(x[4]), float(x[5])])
         except Exception:
             pass
-        if i > 0:
-            time.sleep(0.1)
+        return out
 
-    all_candles.sort(key=lambda x: x[0])
+    # ── 1) Historical (immutable) part — fetch once, cache forever ─────────
+    hist_key = f"{start_year}:{hist_chunks[-1][1]}" if hist_chunks else "none"
+    hist_candles: list = []
+    hist_cache_valid = False
+    if os.path.exists(BTC_DAILY_HIST_CACHE):
+        try:
+            with open(BTC_DAILY_HIST_CACHE) as f:
+                hc = json.load(f)
+            if hc.get("key") == hist_key:
+                hist_candles = hc.get("data", [])
+                hist_cache_valid = True
+        except Exception:
+            pass
 
-    if all_candles:
+    if not hist_cache_valid and hist_chunks:
+        seen_times: set = set()
+        for i, (from_d, to_d) in enumerate(hist_chunks):
+            if i > 0:
+                time.sleep(0.1)
+            for c in _fetch_btc_chunk(from_d, to_d):
+                if c[0] not in seen_times:
+                    seen_times.add(c[0])
+                    hist_candles.append(c)
+        hist_candles.sort(key=lambda x: x[0])
+        try:
+            with open(BTC_DAILY_HIST_CACHE, "w") as f:
+                json.dump({"key": hist_key, "data": hist_candles}, f)
+        except Exception:
+            pass
+
+    # ── 2) Current (still-updating) chunk — short-TTL refresh only ─────────
+    cur_from, cur_to = cur_chunk
+    cur_actual_to = min(cur_to, today_str)
+    cur_candles: list = []
+    cur_cache_ok = False
+    if os.path.exists(DAILY_CACHE_FILE):
+        try:
+            with open(DAILY_CACHE_FILE) as f:
+                cc = json.load(f)
+            if cc.get("key") == cur_from and time.time() - cc.get("ts", 0) < DAILY_CACHE_TTL:
+                cur_candles = cc.get("data", [])
+                cur_cache_ok = True
+        except Exception:
+            pass
+
+    if not cur_cache_ok:
+        cur_candles = _fetch_btc_chunk(cur_from, cur_actual_to)
         try:
             with open(DAILY_CACHE_FILE, "w") as f:
-                json.dump({"ts": time.time(), "data": all_candles}, f)
+                json.dump({"ts": time.time(), "key": cur_from, "data": cur_candles}, f)
         except Exception:
             pass
+
+    seen_times2 = {c[0] for c in hist_candles}
+    all_candles = list(hist_candles) + [c for c in cur_candles if c[0] not in seen_times2]
+    all_candles.sort(key=lambda x: x[0])
     return all_candles
 
 # ─── OHLC converter ───────────────────────────────────────────────────────────
