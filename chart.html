@@ -7749,6 +7749,11 @@ function ss2ApplyAndClose() {
     live.revealIdx++;
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
+    try {
+      if (typeof _sv2NotifyBarClosedTFs === 'function') {
+        _sv2NotifyBarClosedTFs(live.baseBars[live.revealIdx - 1].time, live.isBN);
+      }
+    } catch(_) {}
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
     try {
       if (typeof _sv2TrackerOnStep === 'function' && typeof _stackKeyForAsset === 'function' && typeof _utcDateStr === 'function') {
@@ -9505,67 +9510,88 @@ if (document.readyState === 'loading') {
   _updateMarketTimers();
 }
 
-// ── TF "Closing Soon / Just Closed" Widget ───────────────────────────────
-// Har second BankNifty aur BTC ke sabhi TFs (base TF chhodkar — BN 5m,
-// BTC 160m) ke liye check karta hai. Do windows combine hote hain:
-//   1) PRE-close: candle close hone se 10 second PEHLE se hi dikhna shuru
-//      ho jaata hai (lookahead: abhi ka bucket vs 10-sec-baad ka bucket).
-//   2) POST-close: candle actually close hone ke baad bhi 15 second tak
-//      dikhta rehta hai (bucket-transition detect karke timestamp store).
-// Dono conditions independent hain — ek TF dono windows se guzarta hai:
-// close se 10s pehle → dikhna shuru, close ke exact instant pe continue,
-// close ke 15s baad tak dikhta rehta hai (total ~25s span, seamlessly).
+// ── TF "Just Closed" Widget ───────────────────────────────────────────────
+// PRE-close warning hata diya gaya hai — ab widget SIRF tabhi kisi TF ko
+// dikhata hai jab uski candle GENUINELY complete/close ho chuki ho (koi
+// time-based prediction/lookahead nahi). Close hone ke baad label 15
+// REAL seconds (wall-clock) tak dikhta hai, phir apne aap hide ho jaata hai.
+//
+// Detection do alag tareekon se hoti hai (dono "actual close" par based hain,
+// koi bhi time-polling/guess nahi):
+//   • SV1 (live)   — har real-second market-clock (Date.now()) par candle
+//                    bucket check hota hai; bucket badalne ka MATLAB HI hai
+//                    ki candle abhi close hui.
+//   • SV2 (replay) — time-poll nahi karta. Jab bhi replay EK naya base bar
+//                    reveal karta hai (_tick() ke andar), us bar ke EXACT
+//                    close-timestamp ko check karte hain ki wo kaun-kaun se
+//                    higher TFs (15m/45m/135m/1D/... ya BTC 8H/1D/...) ka
+//                    boundary bhi complete kar raha hai. Jo bhi TF(s) us bar
+//                    par genuinely close hote hain, sirf unhi ko dikhaya
+//                    jaata hai — baaki sab kabhi nahi dikhte. Har revealed
+//                    bar individually check hota hai, koi bhi transition
+//                    skip nahi hota — fast/auto replay mein bhi sahi rehta hai.
 const _TF_CLOSE_WATCH_BN   = [15, 45, 135, 1440, 4320, 12960, 38880]; // 15m,45m,135m,1D,3D,9D,27D (5m base excluded)
 const _TF_CLOSE_WATCH_BTC  = [480, 1440, 4320, 12960, 38880];         // 8H,1D,3D,9D,27D (160m base excluded)
-const _TF_CLOSE_WARN_SEC   = 10;     // kitne second PEHLE dikhana shuru karna hai
-const _TF_CLOSE_DISPLAY_MS = 15000;  // close ke baad kitni der tak dikhna hai
-// Do independent tracks — SV1 hamesha real clock, SV2 replay ke dauraan
-// apne virtual (last-revealed-bar) clock par. Pehle dono cells ek hi
-// shared Date.now()-based state share karte the, isliye SV2 replay me bhi
-// (closed/paused market ke liye) "abhi close hui" TF labels galat-galat
-// real-time ke hisaab se dikhte the, replay ki position ke hisaab se nahi.
+const _TF_CLOSE_DISPLAY_MS = 15000;  // close ke baad kitni real der tak dikhna hai
+const _TF_BASE_SEC_BN      = 300;    // BankNifty base candle = 5m
+const _TF_BASE_SEC_BTC     = 9600;   // BTC base candle = 160m
 let _tfCloseState = {
-  sv1: { lastBucket: {}, recent: [], closingSoon: [] },
-  sv2: { lastBucket: {}, recent: [], closingSoon: [] }
+  sv1: { lastBucket: {}, recent: [] },
+  sv2: { lastBucket: {}, recent: [] }
 };
 
-function _tfCloseCheck(state, nowSec) {
-  // PRE-close: is TF ka bucket agle _TF_CLOSE_WARN_SEC second ke andar badal raha hai?
-  const preActive = [];
-  const seenPre = new Set();
-  const _checkPre = (tfMin, isBN) => {
-    const bucketNow    = _liveGetBucketTime(nowSec, tfMin, isBN);
-    const bucketFuture = _liveGetBucketTime(nowSec + _TF_CLOSE_WARN_SEC, tfMin, isBN);
-    if (bucketFuture !== bucketNow && !seenPre.has(tfMin)) {
-      seenPre.add(tfMin);
-      preActive.push({ label: tfMinToLabel(tfMin), tfMin: tfMin });
-    }
-  };
+// Diya gaya barTime (kisi base-resolution bar ka close-timestamp) exactly
+// kaun-kaun se watched higher-TFs ka boundary bhi complete karta hai, wahi
+// list return karta hai — koi prediction nahi, sirf actual math.
+function _tfsClosedAtBarTime(barTime, isBN) {
+  const watch   = isBN ? _TF_CLOSE_WATCH_BN : _TF_CLOSE_WATCH_BTC;
+  const baseSec = isBN ? _TF_BASE_SEC_BN : _TF_BASE_SEC_BTC;
+  const closed  = [];
+  watch.forEach(tf => {
+    const bThis = _liveGetBucketTime(barTime, tf, isBN);
+    const bNext = _liveGetBucketTime(barTime + baseSec, tf, isBN);
+    if (bThis !== bNext) closed.push({ label: tfMinToLabel(tf), tfMin: tf });
+  });
+  return closed;
+}
 
-  // POST-close: bucket abhi-abhi (is tick par) badla — candle close ho gayi.
+// ── SV1 (live): real-clock poll — bucket-transition = actual candle close ──
+function _tfCloseCheckLive(state, nowSec) {
   const _checkPost = (assetTag, tfMin, isBN) => {
-    const key = assetTag + '_' + tfMin;
+    const key    = assetTag + '_' + tfMin;
     const bucket = _liveGetBucketTime(nowSec, tfMin, isBN);
-    const prev = state.lastBucket[key];
+    const prev   = state.lastBucket[key];
     if (prev !== undefined && bucket !== prev) {
-      state.recent.push({ label: tfMinToLabel(tfMin), tfMin: tfMin, closedAt: nowSec * 1000 });
+      state.recent.push({ label: tfMinToLabel(tfMin), tfMin: tfMin, closedAt: Date.now() });
     }
     state.lastBucket[key] = bucket;
   };
-
-  _TF_CLOSE_WATCH_BN.forEach(tf  => { _checkPre(tf, true);  _checkPost('BN',  tf, true); });
-  _TF_CLOSE_WATCH_BTC.forEach(tf => { _checkPre(tf, false); _checkPost('BTC', tf, false); });
-
-  state.closingSoon = preActive;
-  const cutoff = (nowSec * 1000) - _TF_CLOSE_DISPLAY_MS;
+  _TF_CLOSE_WATCH_BN.forEach(tf  => _checkPost('BN',  tf, true));
+  _TF_CLOSE_WATCH_BTC.forEach(tf => _checkPost('BTC', tf, false));
+  const cutoff = Date.now() - _TF_CLOSE_DISPLAY_MS;
   state.recent = state.recent.filter(e => e.closedAt >= cutoff);
 }
+
+// ── SV2 (replay): bar-reveal hook — _tick() se call hota hai jab bhi ek ──
+// naya base bar reveal hota hai. Real wall-clock timestamp store karte hain
+// (Date.now()) taaki 15-second display replay-speed se independent rahe.
+function _sv2NotifyBarClosedTFs(barTime, isBN) {
+  try {
+    const closed = _tfsClosedAtBarTime(barTime, isBN);
+    if (!closed.length) return;
+    const now = Date.now();
+    closed.forEach(c => {
+      _tfCloseState.sv2.recent.push({ label: c.label, tfMin: c.tfMin, closedAt: now });
+    });
+  } catch(_) {}
+}
+window._sv2NotifyBarClosedTFs = _sv2NotifyBarClosedTFs;
+
 function _renderTfCloseWidget(el, state) {
   if (!el) return;
   const seen = new Set();
   const merged = [];
-  state.closingSoon.forEach(e => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
-  state.recent.forEach(e  => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
+  state.recent.forEach(e => { if (!seen.has(e.tfMin)) { seen.add(e.tfMin); merged.push(e); } });
   if (!merged.length) { el.classList.remove('show'); el.innerHTML = ''; return; }
   el.innerHTML = merged.map(e => {
     const clr = (typeof _tfCandleColor === 'function') ? _tfCandleColor(e.tfMin) : '#111';
@@ -9575,16 +9601,15 @@ function _renderTfCloseWidget(el, state) {
 }
 function _updateTfCloseWidgets() {
   try {
-    // SV1 — hamesha live/real market clock (jaisa pehle tha, unchanged).
-    _tfCloseCheck(_tfCloseState.sv1, Date.now() / 1000);
+    // SV1 — real market clock, detection method unchanged (already correct).
+    _tfCloseCheckLive(_tfCloseState.sv1, Date.now() / 1000);
     _renderTfCloseWidget(document.getElementById('sv1-tf-closed-widget'), _tfCloseState.sv1);
   } catch(_) {}
   try {
-    // SV2 — replay active hai to virtual (last-revealed-bar) clock, warna
-    // (normal non-replay SV2) real clock par SV1 jaisa hi fallback.
-    const vNow2 = _sv2ReplayVirtualNowSec();
-    const nowSec2 = (vNow2 != null) ? vNow2 : (Date.now() / 1000);
-    _tfCloseCheck(_tfCloseState.sv2, nowSec2);
+    // SV2 — detection ab _tick() ke bar-reveal hook se hoti hai, yahan
+    // sirf 15-second real-time expiry prune + render hota hai.
+    const cutoff = Date.now() - _TF_CLOSE_DISPLAY_MS;
+    _tfCloseState.sv2.recent = _tfCloseState.sv2.recent.filter(e => e.closedAt >= cutoff);
     _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'), _tfCloseState.sv2);
   } catch(_) {}
 }
