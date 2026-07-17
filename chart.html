@@ -15042,17 +15042,58 @@ function _advanceTradingSeconds(fromSec, deltaSec, tfMin, isNSE) {
   return t;
 }
 
+// ── Bar-accurate advance (fixes BN intraday truncated last-bucket-of-day) ──
+// _advanceTradingSeconds() ke intraday-NSE branch mein ek chhupi hui galti
+// thi: wo deltaSec ko ek continuous "trading-seconds budget" maan ke
+// consume karta hai, jabki asal candle bucket boundaries tfMin ke fixed
+// multiples PAR NAHI girte agar session length (375 min, 9:15-15:30) tfMin
+// se evenly divide na ho — e.g. 135m: 375/135 = 2.78 → din ka 3rd/last
+// bucket sirf 105 min ka hota hai (135+135+105), poora 135 nahi. Isi tarah
+// 45m: 375/45 = 8.33 → last bucket 15 min ka. Purana extrapolation logic
+// har extra bar ko FULL nominal period (tfMin*60) maan leta tha, jisse
+// current-day ke truncated last-bucket ko "gaayab" kar deta aur agle bar
+// ka start-time asal se aage nikal jaata — cumulative hone ke saath
+// (CH_START/EXTEND jitne bars aage utni hi zyada drift) starting length
+// aur extended length dono seconds/visual-length mein zyada dikhte the.
+// Sirf BankNifty (uneven session) par effect — BTC 24/7 hai (naturalEnd
+// kabhi truncate nahi hota), aur daily+ TFs already apna correct
+// working-day-stepping use karte hain (_advanceTradingSeconds ka upar
+// wala branch) — dono unaffected/unchanged rakhe gaye hain.
+function _advanceBars(fromSec, nBars, tfMin, isNSE, defaultPeriodSec) {
+  if (_isDailyPlusTF(tfMin) || !isNSE) {
+    // Daily+ (working-day stepping) aur BTC (24/7, plain add) already
+    // sahi hain — unhe purane, already-correct path se hi guzaro.
+    return _advanceTradingSeconds(fromSec, nBars * defaultPeriodSec, tfMin, isNSE);
+  }
+  // BN intraday: ek-ek bar karke asli bucket-boundary par snap karo, taaki
+  // din ka truncated last-bucket sahi se account ho (session-end se aage
+  // kabhi na badhe — us din ka bucket bas utna hi hota hai, phir seedha
+  // agle trading-day ke 9:15 AM par jump).
+  let t = nBars > 0 ? fromSec : fromSec;
+  const n = Math.round(nBars);
+  for (let k = 0; k < n; k++) {
+    const naturalEnd    = t + tfMin * 60;
+    const istSec        = t + _IST_OFF;
+    const dayStart      = Math.floor(istSec / 86400) * 86400;
+    const sessionEndUtc = (dayStart + _SESS_END_SEC) - _IST_OFF;
+    t = (naturalEnd <= sessionEndUtc) ? naturalEnd : _nextSessionOpen(t);
+  }
+  return t;
+}
+
 // ── Index-based endTime resolver ─────────────────────────────────────────
 // CH_START/EXTEND aur SW_START/SLIDE ab "kitne bars aage" (fractional
 // allowed) represent karte hain, seconds ki jagah. Target bar index agar
 // already `data` mein exist karta hai to uski REAL timestamp use hoti hai
 // (exact, gap-proof). Agar target abhi tak available data se aage hai
 // (replay ka wait period, jab TF ka agla bucket close nahi hua), to sirf
-// tab tak trading-seconds se extrapolate hota hai — jaise hi asli bar
-// aata hai, agli swingCompute() call par turant real value se replace ho
-// jaata hai (self-correcting, koi permanent drift nahi). Isse periodSec
-// ke real-gap se derive hone wali seconds-arithmetic drift (jo "1x se 2x
-// jump" jaisa visual bug deti thi) khatam ho jaati hai.
+// tab tak bar-accurate advance (_advanceBars, upar) se extrapolate hota
+// hai — jaise hi asli bar aata hai, agli swingCompute() call par turant
+// real value se replace ho jaata hai (self-correcting, koi permanent
+// drift nahi). _advanceBars BN intraday ke truncated last-bucket-of-day
+// ko bhi sahi se account karta hai — isliye extrapolated length ab real
+// (data-se-milne-wali) length se match karti hai, chahe extrapolation
+// kitne bhi din/buckets aage kyun na jaaye.
 // Binary search: sabse bada index jiska time <= targetTime ho.
 // -1 agar targetTime data ke pehle bar se bhi pehle ho.
 function _findBarIndexAtOrBefore(data, targetTime) {
@@ -15070,7 +15111,7 @@ function _indexToTime(data, idxFloat, tfMin, defaultPeriodSec, isNSE) {
   const _timeAt = (k) => {
     if (k <= lastIdx) return data[Math.max(0, k)].time;
     const extraBars = k - lastIdx;
-    return _advanceTradingSeconds(data[lastIdx].time, extraBars * defaultPeriodSec, tfMin, isNSE);
+    return _advanceBars(data[lastIdx].time, extraBars, tfMin, isNSE, defaultPeriodSec);
   };
   // NOTE: fractional idxFloat pehle real candles ke beech LINEAR INTERPOLATE
   // hoti thi (t0 + (t1-t0)*frac) — jo ek naya, kisi bhi real candle se match
