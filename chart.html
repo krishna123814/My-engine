@@ -15223,16 +15223,21 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
 
   let pGreen = false, pRed = false, pHigh = 0, pLow = 0;
 
-  // ── Overnight/session-gap guard (intraday TFs only) ──────────────────────
+  // ── Overnight/session-gap flag (intraday TFs only) ──────────────────────
   // Minute TFs (5/15/45/135m) ka pehla candle har trading day 9:15 par ek
-  // gap ke baad shuru hota hai (overnight gap). Pichhle din ke last candle
-  // se bani lines, agle din ke pehle candle ki narrow range mein bahut kam
-  // touch hoti hain — jo unhe galat tarike se turant delete kar deta tha.
-  // Fix: jab cur candle naye IST trading day ka pehla candle ho, validation
-  // (touch-check + delete) us round ke liye skip karo — line bina judge hue
-  // aage carry hoti hai, aur normal intraday candle (gap ke baad) par judge
-  // hoti hai. Daily+ TFs (1D/3D/9D/27D) is guard se affected nahi — unka
-  // har candle hi ek "naya din" hota hai, wo gap koi anomaly nahi hai.
+  // gap ke baad shuru hota hai (overnight gap). Ye flag ab SIRF periodSec
+  // (starting-length seconds calc, neeche) ke liye use hota hai — taaki
+  // us overnight gap ki duration CH_START_MULT se multiply na ho jaaye.
+  // REMOVED: pehle isi flag se validateLines() (touch/delete-check) bhi
+  // is candle par SKIP kar diya jaata tha — matlab purane din ki SR line
+  // agle din ke pehle candle par bina judge hue carry ho jaati thi. User
+  // ke explicit kehne par hata diya gaya: purani SR line par bhi HAR
+  // candle par normal touch/delete-check chalna chahiye, day-boundary par
+  // bhi koi special-case skip nahi — line waha se continue honi chahiye
+  // jahan se agla analysis hota hai, chahe wo naye din ka pehla candle
+  // hi kyun na ho. Daily+ TFs (1D/3D/9D/27D) is flag se pehle se hi
+  // unaffected the (har candle hi ek "naya din" hota hai, wo gap koi
+  // anomaly nahi hai) — unchanged.
   const IST_OFFSET_SEC = 5.5 * 3600;
   const _istDayKey = (tSec) => Math.floor((tSec + IST_OFFSET_SEC) / 86400);
 
@@ -15288,10 +15293,10 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
         }
       }
     };
-    if (!isSessionGap) {
-      validateLines(chLines);
-      validateLines(clLines);
-    }
+    // Har candle par normal validate — day-boundary/session-gap par bhi
+    // koi special-case skip nahi (user ke explicit kehne par hataya gaya).
+    validateLines(chLines);
+    validateLines(clLines);
 
     // ── Step 1b: Swing lines — har naye candle pe endTime slide karo ────────
     // Touch/no touch ka koi matlab nahi — bas new candle aaya = endTime aage.
