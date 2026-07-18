@@ -9367,7 +9367,27 @@ function ss2ApplyAndClose() {
       // Fallback (bucket boundary maloom nahi) — seedha ratio se estimate.
       return Math.max(1, Math.round((tfMin * 60) / baseSec));
     }
-    var bucketEnd = _liveBucketExpectedEnd(bucketStart, tfMin, isBN);
+    var bucketEnd;
+    if (_isDailyPlusTF(tfMin)) {
+      // FIX: 1D/3D/9D/27D buckets ke liye _liveBucketExpectedEnd() seedha
+      // backend daily array se AGLE trading din ka pehla bar (uska OPEN
+      // time) dhoondh kar deta hai — BN ke liye isme aaj 3:30pm close aur
+      // agle din 9:15am open ke beech ka poora "market band" (~18 ghante
+      // ka overnight gap) bhi shaamil ho jaata tha. Us poore gap ko baseSec
+      // se divide karne par bars-per-bucket bahut zyada (galat) aa jaata
+      // tha, jabki baseBars (5m/15m/etc) sirf session ke andar hi bante
+      // hain — isi wajah se 1D aur usse upar TF par countdown hamesha
+      // asli se zyada time dikhata tha. Ab bucket ke AAKHRI trading din ka
+      // asli session-close (15:30 IST for BN / calendar-day for BTC —
+      // same jo _dailyPlusTodayEnd() "just closed" widget ke liye use
+      // karta hai) use karte hain, weekend/holiday skip karke.
+      var nDaysBars = Math.max(1, Math.round(tfMin / 1440));
+      var lastDay = bucketStart;
+      for (var sBar = 0; sBar < nDaysBars - 1; sBar++) lastDay = _nextNseWorkingDay(lastDay);
+      bucketEnd = _dailyPlusTodayEnd(lastDay, isBN);
+    } else {
+      bucketEnd = _liveBucketExpectedEnd(bucketStart, tfMin, isBN);
+    }
     var bars = (bucketEnd - bucketStart) / baseSec;
     return Math.max(1, bars);
   }
