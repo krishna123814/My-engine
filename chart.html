@@ -6125,31 +6125,120 @@ function _sv2PracticeTodayStr() {
 // underlying spot (window._SV2_LIVE ke last-revealed bar ke close) par
 // based, calculate hota hai. Volume jaan-boojh kar nahi dikhaya — na hi
 // zaroori hai (BS formula ko iski zaroorat nahi padti).
-// Sirf BankNifty asset ke liye enabled hai (options concept crypto/BTC
-// par yahan applicable nahi maana).
+// BankNifty AUR BTC dono ke liye enabled hai — lekin dono ki apni-apni
+// alag settings (strike gap, qty unit, IV, expiry cycle, currency,
+// balance/positions storage) hoti hain, kabhi mix nahi hoti. Sirf Bar
+// Replay ke andar hi kaam karta hai (isBN/isBTC dono window._SV2_LIVE
+// se hi aate hain, jo sirf replay session mein set hota hai).
 // ══════════════════════════════════════════════════════════════════════
+
+// ── Per-asset settings table. SV2OC ke flat fields (neeche) hamesha
+// "abhi currently active asset" ki settings hote hain — _sv2OCSyncAssetContext()
+// hi inhe copy karta hai, taaki neeche ka baaki sara code (jo SV2OC.xxx
+// directly use karta hai) bina rewrite kiye dono asset ke liye kaam kare. ──
+var SV2OC_ASSET_CFG = {
+  bn: {
+    label: 'BANKNIFTY', shortLabel: 'BN',
+    strikeStep: 100,      // BankNifty typical strike gap
+    lotSize: 30,          // current NSE BankNifty lot size (revised Jan 2026 series: 35→30)
+    qtySingular: 'lot', qtyPlural: 'lots',
+    baseIV: 0.14,         // assumed base implied volatility (14%)
+    riskFreeRate: 0.07,
+    marginPct: 0.12,      // approx SPAN+exposure-style margin % of notional for SELL (option writing)
+    brokeragePerOrder: 20, // flat ₹ per executed leg (typical discount-broker charge)
+    sttRate: 0.001,       // ~0.1% STT on SELL-side premium turnover only (real options rule)
+    miscChargeRate: 0.0005, // exchange txn + SEBI + stamp + GST, rough bundle
+    startingBalance: 100000, // ₹1,00,000 virtual starting balance
+    cur: '₹', locale: 'en-IN', expiryLabel: 'monthly'
+  },
+  btc: {
+    label: 'BTC', shortLabel: 'BTC',
+    strikeStep: 500,      // BTC option strike gap (Deribit-style, USD)
+    lotSize: 0.1,         // 1 "contract" = 0.1 BTC notional (crypto options don't use NSE-style lots)
+    qtySingular: 'contract', qtyPlural: 'contracts',
+    baseIV: 0.65,         // BTC realized vol runs much higher than index options (~framing 65%)
+    riskFreeRate: 0.0,    // crypto derivatives conventionally use ~0 risk-free rate
+    marginPct: 0.15,      // slightly higher margin buffer given BTC's higher vol
+    brokeragePerOrder: 0.5, // flat $ per executed leg
+    sttRate: 0,           // no STT-equivalent on crypto exchanges
+    miscChargeRate: 0.0003, // rough taker-fee-style bundle
+    startingBalance: 10000, // $10,000 virtual starting balance
+    cur: '$', locale: 'en-US', expiryLabel: 'weekly'
+  }
+};
+
 var SV2OC = {
   open: false,
   activeTab: 'chain',
-  strikeStep: 100,     // BankNifty typical strike gap
-  lotSize: 30,         // current NSE BankNifty lot size (revised Jan 2026 series: 35→30)
+  currentAssetKey: null, // 'bn' | 'btc' — set by _sv2OCSyncAssetContext()
+  strikeStep: 100,
+  lotSize: 30,
+  qtySingular: 'lot', qtyPlural: 'lots',
   strikesEachSide: 10, // ATM ke aas-paas kitne strikes upar/neeche
-  baseIV: 0.14,        // assumed base implied volatility (14%)
+  baseIV: 0.14,
   riskFreeRate: 0.07,
-  marginPct: 0.12,     // approx SPAN+exposure-style margin % of notional for SELL (option writing)
-  brokeragePerOrder: 20, // flat ₹ per executed leg (typical discount-broker charge)
-  sttRate: 0.001,      // ~0.1% STT on SELL-side premium turnover only (real options rule)
-  miscChargeRate: 0.0005, // exchange txn + SEBI + stamp + GST, rough bundle
-  startingBalance: 100000, // ₹1,00,000 virtual starting balance
+  marginPct: 0.12,
+  brokeragePerOrder: 20,
+  sttRate: 0.001,
+  miscChargeRate: 0.0005,
+  startingBalance: 100000,
+  cur: '₹', locale: 'en-IN', label: 'BANKNIFTY', expiryLabel: 'monthly',
   balance: 100000,
   showGreeks: false,
-  expiryMode: 'current', // 'current' = is mahine ki monthly expiry, 'next' = agle mahine ki
+  expiryMode: 'current', // 'current' = is cycle ki nearest expiry, 'next' = uske baad wali
   pendingTrade: null,  // { strike, type: 'CE'|'PE', ltp } jab trade-card khula ho
   pendingQtyLots: 1,
   positions: []        // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
 };
 
-function _sv2OCStorageKey() { return 'sv2_oc_positions_v1'; }
+// ── Detect which asset the current replay session is running (from
+// window._SV2_LIVE, jo sirf Bar Replay ke andar set hota hai) ────────────
+function _sv2OCAssetKeyFromLive() {
+  var live = window._SV2_LIVE;
+  if (!live) return null;
+  if (live.isBN) return 'bn';
+  if (live.isBTC) return 'btc';
+  return null;
+}
+// ── Sync SV2OC ka active-asset context — replay ke current asset (BN ya
+// BTC) ke hisaab se cfg (strike step, IV, currency, expiry cycle, etc.)
+// SV2OC ke flat fields par copy karta hai, aur us asset ki apni ALAG
+// saved positions/balance load karta hai (agar dusre asset se switch ho
+// raha hai to us dusre asset ka current state pehle safely save kar leta
+// hai). Returns false agar abhi koi supported asset replay mein nahi hai
+// (Option Chain button ka gate isi par depend karta hai). ────────────────
+function _sv2OCSyncAssetContext() {
+  var liveKey = _sv2OCAssetKeyFromLive();
+  if (!liveKey) return false;
+  if (SV2OC.currentAssetKey === liveKey) return true; // already synced, kuch nahi karna
+  if (SV2OC.currentAssetKey) { // pichhle asset ka state save kar lo switch karne se pehle
+    _sv2OCSavePositions();
+    _sv2OCSaveBalance();
+  }
+  var cfg = SV2OC_ASSET_CFG[liveKey] || SV2OC_ASSET_CFG.bn;
+  SV2OC.currentAssetKey = liveKey;
+  SV2OC.strikeStep = cfg.strikeStep;
+  SV2OC.lotSize = cfg.lotSize;
+  SV2OC.qtySingular = cfg.qtySingular;
+  SV2OC.qtyPlural = cfg.qtyPlural;
+  SV2OC.baseIV = cfg.baseIV;
+  SV2OC.riskFreeRate = cfg.riskFreeRate;
+  SV2OC.marginPct = cfg.marginPct;
+  SV2OC.brokeragePerOrder = cfg.brokeragePerOrder;
+  SV2OC.sttRate = cfg.sttRate;
+  SV2OC.miscChargeRate = cfg.miscChargeRate;
+  SV2OC.startingBalance = cfg.startingBalance;
+  SV2OC.cur = cfg.cur;
+  SV2OC.locale = cfg.locale;
+  SV2OC.label = cfg.label;
+  SV2OC.expiryLabel = cfg.expiryLabel;
+  _sv2OCLoadPositions();
+  _sv2OCLoadBalance();
+  return true;
+}
+// ── Har asset ki apni alag positions/balance storage — BN aur BTC ki
+// virtual trading kabhi mix nahi hoti. ────────────────────────────────────
+function _sv2OCStorageKey() { return 'sv2_oc_positions_v1_' + (SV2OC.currentAssetKey || 'bn'); }
 function _sv2OCLoadPositions() {
   try {
     var raw = localStorage.getItem(_sv2OCStorageKey());
@@ -6162,7 +6251,7 @@ function _sv2OCSavePositions() {
 
 // ── Virtual Balance — trade lene par premium deduct/credit hota hai,
 // square-off par current mark price par reverse hota hai (net effect = PnL). ─
-function _sv2OCBalanceKey() { return 'sv2_oc_balance_v1'; }
+function _sv2OCBalanceKey() { return 'sv2_oc_balance_v1_' + (SV2OC.currentAssetKey || 'bn'); }
 function _sv2OCLoadBalance() {
   try {
     var raw = localStorage.getItem(_sv2OCBalanceKey());
@@ -6173,16 +6262,21 @@ function _sv2OCLoadBalance() {
 function _sv2OCSaveBalance() {
   try { localStorage.setItem(_sv2OCBalanceKey(), String(SV2OC.balance)); } catch (_) {}
 }
+// ── Money formatting — uses the CURRENTLY ACTIVE asset's currency symbol
+// + locale (₹/en-IN for BankNifty, $/en-US for BTC), never hardcoded. ────
+function _sv2OCFmtMoney(v) {
+  return SV2OC.cur + (v || 0).toLocaleString(SV2OC.locale, { maximumFractionDigits: 0 });
+}
 function _sv2OCRenderBalance() {
   var el = document.getElementById('sv2-oc-balance-val');
   var subEl = document.getElementById('sv2-oc-balance-sub');
-  if (el) el.textContent = '₹' + SV2OC.balance.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  if (el) el.textContent = _sv2OCFmtMoney(SV2OC.balance);
   if (subEl) {
     var blocked = _sv2OCTotalBlockedMargin();
     if (blocked > 0) {
       var avail = SV2OC.balance - blocked;
-      subEl.innerHTML = 'Available ₹' + avail.toLocaleString('en-IN', { maximumFractionDigits: 0 }) +
-        ' · <span class="margin-amt">₹' + blocked.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' margin blocked</span>';
+      subEl.innerHTML = 'Available ' + _sv2OCFmtMoney(avail) +
+        ' · <span class="margin-amt">' + _sv2OCFmtMoney(blocked) + ' margin blocked</span>';
     } else {
       subEl.textContent = '';
     }
@@ -6216,7 +6310,7 @@ function _sv2OCCalcCharges(side, premiumAmt) {
   return SV2OC.brokeragePerOrder + stt + misc;
 }
 function _sv2OCResetBalance() {
-  if (!confirm('Balance ko ₹' + SV2OC.startingBalance.toLocaleString('en-IN') + ' par reset karna hai? Saari open positions bhi clear ho jaayengi.')) return;
+  if (!confirm('Balance ko ' + _sv2OCFmtMoney(SV2OC.startingBalance) + ' par reset karna hai? Saari open positions bhi clear ho jaayengi.')) return;
   SV2OC.balance = SV2OC.startingBalance;
   SV2OC.positions = [];
   _sv2OCSaveBalance();
@@ -6230,17 +6324,12 @@ function _sv2OCResetBalance() {
 // ho jaata hai. Agar us waqt option-chain ki open positions hain, unka
 // entry-time/expiry ab naye session ke "now" se AAGE ho sakta hai (ulta
 // state — negative days-to-expiry jaisa bug). Isliye naya session shuru
-// hone se pehle user ko batao aur clear karne ka option do. ───────────────
+// hone se pehle user ko batao aur clear karne ka option do. Ab BankNifty
+// AUR BTC dono ke liye applicable hai (positions hamesha SV2OC.currentAssetKey
+// ke against hi stored hoti hain, isliye asset-mismatch ka risk nahi). ────
 function _sv2OCWarnSessionReset() {
   try {
     if (typeof SV2OC === 'undefined' || !SV2OC.positions || !SV2OC.positions.length) return;
-    var isBN = true;
-    try {
-      if (typeof _stackKeyForAsset === 'function' && typeof S !== 'undefined' && S && S.asset) {
-        isBN = (_stackKeyForAsset(S.asset) === 'bn');
-      }
-    } catch (_) {}
-    if (!isBN) return; // Option Chain sirf BankNifty replay ke liye hai
     var n = SV2OC.positions.length;
     if (confirm('⚠️ Naya replay session start ho raha hai — replay ka "time" reset ho jaayega.\n\nAapki ' + n + ' open option position(s) PICHHLE session ki hain aur ab invalid ho sakti hain (entry-time/expiry mismatch).\n\nInhe clear karna hai?')) {
       SV2OC.positions = [];
@@ -6349,10 +6438,10 @@ function _sv2OCAssumedIV(daysToExpiry, strike, spot) {
   return SV2OC.baseIV + expiryBump + smile;
 }
 
-// ── Current replay underlying spot (BankNifty only) ──────────────────────
+// ── Current replay underlying spot (BankNifty ya BTC, jo bhi replay mein active hai) ──
 function _sv2OCCurrentSpot() {
   var live = window._SV2_LIVE;
-  if (live && live.isBN && Array.isArray(live.baseBars) && live.revealIdx > 0) {
+  if (live && (live.isBN || live.isBTC) && Array.isArray(live.baseBars) && live.revealIdx > 0) {
     var bar = live.baseBars[live.revealIdx - 1];
     if (bar && typeof bar.close === 'number') return bar.close;
   }
@@ -6411,7 +6500,27 @@ function _sv2OCFrontMonth(nowSec) {
   }
   return { y: y, m: m };
 }
+// ── BTC weekly expiry — Deribit-style: har FRIDAY 08:00 UTC par, chahe
+// koi bhi din ho (24/7 market, koi exchange holiday adjustment nahi
+// chahiye jaisa NSE mein hota hai). weekOffset=0 → is hafte/agli Friday,
+// weekOffset=1 → uske ek hafta baad wali. ─────────────────────────────────
+function _sv2OCNextFridayUTC(nowSec, weekOffset) {
+  var d = new Date(nowSec * 1000);
+  d.setUTCHours(8, 0, 0, 0);
+  var day = d.getUTCDay(); // 0=Sun..6=Sat, Friday=5
+  var diff = (5 - day + 7) % 7;
+  if (diff === 0 && Math.floor(d.getTime() / 1000) <= nowSec) diff = 7; // aaj Friday 08:00 UTC nikal chuka → agla hafta
+  d.setUTCDate(d.getUTCDate() + diff + (weekOffset || 0) * 7);
+  return Math.floor(d.getTime() / 1000);
+}
+// SV2OC.expiryMode ke hisaab se applicable expiry — BankNifty ke liye
+// monthly cycle (current/next month), BTC ke liye weekly cycle (this/next
+// Friday) — active asset (SV2OC.currentAssetKey, jo _sv2OCSyncAssetContext
+// se set hota hai) ke hisaab se branch hoti hai.
 function _sv2OCNextExpirySec(nowSec) {
+  if (SV2OC.currentAssetKey === 'btc') {
+    return _sv2OCNextFridayUTC(nowSec, SV2OC.expiryMode === 'next' ? 1 : 0);
+  }
   var front = _sv2OCFrontMonth(nowSec);
   var y = front.y, m = front.m;
   if (SV2OC.expiryMode === 'next') {
@@ -6420,7 +6529,9 @@ function _sv2OCNextExpirySec(nowSec) {
   }
   return _sv2OCMonthlyExpirySec(y, m);
 }
-// ── Current-month / next-month toggle buttons ────────────────────────────
+// ── Current/next expiry-cycle toggle buttons — label text (This
+// Month/Week vs Next Month/Week) set hota hai _sv2OptionChainToggle() se,
+// asset ke hisaab se, jab sheet khulti hai. ───────────────────────────────
 function _sv2OCSetExpiryMode(mode) {
   SV2OC.expiryMode = (mode === 'next') ? 'next' : 'current';
   var curBtn  = document.getElementById('sv2-oc-expiry-mode-cur');
@@ -6441,19 +6552,26 @@ function _sv2OptionChainToggle() {
   var backdrop = document.getElementById('sv2-oc-backdrop');
   if (!sheet || !backdrop) return;
   if (sheet.classList.contains('open')) { _sv2OCClose(); return; }
-  var live = window._SV2_LIVE;
-  if (!live || !live.isBN) {
-    alert('Option Chain sirf BankNifty Bar Replay ke andar available hai.');
+  if (!_sv2OCSyncAssetContext()) {
+    alert('Option Chain sirf Bar Replay ke andar available hai (BankNifty ya BTC).');
     return;
   }
-  _sv2OCLoadPositions();
-  _sv2OCLoadBalance();
   _sv2OCLoadGreeksPref();
   SV2OC.open = true;
   backdrop.classList.add('open');
   sheet.classList.add('open');
   var greeksBtn = document.getElementById('sv2-oc-greeks-toggle');
   if (greeksBtn) greeksBtn.classList.toggle('on', SV2OC.showGreeks);
+  // ── Asset-aware sheet labels ─────────────────────────────────────────
+  var titleEl = document.getElementById('sv2-oc-title');
+  if (titleEl) titleEl.textContent = '⛓️ Option Chain · ' + SV2OC.label;
+  var isBtc = (SV2OC.currentAssetKey === 'btc');
+  var curBtn = document.getElementById('sv2-oc-expiry-mode-cur');
+  var nextBtn = document.getElementById('sv2-oc-expiry-mode-next');
+  if (curBtn) curBtn.textContent = isBtc ? 'This Week' : 'This Month';
+  if (nextBtn) nextBtn.textContent = isBtc ? 'Next Week' : 'Next Month';
+  var expiryRowLbl = document.querySelector('#sv2-oc-expiry-row span:first-child');
+  if (expiryRowLbl) expiryRowLbl.textContent = 'Expiry (' + SV2OC.expiryLabel + ')';
   _sv2OCRenderBalance();
   _sv2OCSelectTab('chain');
   _sv2OCRenderChain();
@@ -6552,8 +6670,8 @@ function _sv2OCOpenTrade(strike, type, ltp) {
   var ltpEl = document.getElementById('sv2-oc-trade-ltp');
   var slEl = document.getElementById('sv2-oc-trade-sl');
   var tpEl = document.getElementById('sv2-oc-trade-tp');
-  if (titleEl) titleEl.textContent = 'BANKNIFTY ' + strike + ' ' + type;
-  if (ltpEl) ltpEl.textContent = '₹' + _sv2OCFmtPrice(ltp) + ' / qty';
+  if (titleEl) titleEl.textContent = SV2OC.label + ' ' + strike + ' ' + type;
+  if (ltpEl) ltpEl.textContent = SV2OC.cur + _sv2OCFmtPrice(ltp) + ' / qty';
   if (slEl) slEl.value = '';
   if (tpEl) tpEl.value = '';
   _sv2OCRenderTradeQtyAndTotal();
@@ -6573,12 +6691,13 @@ function _sv2OCRenderTradeQtyAndTotal() {
   var marginNoteEl = document.getElementById('sv2-oc-trade-margin-note');
   var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
   var totalAmt = t.ltp * totalQty;
-  if (qtyEl) qtyEl.textContent = SV2OC.pendingQtyLots + ' lot' + (SV2OC.pendingQtyLots > 1 ? 's' : '') + ' (' + totalQty + ' qty)';
-  if (totalEl) totalEl.textContent = 'Total: ₹' + totalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  var qtyUnit = SV2OC.pendingQtyLots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+  if (qtyEl) qtyEl.textContent = SV2OC.pendingQtyLots + ' ' + qtyUnit + ' (' + totalQty + ' qty)';
+  if (totalEl) totalEl.textContent = 'Total: ' + _sv2OCFmtMoney(totalAmt);
   if (marginNoteEl) {
     var spot = _sv2OCCurrentSpot();
     var approxMargin = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
-    marginNoteEl.textContent = '⚠️ SELL karne par approx ₹' + approxMargin.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' margin block hoga (estimate, exact broker margin nahi). Charges (brokerage+STT+misc) alag se lagenge.';
+    marginNoteEl.textContent = '⚠️ SELL karne par approx ' + _sv2OCFmtMoney(approxMargin) + ' margin block hoga (estimate, exact broker margin nahi). Charges (brokerage+STT+misc) alag se lagenge.';
   }
 }
 function _sv2OCQtyStep(delta) {
@@ -6617,13 +6736,13 @@ function _sv2OCConfirmTrade(side) {
   var marginBlocked = 0;
   if (side === 'buy') {
     if ((totalAmt + charges) > available) {
-      alert('Insufficient available balance! ₹' + (totalAmt + charges).toFixed(0) + ' chahiye (premium + charges), available sirf ₹' + available.toFixed(0) + ' hai.');
+      alert('Insufficient available balance! ' + SV2OC.cur + (totalAmt + charges).toFixed(0) + ' chahiye (premium + charges), available sirf ' + SV2OC.cur + available.toFixed(0) + ' hai.');
       return;
     }
   } else {
     marginBlocked = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
     if ((marginBlocked + charges) > available) {
-      alert('Insufficient margin! SELL (option writing) ke liye approx ₹' + marginBlocked.toFixed(0) + ' margin + ₹' + charges.toFixed(0) + ' charges chahiye, available sirf ₹' + available.toFixed(0) + ' hai.\n\n(Ye ek approx SPAN+exposure-style estimate hai, exact broker margin nahi.)');
+      alert('Insufficient margin! SELL (option writing) ke liye approx ' + SV2OC.cur + marginBlocked.toFixed(0) + ' margin + ' + SV2OC.cur + charges.toFixed(0) + ' charges chahiye, available sirf ' + SV2OC.cur + available.toFixed(0) + ' hai.\n\n(Ye ek approx SPAN+exposure-style estimate hai, exact broker margin nahi.)');
       return;
     }
   }
@@ -6711,14 +6830,15 @@ function _sv2OCRenderPositions() {
     var pnlClass = pnl >= 0 ? 'pos' : 'neg';
     var expiryStr = new Date(_sv2OCPositionExpirySec(p) * 1000).toISOString().slice(0, 10);
     var metaBits = ['Expiry ' + expiryStr];
-    if (p.marginBlocked) metaBits.push('Margin ₹' + p.marginBlocked.toLocaleString('en-IN', { maximumFractionDigits: 0 }));
-    if (p.sl != null) metaBits.push('SL ₹' + _sv2OCFmtPrice(p.sl));
-    if (p.tp != null) metaBits.push('Target ₹' + _sv2OCFmtPrice(p.tp));
+    if (p.marginBlocked) metaBits.push('Margin ' + _sv2OCFmtMoney(p.marginBlocked));
+    if (p.sl != null) metaBits.push('SL ' + SV2OC.cur + _sv2OCFmtPrice(p.sl));
+    if (p.tp != null) metaBits.push('Target ' + SV2OC.cur + _sv2OCFmtPrice(p.tp));
+    var qtyUnitLbl = p.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
     html += '<div class="sv2-oc-pos-card">' +
       '<div class="sv2-oc-pos-top">' +
         '<div>' +
-          '<div class="sv2-oc-pos-name">' + p.side.toUpperCase() + ' BANKNIFTY ' + p.strike + ' ' + p.type + '</div>' +
-          '<div class="sv2-oc-pos-qty">' + p.lots + ' lot(s) · Entry ₹' + _sv2OCFmtPrice(p.entryPrice) + ' · LTP ₹' + _sv2OCFmtPrice(markPrice) + '</div>' +
+          '<div class="sv2-oc-pos-name">' + p.side.toUpperCase() + ' ' + SV2OC.label + ' ' + p.strike + ' ' + p.type + '</div>' +
+          '<div class="sv2-oc-pos-qty">' + p.lots + ' ' + qtyUnitLbl + ' · Entry ' + SV2OC.cur + _sv2OCFmtPrice(p.entryPrice) + ' · LTP ' + SV2OC.cur + _sv2OCFmtPrice(markPrice) + '</div>' +
           '<div class="sv2-oc-pos-meta">' + metaBits.join(' · ') + '</div>' +
         '</div>' +
         '<div class="sv2-oc-pos-pnl ' + pnlClass + '">' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + '</div>' +
@@ -6746,7 +6866,7 @@ function _sv2OCCheckExpirySettlement() {
     if (nowSec >= _sv2OCPositionExpirySec(p)) {
       var settlePrice = _sv2OCIntrinsicFor(p, spot); // expiry par sirf intrinsic value bachti hai
       var pnl = _sv2OCSquareOffCore(i, settlePrice);
-      settled.push(p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type + ' → settled @ ₹' + _sv2OCFmtPrice(settlePrice) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
+      settled.push(p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type + ' → settled @ ' + SV2OC.cur + _sv2OCFmtPrice(settlePrice) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
     }
   }
   if (settled.length) {
@@ -6774,7 +6894,7 @@ function _sv2OCCheckSLTP() {
     if (tpHit || slHit) {
       var label = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type;
       var pnl = _sv2OCSquareOffCore(i, mark);
-      hits.push(label + ' → ' + (tpHit ? 'Target' : 'SL') + ' hit @ ₹' + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
+      hits.push(label + ' → ' + (tpHit ? 'Target' : 'SL') + ' hit @ ' + SV2OC.cur + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
     }
   }
   if (hits.length) {
@@ -6788,6 +6908,7 @@ function _sv2OCCheckSLTP() {
 // aur SL/Target check hamesha chalta hai (sheet band ho tab bhi) — chain +
 // positions ka visual refresh sirf sheet khuli ho tab hota hai. ───────────
 function _sv2OptionChainOnStep() {
+  if (!_sv2OCSyncAssetContext()) return; // abhi koi supported asset replay mein nahi
   _sv2OCCheckExpirySettlement();
   _sv2OCCheckSLTP();
   if (!SV2OC.open) return;
@@ -7830,6 +7951,7 @@ function _buildStack2CellChart(idx) {
         window._SV2_LIVE.baseBars  = baseBarsLive;
         window._SV2_LIVE.baseTfMin = baseTfMin;
         window._SV2_LIVE.isBN      = (assetKey2 === 'bn');
+        window._SV2_LIVE.isBTC     = (assetKey2 === 'btc');
         window._SV2_LIVE.startIdx  = revealCount;
         window._SV2_LIVE.revealIdx = revealCount;
 
