@@ -1680,6 +1680,129 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 8px;
 }
 .sv2-practice-resume-btn:active{ background:#f0b42944; }
+
+/* ── SV2 Option Chain (Virtual Trading) — Bottom Sheet ─────────────────────
+   Practice Mode sheet ke exact same pattern par bana hai (backdrop + sliding
+   sheet), taaki UI-feel consistent rahe. LTP yahan REAL market se nahi,
+   Black-Scholes formula se replay ke underlying spot par calculate hoti hai
+   (koi volume nahi dikhaya jaata — sirf Strike + LTP, real broker jaisa). */
+#sv2-oc-backdrop{
+  display:none; position:fixed; inset:0; z-index:9400;
+  background:rgba(0,0,0,.5);
+}
+#sv2-oc-backdrop.open{ display:block; }
+#sv2-oc-sheet{
+  position:fixed; left:0; right:0; bottom:0; z-index:9401;
+  background:#131722; border-radius:14px 14px 0 0;
+  max-height:82vh; transform:translateY(100%);
+  transition:transform .22s ease-out;
+  box-shadow:0 -4px 24px rgba(0,0,0,.4);
+  display:flex; flex-direction:column;
+}
+#sv2-oc-sheet.open{ transform:translateY(0); }
+#sv2-oc-sheet-inner{ overflow-y:auto; -webkit-overflow-scrolling:touch; }
+#sv2-oc-handle{
+  width:36px; height:4px; border-radius:2px; background:#3a3f4d;
+  margin:8px auto 4px;
+}
+#sv2-oc-hdr{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:6px 16px 10px;
+}
+#sv2-oc-title{ font-size:15px; font-weight:700; color:#d1d4dc; }
+#sv2-oc-spot{ font-size:11px; font-weight:600; color:#787b86; margin-top:2px; }
+#sv2-oc-close{
+  width:30px; height:30px; border-radius:8px; border:none;
+  background:#1e222d; color:#d1d4dc; font-size:15px; cursor:pointer;
+}
+#sv2-oc-close:active{ background:#2a2e39; }
+#sv2-oc-tabs{ display:flex; gap:6px; padding:0 16px 10px; }
+.sv2-oc-tab-btn{
+  flex:1; height:34px; border-radius:8px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:12px; font-weight:700;
+  cursor:pointer;
+}
+.sv2-oc-tab-btn.active{ background:#2962ff22; border-color:#2962ff; color:#2962ff; }
+.sv2-oc-panel{ display:none; padding:0 16px 20px; }
+.sv2-oc-panel.active{ display:block; }
+#sv2-oc-expiry-row{
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:11px; color:#787b86; padding:4px 2px 10px;
+}
+#sv2-oc-expiry-val{ color:#d1d4dc; font-weight:700; }
+#sv2-oc-note{
+  font-size:10px; color:#5b606e; padding:0 2px 10px; line-height:1.5;
+}
+#sv2-oc-chain-hdr, .sv2-oc-row{
+  display:grid; grid-template-columns:1fr 1fr 1fr;
+  align-items:center; text-align:center;
+}
+#sv2-oc-chain-hdr{
+  font-size:10px; font-weight:700; color:#5b606e;
+  padding:4px 0; border-bottom:1px solid #2a2e39;
+}
+.sv2-oc-row{ padding:0; border-bottom:1px solid #1e222d; }
+.sv2-oc-row.atm-row{ background:#2962ff14; }
+.sv2-oc-cell-strike{
+  font-size:12px; font-weight:700; color:#d1d4dc; padding:9px 0;
+}
+.sv2-oc-cell-ltp{
+  font-size:12px; font-weight:700; padding:9px 4px; cursor:pointer;
+  border-radius:6px; margin:3px;
+}
+.sv2-oc-cell-ltp.ce{ color:#26a69a; background:#26a69a14; }
+.sv2-oc-cell-ltp.pe{ color:#ef5350; background:#ef535014; }
+.sv2-oc-cell-ltp:active{ opacity:.7; }
+#sv2-oc-positions-empty{
+  font-size:12px; color:#5b606e; text-align:center; padding:30px 0;
+}
+.sv2-oc-pos-card{
+  border:1px solid #2a2e39; border-radius:10px; padding:10px 12px; margin:8px 0;
+}
+.sv2-oc-pos-top{ display:flex; justify-content:space-between; align-items:center; }
+.sv2-oc-pos-name{ font-size:12px; font-weight:700; color:#d1d4dc; }
+.sv2-oc-pos-qty{ font-size:11px; color:#787b86; margin-top:2px; }
+.sv2-oc-pos-pnl{ font-size:13px; font-weight:700; }
+.sv2-oc-pos-pnl.pos{ color:#26a69a; }
+.sv2-oc-pos-pnl.neg{ color:#ef5350; }
+.sv2-oc-pos-close-btn{
+  margin-top:8px; width:100%; height:32px; border-radius:7px; border:none;
+  background:#ef535022; color:#ef5350; font-size:11px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-pos-close-btn:active{ background:#ef535044; }
+
+/* Buy/Sell action mini-sheet (opens above the chain when a strike is tapped) */
+#sv2-oc-trade-backdrop{
+  display:none; position:fixed; inset:0; z-index:9410; background:rgba(0,0,0,.55);
+}
+#sv2-oc-trade-backdrop.open{ display:block; }
+#sv2-oc-trade-card{
+  display:none; position:fixed; left:50%; bottom:0; transform:translateX(-50%);
+  width:100%; max-width:480px; z-index:9411;
+  background:#181c27; border-radius:14px 14px 0 0; padding:16px;
+}
+#sv2-oc-trade-card.open{ display:block; }
+#sv2-oc-trade-title{ font-size:14px; font-weight:700; color:#d1d4dc; margin-bottom:2px; }
+#sv2-oc-trade-ltp{ font-size:20px; font-weight:700; color:#2962ff; margin:6px 0 14px; }
+#sv2-oc-trade-qty-row{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.sv2-oc-qty-btn{
+  width:36px; height:36px; border-radius:8px; border:1px solid #2a2e39;
+  background:#1e222d; color:#d1d4dc; font-size:16px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-qty-btn:active{ background:#2a2e39; }
+#sv2-oc-trade-qty-val{ flex:1; text-align:center; font-size:14px; color:#d1d4dc; }
+#sv2-oc-trade-btns{ display:flex; gap:10px; }
+.sv2-oc-trade-act{
+  flex:1; height:44px; border-radius:9px; border:none; font-size:13px;
+  font-weight:700; cursor:pointer;
+}
+#sv2-oc-buy-btn{ background:#26a69a; color:#0c1017; }
+#sv2-oc-sell-btn{ background:#ef5350; color:#0c1017; }
+#sv2-oc-trade-cancel{
+  margin-top:10px; width:100%; height:36px; border-radius:9px;
+  background:none; border:none; color:#787b86; font-size:12px; cursor:pointer;
+}
+
 /* Top strip — reuses the existing symbol/TF/letter overlay line.
    Purely visual now: pointer-events:none so touches pass straight through
    to the chart underneath (no more touch capture / drag-to-scroll here). */
@@ -2689,6 +2812,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div id="hdr-right">
     <button id="tf-menu-btn" onclick="toggleTfDropdown()" title="Timeframes">&#9201; <span id="tf-menu-label">1m</span></button>
     <button class="hdr-icon-btn" id="sv2-practice-btn" onclick="_sv2PracticeToggle()" title="Practice Mode" style="display:none">🎯</button>
+    <button class="hdr-icon-btn" id="sv2-optionchain-btn" onclick="_sv2OptionChainToggle()" title="Option Chain (Virtual Trading)" style="display:none">⛓️</button>
     <button id="draw-btn" onclick="toggleDrawPanel()" title="Drawing Tools">✏️ Draw</button>
     <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
@@ -3378,6 +3502,66 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <textarea id="sv2-record-backup" readonly onclick="this.select()"></textarea>
     <button id="sv2-record-clear-btn" onclick="_sv2RecordClear()">🗑 Clear Record</button>
   </div>
+</div>
+
+<!-- ═══ SV2 OPTION CHAIN (Virtual Trading) — Bottom Sheet ═══════════════════
+     Bar Replay ke top strip wale ⛓️ icon se khulti hai. LTP simulated hai
+     (Black-Scholes, replay ke underlying spot par based) — koi volume nahi,
+     bilkul real broker ki tarah sirf Strike + LTP dikhta hai. -->
+<div id="sv2-oc-backdrop" onclick="_sv2OCClose()"></div>
+<div id="sv2-oc-sheet">
+  <div id="sv2-oc-sheet-inner">
+    <div id="sv2-oc-handle"></div>
+    <div id="sv2-oc-hdr">
+      <div>
+        <div id="sv2-oc-title">⛓️ Option Chain</div>
+        <div id="sv2-oc-spot">Spot: --</div>
+      </div>
+      <button id="sv2-oc-close" onclick="_sv2OCClose()">✕</button>
+    </div>
+
+    <div id="sv2-oc-tabs">
+      <button class="sv2-oc-tab-btn active" id="sv2-oc-tab-chain-btn" onclick="_sv2OCSelectTab('chain')">Chain</button>
+      <button class="sv2-oc-tab-btn" id="sv2-oc-tab-pos-btn" onclick="_sv2OCSelectTab('positions')">Positions <span id="sv2-oc-pos-count"></span></button>
+    </div>
+
+    <div class="sv2-oc-panel active" id="sv2-oc-panel-chain">
+      <div id="sv2-oc-expiry-row">
+        <span>Expiry (weekly)</span>
+        <span id="sv2-oc-expiry-val">--</span>
+      </div>
+      <div id="sv2-oc-note">
+        ⚠️ Ye LTP real broker se nahi aa raha — Black-Scholes model se replay ke
+        underlying price par calculate ho raha hai (practice ke liye). Volume
+        is model mein zaroori nahi hota, isliye nahi dikhaya gaya.
+      </div>
+      <div id="sv2-oc-chain-hdr">
+        <span>CE LTP</span><span>Strike</span><span>PE LTP</span>
+      </div>
+      <div id="sv2-oc-chain-list"></div>
+    </div>
+
+    <div class="sv2-oc-panel" id="sv2-oc-panel-positions">
+      <div id="sv2-oc-positions-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Buy/Sell mini action-sheet for a tapped strike -->
+<div id="sv2-oc-trade-backdrop" onclick="_sv2OCTradeCancel()"></div>
+<div id="sv2-oc-trade-card">
+  <div id="sv2-oc-trade-title">--</div>
+  <div id="sv2-oc-trade-ltp">--</div>
+  <div id="sv2-oc-trade-qty-row">
+    <button class="sv2-oc-qty-btn" onclick="_sv2OCQtyStep(-1)">−</button>
+    <div id="sv2-oc-trade-qty-val">1 lot</div>
+    <button class="sv2-oc-qty-btn" onclick="_sv2OCQtyStep(1)">+</button>
+  </div>
+  <div id="sv2-oc-trade-btns">
+    <button class="sv2-oc-trade-act" id="sv2-oc-buy-btn" onclick="_sv2OCConfirmTrade('buy')">BUY</button>
+    <button class="sv2-oc-trade-act" id="sv2-oc-sell-btn" onclick="_sv2OCConfirmTrade('sell')">SELL</button>
+  </div>
+  <button id="sv2-oc-trade-cancel" onclick="_sv2OCTradeCancel()">Cancel</button>
 </div>
 
 <!-- ═══ FULLSCREEN RESTORE BANNER ═══════════════════════════════════════ -->
@@ -5728,6 +5912,7 @@ function _deactivateStack2() {
   if (d) d.style.display = 'none';
   const _srb = document.getElementById('sv2-sr-btn'); if (_srb) _srb.style.display = 'none';
   const _prb = document.getElementById('sv2-practice-btn'); if (_prb) _prb.style.display = 'none';
+  const _ocb1 = document.getElementById('sv2-optionchain-btn'); if (_ocb1) _ocb1.style.display = 'none';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 }
@@ -5812,6 +5997,285 @@ function _sv2PracticeTodayStr() {
   var d = new Date();
   var tz = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SV2 OPTION CHAIN — Virtual Trading (Bar Replay only)
+// ──────────────────────────────────────────────────────────────────────
+// LTP REAL market se nahi aata — Black-Scholes formula se, replay ke
+// underlying spot (window._SV2_LIVE ke last-revealed bar ke close) par
+// based, calculate hota hai. Volume jaan-boojh kar nahi dikhaya — na hi
+// zaroori hai (BS formula ko iski zaroorat nahi padti).
+// Sirf BankNifty asset ke liye enabled hai (options concept crypto/BTC
+// par yahan applicable nahi maana).
+// ══════════════════════════════════════════════════════════════════════
+var SV2OC = {
+  open: false,
+  activeTab: 'chain',
+  strikeStep: 100,     // BankNifty typical strike gap
+  lotSize: 15,         // approx current NSE BankNifty lot size
+  strikesEachSide: 10, // ATM ke aas-paas kitne strikes upar/neeche
+  baseIV: 0.14,        // assumed base implied volatility (14%)
+  riskFreeRate: 0.07,
+  pendingTrade: null,  // { strike, type: 'CE'|'PE', ltp } jab trade-card khula ho
+  pendingQtyLots: 1,
+  positions: []        // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
+};
+
+function _sv2OCStorageKey() { return 'sv2_oc_positions_v1'; }
+function _sv2OCLoadPositions() {
+  try {
+    var raw = localStorage.getItem(_sv2OCStorageKey());
+    SV2OC.positions = raw ? JSON.parse(raw) : [];
+  } catch (_) { SV2OC.positions = []; }
+}
+function _sv2OCSavePositions() {
+  try { localStorage.setItem(_sv2OCStorageKey(), JSON.stringify(SV2OC.positions)); } catch (_) {}
+}
+
+// ── Cumulative Normal Distribution (Abramowitz-Stegun approximation) ─────
+function _sv2OCNormCdf(x) {
+  var a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
+  var sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2);
+  var t = 1 / (1 + p * x);
+  var y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+// ── Black-Scholes CE/PE theoretical price ────────────────────────────────
+// S = spot, K = strike, T = years-to-expiry, r = risk-free, iv = volatility
+function _sv2OCBlackScholes(S, K, T, r, iv) {
+  if (T <= 0) {
+    return { ce: Math.max(S - K, 0), pe: Math.max(K - S, 0) };
+  }
+  var d1 = (Math.log(S / K) + (r + (iv * iv) / 2) * T) / (iv * Math.sqrt(T));
+  var d2 = d1 - iv * Math.sqrt(T);
+  var ce = S * _sv2OCNormCdf(d1) - K * Math.exp(-r * T) * _sv2OCNormCdf(d2);
+  var pe = K * Math.exp(-r * T) * _sv2OCNormCdf(-d2) - S * _sv2OCNormCdf(-d1);
+  return { ce: Math.max(ce, 0.05), pe: Math.max(pe, 0.05) };
+}
+
+// ── IV assumption: thoda badhta hai jaise-jaise expiry paas aata hai,
+// aur ATM se dur strikes par halka "smile" add karte hain — sirf real
+// jaisa dikhne ke liye, ye koi live/actual IV data nahi hai. ──────────────
+function _sv2OCAssumedIV(daysToExpiry, strike, spot) {
+  var expiryBump = Math.max(0, (7 - daysToExpiry)) / 7 * 0.05;
+  var smile = Math.min(0.06, Math.abs(strike - spot) / spot * 0.6);
+  return SV2OC.baseIV + expiryBump + smile;
+}
+
+// ── Current replay underlying spot (BankNifty only) ──────────────────────
+function _sv2OCCurrentSpot() {
+  var live = window._SV2_LIVE;
+  if (live && live.isBN && Array.isArray(live.baseBars) && live.revealIdx > 0) {
+    var bar = live.baseBars[live.revealIdx - 1];
+    if (bar && typeof bar.close === 'number') return bar.close;
+  }
+  return null;
+}
+function _sv2OCCurrentTimeSec() {
+  var t = (typeof _sv2ReplayVirtualNowSec === 'function') ? _sv2ReplayVirtualNowSec() : null;
+  return t || Math.floor(Date.now() / 1000);
+}
+
+// ── Weekly expiry: agla Thursday >= aaj (replay date), market close 15:30 IST
+function _sv2OCNextExpirySec(nowSec) {
+  var d = new Date(nowSec * 1000);
+  var utcH = d.getUTCHours(), utcM = d.getUTCMinutes();
+  // IST = UTC+5:30 — 15:30 IST market close = 10:00 UTC
+  var day = d.getUTCDay(); // 0=Sun..6=Sat
+  var daysToThu = (4 - day + 7) % 7;
+  var candidate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + daysToThu, 10, 0, 0));
+  // Agar aaj hi Thursday hai aur 15:30 IST (10:00 UTC) nikal chuka hai, agle hafte le lo
+  if (daysToThu === 0 && (utcH > 10 || (utcH === 10 && utcM > 0))) {
+    candidate = new Date(candidate.getTime() + 7 * 86400000);
+  }
+  return Math.floor(candidate.getTime() / 1000);
+}
+
+function _sv2OCFmtPrice(v) {
+  if (v == null) return '--';
+  return v.toFixed(v >= 100 ? 1 : 2);
+}
+
+// ── Open / Close the sheet ────────────────────────────────────────────────
+function _sv2OptionChainToggle() {
+  var sheet = document.getElementById('sv2-oc-sheet');
+  var backdrop = document.getElementById('sv2-oc-backdrop');
+  if (!sheet || !backdrop) return;
+  if (sheet.classList.contains('open')) { _sv2OCClose(); return; }
+  var live = window._SV2_LIVE;
+  if (!live || !live.isBN) {
+    alert('Option Chain sirf BankNifty Bar Replay ke andar available hai.');
+    return;
+  }
+  _sv2OCLoadPositions();
+  SV2OC.open = true;
+  backdrop.classList.add('open');
+  sheet.classList.add('open');
+  _sv2OCSelectTab('chain');
+  _sv2OCRenderChain();
+  _sv2OCRenderPositions();
+}
+function _sv2OCClose() {
+  var sheet = document.getElementById('sv2-oc-sheet');
+  var backdrop = document.getElementById('sv2-oc-backdrop');
+  SV2OC.open = false;
+  if (sheet) sheet.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+}
+function _sv2OCSelectTab(tab) {
+  SV2OC.activeTab = tab;
+  var chainBtn = document.getElementById('sv2-oc-tab-chain-btn');
+  var posBtn = document.getElementById('sv2-oc-tab-pos-btn');
+  var chainPanel = document.getElementById('sv2-oc-panel-chain');
+  var posPanel = document.getElementById('sv2-oc-panel-positions');
+  if (chainBtn) chainBtn.classList.toggle('active', tab === 'chain');
+  if (posBtn) posBtn.classList.toggle('active', tab === 'positions');
+  if (chainPanel) chainPanel.classList.toggle('active', tab === 'chain');
+  if (posPanel) posPanel.classList.toggle('active', tab === 'positions');
+  if (tab === 'positions') _sv2OCRenderPositions();
+}
+
+// ── Render the Chain table ────────────────────────────────────────────────
+function _sv2OCRenderChain() {
+  var spot = _sv2OCCurrentSpot();
+  var spotEl = document.getElementById('sv2-oc-spot');
+  var expiryEl = document.getElementById('sv2-oc-expiry-val');
+  var listEl = document.getElementById('sv2-oc-chain-list');
+  if (!listEl) return;
+  if (spot == null) {
+    if (spotEl) spotEl.textContent = 'Spot: -- (replay ek bar chalao pehle)';
+    listEl.innerHTML = '';
+    return;
+  }
+  var nowSec = _sv2OCCurrentTimeSec();
+  var expirySec = _sv2OCNextExpirySec(nowSec);
+  var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
+  var T = daysToExpiry / 365;
+
+  if (spotEl) spotEl.textContent = 'Spot: ' + spot.toFixed(2);
+  if (expiryEl) {
+    var ed = new Date(expirySec * 1000);
+    expiryEl.textContent = ed.toISOString().slice(0, 10) + ' (' + daysToExpiry.toFixed(1) + 'd)';
+  }
+
+  var atm = Math.round(spot / SV2OC.strikeStep) * SV2OC.strikeStep;
+  var rows = '';
+  for (var i = SV2OC.strikesEachSide; i >= -SV2OC.strikesEachSide; i--) {
+    var strike = atm + i * SV2OC.strikeStep;
+    var iv = _sv2OCAssumedIV(daysToExpiry, strike, spot);
+    var px = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, iv);
+    var isAtm = (strike === atm);
+    rows += '<div class="sv2-oc-row' + (isAtm ? ' atm-row' : '') + '">' +
+      '<div class="sv2-oc-cell-ltp ce" onclick="_sv2OCOpenTrade(' + strike + ',\'CE\',' + px.ce.toFixed(2) + ')">' + _sv2OCFmtPrice(px.ce) + '</div>' +
+      '<div class="sv2-oc-cell-strike">' + strike + '</div>' +
+      '<div class="sv2-oc-cell-ltp pe" onclick="_sv2OCOpenTrade(' + strike + ',\'PE\',' + px.pe.toFixed(2) + ')">' + _sv2OCFmtPrice(px.pe) + '</div>' +
+    '</div>';
+  }
+  listEl.innerHTML = rows;
+}
+
+// ── Buy/Sell mini action-sheet ─────────────────────────────────────────────
+function _sv2OCOpenTrade(strike, type, ltp) {
+  SV2OC.pendingTrade = { strike: strike, type: type, ltp: ltp };
+  SV2OC.pendingQtyLots = 1;
+  var titleEl = document.getElementById('sv2-oc-trade-title');
+  var ltpEl = document.getElementById('sv2-oc-trade-ltp');
+  var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
+  if (titleEl) titleEl.textContent = 'BANKNIFTY ' + strike + ' ' + type;
+  if (ltpEl) ltpEl.textContent = '₹' + _sv2OCFmtPrice(ltp);
+  if (qtyEl) qtyEl.textContent = '1 lot (' + SV2OC.lotSize + ' qty)';
+  var card = document.getElementById('sv2-oc-trade-card');
+  var backdrop = document.getElementById('sv2-oc-trade-backdrop');
+  if (card) card.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+}
+function _sv2OCQtyStep(delta) {
+  SV2OC.pendingQtyLots = Math.max(1, SV2OC.pendingQtyLots + delta);
+  var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
+  if (qtyEl) qtyEl.textContent = SV2OC.pendingQtyLots + ' lot' + (SV2OC.pendingQtyLots > 1 ? 's' : '') + ' (' + (SV2OC.pendingQtyLots * SV2OC.lotSize) + ' qty)';
+}
+function _sv2OCTradeCancel() {
+  SV2OC.pendingTrade = null;
+  var card = document.getElementById('sv2-oc-trade-card');
+  var backdrop = document.getElementById('sv2-oc-trade-backdrop');
+  if (card) card.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+}
+function _sv2OCConfirmTrade(side) {
+  var t = SV2OC.pendingTrade;
+  if (!t) return;
+  var nowSec = _sv2OCCurrentTimeSec();
+  SV2OC.positions.push({
+    id: 'oc_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
+    strike: t.strike, type: t.type, side: side,
+    lots: SV2OC.pendingQtyLots, entryPrice: t.ltp, entryTime: nowSec
+  });
+  _sv2OCSavePositions();
+  _sv2OCTradeCancel();
+  _sv2OCSelectTab('positions');
+  _sv2OCRenderPositions();
+}
+
+// ── Close (square-off) a virtual position at current mark price ──────────
+function _sv2OCClosePosition(id) {
+  var idx = SV2OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  SV2OC.positions.splice(idx, 1);
+  _sv2OCSavePositions();
+  _sv2OCRenderPositions();
+}
+
+// ── Render Positions tab — mark-to-market P&L, recalculated live ─────────
+function _sv2OCRenderPositions() {
+  var listEl = document.getElementById('sv2-oc-positions-list');
+  var countEl = document.getElementById('sv2-oc-pos-count');
+  if (!listEl) return;
+  if (countEl) countEl.textContent = SV2OC.positions.length ? '(' + SV2OC.positions.length + ')' : '';
+  if (!SV2OC.positions.length) {
+    listEl.innerHTML = '<div id="sv2-oc-positions-empty">Koi open position nahi — Chain tab se koi strike tap karo 👆</div>';
+    return;
+  }
+  var spot = _sv2OCCurrentSpot();
+  var nowSec = _sv2OCCurrentTimeSec();
+  var expirySec = _sv2OCNextExpirySec(nowSec);
+  var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
+  var T = daysToExpiry / 365;
+  var html = '';
+  SV2OC.positions.forEach(function (p) {
+    var markPrice = p.entryPrice;
+    if (spot != null) {
+      var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot);
+      var px = _sv2OCBlackScholes(spot, p.strike, T, SV2OC.riskFreeRate, iv);
+      markPrice = p.type === 'CE' ? px.ce : px.pe;
+    }
+    var qty = p.lots * SV2OC.lotSize;
+    var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
+    var pnl = diff * qty;
+    var pnlClass = pnl >= 0 ? 'pos' : 'neg';
+    html += '<div class="sv2-oc-pos-card">' +
+      '<div class="sv2-oc-pos-top">' +
+        '<div>' +
+          '<div class="sv2-oc-pos-name">' + p.side.toUpperCase() + ' BANKNIFTY ' + p.strike + ' ' + p.type + '</div>' +
+          '<div class="sv2-oc-pos-qty">' + p.lots + ' lot(s) · Entry ₹' + _sv2OCFmtPrice(p.entryPrice) + ' · LTP ₹' + _sv2OCFmtPrice(markPrice) + '</div>' +
+        '</div>' +
+        '<div class="sv2-oc-pos-pnl ' + pnlClass + '">' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + '</div>' +
+      '</div>' +
+      '<button class="sv2-oc-pos-close-btn" onclick="_sv2OCClosePosition(\'' + p.id + '\')">Square Off</button>' +
+    '</div>';
+  });
+  listEl.innerHTML = html;
+}
+
+// ── Hook: har replay tick (naya bar reveal hone) ke baad chain + positions
+// ka price refresh karo, agar sheet khuli hai. _tick() ke andar se call
+// hota hai (agar function exist karta hai to). ─────────────────────────────
+function _sv2OptionChainOnStep() {
+  if (!SV2OC.open) return;
+  if (SV2OC.activeTab === 'chain') _sv2OCRenderChain();
+  else _sv2OCRenderPositions();
 }
 
 function _sv2PracticeToggle() {
@@ -6435,6 +6899,7 @@ function selectStack2View() {
   if (s2d) s2d.style.display = '';
   const _sv2srb = document.getElementById('sv2-sr-btn'); if (_sv2srb) _sv2srb.style.display = '';
   const _sv2prb = document.getElementById('sv2-practice-btn'); if (_sv2prb) _sv2prb.style.display = '';
+  const _sv2ocb = document.getElementById('sv2-optionchain-btn'); if (_sv2ocb) _sv2ocb.style.display = '';
   try { _sv2IndSectionShow(true); } catch(_) {}
 
   buildStack2();
@@ -8381,6 +8846,7 @@ function ss2ApplyAndClose() {
       }
     } catch(_) {}
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
+    try { if (typeof _sv2OptionChainOnStep === 'function') _sv2OptionChainOnStep(); } catch(_) {}
     try {
       if (typeof _sv2TrackerOnStep === 'function' && typeof _stackKeyForAsset === 'function' && typeof _utcDateStr === 'function') {
         var _trackKey = _stackKeyForAsset(S.asset);
@@ -9188,6 +9654,7 @@ function selectStackView() {
   if (_s2d) _s2d.style.display = 'none';
   const _srb2 = document.getElementById('sv2-sr-btn'); if (_srb2) _srb2.style.display = 'none';
   const _prb2 = document.getElementById('sv2-practice-btn'); if (_prb2) _prb2.style.display = 'none';
+  const _ocb2 = document.getElementById('sv2-optionchain-btn'); if (_ocb2) _ocb2.style.display = 'none';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 
