@@ -1725,6 +1725,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-oc-balance-label{ font-size:10px; color:#787b86; font-weight:600; }
 #sv2-oc-balance-val{ font-size:16px; color:#d1d4dc; font-weight:700; margin-top:2px; }
+#sv2-oc-balance-sub{ font-size:9.5px; color:#787b86; margin-top:2px; }
+#sv2-oc-balance-sub .margin-amt{ color:#ff9800; font-weight:700; }
 #sv2-oc-balance-actions{ display:flex; gap:6px; }
 #sv2-oc-balance-editbtn{
   height:28px; padding:0 10px; border-radius:7px; border:1px solid #2962ff55;
@@ -1791,6 +1793,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   font-size:11px; color:#787b86; padding:4px 2px 10px;
 }
 #sv2-oc-expiry-val{ color:#d1d4dc; font-weight:700; }
+#sv2-oc-expiry-mode-row{
+  display:flex; gap:6px; padding:0 2px 10px;
+}
+.sv2-oc-expiry-mode-btn{
+  flex:1; height:28px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:10.5px; font-weight:700;
+  cursor:pointer;
+}
+.sv2-oc-expiry-mode-btn.active{ background:#2962ff22; border-color:#2962ff; color:#2962ff; }
 #sv2-oc-note{
   font-size:10px; color:#5b606e; padding:0 2px 10px; line-height:1.5;
 }
@@ -1826,8 +1837,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-pos-pnl{ font-size:13px; font-weight:700; }
 .sv2-oc-pos-pnl.pos{ color:#26a69a; }
 .sv2-oc-pos-pnl.neg{ color:#ef5350; }
+.sv2-oc-pos-meta{ font-size:9.5px; color:#5b606e; margin-top:4px; line-height:1.5; }
+.sv2-oc-pos-actions{ display:flex; gap:8px; margin-top:8px; }
+.sv2-oc-pos-sltp-btn{
+  flex:1; height:32px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:11px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-pos-sltp-btn:active{ background:#2a2e39; }
 .sv2-oc-pos-close-btn{
-  margin-top:8px; width:100%; height:32px; border-radius:7px; border:none;
+  flex:1; height:32px; border-radius:7px; border:none;
   background:#ef535022; color:#ef5350; font-size:11px; font-weight:700; cursor:pointer;
 }
 .sv2-oc-pos-close-btn:active{ background:#ef535044; }
@@ -1852,6 +1870,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .sv2-oc-qty-btn:active{ background:#2a2e39; }
 #sv2-oc-trade-qty-val{ flex:1; text-align:center; font-size:14px; color:#d1d4dc; }
+#sv2-oc-trade-sltp-row{ display:flex; gap:8px; margin-bottom:14px; }
+.sv2-oc-sltp-input{
+  flex:1; height:36px; border-radius:8px; border:1px solid #2a2e39;
+  background:#1e222d; color:#d1d4dc; font-size:12px; padding:0 10px;
+}
+.sv2-oc-sltp-input::placeholder{ color:#5b606e; }
+.sv2-oc-sltp-input:focus{ outline:none; border-color:#2962ff; }
+#sv2-oc-trade-margin-note{ font-size:9.5px; color:#ff9800; margin:-8px 0 12px; line-height:1.4; }
 #sv2-oc-trade-btns{ display:flex; gap:10px; }
 .sv2-oc-trade-act{
   flex:1; height:44px; border-radius:9px; border:none; font-size:13px;
@@ -3585,6 +3611,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <div>
         <div id="sv2-oc-balance-label">💰 Virtual Balance</div>
         <div id="sv2-oc-balance-val">₹--</div>
+        <div id="sv2-oc-balance-sub"></div>
         <div id="sv2-oc-balance-edit-row">
           <input type="number" id="sv2-oc-balance-input" inputmode="decimal" placeholder="Enter amount">
           <button id="sv2-oc-balance-save" onclick="_sv2OCSaveManualBalance()">Save</button>
@@ -3603,8 +3630,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </div>
 
     <div class="sv2-oc-panel active" id="sv2-oc-panel-chain">
+      <div id="sv2-oc-expiry-mode-row">
+        <button class="sv2-oc-expiry-mode-btn active" id="sv2-oc-expiry-mode-cur" onclick="_sv2OCSetExpiryMode('current')">This Month</button>
+        <button class="sv2-oc-expiry-mode-btn" id="sv2-oc-expiry-mode-next" onclick="_sv2OCSetExpiryMode('next')">Next Month</button>
+      </div>
       <div id="sv2-oc-expiry-row">
-        <span>Expiry (weekly)</span>
+        <span>Expiry (monthly)</span>
         <span id="sv2-oc-expiry-val">--</span>
       </div>
       <div id="sv2-oc-greeks-row">
@@ -3640,6 +3671,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="sv2-oc-qty-btn" onclick="_sv2OCQtyStep(1)">+</button>
   </div>
   <div id="sv2-oc-trade-total">Total: ₹--</div>
+  <div id="sv2-oc-trade-sltp-row">
+    <input type="number" id="sv2-oc-trade-sl" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="SL price (optional)">
+    <input type="number" id="sv2-oc-trade-tp" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="Target price (optional)">
+  </div>
+  <div id="sv2-oc-trade-margin-note"></div>
   <div id="sv2-oc-trade-btns">
     <button class="sv2-oc-trade-act" id="sv2-oc-buy-btn" onclick="_sv2OCConfirmTrade('buy')">BUY</button>
     <button class="sv2-oc-trade-act" id="sv2-oc-sell-btn" onclick="_sv2OCConfirmTrade('sell')">SELL</button>
@@ -6096,13 +6132,18 @@ var SV2OC = {
   open: false,
   activeTab: 'chain',
   strikeStep: 100,     // BankNifty typical strike gap
-  lotSize: 15,         // approx current NSE BankNifty lot size
+  lotSize: 30,         // current NSE BankNifty lot size (revised Jan 2026 series: 35→30)
   strikesEachSide: 10, // ATM ke aas-paas kitne strikes upar/neeche
   baseIV: 0.14,        // assumed base implied volatility (14%)
   riskFreeRate: 0.07,
+  marginPct: 0.12,     // approx SPAN+exposure-style margin % of notional for SELL (option writing)
+  brokeragePerOrder: 20, // flat ₹ per executed leg (typical discount-broker charge)
+  sttRate: 0.001,      // ~0.1% STT on SELL-side premium turnover only (real options rule)
+  miscChargeRate: 0.0005, // exchange txn + SEBI + stamp + GST, rough bundle
   startingBalance: 100000, // ₹1,00,000 virtual starting balance
   balance: 100000,
   showGreeks: false,
+  expiryMode: 'current', // 'current' = is mahine ki monthly expiry, 'next' = agle mahine ki
   pendingTrade: null,  // { strike, type: 'CE'|'PE', ltp } jab trade-card khula ho
   pendingQtyLots: 1,
   positions: []        // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
@@ -6134,7 +6175,45 @@ function _sv2OCSaveBalance() {
 }
 function _sv2OCRenderBalance() {
   var el = document.getElementById('sv2-oc-balance-val');
+  var subEl = document.getElementById('sv2-oc-balance-sub');
   if (el) el.textContent = '₹' + SV2OC.balance.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  if (subEl) {
+    var blocked = _sv2OCTotalBlockedMargin();
+    if (blocked > 0) {
+      var avail = SV2OC.balance - blocked;
+      subEl.innerHTML = 'Available ₹' + avail.toLocaleString('en-IN', { maximumFractionDigits: 0 }) +
+        ' · <span class="margin-amt">₹' + blocked.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' margin blocked</span>';
+    } else {
+      subEl.textContent = '';
+    }
+  }
+}
+// ── Approx margin required to WRITE (sell) an option position — ye ek
+// simplified SPAN+exposure-style ESTIMATE hai (asli broker margin calc nahi):
+// notional ka SV2OC.marginPct + collected premium ko buffer ki tarah add. ──
+function _sv2OCApproxMargin(spot, premiumAmt, qty) {
+  var notional = (spot || 0) * qty;
+  return notional * SV2OC.marginPct + premiumAmt;
+}
+// Open SELL positions ka total blocked margin (BUY positions margin block nahi karti)
+function _sv2OCTotalBlockedMargin() {
+  var total = 0;
+  SV2OC.positions.forEach(function (p) { total += (p.marginBlocked || 0); });
+  return total;
+}
+// Naya trade lene ke liye asal available balance (margin-blocked amount minus)
+function _sv2OCAvailableBalance() {
+  return SV2OC.balance - _sv2OCTotalBlockedMargin();
+}
+// ── Approx brokerage + STT + misc statutory charges per executed leg ─────
+// Practice/education ke liye rough bundle hai, exact broker slab nahi:
+//  • Flat brokerage per order  • STT ~0.1% sirf SELL-side premium par
+//  (real options STT rule — buy side par STT nahi lagta)
+//  • ~0.05% misc (exchange txn + SEBI fee + stamp duty + GST bundle)
+function _sv2OCCalcCharges(side, premiumAmt) {
+  var stt = (side === 'sell') ? premiumAmt * SV2OC.sttRate : 0;
+  var misc = premiumAmt * SV2OC.miscChargeRate;
+  return SV2OC.brokeragePerOrder + stt + misc;
 }
 function _sv2OCResetBalance() {
   if (!confirm('Balance ko ₹' + SV2OC.startingBalance.toLocaleString('en-IN') + ' par reset karna hai? Saari open positions bhi clear ho jaayengi.')) return;
@@ -6144,6 +6223,33 @@ function _sv2OCResetBalance() {
   _sv2OCSavePositions();
   _sv2OCRenderBalance();
   _sv2OCRenderPositions();
+}
+
+// ── Replay session reset safety — jab replay date-range badle ya base
+// timeframe change ho, replay ka "virtual now" wapas cutoff-date par reset
+// ho jaata hai. Agar us waqt option-chain ki open positions hain, unka
+// entry-time/expiry ab naye session ke "now" se AAGE ho sakta hai (ulta
+// state — negative days-to-expiry jaisa bug). Isliye naya session shuru
+// hone se pehle user ko batao aur clear karne ka option do. ───────────────
+function _sv2OCWarnSessionReset() {
+  try {
+    if (typeof SV2OC === 'undefined' || !SV2OC.positions || !SV2OC.positions.length) return;
+    var isBN = true;
+    try {
+      if (typeof _stackKeyForAsset === 'function' && typeof S !== 'undefined' && S && S.asset) {
+        isBN = (_stackKeyForAsset(S.asset) === 'bn');
+      }
+    } catch (_) {}
+    if (!isBN) return; // Option Chain sirf BankNifty replay ke liye hai
+    var n = SV2OC.positions.length;
+    if (confirm('⚠️ Naya replay session start ho raha hai — replay ka "time" reset ho jaayega.\n\nAapki ' + n + ' open option position(s) PICHHLE session ki hain aur ab invalid ho sakti hain (entry-time/expiry mismatch).\n\nInhe clear karna hai?')) {
+      SV2OC.positions = [];
+      SV2OC.pendingTrade = null;
+      _sv2OCSavePositions();
+      _sv2OCRenderBalance();
+      _sv2OCRenderPositions();
+    }
+  } catch (_) {}
 }
 
 // ── Manually set balance to any custom amount ────────────────────────────
@@ -6257,19 +6363,71 @@ function _sv2OCCurrentTimeSec() {
   return t || Math.floor(Date.now() / 1000);
 }
 
-// ── Weekly expiry: agla Thursday >= aaj (replay date), market close 15:30 IST
-function _sv2OCNextExpirySec(nowSec) {
-  var d = new Date(nowSec * 1000);
-  var utcH = d.getUTCHours(), utcM = d.getUTCMinutes();
-  // IST = UTC+5:30 — 15:30 IST market close = 10:00 UTC
-  var day = d.getUTCDay(); // 0=Sun..6=Sat
-  var daysToThu = (4 - day + 7) % 7;
-  var candidate = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + daysToThu, 10, 0, 0));
-  // Agar aaj hi Thursday hai aur 15:30 IST (10:00 UTC) nikal chuka hai, agle hafte le lo
-  if (daysToThu === 0 && (utcH > 10 || (utcH === 10 && utcM > 0))) {
-    candidate = new Date(candidate.getTime() + 7 * 86400000);
+// ── BankNifty monthly expiry — last TUESDAY of the month (NSE rule w.e.f.
+// Sept 2025; BankNifty ab sirf monthly contracts deta hai, weekly nahi),
+// market close 15:30 IST (= 10:00 UTC) par. Agar wo Tuesday NSE trading
+// holiday nikle (ya kisi wajah se Sat/Sun) to expiry NSE ke niyam ke
+// hisaab se PICHHLE trading din par shift ho jaati hai. ─────────────────
+function _sv2OCLastTuesdayOfMonth(year, monthIndex0) {
+  // Mahine ka aakhri din (10:00 UTC = 15:30 IST market close)
+  var lastDate = new Date(Date.UTC(year, monthIndex0 + 1, 0, 10, 0, 0));
+  var day = lastDate.getUTCDay();           // 0=Sun..6=Sat
+  var diff = (day - 2 + 7) % 7;             // Tuesday = 2
+  lastDate.setUTCDate(lastDate.getUTCDate() - diff);
+  return lastDate;
+}
+function _sv2OCAdjustForHolidays(dateObj) {
+  var d = new Date(dateObj.getTime());
+  while (true) {
+    var day = d.getUTCDay();
+    var ds = _utcDateStr(Math.floor(d.getTime() / 1000));
+    var isHoliday = (typeof NSE_HOLIDAYS !== 'undefined') && NSE_HOLIDAYS.has(ds);
+    if (day === 0 || day === 6 || isHoliday) {
+      d.setUTCDate(d.getUTCDate() - 1);  // NSE niyam: pichhle trading din par shift
+      continue;
+    }
+    break;
   }
+  return d;
+}
+function _sv2OCMonthlyExpirySec(year, monthIndex0) {
+  var candidate = _sv2OCLastTuesdayOfMonth(year, monthIndex0);
+  candidate = _sv2OCAdjustForHolidays(candidate);
   return Math.floor(candidate.getTime() / 1000);
+}
+// SV2OC.expiryMode ke hisaab se current-month ya next-month monthly expiry.
+// "Current month" = SABSE NAZDEEKI abhi-tak-EXPIRE-NA-hui monthly contract —
+// agar replay ka time is mahine ki (adjusted) expiry cross kar chuka hai,
+// to "current" apne aap agle mahine par ROLL ho jaata hai (jaisa real NSE
+// mein expiry ke baad front-month khud-ba-khud agla contract ban jaata hai).
+// "Next month" hamesha us front-month ke ek mahina baad wala hota hai.
+function _sv2OCFrontMonth(nowSec) {
+  var d = new Date(nowSec * 1000);
+  var y = d.getUTCFullYear(), m = d.getUTCMonth();
+  var expSec = _sv2OCMonthlyExpirySec(y, m);
+  if (nowSec >= expSec) {          // is mahine ka contract expire/settle ho chuka
+    m += 1;
+    if (m > 11) { m = 0; y += 1; }
+  }
+  return { y: y, m: m };
+}
+function _sv2OCNextExpirySec(nowSec) {
+  var front = _sv2OCFrontMonth(nowSec);
+  var y = front.y, m = front.m;
+  if (SV2OC.expiryMode === 'next') {
+    m += 1;
+    if (m > 11) { m = 0; y += 1; }
+  }
+  return _sv2OCMonthlyExpirySec(y, m);
+}
+// ── Current-month / next-month toggle buttons ────────────────────────────
+function _sv2OCSetExpiryMode(mode) {
+  SV2OC.expiryMode = (mode === 'next') ? 'next' : 'current';
+  var curBtn  = document.getElementById('sv2-oc-expiry-mode-cur');
+  var nextBtn = document.getElementById('sv2-oc-expiry-mode-next');
+  if (curBtn)  curBtn.classList.toggle('active', SV2OC.expiryMode === 'current');
+  if (nextBtn) nextBtn.classList.toggle('active', SV2OC.expiryMode === 'next');
+  _sv2OCRenderChain();
 }
 
 function _sv2OCFmtPrice(v) {
@@ -6366,14 +6524,38 @@ function _sv2OCRenderChain() {
   listEl.innerHTML = rows;
 }
 
+// ── Position ka apna LOCKED expiry (jis expiry par trade liya tha, wahi
+// use hoti hai — baad me user "This Month"/"Next Month" toggle badal de to
+// bhi purani position ki expiry change nahi hoti, jaisa real contract mein
+// hota hai). Old saved positions (bina expirySec field ke) ke liye fallback. ─
+function _sv2OCPositionExpirySec(p) {
+  return p.expirySec || _sv2OCNextExpirySec(_sv2OCCurrentTimeSec());
+}
+function _sv2OCMarkPriceFor(p, spot, nowSec) {
+  var expirySec = _sv2OCPositionExpirySec(p);
+  var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
+  var T = daysToExpiry / 365;
+  var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot);
+  var px = _sv2OCBlackScholes(spot, p.strike, T, SV2OC.riskFreeRate, iv);
+  return p.type === 'CE' ? px.ce : px.pe;
+}
+function _sv2OCIntrinsicFor(p, spot) {
+  return p.type === 'CE' ? Math.max(spot - p.strike, 0) : Math.max(p.strike - spot, 0);
+}
+
 // ── Buy/Sell mini action-sheet ─────────────────────────────────────────────
 function _sv2OCOpenTrade(strike, type, ltp) {
-  SV2OC.pendingTrade = { strike: strike, type: type, ltp: ltp };
+  var nowSec = _sv2OCCurrentTimeSec();
+  SV2OC.pendingTrade = { strike: strike, type: type, ltp: ltp, expirySec: _sv2OCNextExpirySec(nowSec) };
   SV2OC.pendingQtyLots = 1;
   var titleEl = document.getElementById('sv2-oc-trade-title');
   var ltpEl = document.getElementById('sv2-oc-trade-ltp');
+  var slEl = document.getElementById('sv2-oc-trade-sl');
+  var tpEl = document.getElementById('sv2-oc-trade-tp');
   if (titleEl) titleEl.textContent = 'BANKNIFTY ' + strike + ' ' + type;
   if (ltpEl) ltpEl.textContent = '₹' + _sv2OCFmtPrice(ltp) + ' / qty';
+  if (slEl) slEl.value = '';
+  if (tpEl) tpEl.value = '';
   _sv2OCRenderTradeQtyAndTotal();
   var card = document.getElementById('sv2-oc-trade-card');
   var backdrop = document.getElementById('sv2-oc-trade-backdrop');
@@ -6382,15 +6564,22 @@ function _sv2OCOpenTrade(strike, type, ltp) {
 }
 // Qty label + Total amount, dono ek hi jagah se update hote hain taaki
 // lot badhane par total hamesha sahi refresh ho (pehle ye missing tha).
+// Approx SELL margin bhi yahin preview ho jaata hai (trade lene se pehle). ─
 function _sv2OCRenderTradeQtyAndTotal() {
   var t = SV2OC.pendingTrade;
   if (!t) return;
   var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
   var totalEl = document.getElementById('sv2-oc-trade-total');
+  var marginNoteEl = document.getElementById('sv2-oc-trade-margin-note');
   var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
   var totalAmt = t.ltp * totalQty;
   if (qtyEl) qtyEl.textContent = SV2OC.pendingQtyLots + ' lot' + (SV2OC.pendingQtyLots > 1 ? 's' : '') + ' (' + totalQty + ' qty)';
   if (totalEl) totalEl.textContent = 'Total: ₹' + totalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  if (marginNoteEl) {
+    var spot = _sv2OCCurrentSpot();
+    var approxMargin = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
+    marginNoteEl.textContent = '⚠️ SELL karne par approx ₹' + approxMargin.toLocaleString('en-IN', { maximumFractionDigits: 0 }) + ' margin block hoga (estimate, exact broker margin nahi). Charges (brokerage+STT+misc) alag se lagenge.';
+  }
 }
 function _sv2OCQtyStep(delta) {
   SV2OC.pendingQtyLots = Math.max(1, SV2OC.pendingQtyLots + delta);
@@ -6403,25 +6592,51 @@ function _sv2OCTradeCancel() {
   if (card) card.classList.remove('open');
   if (backdrop) backdrop.classList.remove('open');
 }
-// ── Confirm trade: BUY = premium balance se katega, SELL = premium balance
-// mein credit hoga (jaisa real option writing mein hota hai — yahan margin
-// block simulate nahi kiya, sirf simple premium cashflow hai). ────────────
+// ── Confirm trade: BUY = premium + charges balance se katega. SELL = premium
+// balance mein credit hota hai LEKIN approx margin block ho jaata hai (jaisa
+// real option-writing mein hota hai) — naya trade lene ke liye "available"
+// balance hi check hoti hai (blocked margin usable nahi). SL/Target agar
+// diye ho to position ke saath lock ho jaate hain. ───────────────────────
 function _sv2OCConfirmTrade(side) {
   var t = SV2OC.pendingTrade;
   if (!t) return;
   var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
   var totalAmt = t.ltp * totalQty;
-  if (side === 'buy' && totalAmt > SV2OC.balance) {
-    alert('Insufficient virtual balance! Total ₹' + totalAmt.toFixed(0) + ' chahiye, balance sirf ₹' + SV2OC.balance.toFixed(0) + ' hai.');
-    return;
-  }
   var nowSec = _sv2OCCurrentTimeSec();
+  var spot = _sv2OCCurrentSpot();
+  var charges = _sv2OCCalcCharges(side, totalAmt);
+  var available = _sv2OCAvailableBalance();
+
+  var slEl = document.getElementById('sv2-oc-trade-sl');
+  var tpEl = document.getElementById('sv2-oc-trade-tp');
+  var slVal = slEl && slEl.value !== '' ? parseFloat(slEl.value) : null;
+  var tpVal = tpEl && tpEl.value !== '' ? parseFloat(tpEl.value) : null;
+  if (slVal != null && isNaN(slVal)) slVal = null;
+  if (tpVal != null && isNaN(tpVal)) tpVal = null;
+
+  var marginBlocked = 0;
+  if (side === 'buy') {
+    if ((totalAmt + charges) > available) {
+      alert('Insufficient available balance! ₹' + (totalAmt + charges).toFixed(0) + ' chahiye (premium + charges), available sirf ₹' + available.toFixed(0) + ' hai.');
+      return;
+    }
+  } else {
+    marginBlocked = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
+    if ((marginBlocked + charges) > available) {
+      alert('Insufficient margin! SELL (option writing) ke liye approx ₹' + marginBlocked.toFixed(0) + ' margin + ₹' + charges.toFixed(0) + ' charges chahiye, available sirf ₹' + available.toFixed(0) + ' hai.\n\n(Ye ek approx SPAN+exposure-style estimate hai, exact broker margin nahi.)');
+      return;
+    }
+  }
+
   SV2OC.positions.push({
     id: 'oc_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
     strike: t.strike, type: t.type, side: side,
-    lots: SV2OC.pendingQtyLots, entryPrice: t.ltp, entryTime: nowSec
+    lots: SV2OC.pendingQtyLots, entryPrice: t.ltp, entryTime: nowSec,
+    expirySec: t.expirySec || _sv2OCNextExpirySec(nowSec),
+    marginBlocked: marginBlocked,
+    sl: slVal, tp: tpVal
   });
-  SV2OC.balance += (side === 'buy') ? -totalAmt : totalAmt;
+  SV2OC.balance += (side === 'buy') ? -(totalAmt + charges) : (totalAmt - charges);
   _sv2OCSavePositions();
   _sv2OCSaveBalance();
   _sv2OCRenderBalance();
@@ -6430,29 +6645,45 @@ function _sv2OCConfirmTrade(side) {
   _sv2OCRenderPositions();
 }
 
-// ── Close (square-off) a virtual position at current mark price — balance
-// yahan reverse hoti hai (BUY: mark price par bech ke proceeds milte hain;
-// SELL: mark price par wapas khareed ke position square hoti hai). Net
-// effect balance mein sahi PnL add/katt jaata hai. ────────────────────────
+// ── Set / change SL & Target on an already-open position ─────────────────
+function _sv2OCEditSLTP(id) {
+  var p = SV2OC.positions.find(function (x) { return x.id === id; });
+  if (!p) return;
+  var slIn = prompt('Stop-Loss price (khaali chhodo hatane ke liye):', p.sl != null ? p.sl : '');
+  if (slIn === null) return; // cancelled
+  var tpIn = prompt('Target price (khaali chhodo hatane ke liye):', p.tp != null ? p.tp : '');
+  if (tpIn === null) return;
+  p.sl = slIn.trim() === '' ? null : (isNaN(parseFloat(slIn)) ? p.sl : parseFloat(slIn));
+  p.tp = tpIn.trim() === '' ? null : (isNaN(parseFloat(tpIn)) ? p.tp : parseFloat(tpIn));
+  _sv2OCSavePositions();
+  _sv2OCRenderPositions();
+}
+
+// ── Core square-off routine (manual / expiry-settlement / SL-TP trigger
+// sabke liye SAME logic) — mark price par close, charges deduct, margin
+// (agar SELL thi) release. Returns the realized PnL for this leg. ────────
+function _sv2OCSquareOffCore(idx, markPrice) {
+  var p = SV2OC.positions[idx];
+  var totalQty = p.lots * SV2OC.lotSize;
+  var totalAmt = markPrice * totalQty;
+  // Exit action opposite hai entry se — BUY position ka exit ek SELL execution
+  // hai (isliye STT lagta hai), SELL position ka exit ek BUY-back hai (STT nahi).
+  var exitSide = (p.side === 'buy') ? 'sell' : 'buy';
+  var charges = _sv2OCCalcCharges(exitSide, totalAmt);
+  var entryAmt = p.entryPrice * totalQty;
+  var grossPnl = (p.side === 'buy') ? (totalAmt - entryAmt) : (entryAmt - totalAmt);
+  SV2OC.balance += (p.side === 'buy') ? (totalAmt - charges) : (-totalAmt - charges);
+  SV2OC.positions.splice(idx, 1); // margin (agar thi) automatically release ho jaata hai
+  return grossPnl - charges;
+}
 function _sv2OCClosePosition(id) {
   var idx = SV2OC.positions.findIndex(function (p) { return p.id === id; });
   if (idx === -1) return;
   var p = SV2OC.positions[idx];
   var spot = _sv2OCCurrentSpot();
-  var markPrice = p.entryPrice;
-  if (spot != null) {
-    var nowSec = _sv2OCCurrentTimeSec();
-    var expirySec = _sv2OCNextExpirySec(nowSec);
-    var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
-    var T = daysToExpiry / 365;
-    var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot);
-    var px = _sv2OCBlackScholes(spot, p.strike, T, SV2OC.riskFreeRate, iv);
-    markPrice = p.type === 'CE' ? px.ce : px.pe;
-  }
-  var totalQty = p.lots * SV2OC.lotSize;
-  var totalAmt = markPrice * totalQty;
-  SV2OC.balance += (p.side === 'buy') ? totalAmt : -totalAmt;
-  SV2OC.positions.splice(idx, 1);
+  var nowSec = _sv2OCCurrentTimeSec();
+  var markPrice = spot != null ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
+  _sv2OCSquareOffCore(idx, markPrice);
   _sv2OCSavePositions();
   _sv2OCSaveBalance();
   _sv2OCRenderBalance();
@@ -6471,43 +6702,99 @@ function _sv2OCRenderPositions() {
   }
   var spot = _sv2OCCurrentSpot();
   var nowSec = _sv2OCCurrentTimeSec();
-  var expirySec = _sv2OCNextExpirySec(nowSec);
-  var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
-  var T = daysToExpiry / 365;
   var html = '';
   SV2OC.positions.forEach(function (p) {
-    var markPrice = p.entryPrice;
-    if (spot != null) {
-      var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot);
-      var px = _sv2OCBlackScholes(spot, p.strike, T, SV2OC.riskFreeRate, iv);
-      markPrice = p.type === 'CE' ? px.ce : px.pe;
-    }
+    var markPrice = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
     var qty = p.lots * SV2OC.lotSize;
     var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
     var pnl = diff * qty;
     var pnlClass = pnl >= 0 ? 'pos' : 'neg';
+    var expiryStr = new Date(_sv2OCPositionExpirySec(p) * 1000).toISOString().slice(0, 10);
+    var metaBits = ['Expiry ' + expiryStr];
+    if (p.marginBlocked) metaBits.push('Margin ₹' + p.marginBlocked.toLocaleString('en-IN', { maximumFractionDigits: 0 }));
+    if (p.sl != null) metaBits.push('SL ₹' + _sv2OCFmtPrice(p.sl));
+    if (p.tp != null) metaBits.push('Target ₹' + _sv2OCFmtPrice(p.tp));
     html += '<div class="sv2-oc-pos-card">' +
       '<div class="sv2-oc-pos-top">' +
         '<div>' +
           '<div class="sv2-oc-pos-name">' + p.side.toUpperCase() + ' BANKNIFTY ' + p.strike + ' ' + p.type + '</div>' +
           '<div class="sv2-oc-pos-qty">' + p.lots + ' lot(s) · Entry ₹' + _sv2OCFmtPrice(p.entryPrice) + ' · LTP ₹' + _sv2OCFmtPrice(markPrice) + '</div>' +
+          '<div class="sv2-oc-pos-meta">' + metaBits.join(' · ') + '</div>' +
         '</div>' +
         '<div class="sv2-oc-pos-pnl ' + pnlClass + '">' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + '</div>' +
       '</div>' +
-      '<button class="sv2-oc-pos-close-btn" onclick="_sv2OCClosePosition(\'' + p.id + '\')">Square Off</button>' +
+      '<div class="sv2-oc-pos-actions">' +
+        '<button class="sv2-oc-pos-sltp-btn" onclick="_sv2OCEditSLTP(\'' + p.id + '\')">🎯 SL/Target</button>' +
+        '<button class="sv2-oc-pos-close-btn" onclick="_sv2OCClosePosition(\'' + p.id + '\')">Square Off</button>' +
+      '</div>' +
     '</div>';
   });
   listEl.innerHTML = html;
 }
 
-// ── Hook: har replay tick (naya bar reveal hone) ke baad chain + positions
-// ka price refresh karo, agar sheet khuli hai. _tick() ke andar se call
-// hota hai (agar function exist karta hai to). ─────────────────────────────
+// ── Expiry par auto-settlement — jab replay time position ki apni (locked)
+// expiry cross kar jaaye, real NSE cash-settlement jaisa INTRINSIC value par
+// automatically square-off ho jaati hai (chahe sheet khuli ho ya nahi). ────
+function _sv2OCCheckExpirySettlement() {
+  if (!SV2OC.positions.length) return;
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) return;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var settled = [];
+  for (var i = SV2OC.positions.length - 1; i >= 0; i--) {
+    var p = SV2OC.positions[i];
+    if (nowSec >= _sv2OCPositionExpirySec(p)) {
+      var settlePrice = _sv2OCIntrinsicFor(p, spot); // expiry par sirf intrinsic value bachti hai
+      var pnl = _sv2OCSquareOffCore(i, settlePrice);
+      settled.push(p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type + ' → settled @ ₹' + _sv2OCFmtPrice(settlePrice) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
+    }
+  }
+  if (settled.length) {
+    _sv2OCSavePositions();
+    _sv2OCSaveBalance();
+    alert('📅 Expiry Settlement:\n\n' + settled.join('\n'));
+  }
+}
+
+// ── SL / Target auto-trigger — replay ke agle revealed bar ke price par
+// check hota hai (intrabar touch simulate nahi hota, sirf bar-close jaisa). ─
+function _sv2OCCheckSLTP() {
+  if (!SV2OC.positions.length) return;
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) return;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var hits = [];
+  for (var i = SV2OC.positions.length - 1; i >= 0; i--) {
+    var p = SV2OC.positions[i];
+    if (p.sl == null && p.tp == null) continue;
+    var mark = _sv2OCMarkPriceFor(p, spot, nowSec);
+    var isBuy = (p.side === 'buy');
+    var tpHit = (p.tp != null) && (isBuy ? mark >= p.tp : mark <= p.tp);
+    var slHit = (p.sl != null) && (isBuy ? mark <= p.sl : mark >= p.sl);
+    if (tpHit || slHit) {
+      var label = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type;
+      var pnl = _sv2OCSquareOffCore(i, mark);
+      hits.push(label + ' → ' + (tpHit ? 'Target' : 'SL') + ' hit @ ₹' + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
+    }
+  }
+  if (hits.length) {
+    _sv2OCSavePositions();
+    _sv2OCSaveBalance();
+    alert('🎯 Auto Square-Off:\n\n' + hits.join('\n'));
+  }
+}
+
+// ── Hook: har replay tick (naya bar reveal hone) ke baad expiry-settlement
+// aur SL/Target check hamesha chalta hai (sheet band ho tab bhi) — chain +
+// positions ka visual refresh sirf sheet khuli ho tab hota hai. ───────────
 function _sv2OptionChainOnStep() {
+  _sv2OCCheckExpirySettlement();
+  _sv2OCCheckSLTP();
   if (!SV2OC.open) return;
   if (SV2OC.activeTab === 'chain') _sv2OCRenderChain();
   else _sv2OCRenderPositions();
 }
+
 
 function _sv2PracticeToggle() {
   var sheet = document.getElementById('sv2-practice-sheet');
@@ -8069,6 +8356,7 @@ function ss2ApplyAndClose() {
 
   function _sv2SetBaseTfFromUI(isBN, label) {
     if (!_sv2SetBaseTF(isBN, label)) return;
+    try { if (typeof _sv2OCWarnSessionReset === 'function') _sv2OCWarnSessionReset(); } catch(_){}
     _sv2RenderBaseTfRow();
     // Base badla → purani baseBars reference ab galat hai; replay session
     // reset karo (cutoff date wahi rehti hai, sirf live-tick state fresh).
@@ -8332,6 +8620,7 @@ function ss2ApplyAndClose() {
 
   function _sv2DrngApply() {
     if (!_selStart) return;
+    try { if (typeof _sv2OCWarnSessionReset === 'function') _sv2OCWarnSessionReset(); } catch(_){}
 
     // ── Single-date replay logic ───────────────────────────────────────────
     // Selected date D = "history cutoff"
@@ -9507,6 +9796,7 @@ function _sv2SaveSnapshotForCurrentAsset() {
 function _sv2ResumeLastReplay(assetKey) {
   const snap = _sv2GetSnapshot(assetKey);
   if (!snap) return false;
+  try { if (typeof _sv2OCWarnSessionReset === 'function') _sv2OCWarnSessionReset(); } catch(_){}
 
   const targetAssetName = (assetKey === 'bn') ? BN_ASSET : BTC_ASSET;
 
@@ -10739,9 +11029,10 @@ const NSE_HOLIDAYS = new Set([
   '2025-02-26','2025-03-14','2025-03-31','2025-04-10','2025-04-14',
   '2025-04-18','2025-05-01','2025-08-15','2025-08-27','2025-10-02',
   '2025-10-21','2025-10-22','2025-11-05','2025-12-25',
-  // 2026 (provisional — verify from NSE circular in Jan 2026)
-  '2026-01-26','2026-03-20','2026-04-03','2026-04-14','2026-05-01',
-  '2026-08-15','2026-10-02','2026-11-25','2026-12-25',
+  // 2026 (per NSE/BSE official trading-holiday calendar)
+  '2026-01-26','2026-03-03','2026-03-26','2026-03-31','2026-04-03',
+  '2026-04-14','2026-05-01','2026-05-28','2026-06-26','2026-09-14',
+  '2026-10-02','2026-10-20','2026-11-10','2026-11-24','2026-12-25',
 ]);
 
 // Helper: "YYYY-MM-DD" from a UTC timestamp (seconds)
