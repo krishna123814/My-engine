@@ -9369,22 +9369,30 @@ function ss2ApplyAndClose() {
     }
     var bucketEnd;
     if (_isDailyPlusTF(tfMin)) {
-      // FIX: 1D/3D/9D/27D buckets ke liye _liveBucketExpectedEnd() seedha
-      // backend daily array se AGLE trading din ka pehla bar (uska OPEN
-      // time) dhoondh kar deta hai — BN ke liye isme aaj 3:30pm close aur
-      // agle din 9:15am open ke beech ka poora "market band" (~18 ghante
-      // ka overnight gap) bhi shaamil ho jaata tha. Us poore gap ko baseSec
-      // se divide karne par bars-per-bucket bahut zyada (galat) aa jaata
-      // tha, jabki baseBars (5m/15m/etc) sirf session ke andar hi bante
-      // hain — isi wajah se 1D aur usse upar TF par countdown hamesha
-      // asli se zyada time dikhata tha. Ab bucket ke AAKHRI trading din ka
-      // asli session-close (15:30 IST for BN / calendar-day for BTC —
-      // same jo _dailyPlusTodayEnd() "just closed" widget ke liye use
-      // karta hai) use karte hain, weekend/holiday skip karke.
+      // FIX v2: pehla fix (v1) sirf 1D ke liye sahi tha. 3D/9D/27D par do
+      // alag bugs the:
+      //  (a) BN: bucketStart se bucketEnd tak ka RAW calendar gap use ho
+      //      raha tha, jisme har intermediate din ka overnight closed-
+      //      market gap (~18h/din) bhi jud jaata — 3 din ke bucket me 2
+      //      overnight gaps, 9 din me 8, waise hi 27 din me 26 — jitna
+      //      zyada nDays utna zyada galat.
+      //  (b) BTC: _nextNseWorkingDay() weekends hamesha skip karta hai
+      //      (NSE-only rule), jo BTC (24/7, koi weekend-skip nahi) ke
+      //      liye galat hai — chhote nDays (3D) me weekend beech me aane
+      //      ka chance kam tha isliye "sahi" lagta tha, par 9D/27D jaise
+      //      lambe span me almost hamesha ek ya zyada weekend beech me
+      //      aa jaata aur din ginti galat ho jaati.
+      // Fix: kisi bhi intermediate-day gap ya weekend-skipping ki zaroorat
+      // hi nahi — sirf EK trading din ki asli duration (bucketStart ke din
+      // ka open→close, _dailyPlusTodayEnd se) nikalo aur use nDays se
+      // multiply kar do. Ye BN ke overnight gaps aur BTC ke calendar-day
+      // dono ke liye automatically sahi hai, kyunki har din ki duration
+      // uniform maani jaati hai (jaisa baseMin-daily+ branch upar bhi
+      // karta hai).
       var nDaysBars = Math.max(1, Math.round(tfMin / 1440));
-      var lastDay = bucketStart;
-      for (var sBar = 0; sBar < nDaysBars - 1; sBar++) lastDay = _nextNseWorkingDay(lastDay);
-      bucketEnd = _dailyPlusTodayEnd(lastDay, isBN);
+      var oneDayEnd = _dailyPlusTodayEnd(bucketStart, isBN);
+      var oneDayDur = oneDayEnd - bucketStart;
+      bucketEnd = bucketStart + nDaysBars * oneDayDur;
     } else {
       bucketEnd = _liveBucketExpectedEnd(bucketStart, tfMin, isBN);
     }
