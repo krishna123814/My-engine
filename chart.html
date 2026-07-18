@@ -916,6 +916,148 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#2962ff;
 }
 
+/* ── SV2 — Candle High/Low Lines: Hide toggle (icon below DD) ─────────── */
+#sv2-chhide-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:9px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-chhide-btn.visible{ display:flex; }
+#sv2-chhide-btn.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+
+/* ── SV2 — Candle High/Low Lines: Opacity control (icon below Hide) ───── */
+#sv2-chopacity-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:11px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-chopacity-btn.visible{ display:flex; }
+#sv2-chopacity-btn.open{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+#sv2-chopacity-panel{
+  display:none;
+  position:fixed;
+  z-index:8600;
+  width:190px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  box-shadow:0 8px 24px #0009;
+  padding:10px 12px;
+}
+#sv2-chopacity-panel.open{ display:block; }
+#sv2-chopacity-hdr{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:10px;color:#9598a1;margin-bottom:8px;
+}
+#sv2-chopacity-val{ color:#2962ff;font-weight:700; }
+#sv2-chopacity-slider{ width:100%; }
+
+/* ── SV1 — Candle High/Low Lines: Hide toggle (icon below DD) ─────────── */
+#sv1-chhide-fab{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:9px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv1-chhide-fab.visible{ display:flex; }
+#sv1-chhide-fab.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+
+/* ── SV1 — Candle High/Low Lines: Opacity control (icon below Hide) ───── */
+#sv1-chopacity-fab{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:11px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv1-chopacity-fab.visible{ display:flex; }
+#sv1-chopacity-fab.open{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+#sv1-chopacity-panel{
+  display:none;
+  position:fixed;
+  z-index:8600;
+  width:190px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  box-shadow:0 8px 24px #0009;
+  padding:10px 12px;
+}
+#sv1-chopacity-panel.open{ display:block; }
+#sv1-chopacity-hdr{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:10px;color:#9598a1;margin-bottom:8px;
+}
+#sv1-chopacity-val{ color:#2962ff;font-weight:700; }
+#sv1-chopacity-slider{ width:100%; }
+
 /* ── Date Range Selector — Floating Icon ─────────────────────────────── */
 #sv2-drng-fab{
   display:none;                          /* sirf stack2 active hone par dikhega */
@@ -2908,6 +3050,19 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 <!-- ═══ SV1 — SR Dedup Rule Toggle ═══════════════════════════════════════ -->
 <button id="sv1-srdedup-fab" title="SR Dedup Rule On/Off" onclick="_sv1SrDedupToggle()">DD</button>
 
+<!-- ═══ SV1 — Candle High/Low Indicator Lines: Hide Toggle ══════════════ -->
+<button id="sv1-chhide-fab" title="Candle High/Low lines Hide/Show karo" onclick="_sv1ChVisHideToggle()">CH</button>
+
+<!-- ═══ SV1 — Candle High/Low Indicator Lines: Opacity Control ══════════ -->
+<button id="sv1-chopacity-fab" title="Candle High/Low lines ka opacity control karo">◑</button>
+<div id="sv1-chopacity-panel">
+  <div id="sv1-chopacity-hdr">
+    <span>Candle H/L Opacity</span>
+    <span id="sv1-chopacity-val">100%</span>
+  </div>
+  <input type="range" id="sv1-chopacity-slider" min="0" max="100" value="100" oninput="_onChVisOpacityInput(this)">
+</div>
+
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
@@ -2929,6 +3084,19 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
 <!-- ═══ SV2 — SR Dedup Rule Toggle ═══════════════════════════════════════ -->
 <button id="sv2-srdedup-btn" title="SR Dedup Rule On/Off" onclick="_sv2SrDedupToggle()">DD</button>
+
+<!-- ═══ SV2 — Candle High/Low Indicator Lines: Hide Toggle ══════════════ -->
+<button id="sv2-chhide-btn" title="Candle High/Low lines Hide/Show karo" onclick="_sv2ChVisHideToggle()">CH</button>
+
+<!-- ═══ SV2 — Candle High/Low Indicator Lines: Opacity Control ══════════ -->
+<button id="sv2-chopacity-btn" title="Candle High/Low lines ka opacity control karo">◑</button>
+<div id="sv2-chopacity-panel">
+  <div id="sv2-chopacity-hdr">
+    <span>Candle H/L Opacity</span>
+    <span id="sv2-chopacity-val">100%</span>
+  </div>
+  <input type="range" id="sv2-chopacity-slider" min="0" max="100" value="100" oninput="_onSv2ChVisOpacityInput(this)">
+</div>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -7575,6 +7743,9 @@ function ss2ApplyAndClose() {
   var _srOpacityBtn = null;   // #sv2-sropacity-btn
   var _srOpacityPanel = null; // #sv2-sropacity-panel
   var _srDedupBtn = null;     // #sv2-srdedup-btn
+  var _chHideBtn = null;      // #sv2-chhide-btn
+  var _chOpacityBtn = null;   // #sv2-chopacity-btn
+  var _chOpacityPanel = null; // #sv2-chopacity-panel
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -7610,7 +7781,10 @@ function ss2ApplyAndClose() {
     if (_srToggleBtn) _srToggleBtn.classList.toggle('visible', stack2On);
     if (_srOpacityBtn) _srOpacityBtn.classList.toggle('visible', stack2On);
     if (_srDedupBtn) _srDedupBtn.classList.toggle('visible', stack2On);
+    if (_chHideBtn) _chHideBtn.classList.toggle('visible', stack2On);
+    if (_chOpacityBtn) _chOpacityBtn.classList.toggle('visible', stack2On);
     if (!stack2On && _srOpacityPanel) _srOpacityPanel.classList.remove('open');
+    if (!stack2On && _chOpacityPanel) _chOpacityPanel.classList.remove('open');
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -7626,12 +7800,12 @@ function ss2ApplyAndClose() {
     // same left, top badhta jaata hai — pehle galti se left badhta jaa
     // raha tha (horizontal row), jisse chart ke upar overlap ho raha tha.
     // SR toggle sabse pehle (calendar ke turant neeche), phir opacity
-    // button, phir play/step/reset.
+    // button, phir dedup, phir CH hide, phir CH opacity, phir play/step/reset.
     var srOn = !!(_srToggleBtn && _srToggleBtn.classList.contains('visible'));
     var GAP  = 8;   // FAB aur pehle button ke beech buffer — pehle 4px thi,
                      // ring/finger-imprecision se FAB ke taps churaane se
                      // bachne ke liye 8px kar diya.
-    var stackOffset = srOn ? 87 : 0;   // SR toggle (29) + opacity btn (29) + dedup btn (29)
+    var stackOffset = srOn ? 145 : 0;   // SR toggle + opacity + dedup + CH-hide + CH-opacity (5 × 29)
     if (_srToggleBtn) {
       _srToggleBtn.style.left = r.left + 'px';
       _srToggleBtn.style.top  = (r.bottom + GAP) + 'px';
@@ -7645,6 +7819,15 @@ function ss2ApplyAndClose() {
       _srDedupBtn.style.left = r.left + 'px';
       _srDedupBtn.style.top  = (r.bottom + GAP + 58) + 'px';
     }
+    if (_chHideBtn) {
+      _chHideBtn.style.left = r.left + 'px';
+      _chHideBtn.style.top  = (r.bottom + GAP + 87) + 'px';
+    }
+    if (_chOpacityBtn) {
+      _chOpacityBtn.style.left = r.left + 'px';
+      _chOpacityBtn.style.top  = (r.bottom + GAP + 116) + 'px';
+      if (_chOpacityPanel && _chOpacityPanel.classList.contains('open')) _positionChOpacityPanel();
+    }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
       _playBtn.style.top  = (r.bottom + GAP + stackOffset) + 'px';
@@ -7657,6 +7840,21 @@ function ss2ApplyAndClose() {
       _resetBtn.style.left = r.left + 'px';
       _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
     }
+  }
+
+  function _positionChOpacityPanel() {
+    if (!_chOpacityBtn || !_chOpacityPanel) return;
+    var r = _chOpacityBtn.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - 200);
+    _chOpacityPanel.style.left = Math.max(4, left) + 'px';
+    _chOpacityPanel.style.top  = (r.bottom + 6) + 'px';
+  }
+  function _toggleChOpacityPanel() {
+    if (!_chOpacityPanel) return;
+    var willOpen = !_chOpacityPanel.classList.contains('open');
+    _chOpacityPanel.classList.toggle('open', willOpen);
+    if (_chOpacityBtn) _chOpacityBtn.classList.toggle('open', willOpen);
+    if (willOpen) _positionChOpacityPanel();
   }
 
   function _positionSrOpacityPanel() {
@@ -8443,10 +8641,20 @@ function ss2ApplyAndClose() {
     _srOpacityBtn = document.getElementById('sv2-sropacity-btn');
     _srOpacityPanel = document.getElementById('sv2-sropacity-panel');
     _srDedupBtn = document.getElementById('sv2-srdedup-btn');
+    _chHideBtn = document.getElementById('sv2-chhide-btn');
+    _chOpacityBtn = document.getElementById('sv2-chopacity-btn');
+    _chOpacityPanel = document.getElementById('sv2-chopacity-panel');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
     if (_srDedupBtn) _srDedupBtn.classList.toggle('on', !!SV2_SR_DEDUP_ON);
     if (_srOpacityBtn) _srOpacityBtn.addEventListener('click', _toggleSrOpacityPanel);
+    if (_chHideBtn) _chHideBtn.classList.toggle('on', !!SV2_CH_VIS_HIDDEN);
+    if (_chOpacityBtn) _chOpacityBtn.addEventListener('click', _toggleChOpacityPanel);
+    // Opacity slider ko persisted state ke saath init karo
+    var _chOpSlider = document.getElementById('sv2-chopacity-slider');
+    var _chOpVal    = document.getElementById('sv2-chopacity-val');
+    if (_chOpSlider) _chOpSlider.value = SV2_CH_VIS_OPACITY;
+    if (_chOpVal)    _chOpVal.textContent = SV2_CH_VIS_OPACITY + '%';
     // Slider ko persisted opacity ke saath init karo
     var _sr2Slider = document.getElementById('sv2-sropacity-slider');
     var _sr2Val    = document.getElementById('sv2-sropacity-val');
@@ -8458,6 +8666,12 @@ function ss2ApplyAndClose() {
       if (_srOpacityPanel.contains(e.target) || e.target === _srOpacityBtn) return;
       _srOpacityPanel.classList.remove('open');
       if (_srOpacityBtn) _srOpacityBtn.classList.remove('open');
+    });
+    document.addEventListener('click', function(e){
+      if (!_chOpacityPanel || !_chOpacityPanel.classList.contains('open')) return;
+      if (_chOpacityPanel.contains(e.target) || e.target === _chOpacityBtn) return;
+      _chOpacityPanel.classList.remove('open');
+      if (_chOpacityBtn) _chOpacityBtn.classList.remove('open');
     });
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
@@ -8717,6 +8931,9 @@ document.addEventListener('visibilitychange', function(){
   var _opFab = null;
   var _opPanel = null;
   var _dedupFab = null;
+  var _chHideFab = null;
+  var _chOpFab = null;
+  var _chOpPanel = null;
 
   function _saveFabPos(left, top) {
     try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
@@ -8736,7 +8953,8 @@ document.addEventListener('visibilitychange', function(){
     _syncOpFabPos();
   }
   // Opacity button always sits 29px directly below the SR fab, moving with
-  // it. Dedup button sits another 29px below that.
+  // it. Dedup button sits another 29px below that. CH-hide aur CH-opacity
+  // dedup ke aage 29px ke increments me follow karte hain.
   function _syncOpFabPos() {
     if (!_fab) return;
     var r = _fab.getBoundingClientRect();
@@ -8747,6 +8965,15 @@ document.addEventListener('visibilitychange', function(){
     if (_dedupFab) {
       _dedupFab.style.left = r.left + 'px';
       _dedupFab.style.top  = (r.top + 58) + 'px';
+    }
+    if (_chHideFab) {
+      _chHideFab.style.left = r.left + 'px';
+      _chHideFab.style.top  = (r.top + 87) + 'px';
+    }
+    if (_chOpFab) {
+      _chOpFab.style.left = r.left + 'px';
+      _chOpFab.style.top  = (r.top + 116) + 'px';
+      if (_chOpPanel && _chOpPanel.classList.contains('open')) _positionChOpPanel();
     }
     if (_opPanel && _opPanel.classList.contains('open')) _positionPanel();
   }
@@ -8763,6 +8990,20 @@ document.addEventListener('visibilitychange', function(){
     _opPanel.classList.toggle('open', willOpen);
     if (_opFab) _opFab.classList.toggle('open', willOpen);
     if (willOpen) _positionPanel();
+  }
+  function _positionChOpPanel() {
+    if (!_chOpFab || !_chOpPanel) return;
+    var r = _chOpFab.getBoundingClientRect();
+    var left = Math.min(r.left, window.innerWidth - 200);
+    _chOpPanel.style.left = Math.max(4, left) + 'px';
+    _chOpPanel.style.top  = (r.bottom + 6) + 'px';
+  }
+  function _toggleChOpPanel() {
+    if (!_chOpPanel) return;
+    var willOpen = !_chOpPanel.classList.contains('open');
+    _chOpPanel.classList.toggle('open', willOpen);
+    if (_chOpFab) _chOpFab.classList.toggle('open', willOpen);
+    if (willOpen) _positionChOpPanel();
   }
 
   function _wireDrag() {
@@ -8820,6 +9061,7 @@ document.addEventListener('visibilitychange', function(){
     });
 
     if (_opFab) _opFab.addEventListener('click', _togglePanel);
+    if (_chOpFab) _chOpFab.addEventListener('click', _toggleChOpPanel);
   }
 
   // Visible whenever Stack View 2 (bar-replay) is NOT the active mode —
@@ -8830,7 +9072,10 @@ document.addEventListener('visibilitychange', function(){
     _fab.classList.toggle('visible', !stack2On);
     if (_opFab) _opFab.classList.toggle('visible', !stack2On);
     if (_dedupFab) _dedupFab.classList.toggle('visible', !stack2On);
+    if (_chHideFab) _chHideFab.classList.toggle('visible', !stack2On);
+    if (_chOpFab) _chOpFab.classList.toggle('visible', !stack2On);
     if (stack2On && _opPanel) _opPanel.classList.remove('open');
+    if (stack2On && _chOpPanel) _chOpPanel.classList.remove('open');
   };
 
   function _init() {
@@ -8838,15 +9083,23 @@ document.addEventListener('visibilitychange', function(){
     _opFab    = document.getElementById('sv1-sropacity-fab');
     _opPanel  = document.getElementById('sv1-sropacity-panel');
     _dedupFab = document.getElementById('sv1-srdedup-fab');
+    _chHideFab = document.getElementById('sv1-chhide-fab');
+    _chOpFab   = document.getElementById('sv1-chopacity-fab');
+    _chOpPanel = document.getElementById('sv1-chopacity-panel');
     if (!_fab) return;
     _applyFabPos(_loadFabPos());
     _fab.classList.toggle('on', !!(typeof SR_HTF_VISIBLE !== 'undefined' && SR_HTF_VISIBLE));
     if (_dedupFab) _dedupFab.classList.toggle('on', !!SR_DEDUP_ON);
+    if (_chHideFab) _chHideFab.classList.toggle('on', !!CH_VIS_HIDDEN);
     // Slider ko persisted opacity ke saath init karo
     var slider = document.getElementById('sv1-sropacity-slider');
     var val    = document.getElementById('sv1-sropacity-val');
     if (slider) slider.value = SR_HTF_OPACITY;
     if (val)    val.textContent = SR_HTF_OPACITY + '%';
+    var chSlider = document.getElementById('sv1-chopacity-slider');
+    var chVal    = document.getElementById('sv1-chopacity-val');
+    if (chSlider) chSlider.value = CH_VIS_OPACITY;
+    if (chVal)    chVal.textContent = CH_VIS_OPACITY + '%';
     _wireDrag();
     window._sv1FabSync();
     // Panel bahar click karne pe close ho jaaye
@@ -8855,6 +9108,12 @@ document.addEventListener('visibilitychange', function(){
       if (_opPanel.contains(e.target) || e.target === _opFab) return;
       _opPanel.classList.remove('open');
       if (_opFab) _opFab.classList.remove('open');
+    });
+    document.addEventListener('click', function(e){
+      if (!_chOpPanel || !_chOpPanel.classList.contains('open')) return;
+      if (_chOpPanel.contains(e.target) || e.target === _chOpFab) return;
+      _chOpPanel.classList.remove('open');
+      if (_chOpFab) _chOpFab.classList.remove('open');
     });
   }
 
@@ -14542,6 +14801,24 @@ let SR_DEDUP_ON = false;
   } catch(_) {}
 })();
 
+// ── Candle High/Low Indicator Lines: Hide + Opacity (SV1) ────────────────
+// Sirf swingComputeMultiTF() ke chLines/clLines (kind==='ch'/'cl') control
+// karta hai — swing SR (kind 'sh'/'sl') is se unaffected. Independent of
+// SV2's CH visibility state (alag localStorage keys).
+const _CH1_HIDE_KEY    = 'chVisHidden1';
+const _CH1_OPACITY_KEY = 'chVisOpacity1';
+let CH_VIS_HIDDEN  = false;
+let CH_VIS_OPACITY = 100;
+(function(){
+  try {
+    const h = _LS.getItem(_CH1_HIDE_KEY);
+    if (h === 'true') CH_VIS_HIDDEN = true;
+    else if (h === 'false') CH_VIS_HIDDEN = false;
+    const v = parseInt(_LS.getItem(_CH1_OPACITY_KEY), 10);
+    if (!isNaN(v) && v >= 0 && v <= 100) CH_VIS_OPACITY = v;
+  } catch(_) {}
+})();
+
 // ── Shared helper: apply an opacity percentage to a hex or rgba color ────
 function _colorWithAlpha(color, opacityPct) {
   const a = Math.max(0, Math.min(100, (opacityPct == null ? 100 : opacityPct))) / 100;
@@ -15516,6 +15793,19 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
 
   for (const ln of lines) {
     try {
+      // ── Candle High/Low lines: Hide / Opacity (SV1 + SV2, independent) ───
+      // Sirf swingCompute()/swingComputeMultiTF() ke chLines/clLines
+      // (kind 'ch'/'cl') affect hote hain — swing SR (kind 'sh'/'sl')
+      // bilkul untouched rehta hai. avoidAutoScroll flag hi SV1 (false) vs
+      // SV2 (true) call-sites ko distinguish karta hai (isHTF opacity ki
+      // tarah), isliye har view apna independent Hide/Opacity state use
+      // karta hai — SV1 badalne se SV2 par aur SV2 badalne se SV1 par
+      // koi asar nahi.
+      const _isCandleLine = (ln.kind === 'ch' || ln.kind === 'cl');
+      const _chHidden  = avoidAutoScroll ? SV2_CH_VIS_HIDDEN  : CH_VIS_HIDDEN;
+      const _chOpacity = avoidAutoScroll ? SV2_CH_VIS_OPACITY : CH_VIS_OPACITY;
+      if (_isCandleLine && _chHidden) continue;
+
       // isHTF lines get their configured opacity applied (SV1 vs SV2 uses a
       // different persisted value — avoidAutoScroll=true is how SV2 call-
       // sites already distinguish themselves from SV1/main-chart call-sites).
@@ -15523,6 +15813,9 @@ function _bnBuildSRNative(chartObj, lines, _preRange, avoidAutoScroll, cellTFMin
       if (ln.isHTF) {
         const _opacityPct = avoidAutoScroll ? SV2_SR_HTF_OPACITY : SR_HTF_OPACITY;
         _lineColor = _colorWithAlpha(ln.color, _opacityPct);
+      }
+      if (_isCandleLine && _chOpacity < 100) {
+        _lineColor = _colorWithAlpha(_lineColor, _chOpacity);
       }
       const s = chartObj.addLineSeries({
         color: _lineColor,
@@ -15892,6 +16185,26 @@ let SV2_SR_DEDUP_ON = false;
   } catch(_) {}
 })();
 
+// ── Candle High/Low Indicator Lines: Hide + Opacity (SV2) ────────────────
+// Ye SIRF swingCompute() ke chLines/clLines (kind==='ch'/'cl') ko control
+// karta hai — swing SR (kind 'sh'/'sl') is se bilkul unaffected rehta hai.
+// "SR②" hierarchy toggle/opacity se bhi independent (wo sirf higher-TF SR
+// overlay control karta hai) — ye naya CH button candle H/L lines ko
+// alag se hide/fade karta hai, chahe wo cell ka apna-TF ho ya higher-TF.
+const _SV2_CH_HIDE_KEY    = 'sv2ChVisHidden';
+const _SV2_CH_OPACITY_KEY = 'sv2ChVisOpacity';
+let SV2_CH_VIS_HIDDEN  = false;
+let SV2_CH_VIS_OPACITY = 100;
+(function(){
+  try {
+    const h = _LS.getItem(_SV2_CH_HIDE_KEY);
+    if (h === 'true') SV2_CH_VIS_HIDDEN = true;
+    else if (h === 'false') SV2_CH_VIS_HIDDEN = false;
+    const v = parseInt(_LS.getItem(_SV2_CH_OPACITY_KEY), 10);
+    if (!isNaN(v) && v >= 0 && v <= 100) SV2_CH_VIS_OPACITY = v;
+  } catch(_) {}
+})();
+
 let SV2_SWING_TF_LIST = [];
 const _SV2_SWING_STORE_KEY = 'sv2SwingTFList1';
 
@@ -16178,6 +16491,62 @@ function _sv2SrDedupToggle() {
   const btn = document.getElementById('sv2-srdedup-btn');
   if (btn) btn.classList.toggle('on', SV2_SR_DEDUP_ON);
   if (SV2_SWING_STATE.visible) { sv2SwingRefresh(); }
+}
+
+// ── Candle High/Low Lines: Hide toggle (SV2) ─────────────────────────────
+function _sv2ChVisHideToggle() {
+  SV2_CH_VIS_HIDDEN = !SV2_CH_VIS_HIDDEN;
+  try { _LS.setItem(_SV2_CH_HIDE_KEY, SV2_CH_VIS_HIDDEN ? 'true' : 'false'); } catch(_) {}
+  const btn = document.getElementById('sv2-chhide-btn');
+  if (btn) btn.classList.toggle('on', SV2_CH_VIS_HIDDEN);
+  if (SV2_SWING_STATE.visible) { sv2SwingRefresh(); }
+}
+
+// ── Candle High/Low Lines: Opacity (SV2) ─────────────────────────────────
+let _chVisOpacityTimer = null;
+function setSv2ChVisOpacity(v) {
+  SV2_CH_VIS_OPACITY = Math.max(0, Math.min(100, +v || 0));
+  try { _LS.setItem(_SV2_CH_OPACITY_KEY, SV2_CH_VIS_OPACITY); } catch(_) {}
+  clearTimeout(_chVisOpacityTimer);
+  _chVisOpacityTimer = setTimeout(() => {
+    if (!SV2_SWING_STATE.visible) return;   // master indicator off → nothing to refresh
+    sv2SwingRefresh();
+  }, 60);
+}
+function _onSv2ChVisOpacityInput(inp) {
+  const val = document.getElementById('sv2-chopacity-val');
+  if (val) val.textContent = inp.value + '%';
+  setSv2ChVisOpacity(inp.value);
+}
+
+// ── Candle High/Low Lines: Hide toggle (SV1) ─────────────────────────────
+function _sv1ChVisHideToggle() {
+  CH_VIS_HIDDEN = !CH_VIS_HIDDEN;
+  try { _LS.setItem(_CH1_HIDE_KEY, CH_VIS_HIDDEN ? 'true' : 'false'); } catch(_) {}
+  const btn = document.getElementById('sv1-chhide-fab');
+  if (btn) btn.classList.toggle('on', CH_VIS_HIDDEN);
+  if (SWING_STATE.visible) {
+    if (S.layout === '1x1') { swingAfterRebuild(); }
+    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
+  }
+}
+
+// ── Candle High/Low Lines: Opacity (SV1) ─────────────────────────────────
+let _ch1VisOpacityTimer = null;
+function setChVisOpacity(v) {
+  CH_VIS_OPACITY = Math.max(0, Math.min(100, +v || 0));
+  try { _LS.setItem(_CH1_OPACITY_KEY, CH_VIS_OPACITY); } catch(_) {}
+  clearTimeout(_ch1VisOpacityTimer);
+  _ch1VisOpacityTimer = setTimeout(() => {
+    if (!SWING_STATE.visible) return;   // master indicator off → nothing to refresh
+    if (S.layout === '1x1') { swingAfterRebuild(); }
+    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
+  }, 60);
+}
+function _onChVisOpacityInput(inp) {
+  const val = document.getElementById('sv1-chopacity-val');
+  if (val) val.textContent = inp.value + '%';
+  setChVisOpacity(inp.value);
 }
 
 function _sv2OpenChipColor(btn, tfMin, type) {
