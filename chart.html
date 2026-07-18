@@ -968,6 +968,33 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-color:#2962ff;
   color:#2962ff;
 }
+
+/* ── SV2 — Option Chain Position P&L Overlay: Show/Hide toggle (icon below CH opacity) ── */
+#sv2-ocpnl-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:8px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-ocpnl-btn.visible{ display:flex; }
+#sv2-ocpnl-btn.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
 #sv2-chopacity-panel{
   display:none;
   position:fixed;
@@ -3309,6 +3336,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <input type="range" id="sv2-chopacity-slider" min="0" max="100" value="100" oninput="_onSv2ChVisOpacityInput(this)">
 </div>
 
+<!-- ═══ SV2 — Option Chain Position P&L Overlay: Show/Hide Toggle (icon below CH opacity) ══
+     Ek click = chart par CHOOSE ki hui strike price ki horizontal line + us
+     position ka live P&L dikhao (BankNifty aur BTC dono ke liye). Dubara
+     click = hide. ═══════════════════════════════════════════════════════ -->
+<button id="sv2-ocpnl-btn" title="Position P&L (strike ke saath) chart par Show/Hide karo" onclick="_sv2OCPnlOverlayToggle()">P&L</button>
+
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
 
@@ -4072,6 +4105,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
         <span class="ind-name">Show OHLC on Crosshair</span>
         <label class="toggle"><input type="checkbox" id="s-hdr-ohlc" checked onchange="saveSettings();"><span class="sl"></span></label>
       </div>
+      <div class="ind-row">
+        <span class="ind-name">% Change on Hover — Stack View 1</span>
+        <label class="toggle"><input type="checkbox" id="s-sv1-pcthover" checked onchange="saveSettings();"><span class="sl"></span></label>
+      </div>
+      <div class="ind-row">
+        <span class="ind-name">% Change on Hover — Stack View 2</span>
+        <label class="toggle"><input type="checkbox" id="s-sv2-pcthover" checked onchange="saveSettings();"><span class="sl"></span></label>
+      </div>
       <div class="settings-sec">Background</div>
       <div class="bg-swatches" id="bg-swatches">
         <div style="display:flex;flex-direction:column;align-items:center">
@@ -4822,6 +4863,8 @@ const S = {
   legChg:    true,
   legStatus: true,
   hdrOhlc:   true,  // Show OHLC in top-left header on crosshair
+  sv1PctHover: true,  // % change (top-left) on candle hover — Stack View 1, independent of SV2
+  sv2PctHover: true,  // % change (top-left) on candle hover — Stack View 2, independent of SV1
   bgColor:   '#ffffff',
   textColor: '#131722',
   // Future Line defaults — SV1 (Stack View 1 / Grid / Main) aur SV2 (Stack
@@ -4966,6 +5009,8 @@ function saveState() {
       legChg:    S.legChg,
       legStatus: S.legStatus,
       hdrOhlc:   S.hdrOhlc,
+      sv1PctHover: S.sv1PctHover,
+      sv2PctHover: S.sv2PctHover,
       bgColor:   S.bgColor,
       textColor: S.textColor,
       grid:      S.grid,
@@ -6188,7 +6233,14 @@ var SV2OC = {
   expiryMode: 'current', // 'current' = is cycle ki nearest expiry, 'next' = uske baad wali
   pendingTrade: null,  // { strike, type: 'CE'|'PE', ltp } jab trade-card khula ho
   pendingQtyLots: 1,
-  positions: []        // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
+  positions: [],       // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
+  // ── Chart-overlay: chosen strike + live P&L, seedha candlestick chart par
+  // (Stack View 2 ke sab cells par, jo bhi asset ka replay chal raha hai) —
+  // ⓵ FAB strip ke "P&L" icon se show/hide hota hai, state persist hoti hai. ─
+  pnlOverlayOn: (function () {
+    try { return localStorage.getItem('sv2_oc_pnl_overlay_on') === '1'; } catch (_) { return false; }
+  })(),
+  _priceLines: []      // {series, line} refs — taaki toggle/refresh par purani lines saaf se hataayi ja sakein
 };
 
 // ── Detect which asset the current replay session is running (from
@@ -6762,6 +6814,7 @@ function _sv2OCConfirmTrade(side) {
   _sv2OCTradeCancel();
   _sv2OCSelectTab('positions');
   _sv2OCRenderPositions();
+  _sv2OCUpdatePnlOverlay();
 }
 
 // ── Set / change SL & Target on an already-open position ─────────────────
@@ -6807,6 +6860,7 @@ function _sv2OCClosePosition(id) {
   _sv2OCSaveBalance();
   _sv2OCRenderBalance();
   _sv2OCRenderPositions();
+  _sv2OCUpdatePnlOverlay();
 }
 
 // ── Render Positions tab — mark-to-market P&L, recalculated live ─────────
@@ -6852,7 +6906,68 @@ function _sv2OCRenderPositions() {
   listEl.innerHTML = html;
 }
 
-// ── Expiry par auto-settlement — jab replay time position ki apni (locked)
+// ── Chart-overlay: chosen strike price + live P&L, seedha candlestick
+// chart par (koi bhi open position ke liye) — FAB strip ke "P&L" icon se
+// show/hide hota hai. Stack View 2 ke SAB visible cells par ek saath
+// dikhta hai (jo bhi timeframe ho, strike ek horizontal price level hai,
+// isliye sab cells par relevant hai). BankNifty aur BTC dono ke liye
+// same function kaam karti hai — SV2OC ke flat fields hamesha currently
+// active asset ki settings hote hain. ────────────────────────────────────
+function _sv2OCPnlOverlayToggle() {
+  SV2OC.pnlOverlayOn = !SV2OC.pnlOverlayOn;
+  try { localStorage.setItem('sv2_oc_pnl_overlay_on', SV2OC.pnlOverlayOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('sv2-ocpnl-btn');
+  if (btn) btn.classList.toggle('on', SV2OC.pnlOverlayOn);
+  _sv2OCUpdatePnlOverlay();
+}
+// Purani price-lines hata do (toggle OFF karne par, ya refresh se pehle
+// naye sirf sahi lines banane ke liye) — series-object ke against hi
+// removePriceLine call karna hota hai, isliye reference dono saath rakhe. ─
+function _sv2OCClearPnlOverlay() {
+  if (!SV2OC._priceLines) { SV2OC._priceLines = []; return; }
+  SV2OC._priceLines.forEach(function (ref) {
+    try { if (ref.series && ref.line) ref.series.removePriceLine(ref.line); } catch (_) {}
+  });
+  SV2OC._priceLines = [];
+}
+// Har open position ke liye, us position ki strike price par ek horizontal
+// price-line banati hai (title mein Strike + Side + Type + live P&L),
+// Stack View 2 ke har cell ki candle series par (jinka series bana chuka
+// hai). Green line = profit mein, red = loss mein — chart dekhte hue hi
+// P&L pata chal jaaye, Positions tab kholne ki zaroorat nahi. ────────────
+function _sv2OCUpdatePnlOverlay() {
+  _sv2OCClearPnlOverlay();
+  if (!SV2OC.pnlOverlayOn) return;
+  if (!SV2OC.positions || !SV2OC.positions.length) return;
+  if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  var spot = _sv2OCCurrentSpot();
+  var nowSec = _sv2OCCurrentTimeSec();
+  SV2OC.positions.forEach(function (p) {
+    var markPrice = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
+    var qty = p.lots * SV2OC.lotSize;
+    var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
+    var pnl = diff * qty;
+    var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
+    var lineTitle = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type + '  P&L ' + SV2OC.cur + pnlStr;
+    var lineColor = pnl >= 0 ? '#26a69a' : '#ef5350';
+    STACK2_CELLS.forEach(function (cell) {
+      if (!cell || !cell.series) return;
+      try {
+        var line = cell.series.createPriceLine({
+          price: p.strike,
+          color: lineColor,
+          lineWidth: 1,
+          lineStyle: 2, // dashed
+          axisLabelVisible: true,
+          title: lineTitle
+        });
+        SV2OC._priceLines.push({ series: cell.series, line: line });
+      } catch (_) {}
+    });
+  });
+}
+
+
 // expiry cross kar jaaye, real NSE cash-settlement jaisa INTRINSIC value par
 // automatically square-off ho jaati hai (chahe sheet khuli ho ya nahi). ────
 function _sv2OCCheckExpirySettlement() {
@@ -6911,6 +7026,7 @@ function _sv2OptionChainOnStep() {
   if (!_sv2OCSyncAssetContext()) return; // abhi koi supported asset replay mein nahi
   _sv2OCCheckExpirySettlement();
   _sv2OCCheckSLTP();
+  _sv2OCUpdatePnlOverlay();
   if (!SV2OC.open) return;
   if (SV2OC.activeTab === 'chain') _sv2OCRenderChain();
   else _sv2OCRenderPositions();
@@ -7711,6 +7827,11 @@ function buildStack2() {
       sv2SwingInit(_co);
     } catch(_) {}
   }, 650);
+
+  // Option Chain P&L overlay (agar ON hai) — naye cell series par re-attach
+  setTimeout(function() {
+    try { if (typeof _sv2OCUpdatePnlOverlay === 'function') _sv2OCUpdatePnlOverlay(); } catch(_) {}
+  }, 650);
 }
 
 // ── SV2: Date select karne se pehle chart pe hint dikhao ──────────────────
@@ -7838,6 +7959,42 @@ function _buildStack2CellChart(idx) {
     priceLineVisible: false,
   });
   try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
+
+  // ── Cursor kisi bhi candle par rakho → top-left header mein us candle
+  // ka % change (open→close) dikhta hai — Grid/Stack View 1 wale feature
+  // jaisa hi, lekin Stack View 2 ke liye pehle kabhi wire nahi hua tha.
+  // Apna ALAG toggle hai (S.sv2PctHover — main Settings ke "Top-Left
+  // Overlay" section mein), Stack View 1 ke toggle se poori tarah
+  // independent. BankNifty aur BTC dono replay ke liye same kaam karta
+  // hai (kisi asset-specific gate ki zaroorat nahi — spot yahan seedha
+  // is cell ki apni candle series se aata hai). ───────────────────────────
+  let _sv2XhRAF = null;
+  c.chart.subscribeCrosshairMove((param) => {
+    if (_sv2XhRAF) return;
+    _sv2XhRAF = requestAnimationFrame(() => {
+      _sv2XhRAF = null;
+      if (S.sv2PctHover === false) return;
+      const fmt = v => v != null ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--';
+      const hdrLtp = document.getElementById('hdr-ltp');
+      const hdrChg = document.getElementById('hdr-chg');
+      if (param && param.seriesData && param.seriesData.size) {
+        _hdrXActive = true;
+        const raw = param.seriesData.get(c.series);
+        if (raw) {
+          const o = raw.open ?? raw.value;
+          const close = raw.close ?? raw.value;
+          const chg = close - o, pct = o ? (chg / o * 100).toFixed(2) : 0;
+          if (hdrLtp) hdrLtp.textContent = fmt(close);
+          if (hdrChg) { hdrChg.textContent = (chg >= 0 ? '+' : '') + fmt(chg) + ' (' + pct + '%)'; hdrChg.className = chg >= 0 ? 'up' : 'dn'; }
+        }
+      } else {
+        // Cursor chart se bahar → sirf hover-triggered display hide karo
+        _hdrXActive = false;
+        if (hdrChg) hdrChg.textContent = '--';
+        if (hdrLtp) hdrLtp.textContent = '--';
+      }
+    });
+  });
 
   // ── Future Line (vLine) wiring — SV2 previously never created a canvas
   // for this, so the "Future Line" toggle in Cell Settings existed but
@@ -8852,6 +9009,7 @@ function ss2ApplyAndClose() {
   var _srDedupBtn = null;     // #sv2-srdedup-btn
   var _chHideBtn = null;      // #sv2-chhide-btn
   var _chOpacityBtn = null;   // #sv2-chopacity-btn
+  var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
   var _chOpacityPanel = null; // #sv2-chopacity-panel
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
@@ -8890,6 +9048,7 @@ function ss2ApplyAndClose() {
     if (_srDedupBtn) _srDedupBtn.classList.toggle('visible', stack2On);
     if (_chHideBtn) _chHideBtn.classList.toggle('visible', stack2On);
     if (_chOpacityBtn) _chOpacityBtn.classList.toggle('visible', stack2On);
+    if (_ocPnlBtn) _ocPnlBtn.classList.toggle('visible', stack2On);
     if (!stack2On && _srOpacityPanel) _srOpacityPanel.classList.remove('open');
     if (!stack2On && _chOpacityPanel) _chOpacityPanel.classList.remove('open');
     if (!show) { _pause(); }
@@ -8912,7 +9071,7 @@ function ss2ApplyAndClose() {
     var GAP  = 8;   // FAB aur pehle button ke beech buffer — pehle 4px thi,
                      // ring/finger-imprecision se FAB ke taps churaane se
                      // bachne ke liye 8px kar diya.
-    var stackOffset = srOn ? 145 : 0;   // SR toggle + opacity + dedup + CH-hide + CH-opacity (5 × 29)
+    var stackOffset = srOn ? 174 : 0;   // SR toggle + opacity + dedup + CH-hide + CH-opacity + OC-P&L (6 × 29)
     if (_srToggleBtn) {
       _srToggleBtn.style.left = r.left + 'px';
       _srToggleBtn.style.top  = (r.bottom + GAP) + 'px';
@@ -8934,6 +9093,10 @@ function ss2ApplyAndClose() {
       _chOpacityBtn.style.left = r.left + 'px';
       _chOpacityBtn.style.top  = (r.bottom + GAP + 116) + 'px';
       if (_chOpacityPanel && _chOpacityPanel.classList.contains('open')) _positionChOpacityPanel();
+    }
+    if (_ocPnlBtn) {
+      _ocPnlBtn.style.left = r.left + 'px';
+      _ocPnlBtn.style.top  = (r.bottom + GAP + 145) + 'px';
     }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
@@ -9752,6 +9915,8 @@ function ss2ApplyAndClose() {
     _chHideBtn = document.getElementById('sv2-chhide-btn');
     _chOpacityBtn = document.getElementById('sv2-chopacity-btn');
     _chOpacityPanel = document.getElementById('sv2-chopacity-panel');
+    _ocPnlBtn = document.getElementById('sv2-ocpnl-btn');
+    if (_ocPnlBtn) _ocPnlBtn.classList.toggle('on', !!(window.SV2OC && SV2OC.pnlOverlayOn));
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
     if (_srDedupBtn) _srDedupBtn.classList.toggle('on', !!SV2_SR_DEDUP_ON);
@@ -13435,8 +13600,11 @@ async function buildCellChart(idx) {
       _vlDrawCell(idx);
       _pdotDraw(idx);
       
-      // Update main header + top-left OHLC legend with crosshair data in grid mode
-      if (S.hdrOhlc && param?.seriesData?.size) {
+      // Update main header + top-left OHLC legend with crosshair data in grid mode.
+      // Stack View 1 ka apna ALAG toggle hai (S.sv1PctHover) — Grid layout
+      // isse independent hai, sirf S.hdrOhlc se hi control hota hai jaisa pehle tha.
+      var _sv1GateOk = (S.layout !== 'stack') || (S.sv1PctHover !== false);
+      if (S.hdrOhlc && _sv1GateOk && param?.seriesData?.size) {
         _hdrXActive = true;
         const raw = param.seriesData.get(c.series) ?? param.seriesData.values().next().value;
         if (raw) {
@@ -13473,7 +13641,8 @@ async function buildCellChart(idx) {
   // Also handle crosshair-leave to reset header to latest
   let _cLeaveRAF = null;
   c.chart.subscribeCrosshairMove((param) => {
-    if (!param?.seriesData?.size && S.hdrOhlc && _latestBar) {
+    var _sv1GateOkLeave = (S.layout !== 'stack') || (S.sv1PctHover !== false);
+    if (!param?.seriesData?.size && S.hdrOhlc && _sv1GateOkLeave && _latestBar) {
       _hdrXActive = false;
       if (_cLeaveRAF) return;
       _cLeaveRAF = requestAnimationFrame(() => {
@@ -13568,6 +13737,8 @@ function toggleSettings() {
     set('s-leg-sym',S.legSym); set('s-leg-tf',S.legTf!==false);
     set('s-leg-chg',S.legChg); set('s-leg-status',S.legStatus);
     set('s-hdr-ohlc',S.hdrOhlc);
+    set('s-sv1-pcthover', S.sv1PctHover !== false);
+    set('s-sv2-pcthover', S.sv2PctHover !== false);
     set('s-grid',S.grid);
     // Fix 7: sync timer toggle
     set('s-timer', S.showTimer!==false);
@@ -13606,6 +13777,10 @@ function applySettings() {
   S.legStatus=document.getElementById('s-leg-status').checked;
   const hdrOhlcEl=document.getElementById('s-hdr-ohlc');
   if(hdrOhlcEl) S.hdrOhlc=hdrOhlcEl.checked;
+  const sv1PctEl=document.getElementById('s-sv1-pcthover');
+  if(sv1PctEl) S.sv1PctHover=sv1PctEl.checked;
+  const sv2PctEl=document.getElementById('s-sv2-pcthover');
+  if(sv2PctEl) S.sv2PctHover=sv2PctEl.checked;
   // Fix 4: OHLC hover-only toggle
   // Fix 7: timer show/hide
   const timerEl=document.getElementById('s-timer');
@@ -15702,6 +15877,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (typeof st.legOhlc  ==='boolean') S.legOhlc=st.legOhlc;
       if (typeof st.legTf    ==='boolean') S.legTf=st.legTf;
       if (typeof st.hdrOhlc  ==='boolean') S.hdrOhlc=st.hdrOhlc;
+      if (typeof st.sv1PctHover ==='boolean') S.sv1PctHover=st.sv1PctHover;
+      if (typeof st.sv2PctHover ==='boolean') S.sv2PctHover=st.sv2PctHover;
       if (typeof st.legChg   ==='boolean') S.legChg=st.legChg;
       if (typeof st.legStatus==='boolean') S.legStatus=st.legStatus;
       if (typeof st.bgColor  ==='string')  S.bgColor=st.bgColor;
