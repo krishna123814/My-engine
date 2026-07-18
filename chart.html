@@ -1716,6 +1716,67 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#1e222d; color:#d1d4dc; font-size:15px; cursor:pointer;
 }
 #sv2-oc-close:active{ background:#2a2e39; }
+
+/* Virtual balance strip */
+#sv2-oc-balance-row{
+  display:flex; align-items:center; justify-content:space-between;
+  margin:0 16px 10px; padding:10px 12px; border-radius:10px;
+  background:#1e222d; border:1px solid #2a2e39;
+}
+#sv2-oc-balance-label{ font-size:10px; color:#787b86; font-weight:600; }
+#sv2-oc-balance-val{ font-size:16px; color:#d1d4dc; font-weight:700; margin-top:2px; }
+#sv2-oc-balance-actions{ display:flex; gap:6px; }
+#sv2-oc-balance-editbtn{
+  height:28px; padding:0 10px; border-radius:7px; border:1px solid #2962ff55;
+  background:#2962ff1c; color:#2962ff; font-size:10px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-balance-editbtn:active{ background:#2962ff33; }
+#sv2-oc-balance-edit-row{
+  display:none; align-items:center; gap:6px; margin-top:6px;
+}
+#sv2-oc-balance-edit-row.open{ display:flex; }
+#sv2-oc-balance-input{
+  width:120px; height:30px; border-radius:7px; border:1px solid #2a2e39;
+  background:#131722; color:#d1d4dc; font-size:12px; padding:0 8px;
+}
+#sv2-oc-balance-input:focus{ outline:none; border-color:#2962ff; }
+#sv2-oc-balance-save{
+  height:30px; padding:0 10px; border-radius:7px; border:none;
+  background:#26a69a; color:#0c1017; font-size:11px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-balance-cancel{
+  height:30px; width:30px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:12px; cursor:pointer;
+}
+#sv2-oc-balance-reset{
+  height:28px; padding:0 10px; border-radius:7px; border:1px solid #2a2e39;
+  background:#131722; color:#787b86; font-size:10px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-balance-reset:active{ background:#2a2e39; }
+
+/* Greeks show/hide toggle */
+#sv2-oc-greeks-row{
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:11px; color:#787b86; padding:0 2px 10px;
+}
+#sv2-oc-greeks-toggle{
+  width:38px; height:22px; border-radius:11px; border:none; cursor:pointer;
+  background:#2a2e39; position:relative;
+}
+#sv2-oc-greeks-toggle::after{
+  content:''; position:absolute; top:2px; left:2px; width:18px; height:18px;
+  border-radius:50%; background:#787b86; transition:left .15s, background .15s;
+}
+#sv2-oc-greeks-toggle.on{ background:#2962ff55; }
+#sv2-oc-greeks-toggle.on::after{ left:18px; background:#2962ff; }
+
+/* Greeks sub-line inside each CE/PE cell (only shown when toggle is ON) */
+.sv2-oc-greeks-sub{
+  display:block; font-size:8.5px; font-weight:600; color:#787b86;
+  margin-top:2px; line-height:1.3;
+}
+
+#sv2-oc-trade-total{ font-size:12px; color:#787b86; margin:-8px 0 14px; }
 #sv2-oc-tabs{ display:flex; gap:6px; padding:0 16px 10px; }
 .sv2-oc-tab-btn{
   flex:1; height:34px; border-radius:8px; border:1px solid #2a2e39;
@@ -3520,6 +3581,22 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <button id="sv2-oc-close" onclick="_sv2OCClose()">✕</button>
     </div>
 
+    <div id="sv2-oc-balance-row">
+      <div>
+        <div id="sv2-oc-balance-label">💰 Virtual Balance</div>
+        <div id="sv2-oc-balance-val">₹--</div>
+        <div id="sv2-oc-balance-edit-row">
+          <input type="number" id="sv2-oc-balance-input" inputmode="decimal" placeholder="Enter amount">
+          <button id="sv2-oc-balance-save" onclick="_sv2OCSaveManualBalance()">Save</button>
+          <button id="sv2-oc-balance-cancel" onclick="_sv2OCCancelManualBalance()">✕</button>
+        </div>
+      </div>
+      <div id="sv2-oc-balance-actions">
+        <button id="sv2-oc-balance-editbtn" onclick="_sv2OCStartManualBalance()">✏️ Set</button>
+        <button id="sv2-oc-balance-reset" onclick="_sv2OCResetBalance()">Reset</button>
+      </div>
+    </div>
+
     <div id="sv2-oc-tabs">
       <button class="sv2-oc-tab-btn active" id="sv2-oc-tab-chain-btn" onclick="_sv2OCSelectTab('chain')">Chain</button>
       <button class="sv2-oc-tab-btn" id="sv2-oc-tab-pos-btn" onclick="_sv2OCSelectTab('positions')">Positions <span id="sv2-oc-pos-count"></span></button>
@@ -3529,6 +3606,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <div id="sv2-oc-expiry-row">
         <span>Expiry (weekly)</span>
         <span id="sv2-oc-expiry-val">--</span>
+      </div>
+      <div id="sv2-oc-greeks-row">
+        <span id="sv2-oc-greeks-label">Show Greeks (Δ Γ Θ Vega)</span>
+        <button id="sv2-oc-greeks-toggle" onclick="_sv2OCToggleGreeks()"></button>
       </div>
       <div id="sv2-oc-note">
         ⚠️ Ye LTP real broker se nahi aa raha — Black-Scholes model se replay ke
@@ -3543,6 +3624,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
     <div class="sv2-oc-panel" id="sv2-oc-panel-positions">
       <div id="sv2-oc-positions-list"></div>
+
     </div>
   </div>
 </div>
@@ -3557,6 +3639,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div id="sv2-oc-trade-qty-val">1 lot</div>
     <button class="sv2-oc-qty-btn" onclick="_sv2OCQtyStep(1)">+</button>
   </div>
+  <div id="sv2-oc-trade-total">Total: ₹--</div>
   <div id="sv2-oc-trade-btns">
     <button class="sv2-oc-trade-act" id="sv2-oc-buy-btn" onclick="_sv2OCConfirmTrade('buy')">BUY</button>
     <button class="sv2-oc-trade-act" id="sv2-oc-sell-btn" onclick="_sv2OCConfirmTrade('sell')">SELL</button>
@@ -6017,6 +6100,9 @@ var SV2OC = {
   strikesEachSide: 10, // ATM ke aas-paas kitne strikes upar/neeche
   baseIV: 0.14,        // assumed base implied volatility (14%)
   riskFreeRate: 0.07,
+  startingBalance: 100000, // ₹1,00,000 virtual starting balance
+  balance: 100000,
+  showGreeks: false,
   pendingTrade: null,  // { strike, type: 'CE'|'PE', ltp } jab trade-card khula ho
   pendingQtyLots: 1,
   positions: []        // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
@@ -6033,6 +6119,74 @@ function _sv2OCSavePositions() {
   try { localStorage.setItem(_sv2OCStorageKey(), JSON.stringify(SV2OC.positions)); } catch (_) {}
 }
 
+// ── Virtual Balance — trade lene par premium deduct/credit hota hai,
+// square-off par current mark price par reverse hota hai (net effect = PnL). ─
+function _sv2OCBalanceKey() { return 'sv2_oc_balance_v1'; }
+function _sv2OCLoadBalance() {
+  try {
+    var raw = localStorage.getItem(_sv2OCBalanceKey());
+    SV2OC.balance = (raw != null && raw !== '') ? parseFloat(raw) : SV2OC.startingBalance;
+    if (isNaN(SV2OC.balance)) SV2OC.balance = SV2OC.startingBalance;
+  } catch (_) { SV2OC.balance = SV2OC.startingBalance; }
+}
+function _sv2OCSaveBalance() {
+  try { localStorage.setItem(_sv2OCBalanceKey(), String(SV2OC.balance)); } catch (_) {}
+}
+function _sv2OCRenderBalance() {
+  var el = document.getElementById('sv2-oc-balance-val');
+  if (el) el.textContent = '₹' + SV2OC.balance.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+function _sv2OCResetBalance() {
+  if (!confirm('Balance ko ₹' + SV2OC.startingBalance.toLocaleString('en-IN') + ' par reset karna hai? Saari open positions bhi clear ho jaayengi.')) return;
+  SV2OC.balance = SV2OC.startingBalance;
+  SV2OC.positions = [];
+  _sv2OCSaveBalance();
+  _sv2OCSavePositions();
+  _sv2OCRenderBalance();
+  _sv2OCRenderPositions();
+}
+
+// ── Manually set balance to any custom amount ────────────────────────────
+function _sv2OCStartManualBalance() {
+  var row = document.getElementById('sv2-oc-balance-edit-row');
+  var input = document.getElementById('sv2-oc-balance-input');
+  if (!row || !input) return;
+  input.value = Math.round(SV2OC.balance);
+  row.classList.add('open');
+  input.focus();
+  input.select();
+}
+function _sv2OCCancelManualBalance() {
+  var row = document.getElementById('sv2-oc-balance-edit-row');
+  if (row) row.classList.remove('open');
+}
+function _sv2OCSaveManualBalance() {
+  var input = document.getElementById('sv2-oc-balance-input');
+  if (!input) return;
+  var val = parseFloat(input.value);
+  if (isNaN(val) || val < 0) {
+    alert('Sahi amount daalo (0 ya usse zyada).');
+    return;
+  }
+  SV2OC.balance = val;
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
+  _sv2OCCancelManualBalance();
+}
+
+// ── Greeks show/hide preference ───────────────────────────────────────────
+function _sv2OCGreeksKey() { return 'sv2_oc_show_greeks_v1'; }
+function _sv2OCLoadGreeksPref() {
+  try { SV2OC.showGreeks = localStorage.getItem(_sv2OCGreeksKey()) === '1'; } catch (_) { SV2OC.showGreeks = false; }
+}
+function _sv2OCToggleGreeks() {
+  SV2OC.showGreeks = !SV2OC.showGreeks;
+  try { localStorage.setItem(_sv2OCGreeksKey(), SV2OC.showGreeks ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('sv2-oc-greeks-toggle');
+  if (btn) btn.classList.toggle('on', SV2OC.showGreeks);
+  _sv2OCRenderChain();
+}
+
 // ── Cumulative Normal Distribution (Abramowitz-Stegun approximation) ─────
 function _sv2OCNormCdf(x) {
   var a1=0.254829592, a2=-0.284496736, a3=1.421413741, a4=-1.453152027, a5=1.061405429, p=0.3275911;
@@ -6041,6 +6195,30 @@ function _sv2OCNormCdf(x) {
   var t = 1 / (1 + p * x);
   var y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
   return 0.5 * (1 + sign * y);
+}
+// ── Standard Normal PDF (needed for Gamma/Vega/Theta) ─────────────────────
+function _sv2OCNormPdf(x) {
+  return Math.exp(-(x * x) / 2) / Math.sqrt(2 * Math.PI);
+}
+
+// ── Greeks: Delta, Gamma, Vega, Theta — same S/K/T/r/iv inputs as BS price.
+// Theta returned PER DAY, Vega returned PER 1% (0.01) change in IV — ye
+// standard broker-convention hai jisse numbers "normal" size ke dikhte hain. ─
+function _sv2OCGreeks(S, K, T, r, iv) {
+  if (T <= 0) {
+    return { ceDelta: (S > K ? 1 : 0), peDelta: (S < K ? -1 : 0), gamma: 0, vega: 0, ceTheta: 0, peTheta: 0 };
+  }
+  var sqrtT = Math.sqrt(T);
+  var d1 = (Math.log(S / K) + (r + (iv * iv) / 2) * T) / (iv * sqrtT);
+  var d2 = d1 - iv * sqrtT;
+  var pdf1 = _sv2OCNormPdf(d1);
+  var ceDelta = _sv2OCNormCdf(d1);
+  var peDelta = ceDelta - 1;
+  var gamma = pdf1 / (S * iv * sqrtT);
+  var vega = (S * pdf1 * sqrtT) / 100; // per 1% IV change
+  var ceTheta = (-(S * pdf1 * iv) / (2 * sqrtT) - r * K * Math.exp(-r * T) * _sv2OCNormCdf(d2)) / 365;
+  var peTheta = (-(S * pdf1 * iv) / (2 * sqrtT) + r * K * Math.exp(-r * T) * _sv2OCNormCdf(-d2)) / 365;
+  return { ceDelta: ceDelta, peDelta: peDelta, gamma: gamma, vega: vega, ceTheta: ceTheta, peTheta: peTheta };
 }
 
 // ── Black-Scholes CE/PE theoretical price ────────────────────────────────
@@ -6111,9 +6289,14 @@ function _sv2OptionChainToggle() {
     return;
   }
   _sv2OCLoadPositions();
+  _sv2OCLoadBalance();
+  _sv2OCLoadGreeksPref();
   SV2OC.open = true;
   backdrop.classList.add('open');
   sheet.classList.add('open');
+  var greeksBtn = document.getElementById('sv2-oc-greeks-toggle');
+  if (greeksBtn) greeksBtn.classList.toggle('on', SV2OC.showGreeks);
+  _sv2OCRenderBalance();
   _sv2OCSelectTab('chain');
   _sv2OCRenderChain();
   _sv2OCRenderPositions();
@@ -6168,10 +6351,16 @@ function _sv2OCRenderChain() {
     var iv = _sv2OCAssumedIV(daysToExpiry, strike, spot);
     var px = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, iv);
     var isAtm = (strike === atm);
+    var ceGreeksHtml = '', peGreeksHtml = '';
+    if (SV2OC.showGreeks) {
+      var g = _sv2OCGreeks(spot, strike, T, SV2OC.riskFreeRate, iv);
+      ceGreeksHtml = '<span class="sv2-oc-greeks-sub">Δ' + g.ceDelta.toFixed(2) + ' Γ' + g.gamma.toFixed(4) + ' Θ' + g.ceTheta.toFixed(1) + ' V' + g.vega.toFixed(1) + '</span>';
+      peGreeksHtml = '<span class="sv2-oc-greeks-sub">Δ' + g.peDelta.toFixed(2) + ' Γ' + g.gamma.toFixed(4) + ' Θ' + g.peTheta.toFixed(1) + ' V' + g.vega.toFixed(1) + '</span>';
+    }
     rows += '<div class="sv2-oc-row' + (isAtm ? ' atm-row' : '') + '">' +
-      '<div class="sv2-oc-cell-ltp ce" onclick="_sv2OCOpenTrade(' + strike + ',\'CE\',' + px.ce.toFixed(2) + ')">' + _sv2OCFmtPrice(px.ce) + '</div>' +
+      '<div class="sv2-oc-cell-ltp ce" onclick="_sv2OCOpenTrade(' + strike + ',\'CE\',' + px.ce.toFixed(2) + ')">' + _sv2OCFmtPrice(px.ce) + ceGreeksHtml + '</div>' +
       '<div class="sv2-oc-cell-strike">' + strike + '</div>' +
-      '<div class="sv2-oc-cell-ltp pe" onclick="_sv2OCOpenTrade(' + strike + ',\'PE\',' + px.pe.toFixed(2) + ')">' + _sv2OCFmtPrice(px.pe) + '</div>' +
+      '<div class="sv2-oc-cell-ltp pe" onclick="_sv2OCOpenTrade(' + strike + ',\'PE\',' + px.pe.toFixed(2) + ')">' + _sv2OCFmtPrice(px.pe) + peGreeksHtml + '</div>' +
     '</div>';
   }
   listEl.innerHTML = rows;
@@ -6183,19 +6372,29 @@ function _sv2OCOpenTrade(strike, type, ltp) {
   SV2OC.pendingQtyLots = 1;
   var titleEl = document.getElementById('sv2-oc-trade-title');
   var ltpEl = document.getElementById('sv2-oc-trade-ltp');
-  var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
   if (titleEl) titleEl.textContent = 'BANKNIFTY ' + strike + ' ' + type;
-  if (ltpEl) ltpEl.textContent = '₹' + _sv2OCFmtPrice(ltp);
-  if (qtyEl) qtyEl.textContent = '1 lot (' + SV2OC.lotSize + ' qty)';
+  if (ltpEl) ltpEl.textContent = '₹' + _sv2OCFmtPrice(ltp) + ' / qty';
+  _sv2OCRenderTradeQtyAndTotal();
   var card = document.getElementById('sv2-oc-trade-card');
   var backdrop = document.getElementById('sv2-oc-trade-backdrop');
   if (card) card.classList.add('open');
   if (backdrop) backdrop.classList.add('open');
 }
+// Qty label + Total amount, dono ek hi jagah se update hote hain taaki
+// lot badhane par total hamesha sahi refresh ho (pehle ye missing tha).
+function _sv2OCRenderTradeQtyAndTotal() {
+  var t = SV2OC.pendingTrade;
+  if (!t) return;
+  var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
+  var totalEl = document.getElementById('sv2-oc-trade-total');
+  var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
+  var totalAmt = t.ltp * totalQty;
+  if (qtyEl) qtyEl.textContent = SV2OC.pendingQtyLots + ' lot' + (SV2OC.pendingQtyLots > 1 ? 's' : '') + ' (' + totalQty + ' qty)';
+  if (totalEl) totalEl.textContent = 'Total: ₹' + totalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
 function _sv2OCQtyStep(delta) {
   SV2OC.pendingQtyLots = Math.max(1, SV2OC.pendingQtyLots + delta);
-  var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
-  if (qtyEl) qtyEl.textContent = SV2OC.pendingQtyLots + ' lot' + (SV2OC.pendingQtyLots > 1 ? 's' : '') + ' (' + (SV2OC.pendingQtyLots * SV2OC.lotSize) + ' qty)';
+  _sv2OCRenderTradeQtyAndTotal();
 }
 function _sv2OCTradeCancel() {
   SV2OC.pendingTrade = null;
@@ -6204,27 +6403,59 @@ function _sv2OCTradeCancel() {
   if (card) card.classList.remove('open');
   if (backdrop) backdrop.classList.remove('open');
 }
+// ── Confirm trade: BUY = premium balance se katega, SELL = premium balance
+// mein credit hoga (jaisa real option writing mein hota hai — yahan margin
+// block simulate nahi kiya, sirf simple premium cashflow hai). ────────────
 function _sv2OCConfirmTrade(side) {
   var t = SV2OC.pendingTrade;
   if (!t) return;
+  var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
+  var totalAmt = t.ltp * totalQty;
+  if (side === 'buy' && totalAmt > SV2OC.balance) {
+    alert('Insufficient virtual balance! Total ₹' + totalAmt.toFixed(0) + ' chahiye, balance sirf ₹' + SV2OC.balance.toFixed(0) + ' hai.');
+    return;
+  }
   var nowSec = _sv2OCCurrentTimeSec();
   SV2OC.positions.push({
     id: 'oc_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
     strike: t.strike, type: t.type, side: side,
     lots: SV2OC.pendingQtyLots, entryPrice: t.ltp, entryTime: nowSec
   });
+  SV2OC.balance += (side === 'buy') ? -totalAmt : totalAmt;
   _sv2OCSavePositions();
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
   _sv2OCTradeCancel();
   _sv2OCSelectTab('positions');
   _sv2OCRenderPositions();
 }
 
-// ── Close (square-off) a virtual position at current mark price ──────────
+// ── Close (square-off) a virtual position at current mark price — balance
+// yahan reverse hoti hai (BUY: mark price par bech ke proceeds milte hain;
+// SELL: mark price par wapas khareed ke position square hoti hai). Net
+// effect balance mein sahi PnL add/katt jaata hai. ────────────────────────
 function _sv2OCClosePosition(id) {
   var idx = SV2OC.positions.findIndex(function (p) { return p.id === id; });
   if (idx === -1) return;
+  var p = SV2OC.positions[idx];
+  var spot = _sv2OCCurrentSpot();
+  var markPrice = p.entryPrice;
+  if (spot != null) {
+    var nowSec = _sv2OCCurrentTimeSec();
+    var expirySec = _sv2OCNextExpirySec(nowSec);
+    var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
+    var T = daysToExpiry / 365;
+    var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot);
+    var px = _sv2OCBlackScholes(spot, p.strike, T, SV2OC.riskFreeRate, iv);
+    markPrice = p.type === 'CE' ? px.ce : px.pe;
+  }
+  var totalQty = p.lots * SV2OC.lotSize;
+  var totalAmt = markPrice * totalQty;
+  SV2OC.balance += (p.side === 'buy') ? totalAmt : -totalAmt;
   SV2OC.positions.splice(idx, 1);
   _sv2OCSavePositions();
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
   _sv2OCRenderPositions();
 }
 
