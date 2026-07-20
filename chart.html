@@ -3814,6 +3814,17 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <div class="ss-tf-grid" id="ss-tf-grid"><!-- filled by JS --></div>
   </div>
 
+  <div class="ss-section">
+    <div class="ss-section-title">Display</div>
+    <!-- Time axis (bottom horizontal date/time bar) — Stack View 2 wale
+         toggle se bilkul ALAG/independent hai, apni khud ki persisted
+         state rakhta hai. Default ON. -->
+    <div class="ss-row">
+      <span>Time axis (bottom)</span>
+      <button id="ss-timeaxis-switch" class="gp-switch on" onclick="_sv1TimeAxisToggle()"></button>
+    </div>
+  </div>
+
   <button class="ss-done-btn" onclick="ssApplyAndClose()">Done</button>
 </div>
 
@@ -3848,6 +3859,16 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <div class="ss-section">
     <div class="ss-section-title">TIMEFRAME PER SLOT</div>
     <div class="ss-tf-grid" id="ss2-tf-grid"><!-- filled by JS --></div>
+  </div>
+  <div class="ss-section">
+    <div class="ss-section-title">DISPLAY</div>
+    <!-- Time axis (bottom horizontal date/time bar) — har panel ke niche.
+         Default ON hai; OFF karne par har panel se extra vertical space
+         chart ke liye mil jata hai. -->
+    <div class="ss-row">
+      <span>Time axis (bottom)</span>
+      <button id="ss2-timeaxis-switch" class="gp-switch on" onclick="_sv2TimeAxisToggle()"></button>
+    </div>
   </div>
   <button class="ss-done-btn" onclick="ss2ApplyAndClose()">Done</button>
 </div>
@@ -5556,6 +5577,36 @@ function _flashBtn(id, msg) {
 let chart=null, mainSeries=null;
 const CELLS = [];
 
+// ── Time axis (bottom) — Stack View 1 — on/off (persisted, INDEPENDENT
+// from Stack View 2's toggle — separate localStorage key, separate cells
+// array, separate switch element) ───────────────────────────────────────
+const _SV1_TIMEAXIS_KEY = 'sv1TimeAxisOnOff';
+function _loadSv1TimeAxisOnOff() {
+  const raw = _LS.getItem(_SV1_TIMEAXIS_KEY);
+  return raw === null ? true : raw === '1';   // default ON (shown)
+}
+function _saveSv1TimeAxisOnOff(on) { _LS.setItem(_SV1_TIMEAXIS_KEY, on ? '1' : '0'); }
+let _sv1ShowTimeAxis = _loadSv1TimeAxisOnOff();
+function _sv1TimeAxisToggle() {
+  _sv1ShowTimeAxis = !_sv1ShowTimeAxis;
+  _saveSv1TimeAxisOnOff(_sv1ShowTimeAxis);
+  const btn = document.getElementById('ss-timeaxis-switch');
+  if (btn) btn.classList.toggle('on', _sv1ShowTimeAxis);
+  // Sabhi already-built Stack View 1 panels par turant apply karo
+  // (regular grid layouts is CELLS array ko reuse karte hain, isliye sirf
+  // tab apply karo jab abhi Stack View 1 hi active layout ho).
+  try {
+    if (S.layout === 'stack') {
+      CELLS.forEach(function(cell) {
+        if (cell && cell.chart) {
+          try { cell.chart.applyOptions({ timeScale: { visible: _sv1ShowTimeAxis } }); } catch(_) {}
+        }
+      });
+    }
+  } catch(_) {}
+}
+window._sv1TimeAxisToggle = _sv1TimeAxisToggle;
+
 // ── Global "user is actively touching a chart" flag ─────────────────────────
 // Perf fix (hang while panning during live ticks / replay): several heavy,
 // purely-cosmetic per-tick jobs (DOM text writes across every grid cell,
@@ -5940,6 +5991,11 @@ function openStackSettings() {
   document.getElementById('ss-step-count').oninput    = null;
 
   document.getElementById('stack-settings-panel').classList.add('open');
+  // Time axis switch ki visual state ko current persisted value ke saath sync karo
+  try {
+    const _ta1Btn = document.getElementById('ss-timeaxis-switch');
+    if (_ta1Btn) _ta1Btn.classList.toggle('on', _sv1ShowTimeAxis);
+  } catch(_) {}
   // Settings panel sits above everything — close the layout picker behind it.
   const gp = document.getElementById('grid-picker');
   if (gp) gp.classList.remove('open');
@@ -7970,7 +8026,7 @@ function _buildStack2CellChart(idx) {
     grid:   { vertLines: { color:'transparent' }, horzLines: { color:'transparent' } },
     crosshair: { mode: 0, vertLine: { labelVisible: true }, horzLine: { labelVisible: true } },
     rightPriceScale: { borderColor: '#2a2e39', scaleMargins: { top: 0.25, bottom: 0.25 }, autoScale: true },
-    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: (S.futureOffset || 30), barSpacing: 6, minBarSpacing: 2, tickMarkFormatter: (t, type, locale) => fmtTickMark(t, type, locale) },
+    timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false, rightOffset: (S.futureOffset || 30), barSpacing: 6, minBarSpacing: 2, visible: (typeof window._sv2GetTimeAxisOnOff === 'function' ? window._sv2GetTimeAxisOnOff() : true), tickMarkFormatter: (t, type, locale) => fmtTickMark(t, type, locale) },
     localization: {
       timeFormatter: (t) => fmtChartTime(t),
       priceFormatter: (p) => p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}),
@@ -8346,6 +8402,13 @@ function openStack2Settings() {
   }
   _ss2RenderForTab();
   document.getElementById('stack2-settings-panel').style.display = '';
+  // Time axis switch ki visual state ko current persisted value ke saath sync karo
+  try {
+    var _ta2Btn = document.getElementById('ss2-timeaxis-switch');
+    if (_ta2Btn && typeof window._sv2GetTimeAxisOnOff === 'function') {
+      _ta2Btn.classList.toggle('on', window._sv2GetTimeAxisOnOff());
+    }
+  } catch(_) {}
   const gp = document.getElementById('grid-picker');
   if (gp) gp.classList.remove('open');
 }
@@ -8406,6 +8469,35 @@ function ss2ApplyAndClose() {
   // needs to know if the toggle is ON without duplicating the localStorage
   // read/parse logic.
   window._sv2GetOpenPxOnOff = function() { return _showOpenPx; };
+
+  // ── Time axis (bottom) — Stack View 2 — on/off (persisted, INDEPENDENT
+  // from Stack View 1's own toggle below) ───────────────────────────────
+  var _SV2_TIMEAXIS_KEY = 'sv2TimeAxisOnOff';
+  function _loadSv2TimeAxisOnOff() {
+    var raw = _LS.getItem(_SV2_TIMEAXIS_KEY);
+    return raw === null ? true : raw === '1';   // default ON (shown)
+  }
+  function _saveSv2TimeAxisOnOff(on) { _LS.setItem(_SV2_TIMEAXIS_KEY, on ? '1' : '0'); }
+  var _sv2ShowTimeAxis = _loadSv2TimeAxisOnOff();
+  // Chart-creation code (outside this closure, in _buildStack2CellChart)
+  // reads this to decide the initial timeScale.visible option.
+  window._sv2GetTimeAxisOnOff = function() { return _sv2ShowTimeAxis; };
+  function _sv2TimeAxisToggle() {
+    _sv2ShowTimeAxis = !_sv2ShowTimeAxis;
+    _saveSv2TimeAxisOnOff(_sv2ShowTimeAxis);
+    var btn = document.getElementById('ss2-timeaxis-switch');
+    if (btn) btn.classList.toggle('on', _sv2ShowTimeAxis);
+    // Sabhi already-built Stack View 2 panels par turant apply karo.
+    try {
+      var _cells = (typeof STACK2_CELLS !== 'undefined') ? STACK2_CELLS : [];
+      _cells.forEach(function(cell) {
+        if (cell && cell.chart) {
+          try { cell.chart.applyOptions({ timeScale: { visible: _sv2ShowTimeAxis } }); } catch(_) {}
+        }
+      });
+    } catch(_) {}
+  }
+  window._sv2TimeAxisToggle = _sv2TimeAxisToggle;
 
   // ── Step / Reset icons visibility — on/off (persisted) ────────────────────
   // Calendar ki ⚙️ Settings se control hota hai. Default OFF rakha gaya hai
@@ -13590,7 +13682,7 @@ async function buildCellChart(idx) {
     grid:{vertLines:{color:'transparent'},horzLines:{color:'transparent'}},
     crosshair:{mode:0, vertLine:{labelVisible:true}, horzLine:{labelVisible:true}},  // always Normal (free) for grid cells — never Magnet
     rightPriceScale:{borderColor:'#2a2e39',scaleMargins:{top:0.25,bottom:0.25},autoScale:true},
-    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLineSV1&&S.vLineSV1.offset||5)+1)),barSpacing:4,minBarSpacing:1,tickMarkFormatter:(t,type,locale)=>fmtTickMark(t,type,locale)},
+    timeScale:{borderColor:'#2a2e39',timeVisible:true,secondsVisible:false,rightOffset:(S.layout==='stack' ? (S.futureOffset||30) : Math.max(3,(S.vLineSV1&&S.vLineSV1.offset||5)+1)),barSpacing:4,minBarSpacing:1,visible:(S.layout==='stack' ? _sv1ShowTimeAxis : true),tickMarkFormatter:(t,type,locale)=>fmtTickMark(t,type,locale)},
     localization:{timeFormatter:(t)=>fmtChartTime(t),priceFormatter:(p)=>p.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})},
     handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:true},
     handleScale:{axisPressedMouseMove:true,mouseWheel:true,pinch:true},
@@ -16963,12 +17055,6 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
     if (i >= 1 && pGreen && curRed) {
       const rPrice = Math.max(pHigh, cur.high);
       const rTime  = pHigh >= cur.high ? data[i - 1].time : cur.time;
-      // Streak-shifting sirf tab allowed hoga jab ye (2nd) RED candle khud
-      // apna high pehli GREEN candle se zyada extreme (upar) bana paya ho.
-      // Agar green hi highest thi (red use beat nahi kar paya), to is
-      // poore red-streak mein aage koi bhi red candle SR ko shift nahi
-      // karegi — resistance green ke high par hi locked rahega.
-      const _redIsHighest = cur.high > pHigh;
       // Deletion: purane swings jo naye se upar hain → hata do
       aRes = aRes.filter(l => l.price <= rPrice);
       aSup = aSup.filter(l => l.price <= rPrice);
@@ -16979,18 +17065,15 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
                     endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec, _isNSE),
                     endIndex: _shEndIdx,
                     startBarIdx: _shStartBar,
-                    creationIndex: i, kind: 'sh', periodSec,
-                    allowShift: _redIsHighest };
+                    creationIndex: i, kind: 'sh', periodSec };
         aRes.push(_newRes);
         activeResObj = _newRes;   // is red-streak ka "current" resistance track karo
       }
-    } else if (i >= 1 && pRed && curRed && activeResObj && activeResObj.allowShift) {
+    } else if (i >= 1 && pRed && curRed && activeResObj) {
       // ── Streak continuation: RED candle ke baad ek aur RED candle ──────
       // Sirf tab shift/replace hoga jab naye candle ka high pichle (active)
       // resistance se ZYADA EXTREME (upar) ho. Kam/barabar extreme ho to
       // purana resistance jyon-ka-tyon bana rahega, kuch nahi hota.
-      // (allowShift check upar guard mein — agar shuru mein hi green ka
-      // high jeet gaya tha to ye poora streak kabhi shift nahi hoga.)
       if (cur.high > activeResObj.price) {
         const rPrice = cur.high;
         // Purana (superseded) resistance object delete karo
@@ -17003,8 +17086,7 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
                     endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec, _isNSE),
                     endIndex: _shEndIdx,
                     startBarIdx: i,
-                    creationIndex: i, kind: 'sh', periodSec,
-                    allowShift: true };
+                    creationIndex: i, kind: 'sh', periodSec };
         aRes.push(_newRes);
         activeResObj = _newRes;
       }
@@ -17014,12 +17096,6 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
     if (i >= 1 && pRed && curGreen) {
       const sPrice = Math.min(pLow, cur.low);
       const sTime  = pLow <= cur.low ? data[i - 1].time : cur.time;
-      // Streak-shifting sirf tab allowed hoga jab ye (2nd) GREEN candle khud
-      // apna low pehli RED candle se zyada extreme (neeche) bana paya ho.
-      // Agar red hi lowest thi (green use beat nahi kar paya), to is
-      // poore green-streak mein aage koi bhi green candle SR ko shift
-      // nahi karegi — support red ke low par hi locked rahega.
-      const _greenIsLowest = cur.low < pLow;
       // Deletion: purane swings jo naye se neeche hain → hata do
       aSup = aSup.filter(l => l.price >= sPrice);
       aRes = aRes.filter(l => l.price >= sPrice);
@@ -17030,18 +17106,15 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
                     endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec, _isNSE),
                     endIndex: _slEndIdx,
                     startBarIdx: _slStartBar,
-                    creationIndex: i, kind: 'sl', periodSec,
-                    allowShift: _greenIsLowest };
+                    creationIndex: i, kind: 'sl', periodSec };
         aSup.push(_newSup);
         activeSupObj = _newSup;   // is green-streak ka "current" support track karo
       }
-    } else if (i >= 1 && pGreen && curGreen && activeSupObj && activeSupObj.allowShift) {
+    } else if (i >= 1 && pGreen && curGreen && activeSupObj) {
       // ── Streak continuation: GREEN candle ke baad ek aur GREEN candle ──
       // Sirf tab shift/replace hoga jab naye candle ka low pichle (active)
       // support se ZYADA EXTREME (neeche) ho. Kam/barabar extreme ho to
       // purana support jyon-ka-tyon bana rahega, kuch nahi hota.
-      // (allowShift check upar guard mein — agar shuru mein hi red ka
-      // low jeet gaya tha to ye poora streak kabhi shift nahi hoga.)
       if (cur.low < activeSupObj.price) {
         const sPrice = cur.low;
         // Purana (superseded) support object delete karo
@@ -17054,8 +17127,7 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
                     endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec, _isNSE),
                     endIndex: _slEndIdx,
                     startBarIdx: i,
-                    creationIndex: i, kind: 'sl', periodSec,
-                    allowShift: true };
+                    creationIndex: i, kind: 'sl', periodSec };
         aSup.push(_newSup);
         activeSupObj = _newSup;
       }
