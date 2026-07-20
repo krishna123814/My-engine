@@ -995,6 +995,34 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-color:#2962ff;
   color:#2962ff;
 }
+
+/* ── SV2 — Opening Price Preview line: Show/Hide toggle (main screen icon,
+   calendar/play icons ke saath stack mein, sirf replay active hone par
+   dikhta hai — pehle ye calendar sheet ke andar ek switch tha) ──────────── */
+#sv2-openpx-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:11px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-openpx-btn.visible{ display:flex; }
+#sv2-openpx-btn.on{
+  background:#26a69a22;
+  border-color:#26a69a;
+  color:#26a69a;
+}
 #sv2-chopacity-panel{
   display:none;
   position:fixed;
@@ -1384,12 +1412,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-cal-day.disabled {color:#333;pointer-events:none}
 
 /* Apply button */
-/* Opening Price Preview — toggle row + price display (sits right on the calendar sheet) */
-#sv2-openpx-row{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:8px 10px;margin:8px 0 2px;background:#1a1e29;border:1px solid #2a2e3e;border-radius:8px;
-}
-#sv2-openpx-label{font-size:12px;color:#d1d4dc;font-weight:600}
+/* Opening Price Preview — info-only price display (toggle switch hata diya
+   gaya — ab main-screen 📍 icon control karta hai, see #sv2-openpx-btn) */
 #sv2-openpx-box{
   display:none;text-align:center;font-size:12px;color:#26a69a;font-weight:700;
   padding:6px 10px;margin:0 0 8px;background:#132821;border:1px solid #1f4d3f;border-radius:8px;
@@ -3342,6 +3366,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
      click = hide. ═══════════════════════════════════════════════════════ -->
 <button id="sv2-ocpnl-btn" title="Position P&L (strike ke saath) chart par Show/Hide karo" onclick="_sv2OCPnlOverlayToggle()">P&L</button>
 
+<!-- ═══ SV2 — Opening Price Preview line: Show/Hide (calendar/play icons ke
+     saath, sirf replay active hone par dikhta hai). Pehle Bar Replay
+     calendar sheet ke andar ek switch tha — ab yahan icon ke roop mein:
+     ek tap = preview line dikhao, dubara tap = hide. ═══════════════════ -->
+<button id="sv2-openpx-btn" title="Opening Price Preview line Show/Hide karo" onclick="_sv2OpenPxToggle()">📍</button>
+
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
 
@@ -3405,12 +3435,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       ← Is date tak ka data dikhega · Uske baad Replay ▶ shuru hoga
     </div>
 
-    <!-- Opening Price Preview — on/off toggle right here on the calendar,
-         jaisa Live BankNifty mein pre-market par opening price dikhta hai -->
-    <div id="sv2-openpx-row">
-      <span id="sv2-openpx-label">📍 Opening Price Preview</span>
-      <button id="sv2-openpx-switch" class="gp-switch" onclick="_sv2OpenPxToggle()"></button>
-    </div>
+    <!-- Opening Price Preview toggle ab yahan se hata diya gaya hai — ab
+         main screen par 📍 icon ke roop mein hai (calendar/play icons ke
+         saath). Ye box sirf info display hai, jab preview ON ho aur date
+         selected ho tabhi dikhta hai. -->
     <div id="sv2-openpx-box"><span id="sv2-openpx-val">--</span></div>
 
     <!-- Calendar nav row -->
@@ -8568,7 +8596,9 @@ function ss2ApplyAndClose() {
 
   // ── Opening Price Preview ─────────────────────────────────────────────────
   function _renderOpenPxSwitch() {
-    var btn = document.getElementById('sv2-openpx-switch');
+    // Purana calendar-sheet switch hata diya gaya hai — ab main-screen ke
+    // 📍 icon (#sv2-openpx-btn) par hi on/off state dikhti hai.
+    var btn = document.getElementById('sv2-openpx-btn');
     if (btn) btn.classList.toggle('on', _showOpenPx);
   }
 
@@ -9010,6 +9040,7 @@ function ss2ApplyAndClose() {
   var _chHideBtn = null;      // #sv2-chhide-btn
   var _chOpacityBtn = null;   // #sv2-chopacity-btn
   var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
+  var _openPxBtn = null;      // #sv2-openpx-btn — Opening Price Preview line show/hide
   var _chOpacityPanel = null; // #sv2-chopacity-panel
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
@@ -9049,6 +9080,10 @@ function ss2ApplyAndClose() {
     if (_chHideBtn) _chHideBtn.classList.toggle('visible', stack2On);
     if (_chOpacityBtn) _chOpacityBtn.classList.toggle('visible', stack2On);
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('visible', stack2On);
+    // 📍 Opening Price Preview icon — sirf tab dikhta hai jab replay actually
+    // active/running hai (▶ Play icon jaisi hi condition), calendar/play
+    // group ke saath stacked.
+    if (_openPxBtn) _openPxBtn.classList.toggle('visible', show);
     if (!stack2On && _srOpacityPanel) _srOpacityPanel.classList.remove('open');
     if (!stack2On && _chOpacityPanel) _chOpacityPanel.classList.remove('open');
     if (!show) { _pause(); }
@@ -9109,6 +9144,10 @@ function ss2ApplyAndClose() {
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
       _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
+    }
+    if (_openPxBtn) {
+      _openPxBtn.style.left = r.left + 'px';
+      _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29) + 'px';
     }
   }
 
@@ -9945,6 +9984,8 @@ function ss2ApplyAndClose() {
     _chOpacityPanel = document.getElementById('sv2-chopacity-panel');
     _ocPnlBtn = document.getElementById('sv2-ocpnl-btn');
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('on', !!(window.SV2OC && SV2OC.pnlOverlayOn));
+    _openPxBtn = document.getElementById('sv2-openpx-btn');
+    if (_openPxBtn) _openPxBtn.classList.toggle('on', !!(typeof window._sv2GetOpenPxOnOff === 'function' && window._sv2GetOpenPxOnOff()));
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
     if (_srDedupBtn) _srDedupBtn.classList.toggle('on', !!SV2_SR_DEDUP_ON);
