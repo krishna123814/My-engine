@@ -1023,6 +1023,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-color:#26a69a;
   color:#26a69a;
 }
+
+/* ── Floating crosshair date/time badge — jab kisi Stack View (1 ya 2) ka
+   bottom time-axis "Display" toggle se HIDE kiya gaya ho, tab bhi candle
+   par cursor/finger rakhne par date+time yahan dikhta hai (chart pane ke
+   andar hi, bottom edge ke paas, crosshair ke x-position ke saath) ────── */
+.sv-timebadge{
+  position:absolute;
+  bottom:2px;
+  z-index:5;
+  display:none;
+  background:#131722;
+  border:1px solid #2a2e39;
+  color:#d1d4dc;
+  font-size:10px;
+  line-height:1.3;
+  padding:2px 6px;
+  border-radius:4px;
+  white-space:nowrap;
+  pointer-events:none;
+}
 #sv2-chopacity-panel{
   display:none;
   position:fixed;
@@ -5601,6 +5621,9 @@ function _sv1TimeAxisToggle() {
         if (cell && cell.chart) {
           try { cell.chart.applyOptions({ timeScale: { visible: _sv1ShowTimeAxis } }); } catch(_) {}
         }
+        // Axis wapas ON hone par floating badge turant hide karo (agle
+        // crosshair move ka wait na karna pade).
+        if (_sv1ShowTimeAxis && cell && cell._timeBadgeEl) cell._timeBadgeEl.style.display = 'none';
       });
     }
   } catch(_) {}
@@ -8044,6 +8067,31 @@ function _buildStack2CellChart(idx) {
   });
   try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
+  // ── Floating date/time badge — jab is panel ka bottom time-axis
+  // ("Display" settings ke Time axis toggle se) hide kiya gaya ho, tab bhi
+  // candle par cursor rakhne par date+time chart ke andar hi dikhe (jaisa
+  // pehle axis par dikhta tha). Har rebuild par purana badge reuse/replace
+  // karo taaki duplicate na ban jayein. ─────────────────────────────────
+  { let _oldBadge = el.querySelector('.sv-timebadge');
+    if (_oldBadge) _oldBadge.remove();
+    c._timeBadgeEl = document.createElement('div');
+    c._timeBadgeEl.className = 'sv-timebadge';
+    el.appendChild(c._timeBadgeEl);
+  }
+  c.chart.subscribeCrosshairMove((param) => {
+    const badge = c._timeBadgeEl;
+    if (!badge) return;
+    const axisOn = (typeof window._sv2GetTimeAxisOnOff === 'function') ? window._sv2GetTimeAxisOnOff() : true;
+    if (axisOn || !param || !param.time || !param.point) { badge.style.display = 'none'; return; }
+    badge.textContent = fmtChartTime(param.time);
+    badge.style.display = 'block';
+    const w = el.clientWidth || 200;
+    const bw = badge.offsetWidth || 70;
+    let left = param.point.x - bw / 2;
+    left = Math.max(2, Math.min(left, w - bw - 2));
+    badge.style.left = left + 'px';
+  });
+
   // ── Cursor kisi bhi candle par rakho → top-left header mein us candle
   // ka % change (open→close) dikhta hai — Grid/Stack View 1 wale feature
   // jaisa hi, lekin Stack View 2 ke liye pehle kabhi wire nahi hua tha.
@@ -8494,6 +8542,8 @@ function ss2ApplyAndClose() {
         if (cell && cell.chart) {
           try { cell.chart.applyOptions({ timeScale: { visible: _sv2ShowTimeAxis } }); } catch(_) {}
         }
+        // Axis wapas ON hone par floating badge turant hide karo.
+        if (_sv2ShowTimeAxis && cell && cell._timeBadgeEl) cell._timeBadgeEl.style.display = 'none';
       });
     } catch(_) {}
   }
@@ -13713,6 +13763,31 @@ async function buildCellChart(idx) {
     c.series = c.chart.addAreaSeries({ topColor: upClr + '44', bottomColor: upClr + '00', lineColor: upClr, lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
   }
   try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
+
+  // ── Floating date/time badge — SV1-only equivalent of the SV2 one above.
+  // Jab layout Stack View 1 ho AUR uska apna "Time axis (bottom)" Display
+  // toggle OFF ho, tab candle par cursor rakhne par date+time chart ke
+  // andar hi dikhe. Regular grid layouts (jo isi CELLS/builder ko reuse
+  // karte hain) is badge se bilkul untouched rehte hain. ─────────────────
+  { let _oldBadge = el.querySelector('.sv-timebadge');
+    if (_oldBadge) _oldBadge.remove();
+    c._timeBadgeEl = document.createElement('div');
+    c._timeBadgeEl.className = 'sv-timebadge';
+    el.appendChild(c._timeBadgeEl);
+  }
+  c.chart.subscribeCrosshairMove((param) => {
+    const badge = c._timeBadgeEl;
+    if (!badge) return;
+    const shouldShow = (S.layout === 'stack') && !_sv1ShowTimeAxis;
+    if (!shouldShow || !param || !param.time || !param.point) { badge.style.display = 'none'; return; }
+    badge.textContent = fmtChartTime(param.time);
+    badge.style.display = 'block';
+    const w = el.clientWidth || 200;
+    const bw = badge.offsetWidth || 70;
+    let left = param.point.x - bw / 2;
+    left = Math.max(2, Math.min(left, w - bw - 2));
+    badge.style.left = left + 'px';
+  });
 
   if (data.length) {
     if (cType === 'line' || cType === 'area') {
