@@ -16815,6 +16815,12 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
   let clLines  = [];  // candle low  lines (pending / validated)
 
   let pGreen = false, pRed = false, pHigh = 0, pLow = 0;
+  // ── Streak tracking — resistance/support ko lagataar same-color candles
+  // ke streak mein "sabse extreme" point par shift karne ke liye. Jab streak
+  // toot jaaye (opposite color candle aaye), agli initial transition khud
+  // naya object bana ke inhe overwrite kar degi — koi manual reset zaroori nahi.
+  let activeResObj = null;   // red-streak ka current resistance (aRes ka ek object-reference)
+  let activeSupObj = null;   // green-streak ka current support (aSup ka ek object-reference)
 
   // ── Overnight/session-gap flag (intraday TFs only) ──────────────────────
   // Minute TFs (5/15/45/135m) ka pehla candle har trading day 9:15 par ek
@@ -16922,11 +16928,35 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
       { const _shEndIdx = i + _swS * _swBars;
         const _shStartBar = pHigh >= cur.high ? i - 1 : i;
-        aRes.push({ price: rPrice, startTime: rTime,
+        const _newRes = { price: rPrice, startTime: rTime,
                     endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec, _isNSE),
                     endIndex: _shEndIdx,
                     startBarIdx: _shStartBar,
-                    creationIndex: i, kind: 'sh', periodSec }); }
+                    creationIndex: i, kind: 'sh', periodSec };
+        aRes.push(_newRes);
+        activeResObj = _newRes;   // is red-streak ka "current" resistance track karo
+      }
+    } else if (i >= 1 && pRed && curRed && activeResObj) {
+      // ── Streak continuation: RED candle ke baad ek aur RED candle ──────
+      // Sirf tab shift/replace hoga jab naye candle ka high pichle (active)
+      // resistance se ZYADA EXTREME (upar) ho. Kam/barabar extreme ho to
+      // purana resistance jyon-ka-tyon bana rahega, kuch nahi hota.
+      if (cur.high > activeResObj.price) {
+        const rPrice = cur.high;
+        // Purana (superseded) resistance object delete karo
+        aRes = aRes.filter(l => l !== activeResObj);
+        // Same dedup jo initial creation par hoti hai — naye se upar wale hata do
+        aRes = aRes.filter(l => l.price <= rPrice);
+        aSup = aSup.filter(l => l.price <= rPrice);
+        const _shEndIdx = i + _swS * _swBars;
+        const _newRes = { price: rPrice, startTime: cur.time,
+                    endTime: _indexToTime(data, _shEndIdx, tfMin, _defaultPeriodSec, _isNSE),
+                    endIndex: _shEndIdx,
+                    startBarIdx: i,
+                    creationIndex: i, kind: 'sh', periodSec };
+        aRes.push(_newRes);
+        activeResObj = _newRes;
+      }
     }
 
     // ── Step 3: Swing Low (prevRed → currGreen) ─────────────────────────
@@ -16939,11 +16969,35 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       // Naya swing — endIndex = i + swingBarCount * SW_START_MULT (starting length, index-based)
       { const _slEndIdx = i + _swS * _swBars;
         const _slStartBar = pLow <= cur.low ? i - 1 : i;
-        aSup.push({ price: sPrice, startTime: sTime,
+        const _newSup = { price: sPrice, startTime: sTime,
                     endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec, _isNSE),
                     endIndex: _slEndIdx,
                     startBarIdx: _slStartBar,
-                    creationIndex: i, kind: 'sl', periodSec }); }
+                    creationIndex: i, kind: 'sl', periodSec };
+        aSup.push(_newSup);
+        activeSupObj = _newSup;   // is green-streak ka "current" support track karo
+      }
+    } else if (i >= 1 && pGreen && curGreen && activeSupObj) {
+      // ── Streak continuation: GREEN candle ke baad ek aur GREEN candle ──
+      // Sirf tab shift/replace hoga jab naye candle ka low pichle (active)
+      // support se ZYADA EXTREME (neeche) ho. Kam/barabar extreme ho to
+      // purana support jyon-ka-tyon bana rahega, kuch nahi hota.
+      if (cur.low < activeSupObj.price) {
+        const sPrice = cur.low;
+        // Purana (superseded) support object delete karo
+        aSup = aSup.filter(l => l !== activeSupObj);
+        // Same dedup jo initial creation par hoti hai
+        aSup = aSup.filter(l => l.price >= sPrice);
+        aRes = aRes.filter(l => l.price >= sPrice);
+        const _slEndIdx = i + _swS * _swBars;
+        const _newSup = { price: sPrice, startTime: cur.time,
+                    endTime: _indexToTime(data, _slEndIdx, tfMin, _defaultPeriodSec, _isNSE),
+                    endIndex: _slEndIdx,
+                    startBarIdx: i,
+                    creationIndex: i, kind: 'sl', periodSec };
+        aSup.push(_newSup);
+        activeSupObj = _newSup;
+      }
     }
 
     // ── Step 4: Create candle H/L lines for current bar ─────────────────
