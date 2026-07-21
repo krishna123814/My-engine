@@ -17597,9 +17597,12 @@ function swingComputeMultiTF(asset, currentTf) {
     const data = resampleForTF(raw, tf.min, asset);
     if (data.length >= 3) {
         const htfLines = swingCompute(data, tf.min, undefined, { isNSE: _isNSE });
+        // Hierarchy rule sirf Swing High/Low par lagu hoti hai — Candle H/L
+        // higher-TF se yahan include nahi hoga, sirf current-TF (Step 1) ka
+        // candle H/L dikhega. Isliye yahan kind 'sh'/'sl' explicitly rakho.
         // Strict rule check: Current_Chart_TF <= Level_TF
         const validHtfLines = htfLines
-          .filter(line => currentTf <= line.levelTf)
+          .filter(line => currentTf <= line.levelTf && (line.kind === 'sh' || line.kind === 'sl'))
           .map(line => ({ ...line, isHTF: true }));
         allLines.push(...validHtfLines);
     }
@@ -18242,8 +18245,15 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
     for (const tf of enabledHTFs) {
       const data = _dataForTFAny(tf.min, tf.label);
       if (data.length >= 3) {
+        // Hierarchy rule sirf Swing High/Low par lagu hoti hai — Candle H/L
+        // higher-TF se yahan include nahi hoga, sirf cell ke apne-TF (Step 1)
+        // ka candle H/L dikhega. Isliye kind 'sh'/'sl' explicitly check karo.
         swingCompute(data, tf.min, liveNowSec, _srCfg2)
-          .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push({ ...l, isHTF: true }); });
+          .forEach(l => {
+            if (cellTFMin <= l.levelTf && (l.kind === 'sh' || l.kind === 'sl')) {
+              allLines.push({ ...l, isHTF: true });
+            }
+          });
       }
     }
 
