@@ -3005,7 +3005,83 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   </div>
 </div>
 
-<!-- ═══ TIMEFRAME BAR ════════════════════════════════════════════════════ -->
+<!-- ═══ TOP-BAR TOGGLE FAB — tiny draggable overlay, tap=show/hide bar, drag=move ═══ -->
+<button id="hdrfab-btn" title="Show/Hide top bar">•</button>
+<style>
+#hdrfab-btn{
+  position:fixed;width:12px;height:12px;padding:0;
+  border-radius:50%;background:rgba(41,98,255,.45);
+  border:1px solid rgba(255,255,255,.35);
+  z-index:2147483647;touch-action:none;cursor:grab;
+  font-size:0;line-height:0;opacity:.55;
+}
+#hdrfab-btn:active{cursor:grabbing;opacity:.9}
+#hdr.hdrfab-hidden{display:none!important}
+</style>
+<script>
+(function(){
+  const FAB_POS_KEY='tvHdrFabPos';
+  function init(){
+    const fab=document.getElementById('hdrfab-btn');
+    const hdr=document.getElementById('hdr');
+    if(!fab||!hdr) return;
+
+    // ── Restore saved position (or default: top-right corner) ──
+    let pos=null;
+    try{pos=JSON.parse(_LS.getItem(FAB_POS_KEY)||'null');}catch(_){}
+    const vw=window.innerWidth, vh=window.innerHeight;
+    if(pos && typeof pos.left==='number' && typeof pos.top==='number'){
+      fab.style.left=Math.min(Math.max(pos.left,0), vw-14)+'px';
+      fab.style.top =Math.min(Math.max(pos.top ,0), vh-14)+'px';
+    } else {
+      fab.style.left=(vw-18)+'px';
+      fab.style.top ='2px';
+    }
+
+    // ── Drag to move / tap to toggle ──
+    let startX=0,startY=0,origLeft=0,origTop=0,dragging=false,moved=false;
+    fab.addEventListener('pointerdown', e=>{
+      dragging=true; moved=false;
+      startX=e.clientX; startY=e.clientY;
+      origLeft=fab.offsetLeft; origTop=fab.offsetTop;
+      try{fab.setPointerCapture(e.pointerId);}catch(_){}
+      e.preventDefault();
+    });
+    fab.addEventListener('pointermove', e=>{
+      if(!dragging) return;
+      const dx=e.clientX-startX, dy=e.clientY-startY;
+      if(Math.abs(dx)>4 || Math.abs(dy)>4) moved=true;
+      if(moved){
+        let nl=origLeft+dx, nt=origTop+dy;
+        nl=Math.min(Math.max(nl,0), window.innerWidth-14);
+        nt=Math.min(Math.max(nt,0), window.innerHeight-14);
+        fab.style.left=nl+'px';
+        fab.style.top =nt+'px';
+      }
+    });
+    function endDrag(){
+      if(!dragging) return;
+      dragging=false;
+      if(moved){
+        try{_LS.setItem(FAB_POS_KEY, JSON.stringify({left:fab.offsetLeft, top:fab.offsetTop}));}catch(_){}
+      } else {
+        hdr.classList.toggle('hdrfab-hidden');
+      }
+    }
+    fab.addEventListener('pointerup', endDrag);
+    fab.addEventListener('pointercancel', ()=>{dragging=false;});
+
+    // Keep FAB inside viewport on resize/rotate
+    window.addEventListener('resize', ()=>{
+      fab.style.left=Math.min(fab.offsetLeft, window.innerWidth-14)+'px';
+      fab.style.top =Math.min(fab.offsetTop , window.innerHeight-14)+'px';
+    });
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  } else { init(); }
+})();
+</script>
 <div id="tf-bar">
   <button class="tf-btn" data-tf="5">5m</button>
   <button class="tf-btn" data-tf="15">15m</button>
