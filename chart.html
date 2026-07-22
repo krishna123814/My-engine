@@ -285,13 +285,36 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover">
 <script>
 /* ── CSS-based self-fullscreen (no user gesture needed) ── */
 (function(){
+  function _fixParentViewport(){
+    try {
+      if(window.parent===window) return;
+      var pd = window.parent.document;
+      var vp = pd.querySelector('meta[name="viewport"]');
+      if(!vp){
+        vp = pd.createElement('meta');
+        vp.setAttribute('name','viewport');
+        pd.head.appendChild(vp);
+      }
+      // viewport-fit=cover => page content allowed to extend under status bar/notch
+      vp.setAttribute('content','width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover');
+      // Match theme-color to app background so the status bar area blends in
+      var tc = pd.querySelector('meta[name="theme-color"]');
+      if(!tc){
+        tc = pd.createElement('meta');
+        tc.setAttribute('name','theme-color');
+        pd.head.appendChild(tc);
+      }
+      tc.setAttribute('content','#131722');
+    } catch(e){}
+  }
   function _selfFS(){
     try {
       if(window.parent===window) return; // not in iframe
+      _fixParentViewport();
       var iframes = window.parent.document.querySelectorAll('iframe');
       for(var i=0;i<iframes.length;i++){
         try{
