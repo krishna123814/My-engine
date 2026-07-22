@@ -3097,7 +3097,22 @@ function toggleHdrBar(){
 }
 function _hdrRelayout(){
   try {
-    if (typeof S !== 'undefined' && S.layout !== '1x1' && typeof CELLS !== 'undefined') {
+    if (typeof S !== 'undefined' && S.layout === 'stack2' && typeof STACK2_CELLS !== 'undefined') {
+      // SV2 has its own independent cell array/canvases — the CELLS branch
+      // below does nothing for it, so it needs its own explicit resize pass
+      // (same shape as the ResizeObserver callback in buildStack2()).
+      try { if (typeof wireSync === 'function') wireSync(); } catch(_){}
+      STACK2_CELLS.forEach((c,i)=>{
+        try {
+          if (!c.chart) return;
+          const el=document.getElementById('stack2-chart-'+i);
+          if (!el) return;
+          c.chart.applyOptions({width:el.clientWidth,height:el.clientHeight});
+          _vlResizeCellCanvas2(i); _vlDrawCell2(i);
+          _pdot2ResizeCellCanvas(i); _pdot2Draw(i);
+        } catch(_){}
+      });
+    } else if (typeof S !== 'undefined' && S.layout !== '1x1' && typeof CELLS !== 'undefined') {
       try { if (typeof wireSync === 'function') wireSync(); } catch(_){}
       CELLS.forEach((c,i)=>{ try { _resizeCellChart(i); } catch(_){} });
     } else if (typeof chart !== 'undefined' && chart) {
