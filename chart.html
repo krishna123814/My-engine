@@ -3065,7 +3065,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       if(moved){
         try{_LS.setItem(FAB_POS_KEY, JSON.stringify({left:fab.offsetLeft, top:fab.offsetTop}));}catch(_){}
       } else {
-        hdr.classList.toggle('hdrfab-hidden');
+        toggleHdrBar();
       }
     }
     fab.addEventListener('pointerup', endDrag);
@@ -3081,6 +3081,33 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     document.addEventListener('DOMContentLoaded', init);
   } else { init(); }
 })();
+
+// ── Toggle the top bar, then force every chart canvas to re-measure itself.
+// Just hiding/showing #hdr with CSS reflows the layout fine on its own, but
+// the lightweight-charts canvases (and our custom overlay canvases: swing
+// lines, vl-lines, pdot) don't always pick up that new size on their own —
+// same fix already applied for the Fullscreen toggle above. Without this,
+// stacked cells look mis-sized until something else nudges a resize.
+function toggleHdrBar(){
+  const hdr=document.getElementById('hdr');
+  if(!hdr) return;
+  hdr.classList.toggle('hdrfab-hidden');
+  setTimeout(_hdrRelayout, 30);
+  setTimeout(_hdrRelayout, 260);
+}
+function _hdrRelayout(){
+  try {
+    if (typeof S !== 'undefined' && S.layout !== '1x1' && typeof CELLS !== 'undefined') {
+      try { if (typeof wireSync === 'function') wireSync(); } catch(_){}
+      CELLS.forEach((c,i)=>{ try { _resizeCellChart(i); } catch(_){} });
+    } else if (typeof chart !== 'undefined' && chart) {
+      const mc=document.getElementById('main-chart');
+      if (mc) chart.resize(mc.clientWidth, mc.clientHeight);
+      try { _vlResizeCanvas(); _vlDraw(); } catch(_){}
+    }
+  } catch(_){}
+  try { window.dispatchEvent(new Event('resize')); } catch(_){}
+}
 </script>
 <div id="tf-bar">
   <button class="tf-btn" data-tf="5">5m</button>
