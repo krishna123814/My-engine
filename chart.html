@@ -736,9 +736,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   touch-action:none;   /* no touch gesture scrolls this — only the ▲▼ buttons' animated scroll does */
 }
 .stack-cell{
-  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
+  flex:0 0 auto;width:100%;border-bottom:1px solid #363a45;
   position:relative;
   display:flex;flex-direction:column;
+  background:#131722;
 }
 /* The candle/grid area itself must NEVER trigger a page/stack scroll —
    that's handled by #stack-container's own touch-action:none (its parent),
@@ -756,9 +757,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   touch-action:none;
 }
 .stack2-cell{
-  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
+  flex:0 0 auto;width:100%;border-bottom:1px solid #363a45;
   position:relative;
   display:flex;flex-direction:column;
+  background:#131722;
 }
 .stack2-cell .cell-overlay{
   pointer-events:none;
@@ -2995,7 +2997,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="hdr-icon-btn" id="sv2-practice-btn" onclick="_sv2PracticeToggle()" title="Practice Mode" style="display:none">🎯</button>
     <button class="hdr-icon-btn" id="sv2-optionchain-btn" onclick="_sv2OptionChainToggle()" title="Option Chain (Virtual Trading)" style="display:none">⛓️</button>
     <button id="draw-btn" onclick="toggleDrawPanel()" title="Drawing Tools">✏️ Draw</button>
-    <button class="hdr-icon-btn" id="tf-toggle-btn" onclick="toggleTfBar()" title="Timeframe bar">≡</button>
     <button class="hdr-icon-btn" id="cell-maximize-btn" onclick="toggleSelectedCellFS()" title="Maximize" style="display:none">⛶</button>
     <button class="hdr-icon-btn" id="layout-btn" onclick="toggleLayoutMenu(event)" title="Layouts">⊟</button>
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
@@ -3016,7 +3017,10 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   font-size:0;line-height:0;opacity:.55;
 }
 #hdrfab-btn:active{cursor:grabbing;opacity:.9}
+#hdrfab-btn.bars-hidden{background:rgba(255,80,80,.55);border-color:rgba(255,200,200,.5)}
 #hdr.hdrfab-hidden{display:none!important}
+#tf-bar.hdrfab-hidden{display:none!important}
+#bottom-bar.hdrfab-hidden{display:none!important}
 </style>
 <script>
 (function(){
@@ -3082,18 +3086,32 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   } else { init(); }
 })();
 
-// ── Toggle the top bar, then force every chart canvas to re-measure itself.
-// Just hiding/showing #hdr with CSS reflows the layout fine on its own, but
-// the lightweight-charts canvases (and our custom overlay canvases: swing
-// lines, vl-lines, pdot) don't always pick up that new size on their own —
-// same fix already applied for the Fullscreen toggle above. Without this,
-// stacked cells look mis-sized until something else nudges a resize.
+// ── Toggle all 3 bars (top header + tf-bar + bottom-bar) + fullscreen ──
 function toggleHdrBar(){
   const hdr=document.getElementById('hdr');
+  const tfb=document.getElementById('tf-bar');
+  const bot=document.getElementById('bottom-bar');
+  const fab=document.getElementById('hdrfab-btn');
   if(!hdr) return;
-  hdr.classList.toggle('hdrfab-hidden');
+  const hiding=!hdr.classList.contains('hdrfab-hidden');
+  [hdr,tfb,bot].forEach(el=>{ if(el) el.classList.toggle('hdrfab-hidden', hiding); });
+  if(fab) fab.classList.toggle('bars-hidden', hiding);
+  if(hiding){
+    // Enter fullscreen to cover phone status bar
+    const el=document.documentElement;
+    try{
+      if(el.requestFullscreen) el.requestFullscreen({navigationUI:'hide'});
+      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }catch(_){}
+  } else {
+    // Exit fullscreen
+    try{
+      if(document.exitFullscreen) document.exitFullscreen();
+      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }catch(_){}
+  }
   setTimeout(_hdrRelayout, 30);
-  setTimeout(_hdrRelayout, 260);
+  setTimeout(_hdrRelayout, 300);
 }
 function _hdrRelayout(){
   try {
@@ -13291,14 +13309,6 @@ function updateHeaderPrice(data) {
 // ════════════════════════════════════════════════════════════════════════════
 // GRID LAYOUT
 // ════════════════════════════════════════════════════════════════════════════
-function toggleTfBar() {
-  const bar=document.getElementById('tf-bar'), btn=document.getElementById('tf-toggle-btn');
-  const bottom=document.getElementById('bottom-bar');
-  const hidden=bar.classList.toggle('tf-hidden');
-  if(bottom) bottom.classList.toggle('bot-hidden',hidden);
-  btn.classList.toggle('active',hidden);
-  try{_LS.setItem('tvTfHidden',hidden?'1':'0');}catch(_){}
-}
 
 function toggleGridPicker() {
   const p=document.getElementById('grid-picker');
@@ -16356,15 +16366,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sync button visual state with loaded SYNC object (so toggles show correct on/off on page open)
   requestAnimationFrame(()=>renderSyncToggles());
 
-  // Restore TF bar hidden
-  try {
-    if (_LS.getItem('tvTfHidden')==='1') {
-      document.getElementById('tf-bar').classList.add('tf-hidden');
-      document.getElementById('tf-toggle-btn').classList.add('active');
-      const bottom=document.getElementById('bottom-bar');
-      if(bottom) bottom.classList.add('bot-hidden');
-    }
-  } catch(_) {}
+  // Restore TF bar hidden (toggle button removed)
+  try {} catch(_) {}
 
   // Silent auto-fullscreen: fires on very first touch — no overlay, completely invisible to user
   (function(){
