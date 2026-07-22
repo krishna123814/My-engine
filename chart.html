@@ -351,7 +351,6 @@
 <style>
 /* ── Reset ───────────────────────────────────────────────────────── */
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-canvas{display:block}
 html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:#d1d4dc}
 ::-webkit-scrollbar{width:3px;height:3px}
@@ -737,10 +736,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   touch-action:none;   /* no touch gesture scrolls this — only the ▲▼ buttons' animated scroll does */
 }
 .stack-cell{
-  flex:0 0 auto;width:100%;border-bottom:1px solid #363a45;
+  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
   position:relative;
   display:flex;flex-direction:column;
-  background:#131722;
 }
 /* The candle/grid area itself must NEVER trigger a page/stack scroll —
    that's handled by #stack-container's own touch-action:none (its parent),
@@ -754,14 +752,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #stack-view-2.active{display:flex;flex-direction:column}
 #stack-container-2{
   flex:1;display:flex;flex-direction:column;
-  background:#2a2e39;overflow-y:auto;min-height:0;
-  touch-action:none;
+  background:#131722;overflow-y:auto;min-height:0;
+  touch-action:none;gap:0;
 }
 .stack2-cell{
-  flex:0 0 auto;width:100%;border-bottom:1px solid #363a45;
+  flex:0 0 auto;width:100%;border-bottom:1px solid #2a2e39;
+  margin:0;padding:0;
   position:relative;
   display:flex;flex-direction:column;
-  background:#131722;
 }
 .stack2-cell .cell-overlay{
   pointer-events:none;
@@ -3113,7 +3111,6 @@ function toggleHdrBar(){
   }
   setTimeout(_hdrRelayout, 30);
   setTimeout(_hdrRelayout, 300);
-  setTimeout(_hdrRelayout, 700);
 }
 function _hdrRelayout(){
   try {
@@ -14667,14 +14664,20 @@ document.addEventListener('fullscreenchange',()=>{
     document.getElementById('fs-btn').textContent='⛶';
     document.getElementById('fs-btn').classList.remove('active');
   }
-  // Fix 11: re-sync crosshair after fullscreen change in grid mode.
-  // Delegates to _hdrRelayout() which correctly handles ALL layouts
-  // (1x1, grid/stack via CELLS, AND stack2/SV2 via STACK2_CELLS) — the
-  // old inline logic here only ever resized CELLS, so SV2 stack charts
-  // never got resized on fullscreen enter/exit, leaving their canvases
-  // at the old (pre-fullscreen) size and a visible gap below each panel.
-  setTimeout(()=>{ try{ _hdrRelayout(); }catch(_){} }, 120);
-  setTimeout(()=>{ try{ _hdrRelayout(); }catch(_){} }, 500);
+  // Fix 11: re-sync crosshair after fullscreen change in grid mode
+  setTimeout(()=>{
+    if (S.layout!=='1x1') {
+      try { wireSync(); } catch(_) {}
+      CELLS.forEach((c,i)=>{
+        if(c.chart) try { c.chart.resize(c.el.clientWidth, c.el.clientHeight); } catch(_){}
+        _vlResizeCellCanvas(i); _vlDrawCell(i);
+        _pdotResizeCellCanvas(i); _pdotDraw(i);
+      });
+    } else {
+      if (chart) try { chart.resize(document.getElementById('main-chart').clientWidth, document.getElementById('main-chart').clientHeight); } catch(_) {}
+      _vlResizeCanvas(); _vlDraw();
+    }
+  }, 120);
 });
 function restoreFS() {
   document.getElementById('fs-restore').style.display='none';
