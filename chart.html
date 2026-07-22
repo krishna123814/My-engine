@@ -7936,7 +7936,9 @@ function buildStack2() {
     const cell = document.createElement('div');
     cell.className = 'stack2-cell grid-cell';
     cell.dataset.idx2 = i;
-    cell.style.height = 'calc(100% / ' + Math.max(1, visible) + ')';
+    // Height applied precisely in whole pixels below via _stackApplyExactHeights()
+    // — see the SV1 buildStack() comment for why calc(100%/N) caused the
+    // divider border to look thicker/thinner depending on container height.
 
     const overlay = document.createElement('div');
     overlay.className = 'cell-overlay';
@@ -8027,8 +8029,10 @@ function buildStack2() {
   requestAnimationFrame(() => requestAnimationFrame(() => wireSync()));
 
   // Resize observer
+  _stackApplyExactHeights(sc, visible);
   if (_stack2ResizeObs) { try{_stack2ResizeObs.disconnect();}catch(_){} }
   _stack2ResizeObs = new ResizeObserver(() => {
+    _stackApplyExactHeights(sc, visible);
     STACK2_CELLS.forEach((c, i) => {
       if (!c.chart) return;
       const el = document.getElementById('stack2-chart-' + i);
@@ -10883,9 +10887,11 @@ function buildStack() {
     const cell = document.createElement('div');
     cell.className = 'grid-cell stack-cell';
     cell.dataset.idx = i;
-    // Each slot's height = container height / visible-count, so exactly
-    // `visible` whole charts show at once (Step 3 adds the scroll-snap).
-    cell.style.height = 'calc(100% / ' + Math.max(1, cfg.visible || 4) + ')';
+    // Height is (re)applied precisely in whole pixels by _stackApplyExactHeights()
+    // right after all cells exist (see below) and again on every future resize —
+    // using calc(100%/N) here caused each cell's fractional height to round
+    // independently, so the 1px divider border drifted/thickened differently
+    // depending on the container's exact height (e.g. header shown vs hidden).
 
     const hdr = document.createElement('div');
     hdr.className = 'cell-hdr';
@@ -10987,10 +10993,12 @@ function buildStack() {
 
   requestAnimationFrame(() => selectCell(0));
   requestAnimationFrame(() => {
+    _stackApplyExactHeights(sc, cfg.visible);
     CELLS.forEach((_, i) => buildCellChart(i));
     requestAnimationFrame(() => requestAnimationFrame(() => wireSync()));
     if (_stackResizeObs) { try{_stackResizeObs.disconnect();}catch(_){} }
     _stackResizeObs = new ResizeObserver(() => {
+      _stackApplyExactHeights(sc, cfg.visible);
       CELLS.forEach((c, i) => {
         if (!c.chart) return;
         const el = document.getElementById('cell-chart-' + i);
@@ -10999,6 +11007,24 @@ function buildStack() {
       });
     });
     _stackResizeObs.observe(sc);
+  });
+}
+
+// Give every .stack-cell the exact same whole-pixel height (container height
+// / visible-count), instead of a CSS calc(100%/N) percentage. Percentages
+// round independently per element in the browser's layout engine, so when
+// the container's total height changes (e.g. our header show/hide), each
+// cell could end up 1px off from its neighbours — that shows up as the
+// divider line between charts looking thicker/thinner in one state vs
+// another. A single shared integer height removes that drift entirely.
+function _stackApplyExactHeights(containerEl, visibleCount) {
+  if (!containerEl) return;
+  const totalH = containerEl.clientHeight;
+  if (!totalH) return;
+  const n = Math.max(1, visibleCount || 1);
+  const h = Math.round(totalH / n);
+  containerEl.querySelectorAll(':scope > .stack-cell').forEach(cell => {
+    cell.style.height = h + 'px';
   });
 }
 
