@@ -5164,14 +5164,19 @@ const TZ_MAP = {
 
 // Format: DD/MM/YYYY  HH:MM  or  DD/MM/YYYY  hh:MM AM/PM
 // For daily+ TFs — only show date, no time
-function fmtChartTime(t) {
+function fmtChartTime(t, tfOverride) {
   const d = new Date(t * 1000);
   const cfg = TZ_MAP[S.tz] || TZ_MAP.IST;
   const use12h = S.hour12 === true;
 
-  // Current active TF (minutes)
-  const activeTf = (CELLS.length > 0 && CELLS[SELECTED_CELL])
-    ? CELLS[SELECTED_CELL].tf : (S.tf || 1);
+  // Current active TF (minutes). Callers that aren't in the Stack View 1 /
+  // main-chart context (e.g. Stack View 2 cells, each with their own TF)
+  // MUST pass tfOverride — otherwise this fell back to CELLS[SELECTED_CELL],
+  // which belongs to a completely different view. Bug this caused: SV2's
+  // floating time badge used to always show date-only (even on a 15m/45m
+  // cell) whenever SELECTED_CELL elsewhere happened to be a daily+ cell.
+  const activeTf = (tfOverride != null) ? tfOverride
+    : ((CELLS.length > 0 && CELLS[SELECTED_CELL]) ? CELLS[SELECTED_CELL].tf : (S.tf || 1));
 
   // Daily or higher → only date, no time
   if (activeTf >= 1440) {
@@ -8258,18 +8263,29 @@ function _buildStack2CellChart(idx) {
     c._timeBadgeEl.className = 'sv-timebadge';
     el.appendChild(c._timeBadgeEl);
   }
-  c.chart.subscribeCrosshairMove((param) => {
+  // Shared badge-update logic — used both by this cell's own native
+  // crosshairMove (mouse, or the finger actually touching this cell) AND by
+  // the mobile touch cross-cell sync loop (lpMoveCrosshair in
+  // attachMobileTouchUX), which previously moved the crosshair line on other
+  // cells but never updated their date/time badge, and passed no per-cell TF
+  // so the badge (when it did show) was date-only regardless of the cell's
+  // actual timeframe.
+  c._updateTimeBadge = function(time, x) {
     const badge = c._timeBadgeEl;
     if (!badge) return;
     const axisOn = (typeof window._sv2GetTimeAxisOnOff === 'function') ? window._sv2GetTimeAxisOnOff() : true;
-    if (axisOn || !param || !param.time || !param.point) { badge.style.display = 'none'; return; }
-    badge.textContent = fmtChartTime(param.time);
+    if (axisOn || time == null || x == null) { badge.style.display = 'none'; return; }
+    badge.textContent = fmtChartTime(time, c.tf);
     badge.style.display = 'block';
     const w = el.clientWidth || 200;
     const bw = badge.offsetWidth || 70;
-    let left = param.point.x - bw / 2;
+    let left = x - bw / 2;
     left = Math.max(2, Math.min(left, w - bw - 2));
     badge.style.left = left + 'px';
+  };
+  c.chart.subscribeCrosshairMove((param) => {
+    if (!param || !param.time || !param.point) { c._updateTimeBadge(null, null); return; }
+    c._updateTimeBadge(param.time, param.point.x);
   });
 
   // ── Cursor kisi bhi candle par rakho → top-left header mein us candle
@@ -13122,6 +13138,7 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
       _activeSyncCells().forEach(c => {
         if (c.chart && c.chart !== chartInst) {
           try { c.chart.clearCrosshairPosition(); } catch(_) {}
+          if (typeof c._updateTimeBadge === 'function') { try { c._updateTimeBadge(null, null); } catch(_) {} }
         }
       });
     }
@@ -13188,7 +13205,21 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
                 if (!tTime) tTime = data[0].time;
               }
             } catch(_) {}
-            if (tTime) c.chart.setCrosshairPosition(tPrice, tTime, c.series);
+            if (tTime) {
+              c.chart.setCrosshairPosition(tPrice, tTime, c.series);
+              // Explicitly drive this destination cell's own floating
+              // date/time badge too (Stack View 2 only — c._updateTimeBadge
+              // is defined per-cell in _buildStack2CellChart). Previously
+              // only the cell the finger was actually touching ever showed
+              // a badge; other synced cells got the crosshair LINE but no
+              // badge, because nothing here ever touched their badge element.
+              if (typeof c._updateTimeBadge === 'function') {
+                try {
+                  const tx = c.chart.timeScale().timeToCoordinate(tTime);
+                  c._updateTimeBadge(tTime, tx);
+                } catch(_) {}
+              }
+            }
           } catch(_) {}
         });
       }
