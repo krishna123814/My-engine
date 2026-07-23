@@ -12186,7 +12186,7 @@ function _vlRemoveCellCanvas2(idx) {
 //                                       now in that cell.
 //   While the locked arrow's candle is still forming, it stays glued to that
 //   candle's low (Upward type) or high (Downward type) as those move.
-//   Colour = that cell's TF colour. Max 4 locked arrows per cell (FIFO).
+//   Colour = that cell's TF colour. Max 100 locked arrows per cell (FIFO).
 // ════════════════════════════════════════════════════════════════════════════
 const TFARR_LS_KEY      = 'tfArrowOn';
 const TFARR_TYPE_LS_KEY = 'tfArrowType';   // 'up' | 'down'
@@ -12214,12 +12214,54 @@ function _tfArrowOpenPicker() {
       <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:10px;text-align:center;">Arrow Type Chuniye</div>
       <button id="tfarrow-pick-up" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #26a69a;background:#26a69a22;color:#26a69a;font-size:12px;font-weight:600;cursor:pointer;">↑ Upward Arrow<br><span style="font-weight:400;font-size:10px;opacity:0.8">Candle ke NICHE lagega</span></button>
       <button id="tfarrow-pick-down" style="width:100%;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">↓ Downward Arrow<br><span style="font-weight:400;font-size:10px;opacity:0.8">Candle ke UPAR lagega</span></button>
-      <button id="tfarrow-pick-cancel" style="width:100%;margin-top:10px;padding:6px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Cancel</button>
+      <button id="tfarrow-pick-settings" style="width:100%;margin-top:10px;padding:9px;border-radius:6px;border:1px solid #363c4e;background:#2a2e3e;color:#d1d4dc;font-size:12px;font-weight:600;cursor:pointer;">⚙ Settings</button>
+      <button id="tfarrow-pick-cancel" style="width:100%;margin-top:8px;padding:6px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Cancel</button>
     </div>`;
   document.body.appendChild(box);
   document.getElementById('tfarrow-pick-up').onclick   = () => _tfArrowConfirmType('up');
   document.getElementById('tfarrow-pick-down').onclick = () => _tfArrowConfirmType('down');
+  document.getElementById('tfarrow-pick-settings').onclick = () => { box.style.display = 'none'; _tfArrowOpenSettings(); };
   document.getElementById('tfarrow-pick-cancel').onclick = () => { box.style.display = 'none'; };
+}
+
+// ── Settings popup: shows total locked-arrow count (across every cell, both
+//    Stack View 1 and Stack View 2) and offers a one-tap "clear everything"
+//    action. Opened from the type-picker's ⚙ Settings button. ──────────────
+function _tfArrowTotalCount() {
+  let n = 0;
+  [(typeof CELLS !== 'undefined' ? CELLS : []),
+   (typeof STACK2_CELLS !== 'undefined' ? STACK2_CELLS : [])].forEach(arr => {
+    arr.forEach(c => { if (c && c._taArrows) n += c._taArrows.length; });
+  });
+  return n;
+}
+function _tfArrowClearAllArrows() {
+  [(typeof CELLS !== 'undefined' ? CELLS : []),
+   (typeof STACK2_CELLS !== 'undefined' ? STACK2_CELLS : [])].forEach(arr => {
+    arr.forEach(c => { if (c) c._taArrows = []; });
+  });
+  _tfArrowRedrawAll();
+}
+function _tfArrowOpenSettings() {
+  let box = document.getElementById('tfarrow-settings');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'tfarrow-settings';
+  box.style.cssText = 'position:fixed;inset:0;z-index:10055;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
+  const _n = _tfArrowTotalCount();
+  box.innerHTML = `
+    <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:260px;box-shadow:0 8px 32px #0009;">
+      <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:10px;text-align:center;">Arrow Settings</div>
+      <div style="font-size:12px;color:#9598a1;text-align:center;margin-bottom:14px;">Total Arrows Lagaye Gaye: <span style="color:#d1d4dc;font-weight:700;">${_n}</span></div>
+      <button id="tfarrow-clearall" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">🗑 Sab Arrows Clear Karo</button>
+      <button id="tfarrow-settings-close" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Close</button>
+    </div>`;
+  document.body.appendChild(box);
+  document.getElementById('tfarrow-clearall').onclick = () => {
+    _tfArrowClearAllArrows();
+    box.remove();
+  };
+  document.getElementById('tfarrow-settings-close').onclick = () => box.remove();
 }
 function _tfArrowConfirmType(type) {
   TFARR_TYPE = type;
@@ -12441,7 +12483,7 @@ function _tfArrowLock(c, elId, getColor, downPt) {
     color: getColor(c),
     _lastRef: refPriceNow,  // seed now so it draws immediately even on a non-forming (historical) candle
   });
-  while (c._taArrows.length > 4) c._taArrows.shift();   // FIFO, max 4 per cell
+  while (c._taArrows.length > 100) c._taArrows.shift();   // FIFO, max 100 per cell
   return true;   // NEW: signals a real placement happened (used for single-shot auto-off)
 }
 
@@ -12498,17 +12540,30 @@ function _tfArrowConfirmDelete(c, arrow) {
   box.style.cssText = 'position:fixed;inset:0;z-index:10060;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
   box.innerHTML = `
     <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:240px;box-shadow:0 8px 32px #0009;">
-      <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:12px;text-align:center;">Ye arrow delete karein?</div>
-      <button id="tfarrow-del-yes" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">Delete</button>
-      <button id="tfarrow-del-no" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Cancel</button>
+      <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:12px;text-align:center;">Arrow Options</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;background:#131722;border:1px solid #2a2e39;border-radius:6px;padding:8px 10px;">
+        <span style="font-size:11px;color:#9598a1;">🎨 Colour Badlo</span>
+        <input id="tfarrow-color-input" type="color" value="${_tfArrowToHex(arrow.color)}" style="width:34px;height:24px;border:none;background:none;cursor:pointer;padding:0;">
+      </div>
+      <button id="tfarrow-del-yes" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">🗑 Delete</button>
+      <button id="tfarrow-del-no" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Cancel / Done</button>
     </div>`;
   document.body.appendChild(box);
+  document.getElementById('tfarrow-color-input').oninput = (ev) => {
+    arrow.color = ev.target.value;   // arrow is the actual object inside c._taArrows — live update, no redraw call needed (300ms poll picks it up)
+  };
   document.getElementById('tfarrow-del-yes').onclick = () => {
     const idx = c._taArrows ? c._taArrows.findIndex(x => x.id === arrow.id) : -1;
     if (idx !== -1) c._taArrows.splice(idx, 1);
     box.remove();
   };
   document.getElementById('tfarrow-del-no').onclick = () => box.remove();
+}
+// ── <input type="color"> needs a strict #rrggbb hex value — cell TF colours
+//    are already hex, but fall back safely if something odd sneaks in. ─────
+function _tfArrowToHex(col) {
+  if (typeof col === 'string' && /^#([0-9a-fA-F]{6})$/.test(col)) return col;
+  return '#2962ff';
 }
 
 // ── Per-cell redraw: keep locked arrows glued to their (still forming)
@@ -17167,11 +17222,16 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
 
   let pGreen = false, pRed = false, pHigh = 0, pLow = 0;
   // ── Streak tracking — resistance/support ko lagataar same-color candles
-  // ke streak mein "sabse extreme" point par shift karne ke liye. Jab streak
-  // toot jaaye (opposite color candle aaye), agli initial transition khud
-  // naya object bana ke inhe overwrite kar degi — koi manual reset zaroori nahi.
-  let activeResObj = null;   // red-streak ka current resistance (aRes ka ek object-reference)
-  let activeSupObj = null;   // green-streak ka current support (aSup ka ek object-reference)
+  // ke streak mein naye "sabse extreme" point par track karne ke liye. Ye ab
+  // SHIFT nahi karta — jab streak ke andar ek naya extreme banta hai, purani
+  // line delete nahi hoti, ek NAYI additional line add hoti hai (accumulate).
+  // activeResObj/activeSupObj sirf yaad rakhte hain "abhi tak is streak ka
+  // sabse extreme kya tha", taaki agla candle usse compare kar sake. Jab
+  // streak toot jaaye (opposite color candle aaye), agli initial transition
+  // khud naya object bana ke inhe overwrite kar degi — koi manual reset
+  // zaroori nahi.
+  let activeResObj = null;   // red-streak ka ab-tak-ka-sabse-extreme resistance (comparison ke liye)
+  let activeSupObj = null;   // green-streak ka ab-tak-ka-sabse-extreme support (comparison ke liye)
 
   // ── Overnight/session-gap flag (intraday TFs only) ──────────────────────
   // Minute TFs (5/15/45/135m) ka pehla candle har trading day 9:15 par ek
@@ -17294,9 +17354,12 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       // purana resistance jyon-ka-tyon bana rahega, kuch nahi hota.
       if (cur.high > activeResObj.price) {
         const rPrice = cur.high;
-        // Purana (superseded) resistance object delete karo
-        aRes = aRes.filter(l => l !== activeResObj);
+        // Purana resistance ab yahan DELETE nahi hota — same-streak ki purani
+        // extreme line bhi bani rehti hai, naya extreme sirf ek ADDITIONAL
+        // resistance line ke roop mein add hota hai (accumulate, not shift).
         // Same dedup jo initial creation par hoti hai — naye se upar wale hata do
+        // (activeResObj is filter se kabhi nahi hatega, kyunki uska price
+        // hamesha rPrice se kam hi hota hai is branch mein).
         aRes = aRes.filter(l => l.price <= rPrice);
         aSup = aSup.filter(l => l.price <= rPrice);
         const _shEndIdx = i + _swS * _swBars;
@@ -17335,9 +17398,12 @@ function swingCompute(bars, tfMin, nowSec, _cfg) {
       // purana support jyon-ka-tyon bana rahega, kuch nahi hota.
       if (cur.low < activeSupObj.price) {
         const sPrice = cur.low;
-        // Purana (superseded) support object delete karo
-        aSup = aSup.filter(l => l !== activeSupObj);
+        // Purana support ab yahan DELETE nahi hota — same-streak ki purani
+        // extreme line bhi bani rehti hai, naya extreme sirf ek ADDITIONAL
+        // support line ke roop mein add hota hai (accumulate, not shift).
         // Same dedup jo initial creation par hoti hai
+        // (activeSupObj is filter se kabhi nahi hatega, kyunki uska price
+        // hamesha sPrice se zyada hi hota hai is branch mein).
         aSup = aSup.filter(l => l.price >= sPrice);
         aRes = aRes.filter(l => l.price >= sPrice);
         const _slEndIdx = i + _swS * _swBars;
