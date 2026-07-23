@@ -13213,11 +13213,14 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
               // only the cell the finger was actually touching ever showed
               // a badge; other synced cells got the crosshair LINE but no
               // badge, because nothing here ever touched their badge element.
+              // Use the touch's own relative x (same one already used to
+              // keep the crosshair LINE aligned across every stacked panel)
+              // rather than chart.timeScale().timeToCoordinate(tTime) —
+              // that API can return null right at a pane's live/right edge
+              // during replay, which was silently hiding the badge on most
+              // cells even though the line itself was rendering fine.
               if (typeof c._updateTimeBadge === 'function') {
-                try {
-                  const tx = c.chart.timeScale().timeToCoordinate(tTime);
-                  c._updateTimeBadge(tTime, tx);
-                } catch(_) {}
+                try { c._updateTimeBadge(tTime, cx - cr.left); } catch(_) {}
               }
             }
           } catch(_) {}
