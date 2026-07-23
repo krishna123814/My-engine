@@ -3086,6 +3086,18 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 })();
 
 // ── Toggle all 3 bars (top header + tf-bar + bottom-bar) + fullscreen ──
+// _hdrFabEnteredFS tracks whether THIS toggle is the one that put us into
+// fullscreen. Bug this fixes: previously hiding always called
+// requestFullscreen() and un-hiding always called exitFullscreen(),
+// regardless of how fullscreen got turned on. So: tap the separate ⛶
+// fullscreen button first, then tap the dot to hide the 3 bars, then tap
+// the dot AGAIN to bring the 3 bars back — that second tap would blindly
+// call exitFullscreen() and kick the user out of fullscreen entirely,
+// instead of just re-showing the bars. Now we only exit fullscreen here if
+// we were the one who entered it (i.e. fullscreen was OFF when the bars
+// were hidden); if it was already on beforehand, un-hiding just restores
+// the bars and leaves fullscreen exactly as the user set it.
+let _hdrFabEnteredFS = false;
 function toggleHdrBar(){
   const hdr=document.getElementById('hdr');
   const tfb=document.getElementById('tf-bar');
@@ -3096,18 +3108,28 @@ function toggleHdrBar(){
   [hdr,tfb,bot].forEach(el=>{ if(el) el.classList.toggle('hdrfab-hidden', hiding); });
   if(fab) fab.classList.toggle('bars-hidden', hiding);
   if(hiding){
-    // Enter fullscreen to cover phone status bar
-    const el=document.documentElement;
-    try{
-      if(el.requestFullscreen) el.requestFullscreen({navigationUI:'hide'});
-      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    }catch(_){}
+    // Enter fullscreen to cover phone status bar — but only take ownership
+    // of exiting it later if it wasn't already on (e.g. via the ⛶ button).
+    const alreadyFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    _hdrFabEnteredFS = !alreadyFS;
+    if(!alreadyFS){
+      const el=document.documentElement;
+      try{
+        if(el.requestFullscreen) el.requestFullscreen({navigationUI:'hide'});
+        else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      }catch(_){}
+    }
   } else {
-    // Exit fullscreen
-    try{
-      if(document.exitFullscreen) document.exitFullscreen();
-      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
-    }catch(_){}
+    // Exit fullscreen ONLY if this same dot-toggle was the one that entered
+    // it. If fullscreen was already active before hiding (user's own ⛶ tap),
+    // leave it untouched — just restore the 3 bars.
+    if(_hdrFabEnteredFS){
+      try{
+        if(document.exitFullscreen) document.exitFullscreen();
+        else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+      }catch(_){}
+    }
+    _hdrFabEnteredFS = false;
   }
   setTimeout(_hdrRelayout, 30);
   setTimeout(_hdrRelayout, 300);
@@ -8467,8 +8489,17 @@ function _buildStack2CellChart(idx) {
     try { _dtRegisterChart('stack2-' + idx, c.chart, c.series, el); } catch(_) {}
   }
   // Mobile touch UX
+  // NOTE: attachMobileTouchUX() adds touchstart/touchmove/touchend listeners
+  // directly on `el` (the container DOM node), which is REUSED across
+  // rebuilds — unlike c.chart (destroyed+recreated above), `el`'s listeners
+  // don't get torn down automatically. Previously this call never cleaned up
+  // the prior attach, so every rebuild (asset switch, settings change, replay
+  // reset, etc.) piled another full set of touch listeners onto the same
+  // element. Multiple parallel long-press state machines then raced each
+  // other on touchend, contributing to stuck crosshair/time-badge state.
+  if (c._mobTouchCleanup) { try { c._mobTouchCleanup(); } catch(_) {} c._mobTouchCleanup = null; }
   if (typeof attachMobileTouchUX === 'function') {
-    try { attachMobileTouchUX(el, c.chart, () => c.series); } catch(_) {}
+    try { c._mobTouchCleanup = attachMobileTouchUX(el, c.chart, () => c.series); } catch(_) {}
   }
 }
 
@@ -13078,6 +13109,11 @@ function attachMobileTouchUX(container, chartInst, seriesGetter) {
   function lpDeactivate() {
     lpOn = false; _lastBar = null;
     try { chartInst.applyOptions({handleScroll:{horzTouchDrag:true, vertTouchDrag:true, mouseWheel:true, pressedMouseMove:true}}); } catch(_) {}
+    // Cancel any SYNC.crosshair flush that's still queued via requestAnimationFrame
+    // from the last touchmove — otherwise it fires on the very next frame with
+    // the stale pre-lift crosshair position and re-paints it (and the floating
+    // time badge) on every synced cell right after we just cleared them below.
+    if (typeof _cancelPendingCrosshairSync === 'function') { try { _cancelPendingCrosshairSync(); } catch(_) {} }
     // Clear crosshair on this chart + all other cells in the currently
     // active view (grid Stack View 1 OR Stack View 2 — not hardcoded CELLS,
     // which used to leave SV2 panes stuck showing a stale crosshair).
@@ -13451,6 +13487,22 @@ function toggleSync(key, btn){
 // ── Cross-chart sync (crosshair + visible range) ────────────────────────────
 let _syncing = false;
 let _syncSrc = -1;
+// ── Shared state for the SYNC.crosshair rAF-throttled flush (see wireSync()
+// below). Used to live as plain `let`s INSIDE wireSync()'s closure, which
+// meant nothing outside that function could ever cancel a pending flush.
+// Bug this caused: on mobile, lifting a finger (lpDeactivate) clears the
+// crosshair on every cell immediately — but if the last touchmove had just
+// queued a flush via requestAnimationFrame, that flush was still pending
+// and would fire on the VERY NEXT frame with the stale (pre-lift) crosshair
+// position, silently re-painting it (and the floating time badge) right
+// after it had just been cleared. Moving this state up here lets
+// _cancelPendingCrosshairSync() (called from lpDeactivate) actually reach
+// and cancel it.
+let _xhSyncState = { raf: null, param: null, srcIdx: -1 };
+function _cancelPendingCrosshairSync() {
+  if (_xhSyncState.raf !== null) { try { cancelAnimationFrame(_xhSyncState.raf); } catch(_) {} }
+  _xhSyncState.raf = null; _xhSyncState.param = null; _xhSyncState.srcIdx = -1;
+}
 function unwireSync(){
   _activeSyncCells().forEach(c=>{
     if(c._chHandler&&c.chart){ try{c.chart.unsubscribeCrosshairMove(c._chHandler);}catch(_){} c._chHandler=null; }
@@ -13539,11 +13591,11 @@ function wireSync(){
   //     used there: re-derive each destination cell's bars via
   //     _baseDataFor()+resampleForTF(), then floor-match against that.
   if(SYNC.crosshair){
-    let _xhRAF = null, _xhParam = null, _xhSrcIdx = -1;
+    _cancelPendingCrosshairSync();   // drop any stale flush left over from before this (re)wire
 
     function _flushCrosshairSync(){
-      _xhRAF = null;
-      const si = _xhSrcIdx, param = _xhParam;
+      _xhSyncState.raf = null;
+      const si = _xhSyncState.srcIdx, param = _xhSyncState.param;
       if(si < 0) return;
       const src = CELLS_ACTIVE[si];
       if(!src || !src.chart || !src.series) return;
@@ -13570,8 +13622,8 @@ function wireSync(){
     CELLS_ACTIVE.forEach((src, si)=>{
       if(!src.chart || !src.series) return;
       src._chHandler = param => {
-        _xhParam = param; _xhSrcIdx = si;
-        if(_xhRAF === null) _xhRAF = requestAnimationFrame(_flushCrosshairSync);
+        _xhSyncState.param = param; _xhSyncState.srcIdx = si;
+        if(_xhSyncState.raf === null) _xhSyncState.raf = requestAnimationFrame(_flushCrosshairSync);
       };
       src.chart.subscribeCrosshairMove(src._chHandler);
     });
