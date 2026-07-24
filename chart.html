@@ -1025,6 +1025,32 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#555;
   cursor:not-allowed;
 }
+#sv2-prevstep-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:20px;height:20px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #ff9800;
+  box-shadow:0 4px 16px #0007;
+  font-size:9px;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  color:#ff9800;
+}
+#sv2-prevstep-btn.visible{
+  display:flex;
+}
+#sv2-prevstep-btn.disabled{
+  opacity:.3;
+  border-color:#555;
+  color:#555;
+  cursor:not-allowed;
+}
 #sv2-step-btn.animating{
   opacity:.45;
   border-color:#555;
@@ -2346,9 +2372,9 @@ select.s-select, input.s-select{
 /* ── Go-to-latest button (Fix 10: 70% smaller) ────────────────────── */
 #goto-latest-btn{
   position:fixed;bottom:30px;right:6px;z-index:8200;
-  width:24px;height:24px;border-radius:50%;
+  width:12px;height:12px;border-radius:50%;
   background:#1e222d;border:1px solid #363a45;
-  color:#9598a1;font-size:12px;line-height:1;
+  color:#9598a1;font-size:6px;line-height:1;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 2px 8px #0008;transition:background .15s,border-color .15s,opacity .15s;
   user-select:none;padding:0;
@@ -2358,9 +2384,9 @@ select.s-select, input.s-select{
 /* ── Per-cell "go to latest" button ─────────────────────────────── */
 .cell-goto-btn{
   position:absolute;bottom:4px;right:4px;z-index:30;
-  width:20px;height:20px;border-radius:50%;
+  width:10px;height:10px;border-radius:50%;
   background:#1e222d;border:1px solid #363a45;
-  color:#9598a1;font-size:11px;line-height:1;
+  color:#9598a1;font-size:5.5px;line-height:1;
   cursor:pointer;display:flex;align-items:center;justify-content:center;
   box-shadow:0 1px 6px #0008;transition:background .15s,border-color .15s;
   padding:0;
@@ -3272,6 +3298,7 @@ function _hdrRelayout(){
 
 <!-- ═══ SV2 LIVE REPLAY CONTROLS (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
+<button id="sv2-prevstep-btn" title="Previous candle (undo 1 step)" onclick="_sv2StepBack()">⏮</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
 <button id="sv2-srtoggle-btn" title="Bade TF ka SR chhote TF par Show/Hide" onclick="_sv2SrHierarchyToggle()">SR</button>
@@ -9098,6 +9125,7 @@ function ss2ApplyAndClose() {
 
   var _playBtn   = null;   // #sv2-step-btn (Play/Pause — continuous auto-replay)
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
+  var _prevBtn   = null;   // #sv2-prevstep-btn (Previous candle — undo last step)
   var _resetBtn  = null;   // #sv2-reset-btn
   var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
   var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
@@ -9117,6 +9145,11 @@ function ss2ApplyAndClose() {
   })();
   var _ringCircle = null, _ringCirc = 0, _ringRaf = null, _ringStart = null;
   var _formingIv  = null;
+  var _undoStack  = [];    // Previous-candle (⏮) undo history — ek snapshot har forward
+                            // tick se pehle push hota hai, taaki step-back par revealIdx
+                            // + Option Chain positions + Practice Tracker progress sab
+                            // exactly wahi state mein wapas aa jaayein jaisi us candle
+                            // ke reveal hone SE PEHLE thi. Reset/naya date-range par clear.
   var _pausedAt   = null;  // performance.now() timestamp jab pause hua — resume par
                             // _ringStart isi ke hisaab se shift karke candle progress
                             // wahi se continue karta hai, restart nahi hota.
@@ -9131,6 +9164,7 @@ function ss2ApplyAndClose() {
     // aur 📅 Calendar is toggle se unaffected rehte hain, hamesha dikhte hain.
     var stepResetOn = (typeof window._sv2StepResetVisible === 'function') ? window._sv2StepResetVisible() : true;
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
+    if (_prevBtn)     _prevBtn.classList.toggle('visible', show && stepResetOn);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show && stepResetOn);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show && stepResetOn);
     // SR hierarchy toggle — calendar ki tarah hamesha dikhta hai jab tak
@@ -9175,17 +9209,21 @@ function ss2ApplyAndClose() {
       _playBtn.style.left = r.left + 'px';
       _playBtn.style.top  = (r.bottom + GAP + stackOffset) + 'px';
     }
+    if (_prevBtn) {
+      _prevBtn.style.left = r.left + 'px';
+      _prevBtn.style.top  = (r.bottom + GAP + stackOffset + 29) + 'px';
+    }
     if (_onestepBtn) {
       _onestepBtn.style.left = r.left + 'px';
-      _onestepBtn.style.top  = (r.bottom + GAP + stackOffset + 29) + 'px';
+      _onestepBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
     }
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
-      _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
+      _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29) + 'px';
     }
     if (_openPxBtn) {
       _openPxBtn.style.left = r.left + 'px';
-      _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29) + 'px';
+      _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29) + 'px';
     }
     if (_arrowBtn) {
       // Sits below whichever icon is currently the last one in the stack —
@@ -9193,7 +9231,7 @@ function ss2ApplyAndClose() {
       // right after the SR/CH/P&L group (openPx hidden when replay isn't
       // actively running, so the stack is shorter in that case).
       var openPxVisible = !!(_openPxBtn && _openPxBtn.classList.contains('visible'));
-      var arrowExtra = openPxVisible ? (stackOffset + 29 + 29 + 29 + 29) : stackOffset;
+      var arrowExtra = openPxVisible ? (stackOffset + 29 + 29 + 29 + 29 + 29) : stackOffset;
       _arrowBtn.style.left = r.left + 'px';
       _arrowBtn.style.top  = (r.bottom + GAP + arrowExtra) + 'px';
     }
@@ -9576,6 +9614,10 @@ function ss2ApplyAndClose() {
     // Step button: replay chalte hue (continuous play) ya khatam ho chuke
     // data par manual step allow nahi — warna dono controls tussle karenge.
     if (_onestepBtn) _onestepBtn.classList.toggle('disabled', done || _running);
+    // Previous-candle button: running ke waqt disable (onestep jaisa hi
+    // tussle-avoidance), aur jab tak koi candle undo-history mein na ho
+    // (yaani abhi tak session mein kuch bhi reveal nahi hua).
+    if (_prevBtn) _prevBtn.classList.toggle('disabled', _running || !_undoStack.length);
   }
 
   // Resolve a cell's real TF in minutes from its label (cell.tf is unused/hardcoded)
@@ -9726,6 +9768,21 @@ function ss2ApplyAndClose() {
     var live = window._SV2_LIVE;
     if (!live || !live.baseBars) { _pause(); return; }
     if (live.revealIdx >= live.baseBars.length) { _pause(); _renderPlayIcon(); return; }
+
+    // ── ⏮ Undo snapshot — pura pre-tick state capture karo taaki ⏮ Previous
+    //    button se is candle ko poori tarah revert kiya jaa sake (Option
+    //    Chain positions/P&L, Practice Tracker progress, sab wapas aa jaaye
+    //    jaisa ye candle reveal hone se PEHLE tha). Max 500 steps rakhte
+    //    hain (memory-safe), sabse purana FIFO se hat jaata hai.
+    try {
+      _undoStack.push({
+        revealIdxBefore:   live.revealIdx,
+        mktCloseShownFor:  live._mktCloseShownFor,
+        ocPositionsJson:   (typeof SV2OC !== 'undefined' && SV2OC.positions) ? JSON.stringify(SV2OC.positions) : null,
+        trackerAllJson:    (typeof _sv2TrackerLoadAll === 'function') ? JSON.stringify(_sv2TrackerLoadAll()) : null
+      });
+      if (_undoStack.length > 500) _undoStack.shift();
+    } catch(_) {}
 
     live.revealIdx++;
     _rebuildAllCells();
@@ -9932,10 +9989,73 @@ function ss2ApplyAndClose() {
     _tick();
   }
 
+  // ── ⏮ Previous Candle: undo the last revealed candle, one tap = one step
+  //    back. Fully reverts everything that candle's forward-tick changed —
+  //    revealIdx, Option Chain positions/P&L (including any SL/TP/expiry
+  //    square-off that candle triggered), Practice Tracker progress, and
+  //    the SR/Swing/Parent-Dot markers (recomputed fresh for the earlier
+  //    cutoff). Auto-play ke saath tussle na ho isliye pehle pause. ───────
+  function _sv2SwingSyncToRevealIdx(live) {
+    try {
+      if (live.revealIdx > (live.startIdx || 0) && live.baseBars[live.revealIdx - 1]) {
+        sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time);
+      } else {
+        var rng = window._SV2_DATE_RANGE;
+        var cutoff = (rng && typeof rng.from === 'number') ? rng.from : null;
+        sv2SwingInit(cutoff);
+      }
+    } catch(_) {}
+  }
+  function _stepBack() {
+    if (_running) _pause();
+    var live = window._SV2_LIVE;
+    if (!live || !live.baseBars) return;
+    if (!_undoStack.length) return;   // kuch bhi reveal nahi hua is session mein — undo karne ko kuch nahi
+
+    var snap = _undoStack.pop();
+
+    live.revealIdx = snap.revealIdxBefore;
+    live._mktCloseShownFor = snap.mktCloseShownFor;
+
+    // Option Chain positions/P&L — exact pre-tick state wapas restore karo
+    // (isse SL/TP/expiry ki wajah se hua koi bhi auto square-off bhi undo
+    // ho jaata hai, kyunki poora positions array hi replace ho raha hai).
+    try {
+      if (typeof SV2OC !== 'undefined' && snap.ocPositionsJson != null) {
+        SV2OC.positions = JSON.parse(snap.ocPositionsJson);
+        try { localStorage.setItem(_sv2OCStorageKey(), JSON.stringify(SV2OC.positions)); } catch(_) {}
+        if (typeof _sv2OCRenderPositions === 'function') try { _sv2OCRenderPositions(); } catch(_) {}
+        if (typeof _sv2OCUpdatePnlOverlay === 'function') try { _sv2OCUpdatePnlOverlay(); } catch(_) {}
+        if (SV2OC.open && SV2OC.activeTab === 'chain' && typeof _sv2OCRenderChain === 'function') {
+          try { _sv2OCRenderChain(); } catch(_) {}
+        }
+      }
+    } catch(_) {}
+
+    // Practice Tracker progress — pura tracker object wapas restore karo
+    // (isse "day complete" mark aur uska daily-log count bhi sahi se undo
+    // ho jaata hai, agar us candle ne koi din complete kiya tha).
+    try {
+      if (typeof _sv2TrackerSaveAll === 'function' && snap.trackerAllJson != null) {
+        _sv2TrackerSaveAll(JSON.parse(snap.trackerAllJson));
+        if (typeof _sv2TrackerRefreshUI === 'function') {
+          _sv2TrackerRefreshUI('btc');
+          _sv2TrackerRefreshUI('bn');
+        }
+      }
+    } catch(_) {}
+
+    _rebuildAllCells();
+    _sv2SwingSyncToRevealIdx(live);
+    _renderPlayIcon();
+    try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
+  }
+
   function _reset() {
     _pause();
     _pausedAt = null;   // poora reset — koi resume-shift baggage nahi rehna chahiye
     _ringStart = null;
+    _undoStack.length = 0;   // ⏮ history bhi clear — reset ke baad peeche jaane ko kuch nahi bacha
     var live = window._SV2_LIVE;
     if (!live) return;
     live.revealIdx = live.startIdx;
@@ -9951,6 +10071,7 @@ function ss2ApplyAndClose() {
   // Keep old global names working (HTML onclick + external callers use these)
   window._sv2StepForward = _togglePlay;
   window._sv2StepOnce    = _stepOnce;
+  window._sv2StepBack    = _stepBack;
   window._sv2LiveReset   = _reset;
   window._sv2StepSyncBtn = _syncControls;
   // Settings modal se right-offset (future spaces) badalne par turant
@@ -9961,6 +10082,7 @@ function ss2ApplyAndClose() {
     _pause();
     _pausedAt = null;   // naya replay session — purani candle ka progress carry nahi hona chahiye
     _ringStart = null;
+    _undoStack.length = 0;   // naya session — ⏮ history bhi fresh
     _syncControls();
   });
 
@@ -9968,6 +10090,7 @@ function ss2ApplyAndClose() {
     _pause();
     _pausedAt = null;
     _ringStart = null;
+    _undoStack.length = 0;
     window._SV2_LIVE = null;
     _syncControls();
     if (typeof STACK2_CELLS !== 'undefined') {
@@ -9991,6 +10114,7 @@ function ss2ApplyAndClose() {
 
   function _init() {
     _playBtn    = document.getElementById('sv2-step-btn');
+    _prevBtn    = document.getElementById('sv2-prevstep-btn');
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
     _srToggleBtn = document.getElementById('sv2-srtoggle-btn');
@@ -11832,9 +11956,11 @@ function _tfArrowOpenPicker() {
   document.getElementById('tfarrow-pick-cancel').onclick = () => { box.style.display = 'none'; };
 }
 
-// ── Settings popup: shows total locked-arrow count (across every cell, both
-//    Stack View 1 and Stack View 2) and offers a one-tap "clear everything"
-//    action. Opened from the type-picker's ⚙ Settings button. ──────────────
+// ── Settings popup: shows locked-arrow count broken down per asset +
+//    per timeframe (across every cell, both Stack View 1 and Stack View 2),
+//    each with its own "clear" button, plus an overall total and a
+//    "clear everything" action. Opened from the type-picker's ⚙ Settings
+//    button. ──────────────────────────────────────────────────────────────
 function _tfArrowTotalCount() {
   let n = 0;
   [(typeof CELLS !== 'undefined' ? CELLS : []),
@@ -11843,6 +11969,25 @@ function _tfArrowTotalCount() {
   });
   return n;
 }
+// Groups every cell's locked-arrow count by (asset, timeframe) pair, merging
+// duplicates that appear in both Stack View 1 and Stack View 2 (or multiple
+// grid cells sharing the same asset+tf) into a single row.
+function _tfArrowGroupedCounts() {
+  const map = new Map();
+  [(typeof CELLS !== 'undefined' ? CELLS : []),
+   (typeof STACK2_CELLS !== 'undefined' ? STACK2_CELLS : [])].forEach(arr => {
+    arr.forEach(c => {
+      if (!c || !c._taArrows || !c._taArrows.length) return;
+      const key = c.asset + '||' + c.tf;
+      if (!map.has(key)) map.set(key, { asset: c.asset, tf: c.tf, count: 0 });
+      map.get(key).count += c._taArrows.length;
+    });
+  });
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.asset !== b.asset) return a.asset < b.asset ? -1 : 1;
+    return (a.tf || 0) - (b.tf || 0);
+  });
+}
 function _tfArrowClearAllArrows() {
   [(typeof CELLS !== 'undefined' ? CELLS : []),
    (typeof STACK2_CELLS !== 'undefined' ? STACK2_CELLS : [])].forEach(arr => {
@@ -11850,24 +11995,68 @@ function _tfArrowClearAllArrows() {
   });
   _tfArrowRedrawAll();
 }
+// Clears only the arrows belonging to one specific asset+timeframe group.
+function _tfArrowClearGroup(asset, tf) {
+  [(typeof CELLS !== 'undefined' ? CELLS : []),
+   (typeof STACK2_CELLS !== 'undefined' ? STACK2_CELLS : [])].forEach(arr => {
+    arr.forEach(c => { if (c && c.asset === asset && c.tf === tf) c._taArrows = []; });
+  });
+  _tfArrowRedrawAll();
+}
+function _tfArrowSettingsBodyHtml() {
+  const groups = _tfArrowGroupedCounts();
+  const _n = _tfArrowTotalCount();
+  if (!groups.length) {
+    return `<div style="font-size:12px;color:#9598a1;text-align:center;margin-bottom:14px;">Koi arrow nahi laga hua hai.</div>`;
+  }
+  const rows = groups.map(g => {
+    const label = _cellAssetShort(g.asset) + ' · ' + _cellTfLabel(g.tf);
+    const gid = 'tfa-grp-' + btoa(unescape(encodeURIComponent(g.asset + '||' + g.tf))).replace(/[^a-zA-Z0-9]/g, '');
+    return `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #2a2e39;">
+        <div style="font-size:11.5px;color:#d1d4dc;">${label} <span style="color:#9598a1;">— ${g.count} arrow${g.count===1?'':'s'}</span></div>
+        <button class="tfa-grp-clear" data-gid="${gid}" style="flex-shrink:0;padding:5px 10px;border-radius:5px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:10.5px;font-weight:600;cursor:pointer;">Clear</button>
+      </div>`;
+  }).join('');
+  return `
+    <div style="font-size:12px;color:#9598a1;text-align:center;margin-bottom:8px;">Total Arrows Lagaye Gaye: <span style="color:#d1d4dc;font-weight:700;">${_n}</span></div>
+    <div style="max-height:260px;overflow-y:auto;margin-bottom:10px;" id="tfarrow-groups-list">${rows}</div>`;
+}
 function _tfArrowOpenSettings() {
   let box = document.getElementById('tfarrow-settings');
   if (box) box.remove();
   box = document.createElement('div');
   box.id = 'tfarrow-settings';
   box.style.cssText = 'position:fixed;inset:0;z-index:10055;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.55);';
-  const _n = _tfArrowTotalCount();
+  const _groupsMap = new Map(); // gid -> {asset, tf}
+  const _rebuild = () => {
+    const groups = _tfArrowGroupedCounts();
+    _groupsMap.clear();
+    groups.forEach(g => {
+      const gid = 'tfa-grp-' + btoa(unescape(encodeURIComponent(g.asset + '||' + g.tf))).replace(/[^a-zA-Z0-9]/g, '');
+      _groupsMap.set(gid, { asset: g.asset, tf: g.tf });
+    });
+    const body = box.querySelector('#tfarrow-settings-body');
+    if (body) body.innerHTML = _tfArrowSettingsBodyHtml();
+    box.querySelectorAll('.tfa-grp-clear').forEach(btn => {
+      btn.onclick = () => {
+        const g = _groupsMap.get(btn.getAttribute('data-gid'));
+        if (g) { _tfArrowClearGroup(g.asset, g.tf); _rebuild(); }
+      };
+    });
+  };
   box.innerHTML = `
-    <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:260px;box-shadow:0 8px 32px #0009;">
+    <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:280px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px #0009;">
       <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:10px;text-align:center;">Arrow Settings</div>
-      <div style="font-size:12px;color:#9598a1;text-align:center;margin-bottom:14px;">Total Arrows Lagaye Gaye: <span style="color:#d1d4dc;font-weight:700;">${_n}</span></div>
+      <div id="tfarrow-settings-body"></div>
       <button id="tfarrow-clearall" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">🗑 Sab Arrows Clear Karo</button>
       <button id="tfarrow-settings-close" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Close</button>
     </div>`;
   document.body.appendChild(box);
+  _rebuild();
   document.getElementById('tfarrow-clearall').onclick = () => {
     _tfArrowClearAllArrows();
-    box.remove();
+    _rebuild();
   };
   document.getElementById('tfarrow-settings-close').onclick = () => box.remove();
 }
