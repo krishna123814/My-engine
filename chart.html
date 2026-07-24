@@ -798,8 +798,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   box-shadow:0 8px 32px #0009;
 }
 
-/* ── SV1 — Higher-TF SR Opacity control (button + slider panel) ───────── */
-#sv1-sropacity-fab{
+/* ── SV1 — TF Arrow Marker (icon below CH-opacity, bottom of the SV1
+   vertical FAB stack: SR → opacity → dedup → CH-hide → CH-opacity → Arrow) ── */
+#sv1-arrow-fab{
   display:none;
   position:fixed;
   z-index:8500;
@@ -808,51 +809,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#1e222d;
   border:1px solid #787b86;
   box-shadow:0 4px 16px #0007;
-  font-size:11px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv1-sropacity-fab.visible{ display:flex; }
-#sv1-sropacity-fab.open{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-#sv1-sropacity-panel{
-  display:none;
-  position:fixed;
-  z-index:8600;
-  width:190px;
-  background:#1e222d;
-  border:1px solid #363c4e;
-  border-radius:10px;
-  box-shadow:0 8px 24px #0009;
-  padding:10px 12px;
-}
-#sv1-sropacity-panel.open{ display:block; }
-#sv1-sropacity-hdr{
-  display:flex;justify-content:space-between;align-items:center;
-  font-size:10px;color:#9598a1;margin-bottom:8px;
-}
-#sv1-sropacity-val{ color:#2962ff;font-weight:700; }
-#sv1-sropacity-slider{ width:100%; }
-
-/* ── SV1 — SR Dedup Rule Toggle (icon below opacity button) ───────────── */
-#sv1-srdedup-fab{
-  display:none;
-  position:fixed;
-  z-index:8500;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:9px;
+  font-size:13px;
   font-weight:700;
   cursor:pointer;
   align-items:center;justify-content:center;
@@ -862,132 +819,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   transition:border-color .2s, background .2s, color .2s;
   color:#787b86;
 }
-#sv1-srdedup-fab.visible{ display:flex; }
-#sv1-srdedup-fab.on{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-
-/* ── SV2 — Higher-TF SR Opacity control (button + slider panel) ───────── */
-#sv2-sropacity-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:11px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv2-sropacity-btn.visible{ display:flex; }
-#sv2-sropacity-btn.open{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-#sv2-sropacity-panel{
-  display:none;
-  position:fixed;
-  z-index:8600;
-  width:190px;
-  background:#1e222d;
-  border:1px solid #363c4e;
-  border-radius:10px;
-  box-shadow:0 8px 24px #0009;
-  padding:10px 12px;
-}
-#sv2-sropacity-panel.open{ display:block; }
-#sv2-sropacity-hdr{
-  display:flex;justify-content:space-between;align-items:center;
-  font-size:10px;color:#9598a1;margin-bottom:8px;
-}
-#sv2-sropacity-val{ color:#2962ff;font-weight:700; }
-#sv2-sropacity-slider{ width:100%; }
-
-/* ── SV2 — SR Dedup Rule Toggle (icon below opacity button) ───────────── */
-#sv2-srdedup-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:9px;
-  font-weight:700;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv2-srdedup-btn.visible{ display:flex; }
-#sv2-srdedup-btn.on{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-
-/* ── SV2 — Candle High/Low Lines: Hide toggle (icon below DD) ─────────── */
-#sv2-chhide-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:9px;
-  font-weight:700;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv2-chhide-btn.visible{ display:flex; }
-#sv2-chhide-btn.on{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-
-/* ── SV2 — Candle High/Low Lines: Opacity control (icon below Hide) ───── */
-#sv2-chopacity-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:11px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv2-chopacity-btn.visible{ display:flex; }
-#sv2-chopacity-btn.open{
+#sv1-arrow-fab.visible{ display:flex; }
+#sv1-arrow-fab.on{
   background:#2962ff22;
   border-color:#2962ff;
   color:#2962ff;
@@ -1048,6 +881,35 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#26a69a;
 }
 
+/* ── SV2 — TF Arrow Marker (icon at the very bottom of the SV2 vertical
+   FAB stack: calendar → SR → opacity → dedup → CH-hide → CH-opacity →
+   OC-P&L → play → step → reset → openPx(pin) → Arrow) ────────────────── */
+#sv2-arrow-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:13px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-arrow-btn.visible{ display:flex; }
+#sv2-arrow-btn.on{
+  background:#2962ff22;
+  border-color:#2962ff;
+  color:#2962ff;
+}
+
 /* ── Floating crosshair date/time badge — jab kisi Stack View (1 ya 2) ka
    bottom time-axis "Display" toggle se HIDE kiya gaya ho, tab bhi candle
    par cursor/finger rakhne par date+time yahan dikhta hai (chart pane ke
@@ -1067,96 +929,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   white-space:nowrap;
   pointer-events:none;
 }
-#sv2-chopacity-panel{
-  display:none;
-  position:fixed;
-  z-index:8600;
-  width:190px;
-  background:#1e222d;
-  border:1px solid #363c4e;
-  border-radius:10px;
-  box-shadow:0 8px 24px #0009;
-  padding:10px 12px;
-}
-#sv2-chopacity-panel.open{ display:block; }
-#sv2-chopacity-hdr{
-  display:flex;justify-content:space-between;align-items:center;
-  font-size:10px;color:#9598a1;margin-bottom:8px;
-}
-#sv2-chopacity-val{ color:#2962ff;font-weight:700; }
-#sv2-chopacity-slider{ width:100%; }
-
-/* ── SV1 — Candle High/Low Lines: Hide toggle (icon below DD) ─────────── */
-#sv1-chhide-fab{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:9px;
-  font-weight:700;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv1-chhide-fab.visible{ display:flex; }
-#sv1-chhide-fab.on{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-
-/* ── SV1 — Candle High/Low Lines: Opacity control (icon below Hide) ───── */
-#sv1-chopacity-fab{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:11px;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv1-chopacity-fab.visible{ display:flex; }
-#sv1-chopacity-fab.open{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-#sv1-chopacity-panel{
-  display:none;
-  position:fixed;
-  z-index:8600;
-  width:190px;
-  background:#1e222d;
-  border:1px solid #363c4e;
-  border-radius:10px;
-  box-shadow:0 8px 24px #0009;
-  padding:10px 12px;
-}
-#sv1-chopacity-panel.open{ display:block; }
-#sv1-chopacity-hdr{
-  display:flex;justify-content:space-between;align-items:center;
-  font-size:10px;color:#9598a1;margin-bottom:8px;
-}
-#sv1-chopacity-val{ color:#2962ff;font-weight:700; }
-#sv1-chopacity-slider{ width:100%; }
-
 /* ── Date Range Selector — Floating Icon ─────────────────────────────── */
 #sv2-drng-fab{
   display:none;                          /* sirf stack2 active hone par dikhega */
@@ -2491,15 +2263,9 @@ select.s-select, input.s-select{
 #notepad-btn:active{background:#2a2e39}
 #notepad-btn.active{border-color:#2962ff;color:#2962ff}
 
-/* ── TF Arrow Marker ─────────────────────────────────────────────── */
-#tfarrow-btn{
-  height:18px;width:22px;padding:0;
-  background:transparent;border:1px solid #2a2e39;border-radius:3px;
-  color:#9598a1;font-size:12px;line-height:18px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-#tfarrow-btn:active{background:#2a2e39}
-#tfarrow-btn.active{border-color:#2962ff;color:#2962ff}
+/* ── TF Arrow Marker — button now only exists as #sv1-arrow-fab /
+   #sv2-arrow-btn (see their own CSS blocks); old shared bottom-bar
+   #tfarrow-btn removed. ─────────────────────────────────────────── */
 #notepad-panel{
   display:none;position:fixed;z-index:10002;
   top:0;left:0;
@@ -3439,7 +3205,6 @@ function _hdrRelayout(){
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
-  <button id="tfarrow-btn" onclick="toggleTfArrow()" title="TF Arrow Marker (hold 5s on a candle)">↕</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
@@ -3499,31 +3264,8 @@ function _hdrRelayout(){
 <!-- ═══ SV1 — Bade TF ka SR chhote TF par Show/Hide — Floating draggable icon ═══ -->
 <button id="sv1-srtoggle-fab" title="Bade TF ka SR chhote TF par Show/Hide · jahan marzi move kiya ja sake">SR</button>
 
-<!-- ═══ SV1 — Higher-TF SR Opacity Control ══════════════════════════════ -->
-<button id="sv1-sropacity-fab" title="Bade TF ka SR opacity control karo">◐</button>
-<div id="sv1-sropacity-panel">
-  <div id="sv1-sropacity-hdr">
-    <span>Higher-TF SR Opacity</span>
-    <span id="sv1-sropacity-val">100%</span>
-  </div>
-  <input type="range" id="sv1-sropacity-slider" min="0" max="100" value="100" oninput="_onSr1OpacityInput(this)">
-</div>
-
-<!-- ═══ SV1 — SR Dedup Rule Toggle ═══════════════════════════════════════ -->
-<button id="sv1-srdedup-fab" title="SR Dedup Rule On/Off" onclick="_sv1SrDedupToggle()">DD</button>
-
-<!-- ═══ SV1 — Candle High/Low Indicator Lines: Hide Toggle ══════════════ -->
-<button id="sv1-chhide-fab" title="Candle High/Low lines Hide/Show karo" onclick="_sv1ChVisHideToggle()">CH</button>
-
-<!-- ═══ SV1 — Candle High/Low Indicator Lines: Opacity Control ══════════ -->
-<button id="sv1-chopacity-fab" title="Candle High/Low lines ka opacity control karo">◑</button>
-<div id="sv1-chopacity-panel">
-  <div id="sv1-chopacity-hdr">
-    <span>Candle H/L Opacity</span>
-    <span id="sv1-chopacity-val">100%</span>
-  </div>
-  <input type="range" id="sv1-chopacity-slider" min="0" max="100" value="100" oninput="_onChVisOpacityInput(this)">
-</div>
+<!-- ═══ SV1 — TF Arrow Marker (bottom of the SV1 vertical FAB stack) ════ -->
+<button id="sv1-arrow-fab" title="TF Arrow Marker (hold 5s on a candle)" onclick="toggleTfArrow()">↕</button>
 
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
@@ -3533,32 +3275,6 @@ function _hdrRelayout(){
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
 <button id="sv2-srtoggle-btn" title="Bade TF ka SR chhote TF par Show/Hide" onclick="_sv2SrHierarchyToggle()">SR</button>
-
-<!-- ═══ SV2 — Higher-TF SR Opacity Control ══════════════════════════════ -->
-<button id="sv2-sropacity-btn" title="Bade TF ka SR opacity control karo">◐</button>
-<div id="sv2-sropacity-panel">
-  <div id="sv2-sropacity-hdr">
-    <span>Higher-TF SR Opacity</span>
-    <span id="sv2-sropacity-val">100%</span>
-  </div>
-  <input type="range" id="sv2-sropacity-slider" min="0" max="100" value="100" oninput="_onSr2OpacityInput(this)">
-</div>
-
-<!-- ═══ SV2 — SR Dedup Rule Toggle ═══════════════════════════════════════ -->
-<button id="sv2-srdedup-btn" title="SR Dedup Rule On/Off" onclick="_sv2SrDedupToggle()">DD</button>
-
-<!-- ═══ SV2 — Candle High/Low Indicator Lines: Hide Toggle ══════════════ -->
-<button id="sv2-chhide-btn" title="Candle High/Low lines Hide/Show karo" onclick="_sv2ChVisHideToggle()">CH</button>
-
-<!-- ═══ SV2 — Candle High/Low Indicator Lines: Opacity Control ══════════ -->
-<button id="sv2-chopacity-btn" title="Candle High/Low lines ka opacity control karo">◑</button>
-<div id="sv2-chopacity-panel">
-  <div id="sv2-chopacity-hdr">
-    <span>Candle H/L Opacity</span>
-    <span id="sv2-chopacity-val">100%</span>
-  </div>
-  <input type="range" id="sv2-chopacity-slider" min="0" max="100" value="100" oninput="_onSv2ChVisOpacityInput(this)">
-</div>
 
 <!-- ═══ SV2 — Option Chain Position P&L Overlay: Show/Hide Toggle (icon below CH opacity) ══
      Ek click = chart par CHOOSE ki hui strike price ki horizontal line + us
@@ -3571,6 +3287,9 @@ function _hdrRelayout(){
      calendar sheet ke andar ek switch tha — ab yahan icon ke roop mein:
      ek tap = preview line dikhao, dubara tap = hide. ═══════════════════ -->
 <button id="sv2-openpx-btn" title="Opening Price Preview line Show/Hide karo" onclick="_sv2OpenPxToggle()">📍</button>
+
+<!-- ═══ SV2 — TF Arrow Marker (bottom of the SV2 vertical FAB stack) ═════ -->
+<button id="sv2-arrow-btn" title="TF Arrow Marker (hold 5s on a candle)" onclick="toggleTfArrow()">↕</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -9381,14 +9100,9 @@ function ss2ApplyAndClose() {
   var _onestepBtn = null;  // #sv2-onestep-btn (Step — exactly ONE candle per tap)
   var _resetBtn  = null;   // #sv2-reset-btn
   var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
-  var _srOpacityBtn = null;   // #sv2-sropacity-btn
-  var _srOpacityPanel = null; // #sv2-sropacity-panel
-  var _srDedupBtn = null;     // #sv2-srdedup-btn
-  var _chHideBtn = null;      // #sv2-chhide-btn
-  var _chOpacityBtn = null;   // #sv2-chopacity-btn
   var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
   var _openPxBtn = null;      // #sv2-openpx-btn — Opening Price Preview line show/hide
-  var _chOpacityPanel = null; // #sv2-chopacity-panel
+  var _arrowBtn = null;       // #sv2-arrow-btn — TF Arrow Marker (moved here from bottom bar)
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -9422,17 +9136,12 @@ function ss2ApplyAndClose() {
     // SR hierarchy toggle — calendar ki tarah hamesha dikhta hai jab tak
     // Stack View 2 active hai, replay date range select hone se independent.
     if (_srToggleBtn) _srToggleBtn.classList.toggle('visible', stack2On);
-    if (_srOpacityBtn) _srOpacityBtn.classList.toggle('visible', stack2On);
-    if (_srDedupBtn) _srDedupBtn.classList.toggle('visible', stack2On);
-    if (_chHideBtn) _chHideBtn.classList.toggle('visible', stack2On);
-    if (_chOpacityBtn) _chOpacityBtn.classList.toggle('visible', stack2On);
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('visible', stack2On);
+    if (_arrowBtn) _arrowBtn.classList.toggle('visible', stack2On);
     // 📍 Opening Price Preview icon — sirf tab dikhta hai jab replay actually
     // active/running hai (▶ Play icon jaisi hi condition), calendar/play
     // group ke saath stacked.
     if (_openPxBtn) _openPxBtn.classList.toggle('visible', show);
-    if (!stack2On && _srOpacityPanel) _srOpacityPanel.classList.remove('open');
-    if (!stack2On && _chOpacityPanel) _chOpacityPanel.classList.remove('open');
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -9453,32 +9162,14 @@ function ss2ApplyAndClose() {
     var GAP  = 8;   // FAB aur pehle button ke beech buffer — pehle 4px thi,
                      // ring/finger-imprecision se FAB ke taps churaane se
                      // bachne ke liye 8px kar diya.
-    var stackOffset = srOn ? 174 : 0;   // SR toggle + opacity + dedup + CH-hide + CH-opacity + OC-P&L (6 × 29)
+    var stackOffset = srOn ? 58 : 0;   // SR toggle + OC-P&L (2 × 29)
     if (_srToggleBtn) {
       _srToggleBtn.style.left = r.left + 'px';
       _srToggleBtn.style.top  = (r.bottom + GAP) + 'px';
     }
-    if (_srOpacityBtn) {
-      _srOpacityBtn.style.left = r.left + 'px';
-      _srOpacityBtn.style.top  = (r.bottom + GAP + 29) + 'px';
-      if (_srOpacityPanel && _srOpacityPanel.classList.contains('open')) _positionSrOpacityPanel();
-    }
-    if (_srDedupBtn) {
-      _srDedupBtn.style.left = r.left + 'px';
-      _srDedupBtn.style.top  = (r.bottom + GAP + 58) + 'px';
-    }
-    if (_chHideBtn) {
-      _chHideBtn.style.left = r.left + 'px';
-      _chHideBtn.style.top  = (r.bottom + GAP + 87) + 'px';
-    }
-    if (_chOpacityBtn) {
-      _chOpacityBtn.style.left = r.left + 'px';
-      _chOpacityBtn.style.top  = (r.bottom + GAP + 116) + 'px';
-      if (_chOpacityPanel && _chOpacityPanel.classList.contains('open')) _positionChOpacityPanel();
-    }
     if (_ocPnlBtn) {
       _ocPnlBtn.style.left = r.left + 'px';
-      _ocPnlBtn.style.top  = (r.bottom + GAP + 145) + 'px';
+      _ocPnlBtn.style.top  = (r.bottom + GAP + 29) + 'px';
     }
     if (_playBtn) {
       _playBtn.style.left = r.left + 'px';
@@ -9496,36 +9187,16 @@ function ss2ApplyAndClose() {
       _openPxBtn.style.left = r.left + 'px';
       _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29) + 'px';
     }
-  }
-
-  function _positionChOpacityPanel() {
-    if (!_chOpacityBtn || !_chOpacityPanel) return;
-    var r = _chOpacityBtn.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - 200);
-    _chOpacityPanel.style.left = Math.max(4, left) + 'px';
-    _chOpacityPanel.style.top  = (r.bottom + 6) + 'px';
-  }
-  function _toggleChOpacityPanel() {
-    if (!_chOpacityPanel) return;
-    var willOpen = !_chOpacityPanel.classList.contains('open');
-    _chOpacityPanel.classList.toggle('open', willOpen);
-    if (_chOpacityBtn) _chOpacityBtn.classList.toggle('open', willOpen);
-    if (willOpen) _positionChOpacityPanel();
-  }
-
-  function _positionSrOpacityPanel() {
-    if (!_srOpacityBtn || !_srOpacityPanel) return;
-    var r = _srOpacityBtn.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - 200);
-    _srOpacityPanel.style.left = Math.max(4, left) + 'px';
-    _srOpacityPanel.style.top  = (r.bottom + 6) + 'px';
-  }
-  function _toggleSrOpacityPanel() {
-    if (!_srOpacityPanel) return;
-    var willOpen = !_srOpacityPanel.classList.contains('open');
-    _srOpacityPanel.classList.toggle('open', willOpen);
-    if (_srOpacityBtn) _srOpacityBtn.classList.toggle('open', willOpen);
-    if (willOpen) _positionSrOpacityPanel();
+    if (_arrowBtn) {
+      // Sits below whichever icon is currently the last one in the stack —
+      // openPx when the play/step/reset/openPx group is visible, otherwise
+      // right after the SR/CH/P&L group (openPx hidden when replay isn't
+      // actively running, so the stack is shorter in that case).
+      var openPxVisible = !!(_openPxBtn && _openPxBtn.classList.contains('visible'));
+      var arrowExtra = openPxVisible ? (stackOffset + 29 + 29 + 29 + 29) : stackOffset;
+      _arrowBtn.style.left = r.left + 'px';
+      _arrowBtn.style.top  = (r.bottom + GAP + arrowExtra) + 'px';
+    }
   }
 
   // ── Real intrabar path helper ─────────────────────────────────────────────
@@ -10323,45 +9994,14 @@ function ss2ApplyAndClose() {
     _onestepBtn = document.getElementById('sv2-onestep-btn');
     _resetBtn   = document.getElementById('sv2-reset-btn');
     _srToggleBtn = document.getElementById('sv2-srtoggle-btn');
-    _srOpacityBtn = document.getElementById('sv2-sropacity-btn');
-    _srOpacityPanel = document.getElementById('sv2-sropacity-panel');
-    _srDedupBtn = document.getElementById('sv2-srdedup-btn');
-    _chHideBtn = document.getElementById('sv2-chhide-btn');
-    _chOpacityBtn = document.getElementById('sv2-chopacity-btn');
-    _chOpacityPanel = document.getElementById('sv2-chopacity-panel');
     _ocPnlBtn = document.getElementById('sv2-ocpnl-btn');
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('on', !!(window.SV2OC && SV2OC.pnlOverlayOn));
     _openPxBtn = document.getElementById('sv2-openpx-btn');
     if (_openPxBtn) _openPxBtn.classList.toggle('on', !!(typeof window._sv2GetOpenPxOnOff === 'function' && window._sv2GetOpenPxOnOff()));
+    _arrowBtn = document.getElementById('sv2-arrow-btn');
+    if (typeof _tfArrowSyncBtn === 'function') { try { _tfArrowSyncBtn(); } catch(_) {} }
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
-    if (_srDedupBtn) _srDedupBtn.classList.toggle('on', !!SV2_SR_DEDUP_ON);
-    if (_srOpacityBtn) _srOpacityBtn.addEventListener('click', _toggleSrOpacityPanel);
-    if (_chHideBtn) _chHideBtn.classList.toggle('on', !!SV2_CH_VIS_HIDDEN);
-    if (_chOpacityBtn) _chOpacityBtn.addEventListener('click', _toggleChOpacityPanel);
-    // Opacity slider ko persisted state ke saath init karo
-    var _chOpSlider = document.getElementById('sv2-chopacity-slider');
-    var _chOpVal    = document.getElementById('sv2-chopacity-val');
-    if (_chOpSlider) _chOpSlider.value = SV2_CH_VIS_OPACITY;
-    if (_chOpVal)    _chOpVal.textContent = SV2_CH_VIS_OPACITY + '%';
-    // Slider ko persisted opacity ke saath init karo
-    var _sr2Slider = document.getElementById('sv2-sropacity-slider');
-    var _sr2Val    = document.getElementById('sv2-sropacity-val');
-    if (_sr2Slider) _sr2Slider.value = SV2_SR_HTF_OPACITY;
-    if (_sr2Val)    _sr2Val.textContent = SV2_SR_HTF_OPACITY + '%';
-    // Panel bahar click karne pe close ho jaaye
-    document.addEventListener('click', function(e){
-      if (!_srOpacityPanel || !_srOpacityPanel.classList.contains('open')) return;
-      if (_srOpacityPanel.contains(e.target) || e.target === _srOpacityBtn) return;
-      _srOpacityPanel.classList.remove('open');
-      if (_srOpacityBtn) _srOpacityBtn.classList.remove('open');
-    });
-    document.addEventListener('click', function(e){
-      if (!_chOpacityPanel || !_chOpacityPanel.classList.contains('open')) return;
-      if (_chOpacityPanel.contains(e.target) || e.target === _chOpacityBtn) return;
-      _chOpacityPanel.classList.remove('open');
-      if (_chOpacityBtn) _chOpacityBtn.classList.remove('open');
-    });
 
     // ── SVG circular progress ring inject karo play button ke andar ─────────
     // HARD LOCK: ring ki width/height/viewBox aur radius R sab isi
@@ -10618,12 +10258,7 @@ document.addEventListener('visibilitychange', function(){
 // ════════════════════════════════════════════════════════════════════════════
 (function(){
   var _fab = null;
-  var _opFab = null;
-  var _opPanel = null;
-  var _dedupFab = null;
-  var _chHideFab = null;
-  var _chOpFab = null;
-  var _chOpPanel = null;
+  var _arrowFab = null;   // #sv1-arrow-fab — TF Arrow Marker (moved here from bottom bar)
 
   function _saveFabPos(left, top) {
     try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
@@ -10642,58 +10277,14 @@ document.addEventListener('visibilitychange', function(){
     _fab.style.top  = pos.top  + 'px';
     _syncOpFabPos();
   }
-  // Opacity button always sits 29px directly below the SR fab, moving with
-  // it. Dedup button sits another 29px below that. CH-hide aur CH-opacity
-  // dedup ke aage 29px ke increments me follow karte hain.
+  // Arrow marker button sits directly below the SR fab, moving with it.
   function _syncOpFabPos() {
     if (!_fab) return;
     var r = _fab.getBoundingClientRect();
-    if (_opFab) {
-      _opFab.style.left = r.left + 'px';
-      _opFab.style.top  = (r.top + 29) + 'px';
+    if (_arrowFab) {
+      _arrowFab.style.left = r.left + 'px';
+      _arrowFab.style.top  = (r.top + 29) + 'px';
     }
-    if (_dedupFab) {
-      _dedupFab.style.left = r.left + 'px';
-      _dedupFab.style.top  = (r.top + 58) + 'px';
-    }
-    if (_chHideFab) {
-      _chHideFab.style.left = r.left + 'px';
-      _chHideFab.style.top  = (r.top + 87) + 'px';
-    }
-    if (_chOpFab) {
-      _chOpFab.style.left = r.left + 'px';
-      _chOpFab.style.top  = (r.top + 116) + 'px';
-      if (_chOpPanel && _chOpPanel.classList.contains('open')) _positionChOpPanel();
-    }
-    if (_opPanel && _opPanel.classList.contains('open')) _positionPanel();
-  }
-  function _positionPanel() {
-    if (!_opFab || !_opPanel) return;
-    var r = _opFab.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - 200);
-    _opPanel.style.left = Math.max(4, left) + 'px';
-    _opPanel.style.top  = (r.bottom + 6) + 'px';
-  }
-  function _togglePanel() {
-    if (!_opPanel) return;
-    var willOpen = !_opPanel.classList.contains('open');
-    _opPanel.classList.toggle('open', willOpen);
-    if (_opFab) _opFab.classList.toggle('open', willOpen);
-    if (willOpen) _positionPanel();
-  }
-  function _positionChOpPanel() {
-    if (!_chOpFab || !_chOpPanel) return;
-    var r = _chOpFab.getBoundingClientRect();
-    var left = Math.min(r.left, window.innerWidth - 200);
-    _chOpPanel.style.left = Math.max(4, left) + 'px';
-    _chOpPanel.style.top  = (r.bottom + 6) + 'px';
-  }
-  function _toggleChOpPanel() {
-    if (!_chOpPanel) return;
-    var willOpen = !_chOpPanel.classList.contains('open');
-    _chOpPanel.classList.toggle('open', willOpen);
-    if (_chOpFab) _chOpFab.classList.toggle('open', willOpen);
-    if (willOpen) _positionChOpPanel();
   }
 
   function _wireDrag() {
@@ -10750,8 +10341,6 @@ document.addEventListener('visibilitychange', function(){
       document.addEventListener('mouseup', mu);
     });
 
-    if (_opFab) _opFab.addEventListener('click', _togglePanel);
-    if (_chOpFab) _chOpFab.addEventListener('click', _toggleChOpPanel);
   }
 
   // Visible whenever Stack View 2 (bar-replay) is NOT the active mode —
@@ -10760,51 +10349,18 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     var stack2On = (typeof _stack2Active !== 'undefined') && _stack2Active;
     _fab.classList.toggle('visible', !stack2On);
-    if (_opFab) _opFab.classList.toggle('visible', !stack2On);
-    if (_dedupFab) _dedupFab.classList.toggle('visible', !stack2On);
-    if (_chHideFab) _chHideFab.classList.toggle('visible', !stack2On);
-    if (_chOpFab) _chOpFab.classList.toggle('visible', !stack2On);
-    if (stack2On && _opPanel) _opPanel.classList.remove('open');
-    if (stack2On && _chOpPanel) _chOpPanel.classList.remove('open');
+    if (_arrowFab) _arrowFab.classList.toggle('visible', !stack2On);
   };
 
   function _init() {
     _fab      = document.getElementById('sv1-srtoggle-fab');
-    _opFab    = document.getElementById('sv1-sropacity-fab');
-    _opPanel  = document.getElementById('sv1-sropacity-panel');
-    _dedupFab = document.getElementById('sv1-srdedup-fab');
-    _chHideFab = document.getElementById('sv1-chhide-fab');
-    _chOpFab   = document.getElementById('sv1-chopacity-fab');
-    _chOpPanel = document.getElementById('sv1-chopacity-panel');
+    _arrowFab  = document.getElementById('sv1-arrow-fab');
+    if (typeof _tfArrowSyncBtn === 'function') { try { _tfArrowSyncBtn(); } catch(_) {} }
     if (!_fab) return;
     _applyFabPos(_loadFabPos());
     _fab.classList.toggle('on', !!(typeof SR_HTF_VISIBLE !== 'undefined' && SR_HTF_VISIBLE));
-    if (_dedupFab) _dedupFab.classList.toggle('on', !!SR_DEDUP_ON);
-    if (_chHideFab) _chHideFab.classList.toggle('on', !!CH_VIS_HIDDEN);
-    // Slider ko persisted opacity ke saath init karo
-    var slider = document.getElementById('sv1-sropacity-slider');
-    var val    = document.getElementById('sv1-sropacity-val');
-    if (slider) slider.value = SR_HTF_OPACITY;
-    if (val)    val.textContent = SR_HTF_OPACITY + '%';
-    var chSlider = document.getElementById('sv1-chopacity-slider');
-    var chVal    = document.getElementById('sv1-chopacity-val');
-    if (chSlider) chSlider.value = CH_VIS_OPACITY;
-    if (chVal)    chVal.textContent = CH_VIS_OPACITY + '%';
     _wireDrag();
     window._sv1FabSync();
-    // Panel bahar click karne pe close ho jaaye
-    document.addEventListener('click', function(e){
-      if (!_opPanel || !_opPanel.classList.contains('open')) return;
-      if (_opPanel.contains(e.target) || e.target === _opFab) return;
-      _opPanel.classList.remove('open');
-      if (_opFab) _opFab.classList.remove('open');
-    });
-    document.addEventListener('click', function(e){
-      if (!_chOpPanel || !_chOpPanel.classList.contains('open')) return;
-      if (_chOpPanel.contains(e.target) || e.target === _chOpFab) return;
-      _chOpPanel.classList.remove('open');
-      if (_chOpFab) _chOpFab.classList.remove('open');
-    });
   }
 
   if (document.readyState === 'loading') {
@@ -12245,8 +11801,13 @@ try { _LS.setItem(TFARR_LS_KEY, '0'); } catch(_) {}
 let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick — type yaad rehta hai (convenience), ON/OFF nahi
 
 function _tfArrowSyncBtn() {
-  const btn = document.getElementById('tfarrow-btn');
-  if (btn) btn.classList.toggle('active', TFARR_ON);
+  // Same on/off state mirrored onto the SV1 and SV2 vertical-FAB-stack
+  // copies of this button (the old shared bottom-bar button was removed —
+  // this feature now only lives in the SV1/SV2 FAB columns).
+  const btn1 = document.getElementById('sv1-arrow-fab');
+  if (btn1) btn1.classList.toggle('on', TFARR_ON);
+  const btn2 = document.getElementById('sv2-arrow-btn');
+  if (btn2) btn2.classList.toggle('on', TFARR_ON);
 }
 
 // ── OFF→ON popup: force a type pick before the feature actually turns on ───
@@ -18343,88 +17904,6 @@ function _sv2SrHierarchyToggle() {
   _sv2SetSrHtfVisible(!SV2_SR_HTF_VISIBLE);
 }
 
-// ── Higher-TF SR Opacity (SV2) ──────────────────────────────────────────
-let _sr2OpacityTimer = null;
-function setSv2SrHtfOpacity(v) {
-  SV2_SR_HTF_OPACITY = Math.max(0, Math.min(100, +v || 0));
-  try { _LS.setItem(_SR2_OPACITY_KEY, SV2_SR_HTF_OPACITY); } catch(_) {}
-  clearTimeout(_sr2OpacityTimer);
-  _sr2OpacityTimer = setTimeout(() => {
-    if (!SV2_SWING_STATE.visible) return;   // master indicator off → nothing to refresh
-    sv2SwingRefresh();
-  }, 60);
-}
-function _onSr2OpacityInput(inp) {
-  const val = document.getElementById('sv2-sropacity-val');
-  if (val) val.textContent = inp.value + '%';
-  setSv2SrHtfOpacity(inp.value);
-}
-
-// ── SR Dedup Rule Toggle (SV2) ──────────────────────────────────────────
-function _sv2SrDedupToggle() {
-  SV2_SR_DEDUP_ON = !SV2_SR_DEDUP_ON;
-  try { _LS.setItem(_SR2_DEDUP_KEY, SV2_SR_DEDUP_ON ? 'true' : 'false'); } catch(_) {}
-  const btn = document.getElementById('sv2-srdedup-btn');
-  if (btn) btn.classList.toggle('on', SV2_SR_DEDUP_ON);
-  if (SV2_SWING_STATE.visible) { sv2SwingRefresh(); }
-}
-
-// ── Candle High/Low Lines: Hide toggle (SV2) ─────────────────────────────
-function _sv2ChVisHideToggle() {
-  SV2_CH_VIS_HIDDEN = !SV2_CH_VIS_HIDDEN;
-  try { _LS.setItem(_SV2_CH_HIDE_KEY, SV2_CH_VIS_HIDDEN ? 'true' : 'false'); } catch(_) {}
-  const btn = document.getElementById('sv2-chhide-btn');
-  if (btn) btn.classList.toggle('on', SV2_CH_VIS_HIDDEN);
-  if (SV2_SWING_STATE.visible) { sv2SwingRefresh(); }
-}
-
-// ── Candle High/Low Lines: Opacity (SV2) ─────────────────────────────────
-let _chVisOpacityTimer = null;
-function setSv2ChVisOpacity(v) {
-  SV2_CH_VIS_OPACITY = Math.max(0, Math.min(100, +v || 0));
-  try { _LS.setItem(_SV2_CH_OPACITY_KEY, SV2_CH_VIS_OPACITY); } catch(_) {}
-  clearTimeout(_chVisOpacityTimer);
-  _chVisOpacityTimer = setTimeout(() => {
-    if (!SV2_SWING_STATE.visible) return;   // master indicator off → nothing to refresh
-    sv2SwingRefresh();
-  }, 60);
-}
-function _onSv2ChVisOpacityInput(inp) {
-  const val = document.getElementById('sv2-chopacity-val');
-  if (val) val.textContent = inp.value + '%';
-  setSv2ChVisOpacity(inp.value);
-}
-
-// ── Candle High/Low Lines: Hide toggle (SV1) ─────────────────────────────
-function _sv1ChVisHideToggle() {
-  CH_VIS_HIDDEN = !CH_VIS_HIDDEN;
-  try { _LS.setItem(_CH1_HIDE_KEY, CH_VIS_HIDDEN ? 'true' : 'false'); } catch(_) {}
-  const btn = document.getElementById('sv1-chhide-fab');
-  if (btn) btn.classList.toggle('on', CH_VIS_HIDDEN);
-  if (SWING_STATE.visible) {
-    if (S.layout === '1x1') { swingAfterRebuild(); }
-    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
-  }
-}
-
-// ── Candle High/Low Lines: Opacity (SV1) ─────────────────────────────────
-let _ch1VisOpacityTimer = null;
-function setChVisOpacity(v) {
-  CH_VIS_OPACITY = Math.max(0, Math.min(100, +v || 0));
-  try { _LS.setItem(_CH1_OPACITY_KEY, CH_VIS_OPACITY); } catch(_) {}
-  clearTimeout(_ch1VisOpacityTimer);
-  _ch1VisOpacityTimer = setTimeout(() => {
-    if (!SWING_STATE.visible) return;   // master indicator off → nothing to refresh
-    if (S.layout === '1x1') { swingAfterRebuild(); }
-    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
-  }, 60);
-}
-function _onChVisOpacityInput(inp) {
-  const val = document.getElementById('sv1-chopacity-val');
-  if (val) val.textContent = inp.value + '%';
-  setChVisOpacity(inp.value);
-}
-
 function _sv2OpenChipColor(btn, tfMin, type) {
   const cur = btn.dataset.color || '#ffffff';
   _tvcOpen(btn, cur, (hex) => {
@@ -19584,38 +19063,6 @@ function _setSrHtfVisible(on) {
 }
 function _sv1SrHierarchyToggle() {
   _setSrHtfVisible(!SR_HTF_VISIBLE);
-}
-
-// ── Higher-TF SR Opacity (SV1) ──────────────────────────────────────────
-let _sr1OpacityTimer = null;
-function setSrHtfOpacity(v) {
-  SR_HTF_OPACITY = Math.max(0, Math.min(100, +v || 0));
-  try { _LS.setItem(_SR1_OPACITY_KEY, SR_HTF_OPACITY); } catch(_) {}
-  // Debounce: slider fires many events per drag — only rebuild ~60ms after
-  // the last change, so dragging stays smooth.
-  clearTimeout(_sr1OpacityTimer);
-  _sr1OpacityTimer = setTimeout(() => {
-    if (!SWING_STATE.visible) return;   // master indicator off → nothing to refresh
-    if (S.layout === '1x1') { swingAfterRebuild(); }
-    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
-  }, 60);
-}
-function _onSr1OpacityInput(inp) {
-  const val = document.getElementById('sv1-sropacity-val');
-  if (val) val.textContent = inp.value + '%';
-  setSrHtfOpacity(inp.value);
-}
-
-// ── SR Dedup Rule Toggle (SV1) ──────────────────────────────────────────
-function _sv1SrDedupToggle() {
-  SR_DEDUP_ON = !SR_DEDUP_ON;
-  try { _LS.setItem(_SR1_DEDUP_KEY, SR_DEDUP_ON ? 'true' : 'false'); } catch(_) {}
-  const btn = document.getElementById('sv1-srdedup-fab');
-  if (btn) btn.classList.toggle('on', SR_DEDUP_ON);
-  if (SWING_STATE.visible) {
-    if (S.layout === '1x1') { swingAfterRebuild(); }
-    else { CELLS.forEach((_, i) => buildCellSwing(i)); }
-  }
 }
 
 
