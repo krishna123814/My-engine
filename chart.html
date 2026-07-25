@@ -8281,18 +8281,26 @@ function _buildStack2CellChart(idx) {
           c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
           try { _sv2UpdatePreviewLine(idx); } catch(_) {}
-          // REMOVED (per single-trigger-point cleanup): this used to be a 4th
-          // explicit call-site for the auto-reversal-arrow check on
-          // date-select loads (on top of the setData scan, the
-          // mid-candle-animation setData call, and _tick()'s instant-fire).
-          // SV2 now fires arrows from exactly ONE place — the explicit
-          // instant-fire inside _tick() — matching SR/swing's single-trigger
-          // design, so this catch-up call is intentionally not run anymore.
-          // NOTE: this means that after a date-range jump specifically (not
-          // Play/replay), the very last loaded candle's own reversal-arrow
-          // check will only happen once Play is pressed and that candle's
-          // TF genuinely closes on a later tick — it will not be retroactively
-          // checked at load time. Flag if that turns out to be unwanted.
+          // FIX: last-real-candle arrow silently missing after full load.
+          // When dataToShow is longer than CHUNK, only the FIRST chunk goes
+          // through setData()'s forming-aware close-check scan — every later
+          // chunk is fed via .update(), whose close-check only fires when the
+          // NEXT real bar shows up. The very last real bar (right before the
+          // whitespace tail) never gets a "next real bar", so its close-check
+          // never fired — permanently, not just during loading. Explicitly
+          // run that one missed check here, now that every chunk has been fed
+          // and c._taBars holds the complete real-bar history. Guarded by the
+          // same _formingLast structural flag (skip if the last bar is still
+          // genuinely forming), and _tfArrowAutoOnClose already dedupes by
+          // candle time, so this is a no-op if the bar was already checked
+          // via the setData path (small/single-chunk datasets).
+          try {
+            if (!dataToShow._formingLast && c._taBars && c._taBars.length >= 2 && typeof _tfArrowAutoOnClose === 'function') {
+              const _lastReal = c._taBars[c._taBars.length - 1];
+              const _prevReal  = c._taBars[c._taBars.length - 2];
+              _tfArrowAutoOnClose(c, _lastReal, _prevReal);
+            }
+          } catch(_) {}
         }
       }
       setTimeout(feedChunk, idx * 30);
@@ -9462,23 +9470,7 @@ function ss2ApplyAndClose() {
       var _aggLastReal = agg[agg.length - 1].time;
       cell._lastClose = agg[agg.length - 1].close;
       var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
-      // FIX (arrow-fires-before-candle-close on the bucket's last base-bar
-      // segment): agg._formingLast here was computed off `proxy`, which
-      // includes the synthetic mid-candle partial bar (formingBar, time =
-      // nb.time). Once that partial bar lands in the LAST base-bar slot of
-      // a TF bucket (e.g. the 3rd 5m slot of a 15m candle, the 9th of a
-      // 45m candle), _liveAggregateTF's own completeness math
-      // (lastBarTime + baseDurSec < expectedEnd) treats it as if a FULL
-      // base-bar had landed there, so lastBarTime+baseDurSec == expectedEnd
-      // and the check flips to "closed" — even though that final segment
-      // is itself still only partially formed. SR/swing never hit this
-      // because they compute their own formingLast straight from only the
-      // genuinely-revealed real bars (live.baseBars.slice(0, revealIdx)),
-      // never touching the synthetic animation bar. Do the exact same
-      // clean computation here so the arrow-hook's signal always agrees
-      // with SR's — recompute from live.baseBars/live.revealIdx only.
-      var _realAgg1 = _liveAggregateAny(live.baseBars, live.revealIdx, tfMin, live.isBN);
-      var _wasFormingLast1 = _realAgg1.length ? !!_realAgg1._formingLast : true;
+      var _wasFormingLast1 = !!agg._formingLast;   // .concat() below drops custom props — save it first
       if (_fw1.length) agg = agg.concat(_fw1);
       agg._formingLast = _wasFormingLast1;   // re-attach so the arrow-hook (setData) can read the real structural signal, same one SR/swing already trust — instead of guessing from array-length diffs
       // Same follow-live vs manual-scroll distinction as _rebuildAllCells()
@@ -9878,43 +9870,30 @@ function ss2ApplyAndClose() {
     //    boundary check, array-length-growth wala tareeka NAHI — wo ek
     //    tick late chalta tha kyunki naya bucket agle tick tak nazar hi
     //    nahi aata). _rebuildAllCells() ke baad cc._taBars mein us TF ka
-    //    ab-poori-tarah-final last bar already updated mil chuka hota hai.
-    //
-    //    FIX: _tfsClosedAtBarTime()'s watch list intentionally EXCLUDES the
-    //    base TF itself ("base khud tick hai, koi close nahi" — see
-    //    _sv2CloseWatchList) — so the base-TF cell (e.g. 8H when replay
-    //    base = 8H, or 5m/160m by default) never appeared in _closedSet.
-    //    That was fine while the setData-scan safety net was still running
-    //    for SV2 (it silently covered the base TF too), but now that SV2
-    //    fires from exactly ONE place, the base TF needs its own explicit
-    //    check here — every reveal tick IS a fully-closed base candle by
-    //    definition, so it fires unconditionally, once per tick. ──
+    //    ab-poori-tarah-final last bar already updated mil chuka hota hai. ──
     try {
-      if (typeof STACK2_CELLS !== 'undefined') {
-        var _baseTfMinNow = (typeof _sv2BaseTfMin === 'function') ? _sv2BaseTfMin(live.isBN) : null;
-        var _closedTfs = (typeof _tfsClosedAtBarTime === 'function')
-          ? _tfsClosedAtBarTime(live.baseBars[live.revealIdx - 1].time, live.isBN)
-          : [];
-        var _closedSet = {};
-        _closedTfs.forEach(function(x){ _closedSet[x.tfMin] = true; });
-        STACK2_CELLS.forEach(function(cc, _ci) {
-          // FIX: cc.tf is a hardcoded constant (always 1440) for SV2
-          // cells — it is NOT the cell's real displayed timeframe. Using
-          // it here meant this instant-fire check only ever matched the
-          // 1D cell and silently no-op'd for every other TF (BN:
-          // 5m/15m/45m/135m/3D/9D/27D, BTC: 160m/8H/3D/9D/27D). The real
-          // per-cell TF must come from _getCellTFMinLive(idx), same
-          // helper _rebuildAllCells() already uses.
-          var _realTfMin = _getCellTFMinLive(_ci);
-          if (!cc) return;
-          var _isBaseCell = (_baseTfMinNow != null && _realTfMin === _baseTfMinNow);
-          if (!_isBaseCell && !_closedSet[_realTfMin]) return;
-          try { if (cc.series) _tfArrowHookSeries(cc); } catch(_) {}
-          var _bars = cc._taBars;
-          if (_bars && _bars.length >= 2) {
-            _tfArrowAutoOnClose(cc, _bars[_bars.length - 1], _bars[_bars.length - 2]);
-          }
-        });
+      if (typeof _tfsClosedAtBarTime === 'function' && typeof STACK2_CELLS !== 'undefined') {
+        var _closedTfs = _tfsClosedAtBarTime(live.baseBars[live.revealIdx - 1].time, live.isBN);
+        if (_closedTfs.length) {
+          var _closedSet = {};
+          _closedTfs.forEach(function(x){ _closedSet[x.tfMin] = true; });
+          STACK2_CELLS.forEach(function(cc, _ci) {
+            // FIX: cc.tf is a hardcoded constant (always 1440) for SV2
+            // cells — it is NOT the cell's real displayed timeframe. Using
+            // it here meant this instant-fire check only ever matched the
+            // 1D cell and silently no-op'd for every other TF (BN:
+            // 5m/15m/45m/135m/3D/9D/27D, BTC: 160m/8H/3D/9D/27D). The real
+            // per-cell TF must come from _getCellTFMinLive(idx), same
+            // helper _rebuildAllCells() already uses.
+            var _realTfMin = _getCellTFMinLive(_ci);
+            if (!cc || !_closedSet[_realTfMin]) return;
+            try { if (cc.series) _tfArrowHookSeries(cc); } catch(_) {}
+            var _bars = cc._taBars;
+            if (_bars && _bars.length >= 2) {
+              _tfArrowAutoOnClose(cc, _bars[_bars.length - 1], _bars[_bars.length - 2]);
+            }
+          });
+        }
       }
     } catch(_) {}
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
@@ -12391,20 +12370,6 @@ function _tfArrowRefPrice(bar, type) {
   return null;
 }
 
-// ── Is this cell one of Stack View 2's cells? SV2 has its OWN single,
-//    explicit close-detection trigger (_tick() → _tfsClosedAtBarTime() →
-//    _tfArrowAutoOnClose(), same one-trigger design as SR/swing's
-//    sv2SwingOnStep). For SV2 cells the update()/setData() overrides below
-//    must therefore stay silent on arrow-firing — they still maintain the
-//    bar cache (needed for manual arrow placement / hit-testing), just skip
-//    the auto-reversal-arrow check, so there is exactly ONE place SV2 arrows
-//    can ever fire from, matching SR exactly. SV1/Grid cells are unaffected
-//    (they have no separate tick-driven trigger, so they keep using these
-//    overrides as their only firing mechanism).
-function _tfArrowIsSv2Cell(c) {
-  try { return typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS.indexOf(c) !== -1; } catch(_) { return false; }
-}
-
 function _tfArrowHookSeries(c) {
   if (!c || !c.series || c.series._taHooked) return;
   const s = c.series;
@@ -12425,10 +12390,9 @@ function _tfArrowHookSeries(c) {
         arr[arr.length - 1] = bar;
       } else {
         // Naya bar bannA shuru hua => purana last bar (agar tha) ab PAKKA
-        // close ho chuka. For SV1/Grid cells this is the only close-check
-        // trigger, so it still fires here. SV2 cells skip this — their
-        // sole trigger is the explicit instant-fire in SV2's _tick().
-        if (arr.length && !_tfArrowIsSv2Cell(c)) {
+        // close ho chuka — yahi hai automatic reversal-arrow check karne
+        // ka sahi (aur sirf ek hi baar milne wala) mauka.
+        if (arr.length) {
           _tfArrowAutoOnClose(c, arr[arr.length - 1], arr.length >= 2 ? arr[arr.length - 2] : null);
         }
         arr.push(bar);
@@ -12452,32 +12416,24 @@ function _tfArrowHookSeries(c) {
       // lookup for BTC daily+ — because it was fundamentally guessing "what
       // changed" instead of just looking at what's true right now.
       // SR/swing never has this problem because it recomputes from scratch
-      // every single time, with zero memory of its previous call.
-      //
-      // For SV1/Grid cells we still do that here: on every setData(),
-      // re-scan every CLOSED consecutive candle pair and re-check each one
-      // for a reversal — no diffing against what we saw last call.
+      // every single time, with zero memory of its previous call. We do the
+      // same thing here: on every setData(), re-scan every CLOSED
+      // consecutive candle pair in the currently-known history and re-check
+      // each one for a reversal — no diffing against what we saw last call.
       // explicitFormingLast (the same structural flag SR/swing already
       // trust — see _liveAggregateAny/_dataForTFAny) tells us whether the
       // very last real bar is still forming; if so, exclude only that one
       // from the scan, exactly like SR does.
-      //
-      // For SV2 cells this scan is intentionally SKIPPED — setData() gets
-      // called here from multiple unrelated places (_rebuildAllCells() every
-      // reveal step, AND the purely-cosmetic mid-candle animation tick, many
-      // times per forming candle), and every one of those calls used to
-      // re-run this same scan — three separate places a single arrow could
-      // fire from. SV2 now has exactly ONE firing point (the explicit
-      // instant-fire inside _tick()), matching SR/swing's single-trigger
-      // design. Only the bar cache below is still maintained for SV2 cells.
+      // This is only safe/cheap because _tfArrowAutoOnClose dedupes by
+      // candle time — re-checking an already-marked candle on every call is
+      // a harmless no-op, which is exactly what lets us skip all state
+      // tracking instead of trying to detect "what's new".
       const explicitFormingLast = (arr._formingLast === true);
       const real = arr.filter(_tfArrowIsRealBar);
       if (real.length) {
-        if (!_tfArrowIsSv2Cell(c)) {
-          const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
-          for (let i = 1; i < scanEnd; i++) {
-            _tfArrowAutoOnClose(c, real[i], real[i - 1]);
-          }
+        const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
+        for (let i = 1; i < scanEnd; i++) {
+          _tfArrowAutoOnClose(c, real[i], real[i - 1]);
         }
         c._taBars = real;
         c._taLastBar = real[real.length - 1];
