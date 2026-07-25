@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import hashlib
+import bisect
 import zipfile
 import requests
 import pyotp
@@ -774,7 +775,35 @@ def _build_sv2_data() -> dict:
         "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
     }
     _SV2_CACHE["agg"] = agg
+
+    # ── FULL (untrimmed) series — kept in memory ONLY, never injected into
+    # the page HTML (isse mobile payload/hang issue wapas nahi aata). Bar
+    # Replay ke liye jab koi PURANI date (jo trimmed "agg" window se pehle ki
+    # ho) select hoti hai, /api/sv2_window endpoint isi se on-demand ek
+    # window slice karke bhejta hai. ──────────────────────────────────────
+    _SV2_CACHE["full"] = {"bn": bn_tfs, "btc": btc_tfs}
     return agg
+
+
+def _sv2_window_slice(asset: str, tf: str, anchor_sec: int, direction: str, count: int) -> list:
+    """Full (untrimmed) resampled series se anchor epoch ke aas-paas ek window nikaalo.
+
+    direction='before' → anchor SE PEHLE (aur anchor tak inclusive) ki (count) candles.
+    direction='after'  → anchor SE BAAD ki (count) candles.
+    Ye Bar Replay ke us case ke liye hai jab select ki gayi date, HTML mein
+    already-injected trimmed ("latest N candles") window se purani ho.
+    """
+    _build_sv2_data()  # ensure _SV2_CACHE["full"] populated (idempotent, cached)
+    full = _SV2_CACHE.get("full", {})
+    series = (full.get(asset) or {}).get(tf) or []
+    if not series:
+        return []
+    times = [c["time"] for c in series]
+    i = bisect.bisect_right(times, anchor_sec)
+    if direction == "after":
+        return series[i:i + count]
+    start = max(0, i - count)
+    return series[start:i]
 
 # ─── Fyers historical data ─────────────────────────────────────────────────────
 def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
@@ -1221,6 +1250,41 @@ def _register_api_route():
                 if parsed.path == "/api/bn_tick":
                     payload = _get_live_payload()
                     body = json.dumps(payload if payload is not None else {}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                # ── SV2 Bar Replay lazy window — jab replay ke liye select ki
+                # gayi date, page mein already-injected (trimmed/"latest N")
+                # data se purani ho, chart.html isi endpoint se on-demand
+                # candles maangta hai (dono asset: bn / btc). ────────────────
+                if parsed.path == "/api/sv2_window":
+                    qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
+                    def _q2(k, d=""): return qs2.get(k, [d])[0]
+
+                    asset = _q2("asset", "bn")
+                    tf    = _q2("tf", "")
+                    try:
+                        anchor = int(_q2("anchor", "0"))
+                    except ValueError:
+                        anchor = 0
+                    direction = _q2("dir", "before")
+                    try:
+                        count = max(1, min(int(_q2("count", "3000")), 20000))
+                    except ValueError:
+                        count = 3000
+
+                    try:
+                        candles = _sv2_window_slice(asset, tf, anchor, direction, count)
+                    except Exception:
+                        candles = []
+
+                    body = json.dumps({"candles": candles}).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")

@@ -8190,7 +8190,14 @@ function _buildStack2CellChart(idx) {
         const baseKeyLive   = _sv2GetBaseTF(assetKey2 === 'bn');
         const baseTfMin     = _sv2BaseTfMin(assetKey2 === 'bn');
         const baseStoreLive = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
-        const baseBarsLive  = baseStoreLive[baseKeyLive] || [];
+        // ── Purani date replay ke liye _sv2EnsureWindowLoaded() ne agar
+        // real anchored window fetch karke cache kiya hai, wahi use karo —
+        // warna default trimmed ("latest N") array pe fallback. ────────────
+        const extKeyLive    = assetKey2 + '|' + baseKeyLive;
+        const extLive       = window._SV2_EXT_CACHE && window._SV2_EXT_CACHE[extKeyLive];
+        const baseBarsLive  = (extLive && extLive.arr && extLive.arr.length)
+          ? extLive.arr
+          : (baseStoreLive[baseKeyLive] || []);
         const tfMinCell     = _parseTFMin(tfLabel) || 5;
 
         // ── Cell ki TF selected base se CHHOTI hai → replay mein reconstruct
@@ -9098,6 +9105,17 @@ function ss2ApplyAndClose() {
     } catch(_){}
     console.log('[SV2 Replay] Cutoff applied:', window._SV2_DATE_RANGE);
 
+    // ── Agar selected date, page mein already-loaded (trimmed/"latest N")
+    // data se purani hai (jaise 2021), pehle server se us date ke aas-paas
+    // ka real window fetch kar lo — TAB buildStack2() chalao. Isse replay
+    // sahi date se hi shuru hota hai, "latest" data se nahi. ────────────────
+    _sv2DrngApplyAsync(cutEpoch);
+  }
+  window._sv2DrngApply = _sv2DrngApply;
+
+  async function _sv2DrngApplyAsync(cutEpoch) {
+    try { await _sv2EnsureWindowLoaded(cutEpoch); } catch(_){}
+
     // SV2 rebuild karo — har cell apna data filter karega + replay arm hoga
     if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
       // Hint overlays hatao (agar the)
@@ -9110,7 +9128,6 @@ function ss2ApplyAndClose() {
       } catch(_){}
     }
   }
-  window._sv2DrngApply = _sv2DrngApply;
 
   // ── Init (runs after DOM ready) ───────────────────────────────────────────
   function _init() {
@@ -9834,6 +9851,7 @@ function ss2ApplyAndClose() {
     } catch(_) {}
 
     live.revealIdx++;
+    try { _sv2MaybeExtendForward(live); } catch(_) {}
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
     try {
@@ -15165,6 +15183,133 @@ async function _extendBNHistory(tfMin, seriesRef, chartRef) {
   _setLoadingLabel('');
   _bnExtendInFlight = false;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 BAR REPLAY — lazy anchored-window loader
+// ────────────────────────────────────────────────────────────────────────────
+// Problem: SV2_BN/SV2_BTC (injected from Python) hold only the LATEST N
+// candles per TF (mobile-hang guard, see _SV2_MAX in main.py). Isliye jab
+// Bar Replay mein koi PURANI date select hoti hai (jaise 2021, jabki injected
+// window sirf pichle kuch mahine cover karti hai), baseBarsLive khaali/blank
+// nikalta hai.
+// Fix: server (/api/sv2_window) ke paas poora (2015→now) untrimmed data
+// memory mein hai. Jab selected cutoff, currently-loaded array se purani
+// nikle, yahan se ek anchored window (cutoff se pehle ka buffer + turant
+// baad ka ek forward runway) fetch karke window._SV2_EXT_CACHE mein cache
+// kar dete hain — cell-render code (_sv2LoadData) aur replay engine (_tick)
+// dono ise, SV2_BN/SV2_BTC ki trimmed array ki jagah, prefer karte hain.
+// ════════════════════════════════════════════════════════════════════════════
+window._SV2_EXT_CACHE = window._SV2_EXT_CACHE || {};   // key: "bn|5m" etc → {arr, hasMoreAfter}
+let _sv2ExtendInFlight = false;
+
+function _sv2WindowUrl(asset, tf, anchorSec, dir, count) {
+  const path = `/api/sv2_window?asset=${encodeURIComponent(asset)}&tf=${encodeURIComponent(tf)}` +
+               `&anchor=${anchorSec}&dir=${dir}&count=${count}`;
+  if (_resolvedApiPort > 0) {
+    return `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}${path}`;
+  }
+  return path;
+}
+
+async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
+  if (_resolvedApiPort === 0) {
+    await _probeApiPort();
+    if (_resolvedApiPort === 0) return [];
+  }
+  try {
+    const r = await fetch(_sv2WindowUrl(asset, tf, anchorSec, dir, count || 4000),
+                          { signal: AbortSignal.timeout(20000) });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j && Array.isArray(j.candles)) ? j.candles : [];
+  } catch(_) {
+    return [];
+  }
+}
+
+function _sv2ShowReplayLoading(on) {
+  try {
+    var fabLbl = document.getElementById('sv2-drng-fab');
+    if (fabLbl) fabLbl.title = on
+      ? '⏳ Purani date ka data load ho raha hai…'
+      : (fabLbl.title || '').replace('⏳ Purani date ka data load ho raha hai…', '');
+  } catch(_) {}
+}
+
+// Cutoff date ke liye zaroorat pade to purana data fetch karke extend-cache
+// bhar do. Return hone ke baad caller (buildStack2) fresh, sahi-anchored
+// data use kar sakta hai. Agar already covered hai to turant return hota hai
+// (koi network call nahi) — normal/latest-date replay pe zero extra cost.
+async function _sv2EnsureWindowLoaded(cutEpoch) {
+  try {
+    if (typeof _stackKeyForAsset !== 'function' || typeof S === 'undefined') return;
+    const assetKey = _stackKeyForAsset(S.asset);
+    if (assetKey !== 'bn' && assetKey !== 'btc') return;   // 'third'/unknown asset — skip
+    const isBN   = (assetKey === 'bn');
+    const baseTF = _sv2GetBaseTF(isBN);
+    const store  = isBN ? SV2_BN : SV2_BTC;
+    const trimmed = (store && store[baseTF]) || [];
+
+    const extKey = assetKey + '|' + baseTF;
+    const ext    = window._SV2_EXT_CACHE[extKey];
+    const haveArr = (ext && ext.arr && ext.arr.length) ? ext.arr : trimmed;
+    const earliest = haveArr.length ? haveArr[0].time : Infinity;
+
+    if (cutEpoch >= earliest) return;   // already covered — nothing to fetch
+
+    _sv2ShowReplayLoading(true);
+    const before = await _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'before', 6000);
+    const after  = await _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'after',  15000);
+    _sv2ShowReplayLoading(false);
+
+    if (!before.length && !after.length) return;  // server se bhi kuch nahi mila
+
+    const merged = before.concat(after);
+    window._SV2_EXT_CACHE[extKey] = {
+      arr: merged,
+      hasMoreAfter: (after.length === 15000),
+    };
+    console.log(`[SV2 replay] extended window loaded: ${extKey} before=${before.length} after=${after.length}`);
+  } catch(e) {
+    console.warn('[SV2 replay] ensure-window-load failed', e);
+  }
+}
+
+// Replay chalte-chalte agar loaded window khatam hone wali hai (aur server
+// ke paas aage aur data hai), background mein agla chunk fetch karke APPEND
+// kar do (revealIdx/undo-stack/tracker jaise indices ko touch nahi karte,
+// isliye ye purani-candle-drop wala trimming nahi karta — sirf aage se
+// silently top-up karta hai taaki lamba replay session bina ruke chal sake).
+async function _sv2MaybeExtendForward(live) {
+  if (_sv2ExtendInFlight || !live || !live.baseBars || !live.baseBars.length) return;
+  const remaining = live.baseBars.length - live.revealIdx;
+  if (remaining > 300) return;   // abhi kaafi buffer bacha hai
+
+  const assetKey = live.isBN ? 'bn' : 'btc';
+  const baseTF   = _sv2GetBaseTF(live.isBN);
+  const extKey   = assetKey + '|' + baseTF;
+  const ext      = window._SV2_EXT_CACHE[extKey];
+  if (ext && ext.hasMoreAfter === false) return;   // server confirm kar chuka — aur data nahi hai
+
+  _sv2ExtendInFlight = true;
+  try {
+    const lastTime = live.baseBars[live.baseBars.length - 1].time;
+    const more = await _sv2FetchWindow(assetKey, baseTF, lastTime, 'after', 8000);
+    if (more.length) {
+      live.baseBars = live.baseBars.concat(more);
+      window._SV2_EXT_CACHE[extKey] = { arr: live.baseBars, hasMoreAfter: (more.length === 8000) };
+      console.log(`[SV2 replay] top-up +${more.length} bars, total=${live.baseBars.length}`);
+    } else {
+      window._SV2_EXT_CACHE[extKey] = { arr: live.baseBars, hasMoreAfter: false };
+    }
+  } catch(e) {
+    console.warn('[SV2 replay] forward top-up failed', e);
+  } finally {
+    _sv2ExtendInFlight = false;
+  }
+}
+window._sv2EnsureWindowLoaded  = _sv2EnsureWindowLoaded;
+window._sv2MaybeExtendForward = _sv2MaybeExtendForward;
 
 function _attachBNLazyScroll(chartRef, seriesRef, tfMin) {
   if (!chartRef || !seriesRef) return;
