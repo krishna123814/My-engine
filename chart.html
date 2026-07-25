@@ -853,6 +853,63 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#26a69a;
 }
 
+/* ── SV1 — Automatic Reversal Arrow Marker (candle color-flip) Show/Hide —
+   SR toggle fab (#sv1-srtoggle-fab) ke seedha niche, uski position follow
+   karta hai (khud draggable nahi hai) ─────────────────────────────────── */
+#sv1-arrow-fab{
+  display:none;
+  position:fixed;
+  z-index:8500;
+  width:26px;height:26px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv1-arrow-fab.visible{ display:flex; }
+#sv1-arrow-fab.on{
+  background:#26a69a22;
+  border-color:#26a69a;
+  color:#26a69a;
+}
+
+/* ── SV2 — Automatic Reversal Arrow Marker Show/Hide — calendar/▶ Play stack
+   ke saath, Play ke seedha niche ──────────────────────────────────────── */
+#sv2-arrow-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:11px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-arrow-btn.visible{ display:flex; }
+#sv2-arrow-btn.on{
+  background:#26a69a22;
+  border-color:#26a69a;
+  color:#26a69a;
+}
+
 /* ── Floating crosshair date/time badge — jab kisi Stack View (1 ya 2) ka
    bottom time-axis "Display" toggle se HIDE kiya gaya ho, tab bhi candle
    par cursor/finger rakhne par date+time yahan dikhta hai (chart pane ke
@@ -3230,11 +3287,15 @@ function _hdrRelayout(){
 <!-- ═══ SV1 — Bade TF ka SR chhote TF par Show/Hide — Floating draggable icon ═══ -->
 <button id="sv1-srtoggle-fab" title="Bade TF ka SR chhote TF par Show/Hide · jahan marzi move kiya ja sake">SR</button>
 
+<!-- ═══ SV1 — Automatic Reversal Arrow Marker Show/Hide (SR fab ke seedha niche) ═══ -->
+<button id="sv1-arrow-fab" title="Automatic Reversal Arrow Marker (candle color-flip) Show/Hide" onclick="_arrow1Toggle()">⇕</button>
+
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
 <!-- ═══ SV2 LIVE REPLAY CONTROLS (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
+<button id="sv2-arrow-btn" title="Automatic Reversal Arrow Marker (candle color-flip) Show/Hide" onclick="_arrow2Toggle()">⇕</button>
 <button id="sv2-prevstep-btn" title="Previous candle (undo 1 step)" onclick="_sv2StepBack()">⏮</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
@@ -9112,6 +9173,7 @@ function ss2ApplyAndClose() {
   var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
   var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
   var _openPxBtn = null;      // #sv2-openpx-btn — Opening Price Preview line show/hide
+  var _arrowBtn  = null;      // #sv2-arrow-btn — Automatic Reversal Arrow Marker show/hide
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -9160,6 +9222,10 @@ function ss2ApplyAndClose() {
     // active/running hai (▶ Play icon jaisi hi condition), calendar/play
     // group ke saath stacked.
     if (_openPxBtn) _openPxBtn.classList.toggle('visible', show);
+    // ⇕ Arrow marker toggle — calendar/Play group ke saath hamesha dikhta hai
+    // jab tak Stack View 2 active hai (Play ki tarah replay-range specific
+    // nahi, kyunki candle-close arrows replay ke bina bhi kaam karte hain).
+    if (_arrowBtn) _arrowBtn.classList.toggle('visible', stack2On);
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -9193,21 +9259,26 @@ function ss2ApplyAndClose() {
       _playBtn.style.left = r.left + 'px';
       _playBtn.style.top  = (r.bottom + GAP + stackOffset) + 'px';
     }
+    // ⇕ Arrow marker — Play ke seedha niche (ek row), baaki sab neeche shift.
+    if (_arrowBtn) {
+      _arrowBtn.style.left = r.left + 'px';
+      _arrowBtn.style.top  = (r.bottom + GAP + stackOffset + 29) + 'px';
+    }
     if (_prevBtn) {
       _prevBtn.style.left = r.left + 'px';
-      _prevBtn.style.top  = (r.bottom + GAP + stackOffset + 29) + 'px';
+      _prevBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
     }
     if (_onestepBtn) {
       _onestepBtn.style.left = r.left + 'px';
-      _onestepBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29) + 'px';
+      _onestepBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29) + 'px';
     }
     if (_resetBtn) {
       _resetBtn.style.left = r.left + 'px';
-      _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29) + 'px';
+      _resetBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29) + 'px';
     }
     if (_openPxBtn) {
       _openPxBtn.style.left = r.left + 'px';
-      _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29) + 'px';
+      _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29 + 29) + 'px';
     }
   }
 
@@ -10100,6 +10171,8 @@ function ss2ApplyAndClose() {
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('on', !!(window.SV2OC && SV2OC.pnlOverlayOn));
     _openPxBtn = document.getElementById('sv2-openpx-btn');
     if (_openPxBtn) _openPxBtn.classList.toggle('on', !!(typeof window._sv2GetOpenPxOnOff === 'function' && window._sv2GetOpenPxOnOff()));
+    _arrowBtn = document.getElementById('sv2-arrow-btn');
+    if (_arrowBtn) _arrowBtn.classList.toggle('on', !!(typeof _ARROW2_ON !== 'undefined' && _ARROW2_ON));
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
 
@@ -10350,6 +10423,7 @@ document.addEventListener('visibilitychange', function(){
 // ════════════════════════════════════════════════════════════════════════════
 (function(){
   var _fab = null;
+  var _arrowFab = null;   // #sv1-arrow-fab — follows _fab, sits directly below it
 
   function _saveFabPos(left, top) {
     try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
@@ -10366,6 +10440,16 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     _fab.style.left = pos.left + 'px';
     _fab.style.top  = pos.top  + 'px';
+    _syncArrowFabPos();
+  }
+  // ⇕ Arrow marker icon — SR fab ke seedha niche, jahan bhi SR fab drag ho
+  // usi ke hisaab se follow karta hai (khud draggable nahi hai).
+  function _syncArrowFabPos() {
+    if (!_fab || !_arrowFab) return;
+    var r = _fab.getBoundingClientRect();
+    var GAP = 8;
+    _arrowFab.style.left = r.left + 'px';
+    _arrowFab.style.top  = (r.bottom + GAP) + 'px';
   }
 
   function _wireDrag() {
@@ -10389,6 +10473,7 @@ document.addEventListener('visibilitychange', function(){
       nt = Math.max(0, Math.min(window.innerHeight - 26, nt));
       _fab.style.left = nl + 'px';
       _fab.style.top  = nt + 'px';
+      _syncArrowFabPos();
     }
     function _onEnd() {
       if (!_dragging) return;
@@ -10396,6 +10481,7 @@ document.addEventListener('visibilitychange', function(){
       _fab.classList.remove('dragging');
       var r = _fab.getBoundingClientRect();
       _saveFabPos(r.left, r.top);
+      _syncArrowFabPos();
       // Barely moved → treat as tap (toggle hierarchy rule)
       if (!_moved && typeof _sv1SrHierarchyToggle === 'function') {
         _sv1SrHierarchyToggle();
@@ -10429,13 +10515,17 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     var stack2On = (typeof _stack2Active !== 'undefined') && _stack2Active;
     _fab.classList.toggle('visible', !stack2On);
+    if (_arrowFab) _arrowFab.classList.toggle('visible', !stack2On);
+    _syncArrowFabPos();
   };
 
   function _init() {
     _fab      = document.getElementById('sv1-srtoggle-fab');
+    _arrowFab = document.getElementById('sv1-arrow-fab');
     if (!_fab) return;
     _applyFabPos(_loadFabPos());
     _fab.classList.toggle('on', !!(typeof SR_HTF_VISIBLE !== 'undefined' && SR_HTF_VISIBLE));
+    if (_arrowFab) _arrowFab.classList.toggle('on', !!(typeof _ARROW1_ON !== 'undefined' && _ARROW1_ON));
     _wireDrag();
     window._sv1FabSync();
   }
@@ -18248,6 +18338,285 @@ function _pdot2SetOpacity(idx, level) {
   _pdot2GetCfg(c.asset, c.tf).opacity = Math.max(1, Math.min(4, level));
   _pdot2SaveCfg(); _pdot2Draw(idx);
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTOMATIC ARROW MARKER — candle color-flip reversal arrows (SV1 + SV2)
+//
+//   Green candle → Red candle : red candle ke UPAR ek arrow, face DOWNSIDE (▼)
+//   Red candle → Green candle : green candle ke NICHE ek arrow, face UPSIDE (▲)
+//
+// Rules:
+//   • Sirf COMPLETE (closed) candle par hi arrow bante hain — abhi ban rahi
+//     (running/live) candle kabhi arrow trigger nahi karti.
+//   • Color = us timeframe ka existing SR/swing color (_tfSrColor / SV2 ke
+//     liye _sv2TfSrColor) — jo already app mein use ho raha hai, koi naya
+//     color-scheme nahi banaya.
+//   • Per cell max 6 arrows (upar+niche milake) — 7wan aate hi sabse purana
+//     turant delete (rolling FIFO), fade jaisa kuch nahi.
+//   • Parent-Dot marker (neeche wala dot) se overlap na ho, uske liye alag
+//     aur bada gap use kiya gaya hai.
+//   • Poora feature ek hi ON/OFF icon se control hota hai (SV1: SR fab ke
+//     niche, SV2: calendar/▶ Play stack ke niche) — per-cell setting nahi.
+//
+// Implementation mirrors the existing Parent-Dot (_pdot / _pdot2) overlay
+// system exactly (own transparent per-cell canvas, z-index:6, pointer-
+// events:none) and hooks into it by wrapping _pdotDraw/_pdot2Draw (and their
+// matching resize functions) so every existing call site that already
+// refreshes the dot automatically refreshes the arrows too — no need to
+// touch the ~15 places that call _pdotDraw/_pdot2Draw around the file.
+// ════════════════════════════════════════════════════════════════════════════
+
+const _ARROW_MAX = 6;               // max arrows visible per cell (up+down combined)
+const _ARROW1_KEY = 'arrowToggle1'; // SV1 (main chart / grid) ON-OFF, localStorage
+const _ARROW2_KEY = 'arrowToggle2'; // SV2 (bar-replay stack) ON-OFF, localStorage
+
+let _ARROW1_ON = (function(){ try { return _LS.getItem(_ARROW1_KEY) === '1'; } catch(_) { return false; } })();
+let _ARROW2_ON = (function(){ try { return _LS.getItem(_ARROW2_KEY) === '1'; } catch(_) { return false; } })();
+
+function _arrow1Save() { try { _LS.setItem(_ARROW1_KEY, _ARROW1_ON ? '1' : '0'); } catch(_){} }
+function _arrow2Save() { try { _LS.setItem(_ARROW2_KEY, _ARROW2_ON ? '1' : '0'); } catch(_){} }
+
+// Candle body color — same close>=open convention the chart library itself
+// uses to color the candle body.
+function _arrowBarColor(bar) { return bar.close >= bar.open ? 'green' : 'red'; }
+
+// Build the arrow-event list (already capped to latest _ARROW_MAX) for one
+// TF's OHLC array. The LAST element of childData is always treated as the
+// still-forming candle and excluded from transition detection — arrows only
+// ever land on a candle that has actually finished closing.
+function _arrowComputeEvents(childData) {
+  const events = [];
+  if (!Array.isArray(childData) || childData.length < 3) return events;
+  const closed = childData.slice(0, childData.length - 1);   // drop forming candle
+  for (let i = 1; i < closed.length; i++) {
+    const prevColor = _arrowBarColor(closed[i - 1]);
+    const curColor  = _arrowBarColor(closed[i]);
+    if (prevColor === 'green' && curColor === 'red') {
+      events.push({ bar: closed[i], dir: 'down' });   // red candle, arrow above, face down
+    } else if (prevColor === 'red' && curColor === 'green') {
+      events.push({ bar: closed[i], dir: 'up' });     // green candle, arrow below, face up
+    }
+  }
+  // Rolling FIFO — sirf latest 6 rakho, purane turant hat jaate hain.
+  return events.length > _ARROW_MAX ? events.slice(events.length - _ARROW_MAX) : events;
+}
+
+// Draw one solid triangle arrow (no library marker — full pixel control,
+// same philosophy as the Parent-Dot canvas circles).
+//   dir 'down' → tip points DOWN,  placed ABOVE the reference price
+//   dir 'up'   → tip points UP,    placed BELOW the reference price
+function _arrowDrawTriangle(ctx, x, y, dir, color) {
+  const halfW = 6, h = 8;
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (dir === 'down') {
+    ctx.moveTo(x - halfW, y);
+    ctx.lineTo(x + halfW, y);
+    ctx.lineTo(x, y + h);
+  } else {
+    ctx.moveTo(x - halfW, y);
+    ctx.lineTo(x + halfW, y);
+    ctx.lineTo(x, y - h);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SV1 — per-cell canvas overlay (targets CELLS[] / 'cell-chart-N', same as
+// the Parent-Dot system's canvas, kept fully independent: c._arrowCanvas).
+// ────────────────────────────────────────────────────────────────────────────
+function _arrowCreateCellCanvas(idx) {
+  _arrowRemoveCellCanvas(idx);
+  const c = CELLS[idx]; if (!c) return;
+  const el = document.getElementById('cell-chart-' + idx);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;background:transparent;pointer-events:none;z-index:6;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._arrowCanvas = canvas; c._arrowCtx = canvas.getContext('2d');
+}
+function _arrowRemoveCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c) return;
+  if (c._arrowCanvas) { c._arrowCanvas.remove(); c._arrowCanvas = null; c._arrowCtx = null; }
+}
+function _arrowResizeCellCanvas(idx) {
+  const c = CELLS[idx]; if (!c || !c._arrowCanvas) return;
+  const el = document.getElementById('cell-chart-' + idx); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._arrowCanvas.width  = el.clientWidth  * dpr;
+  c._arrowCanvas.height = el.clientHeight * dpr;
+  c._arrowCanvas.style.width  = el.clientWidth  + 'px';
+  c._arrowCanvas.style.height = el.clientHeight + 'px';
+}
+function _arrowClearCell(idx) {
+  const c = CELLS[idx]; if (!c || !c._arrowCtx || !c._arrowCanvas) return;
+  c._arrowCtx.setTransform(1, 0, 0, 1, 0, 0);
+  c._arrowCtx.clearRect(0, 0, c._arrowCanvas.width, c._arrowCanvas.height);
+}
+
+function _arrowDraw(idx) {
+  const c = CELLS[idx];
+  if (!c || !c.chart || !c.series) return;
+  if (!c._arrowCanvas || !c._arrowCtx) _arrowCreateCellCanvas(idx);
+  if (!c._arrowCanvas || !c._arrowCtx) return;
+
+  _arrowClearCell(idx);
+  if (!_ARROW1_ON) return;
+
+  const childData = _pdotGetData(c.asset, c.tf);   // reuse existing data helper
+  const events = _arrowComputeEvents(childData);
+  if (!events.length) return;
+
+  const color = (typeof _tfSrColor === 'function') ? _tfSrColor(c.tf) : '#2962ff';
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = c._arrowCanvas.width / dpr, cssH = c._arrowCanvas.height / dpr;
+  c._arrowCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  events.forEach(ev => {
+    const bar = ev.bar;
+    // Parent-Dot ka gap price*0.0008 hai (candle ke low ke neeche) — arrow
+    // ka gap thoda bada rakha hai taaki upar/neeche dono taraf dot marker se
+    // kabhi overlap na ho.
+    const gap = bar.close * 0.0016;
+    const priceRef = ev.dir === 'down' ? (bar.high + gap) : (bar.low - gap);
+    const x = c.chart.timeScale().timeToCoordinate(bar.time);
+    const y = c.series.priceToCoordinate(priceRef);
+    if (x == null || y == null) return;
+    if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) return;
+    _arrowDrawTriangle(c._arrowCtx, x, y, ev.dir, color);
+  });
+}
+
+function _arrowDrawAll() { CELLS.forEach((_, i) => _arrowDraw(i)); }
+
+// ────────────────────────────────────────────────────────────────────────────
+// SV2 — per-cell canvas overlay (targets STACK2_CELLS[] / 'stack2-chart-N'),
+// replay-safe: reuses _pdot2GetData so it only ever sees bars revealed so far
+// during an active replay, exactly like the SV2 Parent-Dot system.
+// ────────────────────────────────────────────────────────────────────────────
+function _arrow2CreateCellCanvas(idx) {
+  _arrow2RemoveCellCanvas(idx);
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  const el = document.getElementById('stack2-chart-' + idx);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:0;left:0;background:transparent;pointer-events:none;z-index:6;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._arrow2Canvas = canvas; c._arrow2Ctx = canvas.getContext('2d');
+}
+function _arrow2RemoveCellCanvas(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  if (c._arrow2Canvas) { c._arrow2Canvas.remove(); c._arrow2Canvas = null; c._arrow2Ctx = null; }
+}
+function _arrow2ResizeCellCanvas(idx) {
+  const c = STACK2_CELLS[idx]; if (!c || !c._arrow2Canvas) return;
+  const el = document.getElementById('stack2-chart-' + idx); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._arrow2Canvas.width  = el.clientWidth  * dpr;
+  c._arrow2Canvas.height = el.clientHeight * dpr;
+  c._arrow2Canvas.style.width  = el.clientWidth  + 'px';
+  c._arrow2Canvas.style.height = el.clientHeight + 'px';
+}
+function _arrow2ClearCell(idx) {
+  const c = STACK2_CELLS[idx]; if (!c || !c._arrow2Ctx || !c._arrow2Canvas) return;
+  c._arrow2Ctx.setTransform(1, 0, 0, 1, 0, 0);
+  c._arrow2Ctx.clearRect(0, 0, c._arrow2Canvas.width, c._arrow2Canvas.height);
+}
+
+function _arrow2Draw(idx, cutoffTime) {
+  const c = STACK2_CELLS[idx];
+  if (!c || !c.chart || !c.series) return;
+  if (!c._arrow2Canvas || !c._arrow2Ctx) _arrow2CreateCellCanvas(idx);
+  if (!c._arrow2Canvas || !c._arrow2Ctx) return;
+
+  _arrow2ClearCell(idx);
+  if (!_ARROW2_ON) return;
+
+  const assetKey = _stackKeyForAsset(c.asset);
+  const co = (typeof cutoffTime === 'number') ? cutoffTime : _pdot2CurrentCutoff();
+  const childData = _pdot2GetData(assetKey, c.tf, null, co);
+  const events = _arrowComputeEvents(childData);
+  if (!events.length) return;
+
+  const color = (typeof _sv2TfSrColor === 'function') ? _sv2TfSrColor(c.tf) : '#2962ff';
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = c._arrow2Canvas.width / dpr, cssH = c._arrow2Canvas.height / dpr;
+  c._arrow2Ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  events.forEach(ev => {
+    const bar = ev.bar;
+    const gap = bar.close * 0.0016;
+    const priceRef = ev.dir === 'down' ? (bar.high + gap) : (bar.low - gap);
+    const x = c.chart.timeScale().timeToCoordinate(bar.time);
+    const y = c.series.priceToCoordinate(priceRef);
+    if (x == null || y == null) return;
+    if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) return;
+    _arrowDrawTriangle(c._arrow2Ctx, x, y, ev.dir, color);
+  });
+}
+
+function _arrow2DrawAll(cutoffTime) {
+  if (typeof STACK2_CELLS === 'undefined') return;
+  STACK2_CELLS.forEach((_, i) => _arrow2Draw(i, cutoffTime));
+}
+function _arrow2Init(cutoffTime) {
+  if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
+  if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  _arrow2DrawAll(cutoffTime);
+}
+
+// ── Icon click handlers — single ON/OFF switch for the whole feature ───────
+function _arrow1Toggle() {
+  _ARROW1_ON = !_ARROW1_ON;
+  _arrow1Save();
+  const fab = document.getElementById('sv1-arrow-fab');
+  if (fab) fab.classList.toggle('on', _ARROW1_ON);
+  _arrowDrawAll();
+}
+function _arrow2Toggle() {
+  _ARROW2_ON = !_ARROW2_ON;
+  _arrow2Save();
+  const btn = document.getElementById('sv2-arrow-btn');
+  if (btn) btn.classList.toggle('on', _ARROW2_ON);
+  _arrow2DrawAll();
+}
+
+// ── Wrap the existing Parent-Dot draw/resize functions so every existing
+//    call site automatically keeps the arrow overlay in sync too — no need
+//    to edit the ~15 places around the file that already call these. ──────
+(function(){
+  const _origPdotDraw = _pdotDraw;
+  _pdotDraw = function(idx) {
+    _origPdotDraw(idx);
+    try { _arrowDraw(idx); } catch(_) {}
+  };
+  const _origPdotResize = _pdotResizeCellCanvas;
+  _pdotResizeCellCanvas = function(idx) {
+    _origPdotResize(idx);
+    try { _arrowResizeCellCanvas(idx); } catch(_) {}
+  };
+  const _origPdot2Draw = _pdot2Draw;
+  _pdot2Draw = function(idx, cutoffTime) {
+    _origPdot2Draw(idx, cutoffTime);
+    try { _arrow2Draw(idx, cutoffTime); } catch(_) {}
+  };
+  const _origPdot2Resize = _pdot2ResizeCellCanvas;
+  _pdot2ResizeCellCanvas = function(idx) {
+    _origPdot2Resize(idx);
+    try { _arrow2ResizeCellCanvas(idx); } catch(_) {}
+  };
+})();
 
 // ════════════════════════════════════════════════════════════════════════════
 // BTC INDICATOR  (independent duplicate of Swing S/R — same algorithm, own settings)
