@@ -12334,25 +12334,26 @@ function _tfArrowHookSeries(c) {
       const real = arr.filter(_tfArrowIsRealBar);
       if (real.length) {
         const oldBars = c._taBars;
-        const isFirstLoad = !oldBars || !oldBars.length;
-        if (isFirstLoad) {
-          // ── Automatic Arrow — INITIAL BACKFILL. Jab is cell mein pehli
-          //    baar data aata hai (app open, date-range apply, symbol
-          //    switch), abhi tak jitni bhi history reveal ho chuki hai
-          //    uska pura reversal-scan chalao — chahe kitni bhi candles
-          //    ho, koi farak nahi padta, kyunki _tfArrowAutoOnClose ke
-          //    andar wala FIFO cap khud latest 6 (auto) hi bacha chhodega,
-          //    baaki apne-aap trim ho jaayenge. Isse chart open hote hi
-          //    latest 6 arrow already lage hue milte hain, khaali nahi.
+        if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
+          // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-
+          // ek-bar case) => boundary wala bar (ab second-to-last) abhi
+          // PAKKA close hua — sirf usi ek boundary ko check karo (fast path).
+          const closedIdx = oldBars.length - 1;
+          _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
+        } else {
+          // Har koi aur jump — pehli baar data (app open), "Resume Last
+          // Replay" (jo buildStack2() ke turant-baad-wale chhote/cutoff
+          // dataset se seedha resumed-depth dataset par ek hi jhatke mein
+          // kood jaata hai), symbol switch, ya naya date-range — sab
+          // "re-sync" treat karo: PURA re-scan chalao is cell ke poore
+          // ab-tak-ke revealed history par. Chahe kitni bhi candles ho,
+          // koi farak nahi — _tfArrowAutoOnClose ke andar wala FIFO cap
+          // khud latest 6 (auto) hi bacha chhodega, purane/stale (jaise
+          // resume se pehle wale galat/premature arrows) khud-ba-khud
+          // trim ho jaayenge chronological order ke hisaab se.
           for (let i = 1; i < real.length; i++) {
             _tfArrowAutoOnClose(c, real[i], real[i - 1]);
           }
-        } else if (real.length === oldBars.length + 1) {
-          // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-
-          // ek-bar case) => boundary wala bar (ab second-to-last) abhi
-          // PAKKA close hua.
-          const closedIdx = oldBars.length - 1;
-          _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
         }
         c._taBars = real;
         c._taLastBar = real[real.length - 1];
