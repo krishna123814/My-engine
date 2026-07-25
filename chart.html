@@ -3288,14 +3288,14 @@ function _hdrRelayout(){
 <button id="sv1-srtoggle-fab" title="Bade TF ka SR chhote TF par Show/Hide · jahan marzi move kiya ja sake">SR</button>
 
 <!-- ═══ SV1 — Automatic Reversal Arrow Marker Show/Hide (SR fab ke seedha niche) ═══ -->
-<button id="sv1-arrow-fab" title="Automatic Reversal Arrow Marker (candle color-flip) Show/Hide" onclick="_arrow1Toggle()">⇕</button>
+<button id="sv1-arrow-fab" title="Automatic Reversal Arrow Marker — Show/Hide & Size" onclick="_arrowSettingsOpen(1,this)">⇕</button>
 
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
 <!-- ═══ SV2 LIVE REPLAY CONTROLS (FAB ke neeche, sirf active-range mein) ══ -->
 <button id="sv2-step-btn" title="Play / Pause Live Replay" onclick="_sv2StepForward()">▶</button>
-<button id="sv2-arrow-btn" title="Automatic Reversal Arrow Marker (candle color-flip) Show/Hide" onclick="_arrow2Toggle()">⇕</button>
+<button id="sv2-arrow-btn" title="Automatic Reversal Arrow Marker — Show/Hide & Size" onclick="_arrowSettingsOpen(2,this)">⇕</button>
 <button id="sv2-prevstep-btn" title="Previous candle (undo 1 step)" onclick="_sv2StepBack()">⏮</button>
 <button id="sv2-onestep-btn" title="Step: 1 candle (all TFs sync)" onclick="_sv2StepOnce()">⏭</button>
 <button id="sv2-reset-btn" title="Reset Replay to Start">⟲</button>
@@ -13966,6 +13966,10 @@ document.addEventListener('click', (e) => {
   if(_cellSettingsPanel && !_cellSettingsPanel.contains(e.target) &&
      !e.target.classList.contains('cell-settings-btn'))
     { _closeCellSettings(); }
+  // Arrow Marker settings popup (SV1/SV2)
+  if(_arrowSettingsPanel && !_arrowSettingsPanel.contains(e.target) &&
+     e.target.id!=='sv1-arrow-fab' && e.target.id!=='sv2-arrow-btn')
+    { _arrowSettingsClose(); }
   // Main chart settings panel
   if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
      e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
@@ -18369,12 +18373,21 @@ function _pdot2SetOpacity(idx, level) {
 const _ARROW_MAX = 6;               // max arrows visible per cell (up+down combined)
 const _ARROW1_KEY = 'arrowToggle1'; // SV1 (main chart / grid) ON-OFF, localStorage
 const _ARROW2_KEY = 'arrowToggle2'; // SV2 (bar-replay stack) ON-OFF, localStorage
+const _ARROW1_SIZE_KEY = 'arrowSize1'; // SV1 size level (1-4), localStorage
+const _ARROW2_SIZE_KEY = 'arrowSize2'; // SV2 size level (1-4), localStorage
+
+// Size level → triangle half-width / height in CSS pixels (independent per view).
+const _ARROW_SIZE_MAP = { 1:{halfW:4,h:6}, 2:{halfW:6,h:8}, 3:{halfW:8,h:11}, 4:{halfW:10,h:14} };
 
 let _ARROW1_ON = (function(){ try { return _LS.getItem(_ARROW1_KEY) === '1'; } catch(_) { return false; } })();
 let _ARROW2_ON = (function(){ try { return _LS.getItem(_ARROW2_KEY) === '1'; } catch(_) { return false; } })();
+let _ARROW1_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_SIZE_KEY),10); return (v>=1 && v<=4) ? v : 2; } catch(_) { return 2; } })();
+let _ARROW2_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_SIZE_KEY),10); return (v>=1 && v<=4) ? v : 2; } catch(_) { return 2; } })();
 
 function _arrow1Save() { try { _LS.setItem(_ARROW1_KEY, _ARROW1_ON ? '1' : '0'); } catch(_){} }
 function _arrow2Save() { try { _LS.setItem(_ARROW2_KEY, _ARROW2_ON ? '1' : '0'); } catch(_){} }
+function _arrow1SizeSave() { try { _LS.setItem(_ARROW1_SIZE_KEY, String(_ARROW1_SIZE)); } catch(_){} }
+function _arrow2SizeSave() { try { _LS.setItem(_ARROW2_SIZE_KEY, String(_ARROW2_SIZE)); } catch(_){} }
 
 // Candle body color — same close>=open convention the chart library itself
 // uses to color the candle body.
@@ -18408,8 +18421,10 @@ function _arrowComputeEvents(childData) {
 //   back toward it, so the tip position is the true, guaranteed gap.
 //   dir 'down' → tip points DOWN (tip = tipY, body sits ABOVE tipY)
 //   dir 'up'   → tip points UP   (tip = tipY, body sits BELOW tipY)
-function _arrowDrawTriangle(ctx, x, tipY, dir, color) {
-  const halfW = 6, h = 8;
+//   sizeLevel  → 1-4, looked up in _ARROW_SIZE_MAP (default level 2)
+function _arrowDrawTriangle(ctx, x, tipY, dir, color, sizeLevel) {
+  const sz = _ARROW_SIZE_MAP[sizeLevel] || _ARROW_SIZE_MAP[2];
+  const halfW = sz.halfW, h = sz.h;
   ctx.save();
   ctx.fillStyle = color;
   ctx.beginPath();
@@ -18499,7 +18514,7 @@ function _arrowDraw(idx) {
     const gapPx = ev.dir === 'down' ? 6 : 11;
     const tipY  = ev.dir === 'down' ? (wickY - gapPx) : (wickY + gapPx);
     if (x < -10 || x > cssW + 10 || tipY < -20 || tipY > cssH + 20) return;
-    _arrowDrawTriangle(c._arrowCtx, x, tipY, ev.dir, color);
+    _arrowDrawTriangle(c._arrowCtx, x, tipY, ev.dir, color, _ARROW1_SIZE);
   });
 }
 
@@ -18573,7 +18588,7 @@ function _arrow2Draw(idx, cutoffTime) {
     const gapPx = ev.dir === 'down' ? 6 : 11;
     const tipY  = ev.dir === 'down' ? (wickY - gapPx) : (wickY + gapPx);
     if (x < -10 || x > cssW + 10 || tipY < -20 || tipY > cssH + 20) return;
-    _arrowDrawTriangle(c._arrow2Ctx, x, tipY, ev.dir, color);
+    _arrowDrawTriangle(c._arrow2Ctx, x, tipY, ev.dir, color, _ARROW2_SIZE);
   });
 }
 
@@ -18587,20 +18602,83 @@ function _arrow2Init(cutoffTime) {
   _arrow2DrawAll(cutoffTime);
 }
 
-// ── Icon click handlers — single ON/OFF switch for the whole feature ───────
-function _arrow1Toggle() {
-  _ARROW1_ON = !_ARROW1_ON;
-  _arrow1Save();
-  const fab = document.getElementById('sv1-arrow-fab');
-  if (fab) fab.classList.toggle('on', _ARROW1_ON);
-  _arrowDrawAll();
+// ── Icon click → small settings popup with 2 controls: ON/OFF + Size ───────
+// Ek hi popup UI dono views ke liye reuse hoti hai (existing .cell-settings-
+// panel / .csp-row / .toggle classes) — sirf jis view (1=SV1, 2=SV2) se
+// icon dabaya gaya, us view ki apni independent state (_ARROW1_*/_ARROW2_*)
+// read/write hoti hai. Dusri view par koi asar nahi padta.
+let _arrowSettingsPanel = null;
+let _arrowSettingsView  = null;   // 1 or 2 — jis view ka panel abhi khula hai
+
+function _arrowSettingsHTML(view) {
+  const on   = (view === 1) ? _ARROW1_ON   : _ARROW2_ON;
+  const size = (view === 1) ? _ARROW1_SIZE : _ARROW2_SIZE;
+  return (
+    `<div class="csp-title"><span>Arrow Marker</span><button class="csp-close" onclick="_arrowSettingsClose()">✕</button></div>` +
+    `<div class="csp-row"><span>Show</span>` +
+      `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">` +
+        `<input type="checkbox" ${on ? 'checked' : ''} onchange="_arrowSetOn(${view},this.checked)">` +
+        `<span class="sl"></span></label></div>` +
+    `<div class="csp-row"><span>Size</span>` +
+      `<div style="display:flex;gap:4px">${[1,2,3,4].map(v =>
+        `<button style="width:20px;height:20px;border-radius:3px;border:1.5px solid ${size===v?'#2962ff':'#363c4e'};background:${size===v?'#2962ff22':'transparent'};color:${size===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_arrowSetSize(${view},${v})">${v}</button>`
+      ).join('')}</div>` +
+    `</div>`
+  );
 }
-function _arrow2Toggle() {
-  _ARROW2_ON = !_ARROW2_ON;
-  _arrow2Save();
-  const btn = document.getElementById('sv2-arrow-btn');
-  if (btn) btn.classList.toggle('on', _ARROW2_ON);
-  _arrow2DrawAll();
+
+function _arrowSettingsOpen(view, btn) {
+  _arrowSettingsClose();
+  const panel = document.createElement('div');
+  panel.className = 'cell-settings-panel open';
+  panel.innerHTML = _arrowSettingsHTML(view);
+  document.body.appendChild(panel);
+
+  const pW = panel.offsetWidth || 148, pH = panel.offsetHeight || 90;
+  const rect = btn.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = rect.right - pW;
+  let top  = rect.top - pH - 4;
+  if (left < 4) left = 4;
+  if (left + pW > vw - 4) left = vw - pW - 4;
+  if (top < 4) top = rect.bottom + 4;
+  if (top + pH > vh - 4) top = vh - pH - 4;
+  panel.style.left = left + 'px';
+  panel.style.top  = top  + 'px';
+
+  _arrowSettingsPanel = panel;
+  _arrowSettingsView  = view;
+}
+function _arrowSettingsClose() {
+  if (_arrowSettingsPanel) { _arrowSettingsPanel.remove(); _arrowSettingsPanel = null; }
+  _arrowSettingsView = null;
+}
+
+// Refresh the currently-open popup's row highlighting (size buttons) after a change.
+function _arrowSettingsRefresh() {
+  if (_arrowSettingsPanel && _arrowSettingsView != null) {
+    _arrowSettingsPanel.innerHTML = _arrowSettingsHTML(_arrowSettingsView);
+  }
+}
+
+function _arrowSetOn(view, val) {
+  if (view === 1) {
+    _ARROW1_ON = !!val; _arrow1Save();
+    const fab = document.getElementById('sv1-arrow-fab');
+    if (fab) fab.classList.toggle('on', _ARROW1_ON);
+    _arrowDrawAll();
+  } else {
+    _ARROW2_ON = !!val; _arrow2Save();
+    const b = document.getElementById('sv2-arrow-btn');
+    if (b) b.classList.toggle('on', _ARROW2_ON);
+    _arrow2DrawAll();
+  }
+}
+function _arrowSetSize(view, size) {
+  size = Math.max(1, Math.min(4, size));
+  if (view === 1) { _ARROW1_SIZE = size; _arrow1SizeSave(); _arrowDrawAll(); }
+  else            { _ARROW2_SIZE = size; _arrow2SizeSave(); _arrow2DrawAll(); }
+  _arrowSettingsRefresh();
 }
 
 // ── Wrap the existing Parent-Dot draw/resize functions so every existing
