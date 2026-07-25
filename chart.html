@@ -8269,6 +8269,26 @@ function _buildStack2CellChart(idx) {
           c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
           try { _sv2UpdatePreviewLine(idx); } catch(_) {}
+          // FIX: last-real-candle arrow silently missing after full load.
+          // When dataToShow is longer than CHUNK, only the FIRST chunk goes
+          // through setData()'s forming-aware close-check scan — every later
+          // chunk is fed via .update(), whose close-check only fires when the
+          // NEXT real bar shows up. The very last real bar (right before the
+          // whitespace tail) never gets a "next real bar", so its close-check
+          // never fired — permanently, not just during loading. Explicitly
+          // run that one missed check here, now that every chunk has been fed
+          // and c._taBars holds the complete real-bar history. Guarded by the
+          // same _formingLast structural flag (skip if the last bar is still
+          // genuinely forming), and _tfArrowAutoOnClose already dedupes by
+          // candle time, so this is a no-op if the bar was already checked
+          // via the setData path (small/single-chunk datasets).
+          try {
+            if (!dataToShow._formingLast && c._taBars && c._taBars.length >= 2 && typeof _tfArrowAutoOnClose === 'function') {
+              const _lastReal = c._taBars[c._taBars.length - 1];
+              const _prevReal  = c._taBars[c._taBars.length - 2];
+              _tfArrowAutoOnClose(c, _lastReal, _prevReal);
+            }
+          } catch(_) {}
         }
       }
       setTimeout(feedChunk, idx * 30);
