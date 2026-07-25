@@ -18394,13 +18394,20 @@ function _arrow2SizeSave() { try { _LS.setItem(_ARROW2_SIZE_KEY, String(_ARROW2_
 function _arrowBarColor(bar) { return bar.close >= bar.open ? 'green' : 'red'; }
 
 // Build the arrow-event list (already capped to latest _ARROW_MAX) for one
-// TF's OHLC array. The LAST element of childData is always treated as the
-// still-forming candle and excluded from transition detection — arrows only
-// ever land on a candle that has actually finished closing.
+// TF's OHLC array. Only the actually-forming candle is excluded — determined
+// by _formingLast flag (set by _liveAggregateTF / _liveAggregateDailyPlus).
+// Replay mein jab pehli candle complete close hoti hai, arrow usi par draw
+// hota hai — pichli candle par nahi. Non-replay (static) path mein last
+// candle hamesha live/forming hoti hai isliye wahan bhi same flag kaam karta hai.
 function _arrowComputeEvents(childData) {
   const events = [];
   if (!Array.isArray(childData) || childData.length < 3) return events;
-  const closed = childData.slice(0, childData.length - 1);   // drop forming candle
+  // _formingLast=true  → last element abhi ban rahi hai, drop karo (replay + live dono)
+  // _formingLast=false → last element complete closed hai, include karo (replay path)
+  // _formingLast undefined → purana/static path, pehle jaisa last drop karo (safe fallback)
+  const closed = (childData._formingLast === false)
+    ? childData.slice()                          // sab bars closed — kuch mat drop
+    : childData.slice(0, childData.length - 1); // forming last bar drop karo
   for (let i = 1; i < closed.length; i++) {
     const prevColor = _arrowBarColor(closed[i - 1]);
     const curColor  = _arrowBarColor(closed[i]);
