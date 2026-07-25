@@ -798,34 +798,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   box-shadow:0 8px 32px #0009;
 }
 
-/* ── SV1 — TF Arrow Marker (icon below CH-opacity, bottom of the SV1
-   vertical FAB stack: SR → opacity → dedup → CH-hide → CH-opacity → Arrow) ── */
-#sv1-arrow-fab{
-  display:none;
-  position:fixed;
-  z-index:8500;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:13px;
-  font-weight:700;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv1-arrow-fab.visible{ display:flex; }
-#sv1-arrow-fab.on{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
-}
-
 /* ── SV2 — Option Chain Position P&L Overlay: Show/Hide toggle (icon below CH opacity) ── */
 #sv2-ocpnl-btn{
   display:none;
@@ -879,35 +851,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#26a69a22;
   border-color:#26a69a;
   color:#26a69a;
-}
-
-/* ── SV2 — TF Arrow Marker (icon at the very bottom of the SV2 vertical
-   FAB stack: calendar → SR → opacity → dedup → CH-hide → CH-opacity →
-   OC-P&L → play → step → reset → openPx(pin) → Arrow) ────────────────── */
-#sv2-arrow-btn{
-  display:none;
-  position:fixed;
-  z-index:8499;
-  width:24px;height:24px;
-  border-radius:50%;
-  background:#1e222d;
-  border:1px solid #787b86;
-  box-shadow:0 4px 16px #0007;
-  font-size:13px;
-  font-weight:700;
-  cursor:pointer;
-  align-items:center;justify-content:center;
-  touch-action:manipulation;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:border-color .2s, background .2s, color .2s;
-  color:#787b86;
-}
-#sv2-arrow-btn.visible{ display:flex; }
-#sv2-arrow-btn.on{
-  background:#2962ff22;
-  border-color:#2962ff;
-  color:#2962ff;
 }
 
 /* ── Floating crosshair date/time badge — jab kisi Stack View (1 ya 2) ka
@@ -2289,9 +2232,6 @@ select.s-select, input.s-select{
 #notepad-btn:active{background:#2a2e39}
 #notepad-btn.active{border-color:#2962ff;color:#2962ff}
 
-/* ── TF Arrow Marker — button now only exists as #sv1-arrow-fab /
-   #sv2-arrow-btn (see their own CSS blocks); old shared bottom-bar
-   #tfarrow-btn removed. ─────────────────────────────────────────── */
 #notepad-panel{
   display:none;position:fixed;z-index:10002;
   top:0;left:0;
@@ -3290,9 +3230,6 @@ function _hdrRelayout(){
 <!-- ═══ SV1 — Bade TF ka SR chhote TF par Show/Hide — Floating draggable icon ═══ -->
 <button id="sv1-srtoggle-fab" title="Bade TF ka SR chhote TF par Show/Hide · jahan marzi move kiya ja sake">SR</button>
 
-<!-- ═══ SV1 — TF Arrow Marker (bottom of the SV1 vertical FAB stack) ════ -->
-<button id="sv1-arrow-fab" title="TF Arrow Marker (hold 5s on a candle)">↕</button>
-
 <!-- ═══ SV2 DATE RANGE — Floating Action Button ══════════════════════════ -->
 <button id="sv2-drng-fab" title="Date Range Select karo">📅</button>
 
@@ -3314,9 +3251,6 @@ function _hdrRelayout(){
      calendar sheet ke andar ek switch tha — ab yahan icon ke roop mein:
      ek tap = preview line dikhao, dubara tap = hide. ═══════════════════ -->
 <button id="sv2-openpx-btn" title="Opening Price Preview line Show/Hide karo" onclick="_sv2OpenPxToggle()">📍</button>
-
-<!-- ═══ SV2 — TF Arrow Marker (bottom of the SV2 vertical FAB stack) ═════ -->
-<button id="sv2-arrow-btn" title="TF Arrow Marker (hold 5s on a candle)">↕</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -8034,22 +7968,6 @@ function _buildStack2CellChart(idx) {
     wickUpColor: S.upColor, wickDownColor: S.dnColor,
     priceLineVisible: false,
   });
-  // FIX: c._taBars/_taLastBar/_taArrows are cell-level caches that used to
-  // survive across date-select / asset-switch (only the series-level
-  // _taHooked flag got a fresh start via the new series object above).
-  // Stale _taBars from the PREVIOUS date corrupted the arrow hook's
-  // same-count / +1-count / full-rescan branch logic in _tfArrowHookSeries,
-  // which caused two symptoms: the last pre-cutoff closed candle silently
-  // missing its arrow, and a batch "catch-up" full-rescan firing on the
-  // first Play tick (looking like an arrow appears instantly on click,
-  // unrelated to whether that tick's own candle actually closed). Clearing
-  // all three here gives every fresh date/asset session a clean slate —
-  // same for BN and BTC, this bug was asset-independent.
-  c._taBars    = [];
-  c._taLastBar = null;
-  c._taArrows  = [];
-  try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
-
   // ── Floating date/time badge — jab is panel ka bottom time-axis
   // ("Display" settings ke Time axis toggle se) hide kiya gaya ho, tab bhi
   // candle par cursor rakhne par date+time chart ke andar hi dikhe (jaisa
@@ -8263,18 +8181,12 @@ function _buildStack2CellChart(idx) {
           // which already branches on _isBNws internally — no separate
           // handling needed here.
           const _fw = _buildFutureWhitespace(dataToShow[dataToShow.length - 1].time, _tfMinWs, _isBNws, (S.futureOffset || 30));
-          // FIX (arrow-vs-SR mismatch on date-select): _liveAggregateAny()
-          // sets dataToShow._formingLast structurally (true = last candle
-          // still forming, false = genuinely closed) — but .concat() drops
-          // custom array properties, silently turning it into `undefined`.
-          // The arrow hook (_tfArrowHookSeries's setData override) reads
-          // this exact flag to decide whether the last bar is eligible for
-          // an auto-reversal-arrow check; losing it here (while the two
-          // other call-sites, _rebuildAllCells() and the mid-candle
-          // animation tick, correctly preserve it) is what let SR update
-          // correctly while the arrow silently didn't. Same fix, same
-          // pattern, for both BN and BTC since _liveAggregateAny already
-          // computed the correct asset-aware flag before this point.
+          // FIX: _liveAggregateAny() sets dataToShow._formingLast structurally
+          // (true = last candle still forming, false = genuinely closed) —
+          // but .concat() drops custom array properties, silently turning it
+          // into `undefined`. Preserve it here too, same as the other two
+          // call-sites (_rebuildAllCells() and the mid-candle animation tick),
+          // for both BN and BTC.
           const _wasFormingLastDS = !!dataToShow._formingLast;
           if (_fw.length) dataToShow = dataToShow.concat(_fw);
           dataToShow._formingLast = _wasFormingLastDS;
@@ -8307,26 +8219,6 @@ function _buildStack2CellChart(idx) {
           c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
           try { _sv2UpdatePreviewLine(idx); } catch(_) {}
-          // FIX: last-real-candle arrow silently missing after full load.
-          // When dataToShow is longer than CHUNK, only the FIRST chunk goes
-          // through setData()'s forming-aware close-check scan — every later
-          // chunk is fed via .update(), whose close-check only fires when the
-          // NEXT real bar shows up. The very last real bar (right before the
-          // whitespace tail) never gets a "next real bar", so its close-check
-          // never fired — permanently, not just during loading. Explicitly
-          // run that one missed check here, now that every chunk has been fed
-          // and c._taBars holds the complete real-bar history. Guarded by the
-          // same _formingLast structural flag (skip if the last bar is still
-          // genuinely forming), and _tfArrowAutoOnClose already dedupes by
-          // candle time, so this is a no-op if the bar was already checked
-          // via the setData path (small/single-chunk datasets).
-          try {
-            if (!dataToShow._formingLast && c._taBars && c._taBars.length >= 2 && typeof _tfArrowAutoOnClose === 'function') {
-              const _lastReal = c._taBars[c._taBars.length - 1];
-              const _prevReal  = c._taBars[c._taBars.length - 2];
-              _tfArrowAutoOnClose(c, _lastReal, _prevReal);
-            }
-          } catch(_) {}
         }
       }
       setTimeout(feedChunk, idx * 30);
@@ -9220,7 +9112,6 @@ function ss2ApplyAndClose() {
   var _srToggleBtn = null; // #sv2-srtoggle-btn — bade TF ka SR chhote TF par show/hide
   var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
   var _openPxBtn = null;      // #sv2-openpx-btn — Opening Price Preview line show/hide
-  var _arrowBtn = null;       // #sv2-arrow-btn — TF Arrow Marker (moved here from bottom bar)
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -9265,7 +9156,6 @@ function ss2ApplyAndClose() {
     // Stack View 2 active hai, replay date range select hone se independent.
     if (_srToggleBtn) _srToggleBtn.classList.toggle('visible', stack2On);
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('visible', stack2On);
-    if (_arrowBtn) _arrowBtn.classList.toggle('visible', stack2On);
     // 📍 Opening Price Preview icon — sirf tab dikhta hai jab replay actually
     // active/running hai (▶ Play icon jaisi hi condition), calendar/play
     // group ke saath stacked.
@@ -9318,16 +9208,6 @@ function ss2ApplyAndClose() {
     if (_openPxBtn) {
       _openPxBtn.style.left = r.left + 'px';
       _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29) + 'px';
-    }
-    if (_arrowBtn) {
-      // Sits below whichever icon is currently the last one in the stack —
-      // openPx when the play/step/reset/openPx group is visible, otherwise
-      // right after the SR/CH/P&L group (openPx hidden when replay isn't
-      // actively running, so the stack is shorter in that case).
-      var openPxVisible = !!(_openPxBtn && _openPxBtn.classList.contains('visible'));
-      var arrowExtra = openPxVisible ? (stackOffset + 29 + 29 + 29 + 29 + 29) : stackOffset;
-      _arrowBtn.style.left = r.left + 'px';
-      _arrowBtn.style.top  = (r.bottom + GAP + arrowExtra) + 'px';
     }
   }
 
@@ -9890,38 +9770,6 @@ function ss2ApplyAndClose() {
         _sv2NotifyBarClosedTFs(live.baseBars[live.revealIdx - 1].time, live.isBN);
       }
     } catch(_) {}
-    // ── Automatic Arrow — turant is hi tick par fire karo, agle tick ka
-    //    intezaar nahi. _tfsClosedAtBarTime() batata hai kaunsi TFs ka
-    //    candle EXACTLY is base-bar ke reveal hone se close hua (bucket-
-    //    boundary check, array-length-growth wala tareeka NAHI — wo ek
-    //    tick late chalta tha kyunki naya bucket agle tick tak nazar hi
-    //    nahi aata). _rebuildAllCells() ke baad cc._taBars mein us TF ka
-    //    ab-poori-tarah-final last bar already updated mil chuka hota hai. ──
-    try {
-      if (typeof _tfsClosedAtBarTime === 'function' && typeof STACK2_CELLS !== 'undefined') {
-        var _closedTfs = _tfsClosedAtBarTime(live.baseBars[live.revealIdx - 1].time, live.isBN);
-        if (_closedTfs.length) {
-          var _closedSet = {};
-          _closedTfs.forEach(function(x){ _closedSet[x.tfMin] = true; });
-          STACK2_CELLS.forEach(function(cc, _ci) {
-            // FIX: cc.tf is a hardcoded constant (always 1440) for SV2
-            // cells — it is NOT the cell's real displayed timeframe. Using
-            // it here meant this instant-fire check only ever matched the
-            // 1D cell and silently no-op'd for every other TF (BN:
-            // 5m/15m/45m/135m/3D/9D/27D, BTC: 160m/8H/3D/9D/27D). The real
-            // per-cell TF must come from _getCellTFMinLive(idx), same
-            // helper _rebuildAllCells() already uses.
-            var _realTfMin = _getCellTFMinLive(_ci);
-            if (!cc || !_closedSet[_realTfMin]) return;
-            try { if (cc.series) _tfArrowHookSeries(cc); } catch(_) {}
-            var _bars = cc._taBars;
-            if (_bars && _bars.length >= 2) {
-              _tfArrowAutoOnClose(cc, _bars[_bars.length - 1], _bars[_bars.length - 2]);
-            }
-          });
-        }
-      }
-    } catch(_) {}
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
     try { if (typeof _sv2OptionChainOnStep === 'function') _sv2OptionChainOnStep(); } catch(_) {}
     try {
@@ -10252,8 +10100,6 @@ function ss2ApplyAndClose() {
     if (_ocPnlBtn) _ocPnlBtn.classList.toggle('on', !!(window.SV2OC && SV2OC.pnlOverlayOn));
     _openPxBtn = document.getElementById('sv2-openpx-btn');
     if (_openPxBtn) _openPxBtn.classList.toggle('on', !!(typeof window._sv2GetOpenPxOnOff === 'function' && window._sv2GetOpenPxOnOff()));
-    _arrowBtn = document.getElementById('sv2-arrow-btn');
-    if (typeof _tfArrowSyncBtn === 'function') { try { _tfArrowSyncBtn(); } catch(_) {} }
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
 
@@ -10345,8 +10191,8 @@ function _sv2HasSnapshot(assetKey) {
   return !!(s && s.dateRange && typeof s.revealIdx === 'number');
 }
 
-// Capture CURRENT Stack View 2 replay progress + per-cell Future Line +
-// per-cell Arrow Markers for whichever asset is active right now.
+// Capture CURRENT Stack View 2 replay progress + per-cell Future Line
+// for whichever asset is active right now.
 function _sv2SaveSnapshotForCurrentAsset() {
   try {
     if (typeof _stack2Active === 'undefined' || !_stack2Active) return;
@@ -10365,7 +10211,6 @@ function _sv2SaveSnapshotForCurrentAsset() {
         cellsSnap.push({
           tf:     c.tf || null,
           vLine:  c.vLine ? Object.assign({}, c.vLine) : null,
-          arrows: Array.isArray(c._taArrows) ? c._taArrows.map(a => Object.assign({}, a)) : [],
         });
       }
     }
@@ -10381,7 +10226,6 @@ function _sv2SaveSnapshotForCurrentAsset() {
       },
       revealIdx: live.revealIdx,
       startIdx:  live.startIdx,
-      arrowType: (typeof TFARR_TYPE !== 'undefined') ? TFARR_TYPE : null,
       cells:     cellsSnap,
       savedAt:   Date.now(),
     };
@@ -10406,17 +10250,12 @@ function _sv2ResumeLastReplay(assetKey) {
       live.revealIdx = clamped;
       try { if (typeof _tfCloseState !== 'undefined') _tfCloseState.sv2 = { lastBucket: {}, recent: [], closingSoon: [] }; } catch(_) {}
     }
-    if (typeof TFARR_TYPE !== 'undefined' && snap.arrowType) {
-      TFARR_TYPE = snap.arrowType;
-      try { _LS.setItem(TFARR_TYPE_LS_KEY, snap.arrowType); } catch(_){}
-    }
     if (typeof STACK2_CELLS !== 'undefined' && Array.isArray(snap.cells)) {
       for (let i = 0; i < STACK2_CELLS.length; i++) {
         const c  = STACK2_CELLS[i];
         const sc = snap.cells[i];
         if (!c || !sc) continue;
         if (sc.vLine) c.vLine = Object.assign({}, sc.vLine);
-        c._taArrows = Array.isArray(sc.arrows) ? sc.arrows.map(a => Object.assign({}, a)) : [];
       }
     }
     try { if (typeof window._sv2RebuildAllCells === 'function') window._sv2RebuildAllCells(); } catch(_){}
@@ -10426,7 +10265,6 @@ function _sv2ResumeLastReplay(assetKey) {
         try { if (typeof _pdot2Draw === 'function') _pdot2Draw(i); } catch(_){}
       }
     }
-    try { if (typeof _tfArrowRedrawAll === 'function') _tfArrowRedrawAll(); } catch(_){}
     try { if (typeof window._sv2StepSyncBtn === 'function') window._sv2StepSyncBtn(); } catch(_){}
     try { _startCellTimers(); } catch(_){}
     try { _applyCrosshairStyle(); _applyCrosshairAxisLabels(); } catch(_){}
@@ -10512,7 +10350,6 @@ document.addEventListener('visibilitychange', function(){
 // ════════════════════════════════════════════════════════════════════════════
 (function(){
   var _fab = null;
-  var _arrowFab = null;   // #sv1-arrow-fab — TF Arrow Marker (moved here from bottom bar)
 
   function _saveFabPos(left, top) {
     try { localStorage.setItem('sv1SrFabPos', JSON.stringify({left:left,top:top})); } catch(_){}
@@ -10529,16 +10366,6 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     _fab.style.left = pos.left + 'px';
     _fab.style.top  = pos.top  + 'px';
-    _syncOpFabPos();
-  }
-  // Arrow marker button sits directly below the SR fab, moving with it.
-  function _syncOpFabPos() {
-    if (!_fab) return;
-    var r = _fab.getBoundingClientRect();
-    if (_arrowFab) {
-      _arrowFab.style.left = r.left + 'px';
-      _arrowFab.style.top  = (r.top + 29) + 'px';
-    }
   }
 
   function _wireDrag() {
@@ -10562,7 +10389,6 @@ document.addEventListener('visibilitychange', function(){
       nt = Math.max(0, Math.min(window.innerHeight - 26, nt));
       _fab.style.left = nl + 'px';
       _fab.style.top  = nt + 'px';
-      _syncOpFabPos();
     }
     function _onEnd() {
       if (!_dragging) return;
@@ -10603,13 +10429,10 @@ document.addEventListener('visibilitychange', function(){
     if (!_fab) return;
     var stack2On = (typeof _stack2Active !== 'undefined') && _stack2Active;
     _fab.classList.toggle('visible', !stack2On);
-    if (_arrowFab) _arrowFab.classList.toggle('visible', !stack2On);
   };
 
   function _init() {
     _fab      = document.getElementById('sv1-srtoggle-fab');
-    _arrowFab  = document.getElementById('sv1-arrow-fab');
-    if (typeof _tfArrowSyncBtn === 'function') { try { _tfArrowSyncBtn(); } catch(_) {} }
     if (!_fab) return;
     _applyFabPos(_loadFabPos());
     _fab.classList.toggle('on', !!(typeof SR_HTF_VISIBLE !== 'undefined' && SR_HTF_VISIBLE));
@@ -12026,13 +11849,6 @@ function _vlRemoveCellCanvas2(idx) {
   _vlRemoveCellCanvasGeneric(c);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// TF ARROW MARKER — functionality removed. #sv1-arrow-fab / #sv2-arrow-btn
-// remain in the DOM as plain, inert icons (no onclick, no popup, no drawing,
-// no auto-arrow-on-close). Any leftover calls to _tfArrow*/TFARR_* elsewhere
-// in this file are wrapped in try/catch or typeof-guards, so they safely no-op.
-// ════════════════════════════════════════════════════════════════════════════
-
 function _vlDrawCellGeneric(c) {
   if (!c || !c._vlCtx || !c._vlCanvas) return;
   const dpr = window.devicePixelRatio || 1;
@@ -13383,7 +13199,6 @@ async function buildCellChart(idx) {
   } else {
     c.series = c.chart.addAreaSeries({ topColor: upClr + '44', bottomColor: upClr + '00', lineColor: upClr, lineWidth: 2, priceLineVisible: true, lastValueVisible: true });
   }
-  try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
   // ── Floating date/time badge — SV1-only equivalent of the SV2 one above.
   // Jab layout Stack View 1 ho AUR uska apna "Time axis (bottom)" Display
