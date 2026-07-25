@@ -4550,7 +4550,19 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
       var idxBtc = _findBarIndexAtOrBefore(dailyArrBtc, tSec);
       if (idxBtc >= 0) {
         var bucketIdxBtc = Math.floor(idxBtc / nDaysBtc) * nDaysBtc;
-        return dailyArrBtc[bucketIdxBtc].time;
+        var _btcBucket = dailyArrBtc[bucketIdxBtc].time;
+        // GUARD: dailyArrBtc only holds fully-COMPLETE historical days. Once
+        // tSec belongs to a day that isn't in the table yet (i.e. "today" —
+        // the day currently being replayed/live), the lookup above silently
+        // falls back to the last KNOWN (earlier) day's bucket instead of
+        // today's — mis-grouping today's bars into yesterday's candle and
+        // permanently hiding yesterday as its own closed candle (missing
+        // arrow on 1D, wrong todayForming signal). If tSec's plain calendar
+        // day is LATER than what the table lookup found, tSec is "today" —
+        // use the calendar day directly instead of the stale table bucket.
+        var _btcCalDay = Math.floor(tSec / 86400) * 86400;
+        if (_btcCalDay > _btcBucket) return _btcCalDay;
+        return _btcBucket;
       }
     }
     // Fallback (daily array abhi load nahi hui) — sirf tab tak calendar-day
