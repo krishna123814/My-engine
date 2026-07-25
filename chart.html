@@ -4527,6 +4527,24 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
       var nDays = Math.max(1, Math.round(tfMin / 1440));
       var dailyArr = (typeof SV2_BN !== 'undefined' && SV2_BN['1D'] && SV2_BN['1D'].length) ? SV2_BN['1D'] : null;
       if (dailyArr) {
+        var lastIdxBn = dailyArr.length - 1;
+        // "Aaj" (abhi live/replay jis trading-day tak pahuncha hai) ka
+        // session-start timestamp — dailyArr mein sirf COMPLETE din hote
+        // hain, isliye "aaj" ka row abhi table mein NAHI hoga.
+        var todaySessionStart = Math.floor((tSec - NSE_OPEN_UTC) / 86400) * 86400 + NSE_OPEN_UTC;
+        if (todaySessionStart > dailyArr[lastIdxBn].time) {
+          // GUARD: "aaj" table mein abhi tak nahi hai. Isay array ke agle
+          // (virtual) index par maan kar nDays-AWARE bucket nikaalo —
+          // sirf 1D ko calendar-day shortcut mat do, warna 3D/9D/27D bhi
+          // ghalti se "naya bucket" ban kar 1D ke saath hi close dikhne
+          // lagte hain (yahi asli bug tha).
+          var idxTodayBn        = dailyArr.length;
+          var bucketIdxTodayBn  = Math.floor(idxTodayBn / nDays) * nDays;
+          if (bucketIdxTodayBn <= lastIdxBn) {
+            return dailyArr[bucketIdxTodayBn].time;   // bucket pehle se hi kisi known din se shuru ho chuka hai
+          }
+          return todaySessionStart;   // aaj hi is bucket ka pehla din hai
+        }
         var idx = _findBarIndexAtOrBefore(dailyArr, tSec);
         if (idx >= 0) {
           var bucketIdx = Math.floor(idx / nDays) * nDays;
@@ -4547,22 +4565,30 @@ function _liveGetBucketTime(tSec, tfMin, isBN) {
     var nDaysBtc = Math.max(1, Math.round(tfMin / 1440));
     var dailyArrBtc = (typeof SV2_BTC !== 'undefined' && SV2_BTC['1D'] && SV2_BTC['1D'].length) ? SV2_BTC['1D'] : null;
     if (dailyArrBtc) {
+      var lastIdxBtc = dailyArrBtc.length - 1;
+      // GUARD: dailyArrBtc only holds fully-COMPLETE historical days. Once
+      // tSec belongs to a day that isn't in the table yet (i.e. "today" —
+      // the day currently being replayed/live), a plain binary-search would
+      // silently fall back to the last KNOWN (earlier) day's bucket.
+      var _btcCalDay = Math.floor(tSec / 86400) * 86400;
+      if (_btcCalDay > dailyArrBtc[lastIdxBtc].time) {
+        // "Aaj" abhi table mein nahi hai — isay array ke agle (virtual)
+        // index par maan kar nDays-AWARE bucket nikaalo. (BUG FIX: pehle
+        // yahan seedha _btcCalDay return ho jaata tha for ANY nDays, jisse
+        // 3D/9D/27D bhi 1D jaisa hi plain-calendar-day bucket le lete the —
+        // isiliye jab bhi 1D close hota, 3D/9D/27D bhi ghalti se saath
+        // "close" dikhte the.)
+        var idxTodayBtc       = dailyArrBtc.length;
+        var bucketIdxTodayBtc = Math.floor(idxTodayBtc / nDaysBtc) * nDaysBtc;
+        if (bucketIdxTodayBtc <= lastIdxBtc) {
+          return dailyArrBtc[bucketIdxTodayBtc].time;  // bucket pehle se hi kisi known din se shuru ho chuka hai
+        }
+        return _btcCalDay;  // aaj hi is bucket ka pehla din hai
+      }
       var idxBtc = _findBarIndexAtOrBefore(dailyArrBtc, tSec);
       if (idxBtc >= 0) {
         var bucketIdxBtc = Math.floor(idxBtc / nDaysBtc) * nDaysBtc;
-        var _btcBucket = dailyArrBtc[bucketIdxBtc].time;
-        // GUARD: dailyArrBtc only holds fully-COMPLETE historical days. Once
-        // tSec belongs to a day that isn't in the table yet (i.e. "today" —
-        // the day currently being replayed/live), the lookup above silently
-        // falls back to the last KNOWN (earlier) day's bucket instead of
-        // today's — mis-grouping today's bars into yesterday's candle and
-        // permanently hiding yesterday as its own closed candle (missing
-        // arrow on 1D, wrong todayForming signal). If tSec's plain calendar
-        // day is LATER than what the table lookup found, tSec is "today" —
-        // use the calendar day directly instead of the stale table bucket.
-        var _btcCalDay = Math.floor(tSec / 86400) * 86400;
-        if (_btcCalDay > _btcBucket) return _btcCalDay;
-        return _btcBucket;
+        return dailyArrBtc[bucketIdxBtc].time;
       }
     }
     // Fallback (daily array abhi load nahi hui) — sirf tab tak calendar-day
