@@ -8281,26 +8281,18 @@ function _buildStack2CellChart(idx) {
           c._vlTime = _realLastTime2;
           _vlDrawCell2(idx);
           try { _sv2UpdatePreviewLine(idx); } catch(_) {}
-          // FIX: last-real-candle arrow silently missing after full load.
-          // When dataToShow is longer than CHUNK, only the FIRST chunk goes
-          // through setData()'s forming-aware close-check scan — every later
-          // chunk is fed via .update(), whose close-check only fires when the
-          // NEXT real bar shows up. The very last real bar (right before the
-          // whitespace tail) never gets a "next real bar", so its close-check
-          // never fired — permanently, not just during loading. Explicitly
-          // run that one missed check here, now that every chunk has been fed
-          // and c._taBars holds the complete real-bar history. Guarded by the
-          // same _formingLast structural flag (skip if the last bar is still
-          // genuinely forming), and _tfArrowAutoOnClose already dedupes by
-          // candle time, so this is a no-op if the bar was already checked
-          // via the setData path (small/single-chunk datasets).
-          try {
-            if (!dataToShow._formingLast && c._taBars && c._taBars.length >= 2 && typeof _tfArrowAutoOnClose === 'function') {
-              const _lastReal = c._taBars[c._taBars.length - 1];
-              const _prevReal  = c._taBars[c._taBars.length - 2];
-              _tfArrowAutoOnClose(c, _lastReal, _prevReal);
-            }
-          } catch(_) {}
+          // REMOVED (per single-trigger-point cleanup): this used to be a 4th
+          // explicit call-site for the auto-reversal-arrow check on
+          // date-select loads (on top of the setData scan, the
+          // mid-candle-animation setData call, and _tick()'s instant-fire).
+          // SV2 now fires arrows from exactly ONE place — the explicit
+          // instant-fire inside _tick() — matching SR/swing's single-trigger
+          // design, so this catch-up call is intentionally not run anymore.
+          // NOTE: this means that after a date-range jump specifically (not
+          // Play/replay), the very last loaded candle's own reversal-arrow
+          // check will only happen once Play is pressed and that candle's
+          // TF genuinely closes on a later tick — it will not be retroactively
+          // checked at load time. Flag if that turns out to be unwanted.
         }
       }
       setTimeout(feedChunk, idx * 30);
@@ -12386,6 +12378,20 @@ function _tfArrowRefPrice(bar, type) {
   return null;
 }
 
+// ── Is this cell one of Stack View 2's cells? SV2 has its OWN single,
+//    explicit close-detection trigger (_tick() → _tfsClosedAtBarTime() →
+//    _tfArrowAutoOnClose(), same one-trigger design as SR/swing's
+//    sv2SwingOnStep). For SV2 cells the update()/setData() overrides below
+//    must therefore stay silent on arrow-firing — they still maintain the
+//    bar cache (needed for manual arrow placement / hit-testing), just skip
+//    the auto-reversal-arrow check, so there is exactly ONE place SV2 arrows
+//    can ever fire from, matching SR exactly. SV1/Grid cells are unaffected
+//    (they have no separate tick-driven trigger, so they keep using these
+//    overrides as their only firing mechanism).
+function _tfArrowIsSv2Cell(c) {
+  try { return typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS.indexOf(c) !== -1; } catch(_) { return false; }
+}
+
 function _tfArrowHookSeries(c) {
   if (!c || !c.series || c.series._taHooked) return;
   const s = c.series;
@@ -12406,9 +12412,10 @@ function _tfArrowHookSeries(c) {
         arr[arr.length - 1] = bar;
       } else {
         // Naya bar bannA shuru hua => purana last bar (agar tha) ab PAKKA
-        // close ho chuka — yahi hai automatic reversal-arrow check karne
-        // ka sahi (aur sirf ek hi baar milne wala) mauka.
-        if (arr.length) {
+        // close ho chuka. For SV1/Grid cells this is the only close-check
+        // trigger, so it still fires here. SV2 cells skip this — their
+        // sole trigger is the explicit instant-fire in SV2's _tick().
+        if (arr.length && !_tfArrowIsSv2Cell(c)) {
           _tfArrowAutoOnClose(c, arr[arr.length - 1], arr.length >= 2 ? arr[arr.length - 2] : null);
         }
         arr.push(bar);
@@ -12432,24 +12439,32 @@ function _tfArrowHookSeries(c) {
       // lookup for BTC daily+ — because it was fundamentally guessing "what
       // changed" instead of just looking at what's true right now.
       // SR/swing never has this problem because it recomputes from scratch
-      // every single time, with zero memory of its previous call. We do the
-      // same thing here: on every setData(), re-scan every CLOSED
-      // consecutive candle pair in the currently-known history and re-check
-      // each one for a reversal — no diffing against what we saw last call.
+      // every single time, with zero memory of its previous call.
+      //
+      // For SV1/Grid cells we still do that here: on every setData(),
+      // re-scan every CLOSED consecutive candle pair and re-check each one
+      // for a reversal — no diffing against what we saw last call.
       // explicitFormingLast (the same structural flag SR/swing already
       // trust — see _liveAggregateAny/_dataForTFAny) tells us whether the
       // very last real bar is still forming; if so, exclude only that one
       // from the scan, exactly like SR does.
-      // This is only safe/cheap because _tfArrowAutoOnClose dedupes by
-      // candle time — re-checking an already-marked candle on every call is
-      // a harmless no-op, which is exactly what lets us skip all state
-      // tracking instead of trying to detect "what's new".
+      //
+      // For SV2 cells this scan is intentionally SKIPPED — setData() gets
+      // called here from multiple unrelated places (_rebuildAllCells() every
+      // reveal step, AND the purely-cosmetic mid-candle animation tick, many
+      // times per forming candle), and every one of those calls used to
+      // re-run this same scan — three separate places a single arrow could
+      // fire from. SV2 now has exactly ONE firing point (the explicit
+      // instant-fire inside _tick()), matching SR/swing's single-trigger
+      // design. Only the bar cache below is still maintained for SV2 cells.
       const explicitFormingLast = (arr._formingLast === true);
       const real = arr.filter(_tfArrowIsRealBar);
       if (real.length) {
-        const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
-        for (let i = 1; i < scanEnd; i++) {
-          _tfArrowAutoOnClose(c, real[i], real[i - 1]);
+        if (!_tfArrowIsSv2Cell(c)) {
+          const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
+          for (let i = 1; i < scanEnd; i++) {
+            _tfArrowAutoOnClose(c, real[i], real[i - 1]);
+          }
         }
         c._taBars = real;
         c._taLastBar = real[real.length - 1];
