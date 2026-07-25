@@ -9470,7 +9470,23 @@ function ss2ApplyAndClose() {
       var _aggLastReal = agg[agg.length - 1].time;
       cell._lastClose = agg[agg.length - 1].close;
       var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
-      var _wasFormingLast1 = !!agg._formingLast;   // .concat() below drops custom props — save it first
+      // FIX (arrow-fires-before-candle-close on the bucket's last base-bar
+      // segment): agg._formingLast here was computed off `proxy`, which
+      // includes the synthetic mid-candle partial bar (formingBar, time =
+      // nb.time). Once that partial bar lands in the LAST base-bar slot of
+      // a TF bucket (e.g. the 3rd 5m slot of a 15m candle, the 9th of a
+      // 45m candle), _liveAggregateTF's own completeness math
+      // (lastBarTime + baseDurSec < expectedEnd) treats it as if a FULL
+      // base-bar had landed there, so lastBarTime+baseDurSec == expectedEnd
+      // and the check flips to "closed" — even though that final segment
+      // is itself still only partially formed. SR/swing never hit this
+      // because they compute their own formingLast straight from only the
+      // genuinely-revealed real bars (live.baseBars.slice(0, revealIdx)),
+      // never touching the synthetic animation bar. Do the exact same
+      // clean computation here so the arrow-hook's signal always agrees
+      // with SR's — recompute from live.baseBars/live.revealIdx only.
+      var _realAgg1 = _liveAggregateAny(live.baseBars, live.revealIdx, tfMin, live.isBN);
+      var _wasFormingLast1 = _realAgg1.length ? !!_realAgg1._formingLast : true;
       if (_fw1.length) agg = agg.concat(_fw1);
       agg._formingLast = _wasFormingLast1;   // re-attach so the arrow-hook (setData) can read the real structural signal, same one SR/swing already trust — instead of guessing from array-length diffs
       // Same follow-live vs manual-scroll distinction as _rebuildAllCells()
