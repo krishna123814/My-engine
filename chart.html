@@ -8206,8 +8206,26 @@ function _buildStack2CellChart(idx) {
         if (dataToShow && dataToShow.length) {
           const _tfMinWs = _parseTFMin(tfLabel) || 5;
           const _isBNws  = (assetKey2 === 'bn');
+          // BN (session-gap-aware, 09:15-15:30 IST buckets) vs BTC (24/7,
+          // continuous epoch buckets) both go through _buildFutureWhitespace,
+          // which already branches on _isBNws internally — no separate
+          // handling needed here.
           const _fw = _buildFutureWhitespace(dataToShow[dataToShow.length - 1].time, _tfMinWs, _isBNws, (S.futureOffset || 30));
+          // FIX (arrow-vs-SR mismatch on date-select): _liveAggregateAny()
+          // sets dataToShow._formingLast structurally (true = last candle
+          // still forming, false = genuinely closed) — but .concat() drops
+          // custom array properties, silently turning it into `undefined`.
+          // The arrow hook (_tfArrowHookSeries's setData override) reads
+          // this exact flag to decide whether the last bar is eligible for
+          // an auto-reversal-arrow check; losing it here (while the two
+          // other call-sites, _rebuildAllCells() and the mid-candle
+          // animation tick, correctly preserve it) is what let SR update
+          // correctly while the arrow silently didn't. Same fix, same
+          // pattern, for both BN and BTC since _liveAggregateAny already
+          // computed the correct asset-aware flag before this point.
+          const _wasFormingLastDS = !!dataToShow._formingLast;
           if (_fw.length) dataToShow = dataToShow.concat(_fw);
+          dataToShow._formingLast = _wasFormingLastDS;
         }
       } catch(_) {}
 
@@ -9813,8 +9831,16 @@ function ss2ApplyAndClose() {
         if (_closedTfs.length) {
           var _closedSet = {};
           _closedTfs.forEach(function(x){ _closedSet[x.tfMin] = true; });
-          STACK2_CELLS.forEach(function(cc) {
-            if (!cc || !_closedSet[cc.tf]) return;
+          STACK2_CELLS.forEach(function(cc, _ci) {
+            // FIX: cc.tf is a hardcoded constant (always 1440) for SV2
+            // cells — it is NOT the cell's real displayed timeframe. Using
+            // it here meant this instant-fire check only ever matched the
+            // 1D cell and silently no-op'd for every other TF (BN:
+            // 5m/15m/45m/135m/3D/9D/27D, BTC: 160m/8H/3D/9D/27D). The real
+            // per-cell TF must come from _getCellTFMinLive(idx), same
+            // helper _rebuildAllCells() already uses.
+            var _realTfMin = _getCellTFMinLive(_ci);
+            if (!cc || !_closedSet[_realTfMin]) return;
             try { if (cc.series) _tfArrowHookSeries(cc); } catch(_) {}
             var _bars = cc._taBars;
             if (_bars && _bars.length >= 2) {
