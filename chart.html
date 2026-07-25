@@ -15451,52 +15451,82 @@ async function _extendBNHistory(tfMin, seriesRef, chartRef) {
 window._SV2_EXT_CACHE = window._SV2_EXT_CACHE || {};   // key: "bn|5m" etc → {arr, hasMoreAfter}
 let _sv2ExtendInFlight = false;
 
-function _sv2WindowUrl(asset, tf, anchorSec, dir, count) {
-  const path = `/api/sv2_window?asset=${encodeURIComponent(asset)}&tf=${encodeURIComponent(tf)}` +
-               `&anchor=${anchorSec}&dir=${dir}&count=${count}`;
-  if (_resolvedApiPort > 0) {
-    return `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}${path}`;
+// ─── SV2 window bridge (postMessage, no side-port) ──────────────────────────
+// Purani port-probe/HTTP approach (8502-8510) Streamlit Cloud pe unreachable
+// tha. Ab request Python ko ek hidden st.text_input ke DOM value ko force-set
+// karke bheji jaati hai — Streamlit apna hi websocket use karke isse backend
+// tak pahunchata hai, jo sirf us chhote @st.fragment ko rerun karta hai (poora
+// app/chart reload NAHI hota). Response wapas postMessage se aata hai, reqId
+// se match karke sahi promise resolve hoti hai.
+window._SV2_PENDING = window._SV2_PENDING || {};  // reqId → {resolve, timer}
+let   _sv2ReqSeq     = 0;
+
+if (!window._sv2BridgeListenerAttached) {
+  window._sv2BridgeListenerAttached = true;
+  window.addEventListener('message', function(ev) {
+    let msg = ev.data;
+    try { if (typeof msg === 'string') msg = JSON.parse(msg); } catch(_) { return; }
+    if (!msg || msg.type !== 'sv2_window_data' || !msg.data) return;
+    const reqId  = msg.data.reqId;
+    const pend   = window._SV2_PENDING[reqId];
+    if (!pend) return;  // stale ya kisi aur session ka response — ignore
+    clearTimeout(pend.timer);
+    delete window._SV2_PENDING[reqId];
+    pend.resolve(Array.isArray(msg.data.candles) ? msg.data.candles : []);
+  });
+}
+
+// Parent frame ke hidden bridge <input> ko dhoondh ke uska value force-set
+// karta hai — React ke apne value-tracking ko bypass karne ke liye native
+// setter use karna zaroori hai, phir 'input' event fire karke Streamlit ko
+// batao ki value badla, aur blur se commit karo (text_input blur/Enter pe
+// hi backend ko bhejta hai).
+function _sv2SendBridgeRequest(reqObj) {
+  try {
+    const input = window.parent.document.querySelector('input[aria-label="SV2_BRIDGE_REQ"]');
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, JSON.stringify(reqObj));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    setTimeout(() => { try { input.blur(); input.focus(); input.blur(); } catch(_) {} }, 30);
+    return true;
+  } catch(e) {
+    console.warn('[SV2 bridge] send failed:', e);
+    return false;
   }
-  return path;
 }
 
 async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
-  const attempt = {
-    asset, tf, anchorSec, dir, count: count || 4000,
-    portBefore: _resolvedApiPort,
-    url: null, ok: null, httpStatus: null, error: null, candleCount: null,
-  };
-  if (_resolvedApiPort === 0) {
-    await _probeApiPort();
-    attempt.portAfterProbe = _resolvedApiPort;
-    if (_resolvedApiPort === 0) {
-      attempt.error = 'API port probe failed — koi bhi port reachable nahi (server down / network block)';
+  const reqId = 'r' + Date.now() + '_' + (_sv2ReqSeq++);
+  const attempt = { asset, tf, anchorSec, dir, count: count || 4000, reqId, error: null, candleCount: null };
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      delete window._SV2_PENDING[reqId];
+      attempt.error = 'Bridge timeout — 25s me Python se koi response nahi aaya (fragment slow/down ho sakta hai)';
       try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-      return [];
-    }
-  }
-  attempt.url = _sv2WindowUrl(asset, tf, anchorSec, dir, count || 4000);
-  try {
-    const r = await fetch(attempt.url, { signal: AbortSignal.timeout(20000) });
-    attempt.httpStatus = r.status;
-    attempt.ok = r.ok;
-    if (!r.ok) {
-      attempt.error = 'HTTP ' + r.status + ' — server ne error diya';
+      resolve([]);
+    }, 25000);
+
+    window._SV2_PENDING[reqId] = {
+      resolve: (candles) => {
+        attempt.candleCount = candles.length;
+        if (!candles.length) attempt.error = 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
+        try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+        resolve(candles);
+      },
+      timer,
+    };
+
+    const sent = _sv2SendBridgeRequest({ reqId, asset, tf, anchor: anchorSec, dir, count: count || 4000 });
+    if (!sent) {
+      clearTimeout(timer);
+      delete window._SV2_PENDING[reqId];
+      attempt.error = 'Bridge input parent frame me nahi mila — Python side widget render nahi hua ya DOM structure badla';
       try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-      return [];
+      resolve([]);
     }
-    const j = await r.json();
-    const candles = (j && Array.isArray(j.candles)) ? j.candles : [];
-    attempt.candleCount = candles.length;
-    if (!candles.length) attempt.error = 'Server ne 200 OK diya lekin candles array khaali tha (asset/tf ke liye server-side data hi nahi hai us range mein)';
-    try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-    return candles;
-  } catch(e) {
-    attempt.error = 'fetch threw: ' + (e && e.name ? e.name + ': ' : '') + (e && e.message ? e.message : String(e)) +
-                    (e && e.name === 'TimeoutError' ? ' (20s timeout — bahut zyada data ya slow server)' : '');
-    try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-    return [];
-  }
+  });
 }
 
 function _sv2ShowReplayLoading(on) {

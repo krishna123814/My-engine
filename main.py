@@ -1740,6 +1740,71 @@ if sess_active or _btc_only:
     )
     components.html(_chart_html, height=950, scrolling=False)
 
+    # ── SV2 historical-window bridge (replaces broken 8502-8510 side-port) ───
+    # Problem: /api/sv2_window sirf side HTTP server (alag port) pe milta tha,
+    # jo Streamlit Cloud pe unreachable hai (sirf ek hi port expose hota hai).
+    # Fix: same postMessage-fragment pattern jo live-tick ke liye already kaam
+    # kar raha hai (neeche) — bas direction ulti: yahan JS Python ko REQUEST
+    # bhejta hai (hidden st.text_input ke DOM value ko JS se force-set karke,
+    # jisse Streamlit ka apna React state update ho aur is fragment ka rerun
+    # trigger ho — poore app ka rerun NAHI), Python us request ko cached
+    # in-memory data (_SV2_CACHE) se slice karke jawab isi fragment ke agle
+    # tick pe wapas postMessage se push kar deta hai. Chhota response hi jaata
+    # hai (max ~21k candles ek baar me) — poori raw file kabhi client pe nahi
+    # aati, isliye mobile hang ka risk nahi.
+    st.markdown(
+        """<style>
+        div[data-testid="stTextInput"]:has(input[aria-label="SV2_BRIDGE_REQ"]) {
+            position: absolute; width: 1px; height: 1px; overflow: hidden;
+            opacity: 0; pointer-events: none;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
+
+    @st.fragment(run_every=1)
+    def _sv2_window_bridge():
+        req_raw = st.text_input(
+            "SV2_BRIDGE_REQ", key="_sv2_bridge_req", label_visibility="collapsed"
+        )
+        last_seen = st.session_state.get("_sv2_bridge_last", "")
+        payload_json = None
+        if req_raw and req_raw != last_seen:
+            st.session_state["_sv2_bridge_last"] = req_raw
+            req_id = ""
+            try:
+                req = json.loads(req_raw)
+                req_id    = str(req.get("reqId", ""))
+                asset     = str(req.get("asset", ""))
+                tf        = str(req.get("tf", ""))
+                anchor    = int(req.get("anchor", 0))
+                direction = str(req.get("dir", "before"))
+                count     = int(req.get("count", 4000))
+                candles = _sv2_window_slice(asset, tf, anchor, direction, count)
+            except Exception:
+                candles = []
+            payload_json = json.dumps({"reqId": req_id, "candles": candles})
+
+        if payload_json:
+            _sv2_script = f"""
+<script>
+(function() {{
+  var payload = {payload_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'sv2_window_data', data: payload }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_sv2_script, height=0, scrolling=False)
+
+    _sv2_window_bridge()
+
     # ── BN Live Tick → postMessage pusher ────────────────────────────────────
     # @st.fragment se sirf yeh component rerun hoga — chart flicker nahi karega.
     # Har 1s pe latest tick iframe ko postMessage se milega.
