@@ -6228,13 +6228,38 @@ function _sv2BuildReplayDebugReport() {
   }
   lines.push('');
 
+  lines.push('── Extended-window fetch attempts (/api/sv2_window) ──');
+  const fetchLog = window._SV2_FETCH_LOG || [];
+  if (!fetchLog.length) {
+    lines.push('(koi fetch attempt record nahi hua — shayad already-loaded window ne cutoff cover kar liya, ya EnsureWindowLoaded chala hi nahi)');
+  } else {
+    fetchLog.forEach((f, i) => {
+      if (f.skipped) { lines.push('#' + i + ' SKIPPED — ' + f.reason); return; }
+      if (f.exception) { lines.push('#' + i + ' EXCEPTION — ' + f.exception); return; }
+      lines.push('#' + i + ' dir=' + f.dir + ' count=' + f.count + ' url=' + (f.url || 'n/a'));
+      lines.push('     httpStatus=' + f.httpStatus + ' ok=' + f.ok + ' candlesReturned=' + f.candleCount);
+      if (f.error) lines.push('     ⚠ ' + f.error);
+    });
+  }
+  lines.push('');
+
   // ── Auto-diagnosis ──────────────────────────────────────────────────────
   lines.push('── Possible problems (auto-detected) ──');
   const warns = [];
   if (base && base.baseTF) {
     if (req.cutEpoch !== undefined) {
       if (base.source === 'TRIMMED' && req.cutEpoch < base.first) {
-        warns.push('Selected date is OLDER than the trimmed/injected base window. Extended fetch shayad abhi complete nahi hua — isliye blank screen aa sakti hai. Thodi der wait karke retry karo, ya fetch fail check karo.');
+        const anyFetchTried = fetchLog.some(f => !f.skipped);
+        if (!anyFetchTried) {
+          warns.push('Selected date is OLDER than trimmed base window, aur koi extended fetch attempt hi record nahi hua — EnsureWindowLoaded call hi nahi hua ya time se pehle skip ho gaya.');
+        } else {
+          const failed = fetchLog.filter(f => !f.skipped && (f.error || !f.candleCount));
+          if (failed.length) {
+            warns.push('Extended fetch attempt hui thi lekin fail/empty rahi (neeche "Extended-window fetch attempts" section dekho for exact reason — port/network/HTTP status/empty-response).');
+          } else {
+            warns.push('Extended fetch successful dikh rahi hai per source abhi bhi TRIMMED hai — cache-key mismatch ho sakta hai (asset/tf key check karo).');
+          }
+        }
       }
       if (base.source === 'EXTENDED' && base.first > req.cutEpoch) {
         warns.push('Extended (server) fetch ho chuki hai, lekin earliest candle (' + _sv2FmtEpoch(base.first) + ') requested date (' + _sv2FmtEpoch(req.cutEpoch) + ') se BAAD ki hai. Iska matlab: (a) fetch fail/timeout hua aur PURANI cached window (kisi aur date ki) reuse ho rahi hai, ya (b) source data isse pehle available hi nahi hai. Check karo /api/sv2_window response aur network tab.');
@@ -15436,17 +15461,40 @@ function _sv2WindowUrl(asset, tf, anchorSec, dir, count) {
 }
 
 async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
+  const attempt = {
+    asset, tf, anchorSec, dir, count: count || 4000,
+    portBefore: _resolvedApiPort,
+    url: null, ok: null, httpStatus: null, error: null, candleCount: null,
+  };
   if (_resolvedApiPort === 0) {
     await _probeApiPort();
-    if (_resolvedApiPort === 0) return [];
+    attempt.portAfterProbe = _resolvedApiPort;
+    if (_resolvedApiPort === 0) {
+      attempt.error = 'API port probe failed — koi bhi port reachable nahi (server down / network block)';
+      try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+      return [];
+    }
   }
+  attempt.url = _sv2WindowUrl(asset, tf, anchorSec, dir, count || 4000);
   try {
-    const r = await fetch(_sv2WindowUrl(asset, tf, anchorSec, dir, count || 4000),
-                          { signal: AbortSignal.timeout(20000) });
-    if (!r.ok) return [];
+    const r = await fetch(attempt.url, { signal: AbortSignal.timeout(20000) });
+    attempt.httpStatus = r.status;
+    attempt.ok = r.ok;
+    if (!r.ok) {
+      attempt.error = 'HTTP ' + r.status + ' — server ne error diya';
+      try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+      return [];
+    }
     const j = await r.json();
-    return (j && Array.isArray(j.candles)) ? j.candles : [];
-  } catch(_) {
+    const candles = (j && Array.isArray(j.candles)) ? j.candles : [];
+    attempt.candleCount = candles.length;
+    if (!candles.length) attempt.error = 'Server ne 200 OK diya lekin candles array khaali tha (asset/tf ke liye server-side data hi nahi hai us range mein)';
+    try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+    return candles;
+  } catch(e) {
+    attempt.error = 'fetch threw: ' + (e && e.name ? e.name + ': ' : '') + (e && e.message ? e.message : String(e)) +
+                    (e && e.name === 'TimeoutError' ? ' (20s timeout — bahut zyada data ya slow server)' : '');
+    try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
     return [];
   }
 }
@@ -15465,6 +15513,7 @@ function _sv2ShowReplayLoading(on) {
 // data use kar sakta hai. Agar already covered hai to turant return hota hai
 // (koi network call nahi) — normal/latest-date replay pe zero extra cost.
 async function _sv2EnsureWindowLoaded(cutEpoch) {
+  window._SV2_FETCH_LOG = [];   // naya attempt session — purana log clear
   try {
     if (typeof _stackKeyForAsset !== 'function' || typeof S === 'undefined') return;
     const assetKey = _stackKeyForAsset(S.asset);
@@ -15481,6 +15530,7 @@ async function _sv2EnsureWindowLoaded(cutEpoch) {
 
     if (cutEpoch >= earliest) {
       console.log(`[SV2 replay] window already covers cutoff (skip fetch): ${extKey} earliest=${new Date(earliest*1000).toISOString()} cutoff=${new Date(cutEpoch*1000).toISOString()}`);
+      window._SV2_FETCH_LOG.push({ skipped: true, reason: 'cutoff >= earliest already-loaded candle — no fetch needed', extKey, earliest, cutEpoch });
       return;
     }
 
@@ -15505,6 +15555,7 @@ async function _sv2EnsureWindowLoaded(cutEpoch) {
     console.log(`[SV2 replay] extended window loaded: ${extKey} before=${before.length} after=${after.length}`);
   } catch(e) {
     console.warn('[SV2 replay] ensure-window-load failed', e);
+    try { window._SV2_FETCH_LOG.push({ exception: (e && e.message) || String(e) }); } catch(_) {}
   }
 }
 
