@@ -18373,21 +18373,40 @@ function _pdot2SetOpacity(idx, level) {
 const _ARROW_MAX = 6;               // max arrows visible per cell (up+down combined)
 const _ARROW1_KEY = 'arrowToggle1'; // SV1 (main chart / grid) ON-OFF, localStorage
 const _ARROW2_KEY = 'arrowToggle2'; // SV2 (bar-replay stack) ON-OFF, localStorage
-const _ARROW1_SIZE_KEY = 'arrowSize1'; // SV1 size level (1-4), localStorage
-const _ARROW2_SIZE_KEY = 'arrowSize2'; // SV2 size level (1-4), localStorage
+const _ARROW1_SIZE_KEY = 'arrowSize1'; // SV1 size level (0-4), localStorage
+const _ARROW2_SIZE_KEY = 'arrowSize2'; // SV2 size level (0-4), localStorage
+const _ARROW1_GAP_KEY  = 'arrowGap1';  // SV1 gap level (1-5), localStorage
+const _ARROW2_GAP_KEY  = 'arrowGap2';  // SV2 gap level (1-5), localStorage
 
 // Size level → triangle half-width / height in CSS pixels (independent per view).
-const _ARROW_SIZE_MAP = { 1:{halfW:4,h:6}, 2:{halfW:6,h:8}, 3:{halfW:8,h:11}, 4:{halfW:10,h:14} };
+// Level 0 = extra small (chhota se bhi chhota).
+const _ARROW_SIZE_MAP = { 0:{halfW:2,h:3}, 1:{halfW:4,h:6}, 2:{halfW:6,h:8}, 3:{halfW:8,h:11}, 4:{halfW:10,h:14} };
+
+// Gap level → CSS px gap between wick tip and arrow tip.
+// down-arrow (upar) aur up-arrow (niche) dono ke liye alag base gap hota hai
+// (up arrow niche Parent-Dot bhi hota hai — thoda zyada base gap).
+// _ARROW_GAP_MAP[level] = { d: downGap, u: upGap }
+const _ARROW_GAP_MAP = {
+  1: {d:2, u:4},
+  2: {d:4, u:7},
+  3: {d:6, u:11},   // default (pehle jaisa)
+  4: {d:9, u:16},
+  5: {d:13, u:22},
+};
 
 let _ARROW1_ON = (function(){ try { return _LS.getItem(_ARROW1_KEY) === '1'; } catch(_) { return false; } })();
 let _ARROW2_ON = (function(){ try { return _LS.getItem(_ARROW2_KEY) === '1'; } catch(_) { return false; } })();
-let _ARROW1_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_SIZE_KEY),10); return (v>=1 && v<=4) ? v : 2; } catch(_) { return 2; } })();
-let _ARROW2_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_SIZE_KEY),10); return (v>=1 && v<=4) ? v : 2; } catch(_) { return 2; } })();
+let _ARROW1_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_SIZE_KEY),10); return (v>=0 && v<=4) ? v : 2; } catch(_) { return 2; } })();
+let _ARROW2_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_SIZE_KEY),10); return (v>=0 && v<=4) ? v : 2; } catch(_) { return 2; } })();
+let _ARROW1_GAP  = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_GAP_KEY), 10); return (v>=1 && v<=5) ? v : 3; } catch(_) { return 3; } })();
+let _ARROW2_GAP  = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_GAP_KEY), 10); return (v>=1 && v<=5) ? v : 3; } catch(_) { return 3; } })();
 
 function _arrow1Save() { try { _LS.setItem(_ARROW1_KEY, _ARROW1_ON ? '1' : '0'); } catch(_){} }
 function _arrow2Save() { try { _LS.setItem(_ARROW2_KEY, _ARROW2_ON ? '1' : '0'); } catch(_){} }
 function _arrow1SizeSave() { try { _LS.setItem(_ARROW1_SIZE_KEY, String(_ARROW1_SIZE)); } catch(_){} }
 function _arrow2SizeSave() { try { _LS.setItem(_ARROW2_SIZE_KEY, String(_ARROW2_SIZE)); } catch(_){} }
+function _arrow1GapSave()  { try { _LS.setItem(_ARROW1_GAP_KEY,  String(_ARROW1_GAP));  } catch(_){} }
+function _arrow2GapSave()  { try { _LS.setItem(_ARROW2_GAP_KEY,  String(_ARROW2_GAP));  } catch(_){} }
 
 // Candle body color — same close>=open convention the chart library itself
 // uses to color the candle body.
@@ -18493,6 +18512,8 @@ function _arrowDraw(idx) {
   if (!c || !c.chart || !c.series) return;
   if (!c._arrowCanvas || !c._arrowCtx) _arrowCreateCellCanvas(idx);
   if (!c._arrowCanvas || !c._arrowCtx) return;
+  // Pan/zoom/crosshair subscription — lazy, idempotent (runs only once per cell)
+  try { _arrowAttachCell(idx); } catch(_e) {}
 
   _arrowClearCell(idx);
   if (!_ARROW1_ON) return;
@@ -18514,11 +18535,8 @@ function _arrowDraw(idx) {
       ? c.series.priceToCoordinate(bar.high)
       : c.series.priceToCoordinate(bar.low);
     if (x == null || wickY == null) return;
-    // Fixed CSS-pixel gap (zoom se independent — pehle price% wala gap zoom-out
-    // par sirf 1-2px reh jaata tha aur triangle wapas wick ke andar ghus jata
-    // tha). 'up' arrow ke liye gap thoda zyada, kyunki Parent-Dot bhi low ke
-    // neeche hi baithta hai — dono ke beech spacing bana rehta hai.
-    const gapPx = ev.dir === 'down' ? 6 : 11;
+    const _g1 = _ARROW_GAP_MAP[_ARROW1_GAP] || _ARROW_GAP_MAP[3];
+    const gapPx = ev.dir === 'down' ? _g1.d : _g1.u;
     const tipY  = ev.dir === 'down' ? (wickY - gapPx) : (wickY + gapPx);
     if (x < -10 || x > cssW + 10 || tipY < -20 || tipY > cssH + 20) return;
     _arrowDrawTriangle(c._arrowCtx, x, tipY, ev.dir, color, _ARROW1_SIZE);
@@ -18570,6 +18588,8 @@ function _arrow2Draw(idx, cutoffTime) {
   if (!c || !c.chart || !c.series) return;
   if (!c._arrow2Canvas || !c._arrow2Ctx) _arrow2CreateCellCanvas(idx);
   if (!c._arrow2Canvas || !c._arrow2Ctx) return;
+  // Pan/zoom/crosshair subscription — lazy, idempotent (runs only once per cell)
+  try { _arrow2AttachCell(idx); } catch(_e) {}
 
   _arrow2ClearCell(idx);
   if (!_ARROW2_ON) return;
@@ -18592,7 +18612,8 @@ function _arrow2Draw(idx, cutoffTime) {
       ? c.series.priceToCoordinate(bar.high)
       : c.series.priceToCoordinate(bar.low);
     if (x == null || wickY == null) return;
-    const gapPx = ev.dir === 'down' ? 6 : 11;
+    const _g2 = _ARROW_GAP_MAP[_ARROW2_GAP] || _ARROW_GAP_MAP[3];
+    const gapPx = ev.dir === 'down' ? _g2.d : _g2.u;
     const tipY  = ev.dir === 'down' ? (wickY - gapPx) : (wickY + gapPx);
     if (x < -10 || x > cssW + 10 || tipY < -20 || tipY > cssH + 20) return;
     _arrowDrawTriangle(c._arrow2Ctx, x, tipY, ev.dir, color, _ARROW2_SIZE);
@@ -18620,6 +18641,11 @@ let _arrowSettingsView  = null;   // 1 or 2 — jis view ka panel abhi khula hai
 function _arrowSettingsHTML(view) {
   const on   = (view === 1) ? _ARROW1_ON   : _ARROW2_ON;
   const size = (view === 1) ? _ARROW1_SIZE : _ARROW2_SIZE;
+  const gap  = (view === 1) ? _ARROW1_GAP  : _ARROW2_GAP;
+  const btnS = (v, label) =>
+    `<button style="min-width:22px;height:22px;padding:0 3px;border-radius:3px;border:1.5px solid ${size===v?'#2962ff':'#363c4e'};background:${size===v?'#2962ff22':'transparent'};color:${size===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_arrowSetSize(${view},${v})">${label}</button>`;
+  const btnG = (v, label) =>
+    `<button style="min-width:22px;height:22px;padding:0 3px;border-radius:3px;border:1.5px solid ${gap===v?'#f59e0b':'#363c4e'};background:${gap===v?'#f59e0b22':'transparent'};color:${gap===v?'#f59e0b':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_arrowSetGap(${view},${v})">${label}</button>`;
   return (
     `<div class="csp-title"><span>Arrow Marker</span><button class="csp-close" onclick="_arrowSettingsClose()">✕</button></div>` +
     `<div class="csp-row"><span>Show</span>` +
@@ -18627,9 +18653,10 @@ function _arrowSettingsHTML(view) {
         `<input type="checkbox" ${on ? 'checked' : ''} onchange="_arrowSetOn(${view},this.checked)">` +
         `<span class="sl"></span></label></div>` +
     `<div class="csp-row"><span>Size</span>` +
-      `<div style="display:flex;gap:4px">${[1,2,3,4].map(v =>
-        `<button style="width:20px;height:20px;border-radius:3px;border:1.5px solid ${size===v?'#2962ff':'#363c4e'};background:${size===v?'#2962ff22':'transparent'};color:${size===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_arrowSetSize(${view},${v})">${v}</button>`
-      ).join('')}</div>` +
+      `<div style="display:flex;gap:3px">${[0,1,2,3,4].map((v,i) => btnS(v, ['XS','S','M','L','XL'][i])).join('')}</div>` +
+    `</div>` +
+    `<div class="csp-row"><span>Gap</span>` +
+      `<div style="display:flex;gap:3px">${[1,2,3,4,5].map((v,i) => btnG(v, ['1','2','3','4','5'][i])).join('')}</div>` +
     `</div>`
   );
 }
@@ -18682,9 +18709,15 @@ function _arrowSetOn(view, val) {
   }
 }
 function _arrowSetSize(view, size) {
-  size = Math.max(1, Math.min(4, size));
+  size = Math.max(0, Math.min(4, size));
   if (view === 1) { _ARROW1_SIZE = size; _arrow1SizeSave(); _arrowDrawAll(); }
   else            { _ARROW2_SIZE = size; _arrow2SizeSave(); _arrow2DrawAll(); }
+  _arrowSettingsRefresh();
+}
+function _arrowSetGap(view, gap) {
+  gap = Math.max(1, Math.min(5, gap));
+  if (view === 1) { _ARROW1_GAP = gap; _arrow1GapSave(); _arrowDrawAll(); }
+  else            { _ARROW2_GAP = gap; _arrow2GapSave(); _arrow2DrawAll(); }
   _arrowSettingsRefresh();
 }
 
@@ -18713,6 +18746,63 @@ function _arrowSetSize(view, size) {
     try { _arrow2ResizeCellCanvas(idx); } catch(_) {}
   };
 })();
+
+// ── Dedicated arrow-redraw subscriptions — pan / zoom / crosshair sync ───────
+//
+// Problem: LightweightCharts ka canvas khud move hota hai jab user pan/zoom/
+// drag karta hai, lekin hamara arrow-canvas ek static overlay hai — chart
+// event aane par ise manually redraw karna padta hai.
+//
+// _pdotDraw wrap se pan/zoom events to covered hain (subscribeVisibleLogical-
+// RangeChange → _pdotDraw → _arrowDraw), lekin ek edge case hai:
+//   • subscribeVisibleLogicalRangeChange sirf tab fire hota hai jab visible
+//     RANGE change ho. Fast inertial pan ke beech bhi thodi delay aa sakti hai.
+//   • subscribeCrosshairMove har pointer-frame pe fire hota hai — isse arrows
+//     bilkul chart ke saath lagke chalte hain, koi lag nahi.
+//
+// Solution: har cell ke chart par ek RAF-throttled crosshairMove listener
+// directly arrow redraw karo — _pdotDraw se independent, sirf arrows ke liye.
+// _arrowDraw / _arrow2Draw khud chhote hain (canvas clear + iterate events),
+// RAF throttle ensure karta hai 60fps se zyada redraw kabhi nahi hoga.
+
+function _arrowAttachCell(idx) {
+  // SV1 / Grid cells
+  const c = (typeof CELLS !== 'undefined') && CELLS[idx];
+  if (!c || !c.chart) return;
+  if (c._arrowRafAttached) return;   // idempotent
+  c._arrowRafAttached = true;
+  let _raf = null;
+  const _redraw = () => {
+    if (_raf) return;
+    _raf = requestAnimationFrame(() => { _raf = null; try { _arrowDraw(idx); } catch(_e) {} });
+  };
+  try { c.chart.subscribeCrosshairMove(_redraw); } catch(_e) {}
+  try { c.chart.timeScale().subscribeVisibleLogicalRangeChange(_redraw); } catch(_e) {}
+}
+
+function _arrow2AttachCell(idx) {
+  // SV2 / Stack-2 cells
+  const c = (typeof STACK2_CELLS !== 'undefined') && STACK2_CELLS[idx];
+  if (!c || !c.chart) return;
+  if (c._arrow2RafAttached) return;  // idempotent
+  c._arrow2RafAttached = true;
+  let _raf = null;
+  const _redraw = () => {
+    if (_raf) return;
+    _raf = requestAnimationFrame(() => { _raf = null; try { _arrow2Draw(idx); } catch(_e) {} });
+  };
+  try { c.chart.subscribeCrosshairMove(_redraw); } catch(_e) {}
+  try { c.chart.timeScale().subscribeVisibleLogicalRangeChange(_redraw); } catch(_e) {}
+}
+
+// Attach karo: already-built cells ke liye abhi, aur naye cells ke liye
+// _arrowDraw / _arrow2Draw ke andar lazy-attach (canvas create hone ke baad).
+// Yeh IIFE wrapped _pdotDraw/2 ke baad define hota hai isliye cell build
+// functions inhe call kar sakte hain.
+function _arrowAttachAll() {
+  if (typeof CELLS !== 'undefined') CELLS.forEach((_, i) => _arrowAttachCell(i));
+  if (typeof STACK2_CELLS !== 'undefined') STACK2_CELLS.forEach((_, i) => _arrow2AttachCell(i));
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // BTC INDICATOR  (independent duplicate of Swing S/R — same algorithm, own settings)
