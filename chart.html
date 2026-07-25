@@ -8195,10 +8195,15 @@ function _buildStack2CellChart(idx) {
         // warna default trimmed ("latest N") array pe fallback. ────────────
         const extKeyLive    = assetKey2 + '|' + baseKeyLive;
         const extLive       = window._SV2_EXT_CACHE && window._SV2_EXT_CACHE[extKeyLive];
-        const baseBarsLive  = (extLive && extLive.arr && extLive.arr.length)
-          ? extLive.arr
-          : (baseStoreLive[baseKeyLive] || []);
+        const usingExtLive  = !!(extLive && extLive.arr && extLive.arr.length);
+        const baseBarsLive  = usingExtLive ? extLive.arr : (baseStoreLive[baseKeyLive] || []);
         const tfMinCell     = _parseTFMin(tfLabel) || 5;
+        console.log('[SV2 replay debug] cell='+idx+' tf='+tfLabel+' baseTF='+baseKeyLive+
+          ' extKey='+extKeyLive+' usingExt='+usingExtLive+
+          ' baseBarsLen='+baseBarsLive.length+
+          ' baseBarsFirst='+(baseBarsLive[0]&&new Date(baseBarsLive[0].time*1000).toISOString())+
+          ' baseBarsLast='+(baseBarsLive[baseBarsLive.length-1]&&new Date(baseBarsLive[baseBarsLive.length-1].time*1000).toISOString())+
+          ' cutoffFrom='+new Date(rng.from*1000).toISOString());
 
         // ── Cell ki TF selected base se CHHOTI hai → replay mein reconstruct
         // nahi ho sakti (base-resample ke waqt hi wo resolution discard ho
@@ -10373,10 +10378,13 @@ function _sv2ResumeLastReplay(assetKey) {
     try {
       document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', { detail: window._SV2_DATE_RANGE }));
     } catch(_){}
-    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
-      try { buildStack2(); } catch(_){}
-      setTimeout(_applySnapAfterBuild, 200);
-    }
+    (async function(){
+      try { if (typeof _sv2EnsureWindowLoaded === 'function') await _sv2EnsureWindowLoaded(snap.dateRange.from); } catch(_){}
+      if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
+        try { buildStack2(); } catch(_){}
+        setTimeout(_applySnapAfterBuild, 200);
+      }
+    })();
   }
 
   if (S.asset !== targetAssetName) {
@@ -15255,14 +15263,23 @@ async function _sv2EnsureWindowLoaded(cutEpoch) {
     const haveArr = (ext && ext.arr && ext.arr.length) ? ext.arr : trimmed;
     const earliest = haveArr.length ? haveArr[0].time : Infinity;
 
-    if (cutEpoch >= earliest) return;   // already covered — nothing to fetch
+    if (cutEpoch >= earliest) {
+      console.log(`[SV2 replay] window already covers cutoff (skip fetch): ${extKey} earliest=${new Date(earliest*1000).toISOString()} cutoff=${new Date(cutEpoch*1000).toISOString()}`);
+      return;
+    }
 
+    console.log(`[SV2 replay] fetching anchored window: ${extKey} cutoff=${new Date(cutEpoch*1000).toISOString()} (current earliest=${isFinite(earliest)?new Date(earliest*1000).toISOString():'n/a'})`);
     _sv2ShowReplayLoading(true);
-    const before = await _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'before', 6000);
-    const after  = await _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'after',  15000);
+    const [before, after] = await Promise.all([
+      _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'before', 6000),
+      _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'after',  15000),
+    ]);
     _sv2ShowReplayLoading(false);
 
-    if (!before.length && !after.length) return;  // server se bhi kuch nahi mila
+    if (!before.length && !after.length) {
+      console.warn(`[SV2 replay] server returned NO candles for ${extKey} (before=0, after=0) — check /api/sv2_window reachability`);
+      return;  // server se bhi kuch nahi mila
+    }
 
     const merged = before.concat(after);
     window._SV2_EXT_CACHE[extKey] = {
