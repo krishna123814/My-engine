@@ -8022,7 +8022,6 @@ function _buildStack2CellChart(idx) {
   c._taBars    = [];
   c._taLastBar = null;
   c._taArrows  = [];
-  c._taPrevFormingLast = false;
   try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
   // ── Floating date/time badge — jab is panel ka bottom time-axis
@@ -12408,69 +12407,36 @@ function _tfArrowHookSeries(c) {
     // so arr[arr.length-1] is very often whitespace, not the forming
     // candle. Keep only real bars in our cache, in order.
     if (Array.isArray(arr) && arr.length) {
-      // Structural "is the last real bar still forming?" signal — SAME flag
-      // (_formingLast) that _sv2ComputeCellSR/_liveAggregateAny already use
-      // for SR/swing lines (see _dataForTFAny: live-replay mode slices off
-      // arr._formingLast bars before computing SR, static/cutoff mode never
-      // sets it because cutoffTime-filtered data is always 100% closed by
-      // construction). We now thread that exact flag through here too,
-      // instead of guessing "closed vs still-forming" from array-length
-      // diffs — that guessing is what caused arrows on the live-forming
-      // candle and missed arrows on the last historical candle right after
-      // a normal cutoff-date load or a Resume Last Replay.
-      //   • true  => last real bar is confirmed still-forming (live replay
-      //              ticking, or the sub-second mid-candle animation tick)
-      //              → exclude it from any close-check.
-      //   • falsy => either a genuine bar just closed, or this is a plain
-      //              static/cutoff-filtered dataset where EVERY bar
-      //              (including the last one) is guaranteed already closed
-      //              → safe to include it in the close-check, immediately.
+      // ── SR/swing-style FRESH RECOMPUTE — no incremental state tracking ──
+      // The old version tried to be clever: compare real.length against the
+      // previous call's count (same / +1 / anything-else) and only check
+      // whatever pair that diff implied had just closed. That kept breaking
+      // in new ways — chunk-boundary loads, a candle closing on the SAME
+      // tick its bucket's array-length didn't grow, a stale bucket-time
+      // lookup for BTC daily+ — because it was fundamentally guessing "what
+      // changed" instead of just looking at what's true right now.
+      // SR/swing never has this problem because it recomputes from scratch
+      // every single time, with zero memory of its previous call. We do the
+      // same thing here: on every setData(), re-scan every CLOSED
+      // consecutive candle pair in the currently-known history and re-check
+      // each one for a reversal — no diffing against what we saw last call.
+      // explicitFormingLast (the same structural flag SR/swing already
+      // trust — see _liveAggregateAny/_dataForTFAny) tells us whether the
+      // very last real bar is still forming; if so, exclude only that one
+      // from the scan, exactly like SR does.
+      // This is only safe/cheap because _tfArrowAutoOnClose dedupes by
+      // candle time — re-checking an already-marked candle on every call is
+      // a harmless no-op, which is exactly what lets us skip all state
+      // tracking instead of trying to detect "what's new".
       const explicitFormingLast = (arr._formingLast === true);
       const real = arr.filter(_tfArrowIsRealBar);
       if (real.length) {
-        const oldBars = c._taBars;
         const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
-        if (oldBars && oldBars.length && real.length === oldBars.length) {
-          // SAME count => normally just an OHLC tick-update on the still-
-          // forming last bar, no close-check needed. EXCEPTION: if the last
-          // bar was forming on the PREVIOUS call (c._taPrevFormingLast ===
-          // true) and is now reported closed (explicitFormingLast flipped
-          // true → false) while the array length stayed the same — that's
-          // the exact "candle closes on the same base-bar that completes
-          // the bucket" tick. Previously this got silently skipped here and
-          // only caught one tick later by the +1 fast-path below (once a
-          // NEW bucket actually started), which is what caused the
-          // one-tick-delayed arrow (arrow only appears after the NEXT
-          // Play/Step click). Fire the close-check right now instead.
-          if (c._taPrevFormingLast === true && !explicitFormingLast) {
-            const closedIdx = real.length - 1;
-            _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
-          }
-        } else if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
-          // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-
-          // ek-bar case) => boundary wala bar (ab second-to-last) abhi
-          // PAKKA close hua — sirf usi ek boundary ko check karo (fast path).
-          const closedIdx = oldBars.length - 1;
-          _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
-        } else {
-          // Har koi aur jump — pehli baar data (app open), normal cutoff-
-          // date select, "Resume Last Replay", symbol switch, ya naya
-          // date-range — sab "re-sync" treat karo: PURA re-scan chalao is
-          // cell ke poore ab-tak-ke revealed history par, sirf scanEnd tak
-          // (jo upar structurally decide ho chuka hai — static/cutoff data
-          // pe poora history including last bar, live-replay pe last bar
-          // ke bina agar wo abhi bhi forming hai). Chahe kitni bhi candles
-          // ho, koi farak nahi — _tfArrowAutoOnClose ke andar wala FIFO cap
-          // khud latest 6 (auto) hi bacha chhodega, aur time-based dedupe
-          // pehle-se-restored (Resume Last Replay snapshot) arrows ko bhi
-          // dobara duplicate nahi hone dega.
-          for (let i = 1; i < scanEnd; i++) {
-            _tfArrowAutoOnClose(c, real[i], real[i - 1]);
-          }
+        for (let i = 1; i < scanEnd; i++) {
+          _tfArrowAutoOnClose(c, real[i], real[i - 1]);
         }
         c._taBars = real;
         c._taLastBar = real[real.length - 1];
-        c._taPrevFormingLast = explicitFormingLast;
       }
     }
     return origSetData(arr);
