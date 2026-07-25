@@ -7996,6 +7996,20 @@ function _buildStack2CellChart(idx) {
     wickUpColor: S.upColor, wickDownColor: S.dnColor,
     priceLineVisible: false,
   });
+  // FIX: c._taBars/_taLastBar/_taArrows are cell-level caches that used to
+  // survive across date-select / asset-switch (only the series-level
+  // _taHooked flag got a fresh start via the new series object above).
+  // Stale _taBars from the PREVIOUS date corrupted the arrow hook's
+  // same-count / +1-count / full-rescan branch logic in _tfArrowHookSeries,
+  // which caused two symptoms: the last pre-cutoff closed candle silently
+  // missing its arrow, and a batch "catch-up" full-rescan firing on the
+  // first Play tick (looking like an arrow appears instantly on click,
+  // unrelated to whether that tick's own candle actually closed). Clearing
+  // all three here gives every fresh date/asset session a clean slate —
+  // same for BN and BTC, this bug was asset-independent.
+  c._taBars    = [];
+  c._taLastBar = null;
+  c._taArrows  = [];
   try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
   // ── Floating date/time badge — jab is panel ka bottom time-axis
