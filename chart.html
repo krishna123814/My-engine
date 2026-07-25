@@ -6154,6 +6154,175 @@ function _deactivateStack2() {
 
 // ── Stack View 2 Debug overlay — sirf idx=0 cell pe ek compact overlay ──────
 let _sv2DbgLog = [];   // sabhi cells ka log ek jagah collect karo
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 REPLAY DEBUG PANEL — date-select / resume-last-replay ke waqt full
+// on-screen report: kahan se kahan tak data aaya, har TF me kitni candle,
+// aur auto-detected possible problems. Copy icon se poora text clipboard
+// mein copy ho jaata hai.
+// ════════════════════════════════════════════════════════════════════════════
+window._SV2_REPLAY_DEBUG = { requested: null, base: null, cells: [] };
+
+function _sv2ReplayDebugReset(meta) {
+  window._SV2_REPLAY_DEBUG = { requested: meta || null, base: null, cells: [] };
+}
+
+function _sv2ReplayDebugSetBase(info) {
+  try { window._SV2_REPLAY_DEBUG.base = info; } catch(_) {}
+}
+
+function _sv2ReplayDebugAddCell(info) {
+  try {
+    // same idx dobara aaye (rebuild) to purana replace kar do, duplicate na ho
+    const arr = window._SV2_REPLAY_DEBUG.cells;
+    const existing = arr.findIndex(c => c.idx === info.idx);
+    if (existing >= 0) arr[existing] = info; else arr.push(info);
+  } catch(_) {}
+}
+
+function _sv2FmtEpoch(t) {
+  if (t === null || t === undefined || !isFinite(t)) return 'n/a';
+  try { return new Date(t * 1000).toISOString().replace('T',' ').slice(0,16) + ' UTC'; }
+  catch(_) { return String(t); }
+}
+
+function _sv2BuildReplayDebugReport() {
+  const D = window._SV2_REPLAY_DEBUG || {};
+  const req  = D.requested || {};
+  const base = D.base || {};
+  const lines = [];
+
+  lines.push('════ SV2 REPLAY DEBUG REPORT ════');
+  lines.push('Generated: ' + new Date().toISOString());
+  lines.push('Phase: ' + (req.phase || 'unknown'));
+  lines.push('Asset: ' + (req.assetKey || 'unknown'));
+  lines.push('Requested cutoff date: ' + (req.cutEpoch !== undefined ? _sv2FmtEpoch(req.cutEpoch) : 'n/a') +
+              (req.cutEpoch !== undefined ? ' (epoch=' + req.cutEpoch + ')' : ''));
+  lines.push('');
+
+  lines.push('── Base data (used to reconstruct replay) ──');
+  if (base && base.baseTF) {
+    lines.push('Base TF: ' + base.baseTF);
+    lines.push('Source: ' + (base.source || 'unknown') +
+                (base.source === 'EXTENDED' ? ' (server /api/sv2_window fetch)' : ' (page-injected trimmed window)'));
+    lines.push('Candle count: ' + base.count);
+    lines.push('Range: ' + _sv2FmtEpoch(base.first) + '  →  ' + _sv2FmtEpoch(base.last));
+    lines.push('Reveal count (candles before cutoff): ' + base.revealCount);
+  } else {
+    lines.push('(no base data captured — build shayad abhi hua hi nahi, ya date range active nahi hai)');
+  }
+  lines.push('');
+
+  lines.push('── Per-timeframe candle counts ──');
+  const cells = (D.cells || []).slice().sort((a,b) => a.idx - b.idx);
+  if (!cells.length) {
+    lines.push('(koi cell data capture nahi hua)');
+  } else {
+    cells.forEach(c => {
+      lines.push('Cell ' + c.idx + ' [' + c.tf + ']  status=' + c.status +
+        '  candles=' + (c.count ?? 'n/a') +
+        '  range=' + (c.first ? _sv2FmtEpoch(c.first) : 'n/a') + ' → ' + (c.last ? _sv2FmtEpoch(c.last) : 'n/a') +
+        (c.indicatorCount !== undefined ? '  indicatorData=' + c.indicatorCount : ''));
+      if (c.note) lines.push('    note: ' + c.note);
+    });
+  }
+  lines.push('');
+
+  // ── Auto-diagnosis ──────────────────────────────────────────────────────
+  lines.push('── Possible problems (auto-detected) ──');
+  const warns = [];
+  if (base && base.baseTF) {
+    if (req.cutEpoch !== undefined) {
+      if (base.source === 'TRIMMED' && req.cutEpoch < base.first) {
+        warns.push('Selected date is OLDER than the trimmed/injected base window. Extended fetch shayad abhi complete nahi hua — isliye blank screen aa sakti hai. Thodi der wait karke retry karo, ya fetch fail check karo.');
+      }
+      if (base.source === 'EXTENDED' && base.first > req.cutEpoch) {
+        warns.push('Extended (server) fetch ho chuki hai, lekin earliest candle (' + _sv2FmtEpoch(base.first) + ') requested date (' + _sv2FmtEpoch(req.cutEpoch) + ') se BAAD ki hai. Iska matlab: (a) fetch fail/timeout hua aur PURANI cached window (kisi aur date ki) reuse ho rahi hai, ya (b) source data isse pehle available hi nahi hai. Check karo /api/sv2_window response aur network tab.');
+      }
+      if (base.revealCount === 0) {
+        warns.push('revealCount = 0 → requested cutoff se pehle EK BHI candle nahi mili base data mein. Chart blank/near-blank rahega.');
+      }
+    }
+  } else {
+    warns.push('Base data hi capture nahi hua — window._SV2_DATE_RANGE set nahi hai ya buildStack2() replay-branch tak nahi pahuncha.');
+  }
+  cells.forEach(c => {
+    if (c.status === 'NO_DATA') warns.push('Cell ' + c.idx + ' [' + c.tf + ']: NO_DATA — is TF ke liye store mein data hi nahi mila.');
+    if (c.status === 'BELOW_BASE') warns.push('Cell ' + c.idx + ' [' + c.tf + ']: cell ka TF, current base TF se chhota hai → replay mein reconstruct nahi ho sakta (disabled hint dikh raha hoga).');
+    if (c.count === 0) warns.push('Cell ' + c.idx + ' [' + c.tf + ']: 0 candles bani — screen par yeh cell blank dikhega.');
+    if (c.indicatorCount !== undefined && c.indicatorCount < 3) warns.push('Cell ' + c.idx + ' [' + c.tf + ']: indicatorData=' + c.indicatorCount + ' (<3) → SR/swing/arrow markers is TF pe nahi lagenge (minimum 3 candles chahiye).');
+  });
+  if (!warns.length) warns.push('Koi obvious mismatch nahi mila — data range aur candle counts theek lag rahe hain.');
+  warns.forEach(w => lines.push('⚠ ' + w));
+
+  lines.push('════════════════════════════════');
+  return lines.join('\n');
+}
+
+function _sv2ShowReplayDebugPanel() {
+  try {
+    document.querySelectorAll('._sv2ReplayDbgPanel').forEach(el => el.remove());
+
+    const text = _sv2BuildReplayDebugReport();
+
+    const panel = document.createElement('div');
+    panel.className = '_sv2ReplayDbgPanel';
+    panel.style.cssText = [
+      'position:fixed','top:6px','left:6px','right:6px','bottom:auto',
+      'max-height:70vh','overflow-y:auto',
+      'background:rgba(10,10,15,0.97)','color:#7CFC9A',
+      'font-size:11px','font-family:monospace','line-height:1.4',
+      'padding:34px 10px 10px 10px','border:1px solid #333','border-radius:8px',
+      'z-index:2147483000','white-space:pre-wrap','box-shadow:0 4px 18px rgba(0,0,0,0.6)',
+    ].join(';');
+
+    const pre = document.createElement('div');
+    pre.textContent = text;
+    panel.appendChild(pre);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.style.cssText = [
+      'position:absolute','top:5px','right:38px',
+      'background:#2962ff','color:#fff','border:none',
+      'border-radius:5px','padding:5px 10px','font-size:12px',
+      'cursor:pointer','z-index:2147483001',
+    ].join(';');
+    copyBtn.onclick = function(e) {
+      e.stopPropagation();
+      const full = _sv2BuildReplayDebugReport();
+      const done = () => { copyBtn.textContent = '✅ Copied!'; setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(full).then(done).catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = full; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch(_) {}
+          document.body.removeChild(ta); done();
+        });
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = full; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch(_) {}
+        document.body.removeChild(ta); done();
+      }
+    };
+    panel.appendChild(copyBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = [
+      'position:absolute','top:5px','right:5px',
+      'background:#444','color:#fff','border:none',
+      'border-radius:5px','width:26px','height:26px','font-size:13px',
+      'cursor:pointer','z-index:2147483001',
+    ].join(';');
+    closeBtn.onclick = function(e) { e.stopPropagation(); panel.remove(); };
+    panel.appendChild(closeBtn);
+
+    document.body.appendChild(panel);
+  } catch(e) { try { console.warn('[SV2 replay debug] panel render failed', e); } catch(_){} }
+}
+window._sv2ShowReplayDebugPanel = _sv2ShowReplayDebugPanel;
 function _sv2DebugShow(idx, reason, lines) {
   try {
     console.warn('[SV2 idx='+idx+'] '+reason, lines);
@@ -8161,6 +8330,7 @@ function _buildStack2CellChart(idx) {
         try {
           if (window.__SV2_DEBUG) _dbg.push('PY_DEBUG: '+window.__SV2_DEBUG);
         } catch(_) {}
+        try { _sv2ReplayDebugAddCell({ idx, tf: tfLabel, status: 'NO_DATA', count: 0 }); } catch(_) {}
         _sv2DebugShow(idx,'NO_DATA',_dbg); return;
       }
 
@@ -8211,6 +8381,7 @@ function _buildStack2CellChart(idx) {
         if (tfMinCell < baseTfMin) {
           _sv2ShowBelowBaseHint(idx, el, tfLabel, baseKeyLive);
           _dbg.push('BELOW_BASE tfMin='+tfMinCell+' < baseTfMin='+baseTfMin+' → disabled');
+          try { _sv2ReplayDebugAddCell({ idx, tf: tfLabel, status: 'BELOW_BASE', count: 0, note: 'tfMin='+tfMinCell+' < baseTfMin='+baseTfMin }); } catch(_) {}
           return;
         }
 
@@ -8230,6 +8401,27 @@ function _buildStack2CellChart(idx) {
         window._SV2_LIVE.revealIdx = revealCount;
 
         _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseTF='+baseKeyLive+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
+
+        // ── Replay debug capture: base window info (ek hi baar per build
+        // theek hai — har cell same base share karta hai, chhoti overwrite
+        // koi issue nahi) + is cell ki real (whitespace se pehle) candle
+        // range/count. ────────────────────────────────────────────────────
+        try {
+          _sv2ReplayDebugSetBase({
+            baseTF: baseKeyLive,
+            source: usingExtLive ? 'EXTENDED' : 'TRIMMED',
+            count:  baseBarsLive.length,
+            first:  baseBarsLive.length ? baseBarsLive[0].time : null,
+            last:   baseBarsLive.length ? baseBarsLive[baseBarsLive.length - 1].time : null,
+            revealCount: revealCount,
+          });
+          _sv2ReplayDebugAddCell({
+            idx, tf: tfLabel, status: 'OK',
+            count: dataToShow.length,
+            first: dataToShow.length ? dataToShow[0].time : null,
+            last:  dataToShow.length ? dataToShow[dataToShow.length - 1].time : null,
+          });
+        } catch(_) {}
       }
 
       // ── Right-offset whitespace: khud sahi future time generate karke ────
@@ -9090,6 +9282,14 @@ function ss2ApplyAndClose() {
     // rng.to = Infinity  (no upper bound — replay sabhi future bars cover karta hai)
     var cutEpoch = _dateToEpoch(_selStart) + 86400;   // Day D+1 UTC midnight
 
+    try {
+      _sv2ReplayDebugReset({
+        phase: 'APPLY (date select)',
+        assetKey: (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'unknown',
+        cutEpoch: cutEpoch,
+      });
+    } catch(_) {}
+
     window._SV2_DATE_RANGE = {
       from:    cutEpoch,
       to:      Infinity,
@@ -9131,6 +9331,10 @@ function ss2ApplyAndClose() {
         setTimeout(_startCellTimers, 200);
         setTimeout(function(){ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
         setTimeout(function(){ try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }, 350);
+        // sv2SwingInit (indicator/SR/arrow) 550ms delay se chalta hai (event
+        // listener), isliye debug panel usse thoda baad dikhao taaki
+        // indicatorCount bhi report mein aa jaaye.
+        setTimeout(function(){ try { _sv2ShowReplayDebugPanel(); } catch(_){} }, 900);
       } catch(_){}
     }
   }
@@ -10369,6 +10573,13 @@ function _sv2ResumeLastReplay(assetKey) {
 
   function _armDateRangeAndBuild() {
     console.log('[SV2 replay] ▶ RESUME LAST REPLAY clicked — saved cutoff:', snap.dateRange.fromStr);
+    try {
+      _sv2ReplayDebugReset({
+        phase: 'RESUME LAST REPLAY',
+        assetKey: assetKey,
+        cutEpoch: snap.dateRange.from,
+      });
+    } catch(_) {}
     window._SV2_DATE_RANGE = {
       from:    snap.dateRange.from,
       to:      snap.dateRange.toInf ? Infinity : snap.dateRange.to,
@@ -10385,6 +10596,9 @@ function _sv2ResumeLastReplay(assetKey) {
       if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
         try { buildStack2(); } catch(_){}
         setTimeout(_applySnapAfterBuild, 200);
+        // sv2SwingInit indicator init 550ms delay se chalta hai — usse baad
+        // debug panel dikhao taaki indicatorCount bhi capture ho jaaye.
+        setTimeout(function(){ try { _sv2ShowReplayDebugPanel(); } catch(_){} }, 900);
       }
     })();
   }
@@ -17847,6 +18061,17 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       swingCompute(dataCur, cellTFMin, liveNowSec, _srCfg2)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
+    // Replay debug: indicator ke liye actual data length record karo — agar
+    // pehle se isi cellIdx ka entry (candle capture se) maujood hai to usi
+    // mein indicatorCount jod do, warna naya entry bana do.
+    try {
+      const D = window._SV2_REPLAY_DEBUG;
+      if (D && Array.isArray(D.cells)) {
+        const existing = D.cells.find(c => c.idx === cellIdx);
+        if (existing) existing.indicatorCount = dataCur.length;
+        else D.cells.push({ idx: cellIdx, tf: tfLabel, status: 'INDICATOR_ONLY', count: undefined, indicatorCount: dataCur.length });
+      }
+    } catch(_) {}
 
     // Step 2: SV2_SWING_TF_LIST se enabled higher TFs (SV1 se independent)
     // Gated by SV2_SR_HTF_VISIBLE (the SR② FAB) — NOT by SV2_SWING_STATE.visible,
