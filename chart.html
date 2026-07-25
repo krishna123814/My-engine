@@ -9406,7 +9406,9 @@ function ss2ApplyAndClose() {
       var _aggLastReal = agg[agg.length - 1].time;
       cell._lastClose = agg[agg.length - 1].close;
       var _fw1 = _buildFutureWhitespace(_aggLastReal, tfMin, live.isBN, (S.futureOffset || 30));
+      var _wasFormingLast1 = !!agg._formingLast;   // .concat() below drops custom props — save it first
       if (_fw1.length) agg = agg.concat(_fw1);
+      agg._formingLast = _wasFormingLast1;   // re-attach so the arrow-hook (setData) can read the real structural signal, same one SR/swing already trust — instead of guessing from array-length diffs
       // Same follow-live vs manual-scroll distinction as _rebuildAllCells()
       // — is function ke andar aggregated bar-count generally constant
       // rehta hai (sirf OHLC update, koi naya bar nahi), lekin consistency
@@ -9653,8 +9655,10 @@ function ss2ApplyAndClose() {
       var _aggLastReal2 = (agg && agg.length) ? agg[agg.length - 1].time : null;
       cell._lastClose = (agg && agg.length) ? agg[agg.length - 1].close : null;
       if (agg && agg.length) {
+        var _wasFormingLast2 = !!agg._formingLast;   // .concat() below drops custom props — save it first
         var _fw2 = _buildFutureWhitespace(agg[agg.length - 1].time, tfMin, live.isBN, (S.futureOffset || 30));
         if (_fw2.length) agg = agg.concat(_fw2);
+        agg._formingLast = _wasFormingLast2;   // re-attach — same structural forming-signal SR/swing use, lets the arrow-hook (setData) know for certain whether the last real bar is still open, instead of guessing from array-length diffs
       }
       // setData() poora series data replace karta hai — jiski wajah se
       // Lightweight Charts apna visible time-range reset/re-fit kar deta
@@ -12331,16 +12335,35 @@ function _tfArrowHookSeries(c) {
     // so arr[arr.length-1] is very often whitespace, not the forming
     // candle. Keep only real bars in our cache, in order.
     if (Array.isArray(arr) && arr.length) {
+      // Structural "is the last real bar still forming?" signal — SAME flag
+      // (_formingLast) that _sv2ComputeCellSR/_liveAggregateAny already use
+      // for SR/swing lines (see _dataForTFAny: live-replay mode slices off
+      // arr._formingLast bars before computing SR, static/cutoff mode never
+      // sets it because cutoffTime-filtered data is always 100% closed by
+      // construction). We now thread that exact flag through here too,
+      // instead of guessing "closed vs still-forming" from array-length
+      // diffs — that guessing is what caused arrows on the live-forming
+      // candle and missed arrows on the last historical candle right after
+      // a normal cutoff-date load or a Resume Last Replay.
+      //   • true  => last real bar is confirmed still-forming (live replay
+      //              ticking, or the sub-second mid-candle animation tick)
+      //              → exclude it from any close-check.
+      //   • falsy => either a genuine bar just closed, or this is a plain
+      //              static/cutoff-filtered dataset where EVERY bar
+      //              (including the last one) is guaranteed already closed
+      //              → safe to include it in the close-check, immediately.
+      const explicitFormingLast = (arr._formingLast === true);
       const real = arr.filter(_tfArrowIsRealBar);
       if (real.length) {
         const oldBars = c._taBars;
+        const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
         if (oldBars && oldBars.length && real.length === oldBars.length) {
-          // SAME count => sirf currently-forming (abhi tak open/live) bar
-          // ka OHLC tick-update hua hai, koi naya bar close NAHI hua.
-          // Yahan koi close-check/arrow-check NAHI karna — warna forming
-          // bar ko galti se "closed" maan kar arrow lag jaata hai. Bas
-          // apna running cache refresh kar do taaki live position/hover
-          // tracking sahi rahe.
+          // SAME count => sirf currently-forming bar ka OHLC tick-update
+          // hua hai (ya sub-second animation tick), koi naya bar close
+          // nahi hua — koi close-check zaroori nahi (agar kabhi koi bar
+          // yahan genuinely close ho bhi chuka ho, agla +1/re-scan pass
+          // use pakad lega; dedupe-by-time ki wajah se double-count ka
+          // khatra bhi nahi hai).
         } else if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
           // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-
           // ek-bar case) => boundary wala bar (ab second-to-last) abhi
@@ -12348,24 +12371,18 @@ function _tfArrowHookSeries(c) {
           const closedIdx = oldBars.length - 1;
           _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
         } else {
-          // Har koi aur jump — pehli baar data (app open), "Resume Last
-          // Replay" (jo buildStack2() ke turant-baad-wale chhote/cutoff
-          // dataset se seedha resumed-depth dataset par ek hi jhatke mein
-          // kood jaata hai), symbol switch, ya naya date-range — sab
-          // "re-sync" treat karo: PURA re-scan chalao is cell ke poore
-          // ab-tak-ke revealed history par. Chahe kitni bhi candles ho,
-          // koi farak nahi — _tfArrowAutoOnClose ke andar wala FIFO cap
-          // khud latest 6 (auto) hi bacha chhodega, purane/stale (jaise
-          // resume se pehle wale galat/premature arrows) khud-ba-khud
-          // trim ho jaayenge chronological order ke hisaab se.
-          //
-          // IMPORTANT: last real bar abhi bhi FORMING ho sakta hai (replay
-          // ka "virtual now" usi bar ke beech mein ho) — isliye loop ko
-          // last index tak mat le jaao, sirf real.length-1 tak (last bar
-          // ko exclude karo). Wo forming bar ka close-check tab hoga jab
-          // agla naya bar aayega (real.length +1 ho jaayega) aur upar wala
-          // fast-path branch usse turant pick kar lega.
-          for (let i = 1; i < real.length - 1; i++) {
+          // Har koi aur jump — pehli baar data (app open), normal cutoff-
+          // date select, "Resume Last Replay", symbol switch, ya naya
+          // date-range — sab "re-sync" treat karo: PURA re-scan chalao is
+          // cell ke poore ab-tak-ke revealed history par, sirf scanEnd tak
+          // (jo upar structurally decide ho chuka hai — static/cutoff data
+          // pe poora history including last bar, live-replay pe last bar
+          // ke bina agar wo abhi bhi forming hai). Chahe kitni bhi candles
+          // ho, koi farak nahi — _tfArrowAutoOnClose ke andar wala FIFO cap
+          // khud latest 6 (auto) hi bacha chhodega, aur time-based dedupe
+          // pehle-se-restored (Resume Last Replay snapshot) arrows ko bhi
+          // dobara duplicate nahi hone dega.
+          for (let i = 1; i < scanEnd; i++) {
             _tfArrowAutoOnClose(c, real[i], real[i - 1]);
           }
         }
