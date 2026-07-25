@@ -9164,7 +9164,11 @@ function ss2ApplyAndClose() {
     // aur 📅 Calendar is toggle se unaffected rehte hain, hamesha dikhte hain.
     var stepResetOn = (typeof window._sv2StepResetVisible === 'function') ? window._sv2StepResetVisible() : true;
     if (_playBtn)     _playBtn.classList.toggle('visible', show);
-    if (_prevBtn)     _prevBtn.classList.toggle('visible', show && stepResetOn);
+    // ⏮ Previous Candle — Play jaisa hi hamesha visible (Calendar Settings ke
+    // "Show Step/Reset Icons" wale hidden toggle se GATE nahi karte, warna
+    // jinhone wo advanced toggle kabhi ON hi nahi kiya unhe ye naya button
+    // kabhi dikhta hi nahi — jo bilkul yahi bug tha).
+    if (_prevBtn)     _prevBtn.classList.toggle('visible', show);
     if (_onestepBtn)  _onestepBtn.classList.toggle('visible', show && stepResetOn);
     if (_resetBtn)    _resetBtn.classList.toggle('visible', show && stepResetOn);
     // SR hierarchy toggle — calendar ki tarah hamesha dikhta hai jab tak
@@ -9790,6 +9794,30 @@ function ss2ApplyAndClose() {
     try {
       if (typeof _sv2NotifyBarClosedTFs === 'function') {
         _sv2NotifyBarClosedTFs(live.baseBars[live.revealIdx - 1].time, live.isBN);
+      }
+    } catch(_) {}
+    // ── Automatic Arrow — turant is hi tick par fire karo, agle tick ka
+    //    intezaar nahi. _tfsClosedAtBarTime() batata hai kaunsi TFs ka
+    //    candle EXACTLY is base-bar ke reveal hone se close hua (bucket-
+    //    boundary check, array-length-growth wala tareeka NAHI — wo ek
+    //    tick late chalta tha kyunki naya bucket agle tick tak nazar hi
+    //    nahi aata). _rebuildAllCells() ke baad cc._taBars mein us TF ka
+    //    ab-poori-tarah-final last bar already updated mil chuka hota hai. ──
+    try {
+      if (typeof _tfsClosedAtBarTime === 'function' && typeof STACK2_CELLS !== 'undefined') {
+        var _closedTfs = _tfsClosedAtBarTime(live.baseBars[live.revealIdx - 1].time, live.isBN);
+        if (_closedTfs.length) {
+          var _closedSet = {};
+          _closedTfs.forEach(function(x){ _closedSet[x.tfMin] = true; });
+          STACK2_CELLS.forEach(function(cc) {
+            if (!cc || !_closedSet[cc.tf]) return;
+            try { if (cc.series) _tfArrowHookSeries(cc); } catch(_) {}
+            var _bars = cc._taBars;
+            if (_bars && _bars.length >= 2) {
+              _tfArrowAutoOnClose(cc, _bars[_bars.length - 1], _bars[_bars.length - 2]);
+            }
+          });
+        }
       }
     } catch(_) {}
     try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
@@ -11936,7 +11964,20 @@ let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first p
 // se toggle hota hai, aur (manual tool ke ulat) reload ke baad bhi apni
 // state yaad rakhta hai kyunki ye ek "set-and-forget" automation hai.
 const TFARR_AUTO_LS_KEY = 'tfArrowAutoOn';
-let TFARR_AUTO_ON = (_LS.getItem(TFARR_AUTO_LS_KEY) === '1');
+let TFARR_AUTO_ON = (_LS.getItem(TFARR_AUTO_LS_KEY) !== '0');   // DEFAULT ON — sirf explicit '0' (user ne khud OFF kiya) par OFF rehta hai
+
+// ── Arrow SIZE — poore arrow (triangle glyph + candle-se-gap + tap-hit
+//    radius) ka ek hi scale factor, Arrow Settings se adjustable, taaki
+//    chhota/bada dono ho sake bina alag-alag numbers yaad rakhe. 1 = abhi
+//    ka default size. ──────────────────────────────────────────────────────
+const TFARR_SIZE_LS_KEY = 'tfArrowSizeScale';
+let TFARR_SIZE_SCALE = parseFloat(_LS.getItem(TFARR_SIZE_LS_KEY));
+if (!(TFARR_SIZE_SCALE > 0)) TFARR_SIZE_SCALE = 1;
+function _tfArrowSetSizeScale(scale) {
+  TFARR_SIZE_SCALE = scale;
+  try { _LS.setItem(TFARR_SIZE_LS_KEY, String(scale)); } catch(_) {}
+  _tfArrowRedrawAll();
+}
 function _tfArrowAutoSetEnabled(on) {
   TFARR_AUTO_ON = !!on;
   try { _LS.setItem(TFARR_AUTO_LS_KEY, TFARR_AUTO_ON ? '1' : '0'); } catch(_) {}
@@ -11981,7 +12022,24 @@ function _tfArrowAutoOnClose(c, closedBar, prevBar) {
     _lastRef: refPrice,
     auto: true,   // future-proofing (e.g. a separate "clear auto only" action)
   });
-  while (c._taArrows.length > 100) c._taArrows.shift();   // same FIFO cap as manual arrows
+  _tfArrowEnforceAutoCap(c);
+}
+// ── Sirf LATEST 6 automatic arrows rakho per cell — manual arrows is cap se
+//    bilkul untouched rehte hain (chahe woh array mein kahin bhi ho). Newest
+//    se peeche chalte hue count karo; 6 se aage jo bhi auto arrow mile
+//    (yaani sabse purane wale) unhe hata do. Poll loop se bhi call hota hai
+//    (see _tfArrowRedrawAll) taaki restore/old-session se aaye hue >6 auto
+//    arrows bhi khud-ba-khud trim ho jaayein, sirf naye placement par nahi. ─
+const TFARR_AUTO_CAP = 6;
+function _tfArrowEnforceAutoCap(c) {
+  if (!c || !c._taArrows || !c._taArrows.length) return;
+  let _autoSeen = 0;
+  for (let i = c._taArrows.length - 1; i >= 0; i--) {
+    if (c._taArrows[i].auto) {
+      _autoSeen++;
+      if (_autoSeen > TFARR_AUTO_CAP) c._taArrows.splice(i, 1);
+    }
+  }
 }
 
 function _tfArrowSyncBtn() {
@@ -12115,12 +12173,37 @@ function _tfArrowOpenSettings() {
         </div>
         <label class="toggle" style="flex-shrink:0;"><input type="checkbox" id="tfarrow-auto-toggle" ${TFARR_AUTO_ON ? 'checked' : ''}><span class="sl"></span></label>
       </div>
+      <div style="padding:8px 2px;margin-bottom:10px;border:1px solid #2a2e39;border-radius:6px;">
+        <div style="font-size:11px;color:#d1d4dc;margin-bottom:7px;">📐 Arrow Size</div>
+        <div id="tfarrow-size-row" style="display:flex;gap:6px;"></div>
+      </div>
       <div id="tfarrow-settings-body"></div>
       <button id="tfarrow-clearall" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">🗑 Sab Arrows Clear Karo</button>
       <button id="tfarrow-settings-close" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Close</button>
     </div>`;
   document.body.appendChild(box);
   _rebuild();
+  const _sizePresets = [
+    { label: '0.5x', v: 0.5 },
+    { label: '1x',   v: 1   },
+    { label: '1.5x', v: 1.5 },
+    { label: '2x',   v: 2   },
+  ];
+  const _renderSizeRow = () => {
+    const row = box.querySelector('#tfarrow-size-row');
+    if (!row) return;
+    row.innerHTML = _sizePresets.map(p => {
+      const active = Math.abs(TFARR_SIZE_SCALE - p.v) < 0.001;
+      return `<button class="tfa-size-btn" data-v="${p.v}" style="flex:1;padding:7px 0;border-radius:5px;border:1px solid ${active ? '#2962ff' : '#363c4e'};background:${active ? '#2962ff22' : '#2a2e3e'};color:${active ? '#2962ff' : '#d1d4dc'};font-size:11px;font-weight:600;cursor:pointer;">${p.label}</button>`;
+    }).join('');
+    row.querySelectorAll('.tfa-size-btn').forEach(btn => {
+      btn.onclick = () => {
+        _tfArrowSetSizeScale(parseFloat(btn.getAttribute('data-v')));
+        _renderSizeRow();
+      };
+    });
+  };
+  _renderSizeRow();
   document.getElementById('tfarrow-auto-toggle').onchange = (e) => {
     _tfArrowAutoSetEnabled(e.target.checked);
   };
@@ -12398,7 +12481,8 @@ function _tfArrowGetXY(c, a) {
   const x = c.chart.timeScale().timeToCoordinate(barTime);
   const y = c.series.priceToCoordinate(refPrice);
   if (x == null || y == null) return null;
-  const yy = a.type === 'up' ? y + 5 : y - 5;   // up-arrow BELOW candle, down-arrow ABOVE
+  const gap = 5 * TFARR_SIZE_SCALE;
+  const yy = a.type === 'up' ? y + gap : y - gap;   // up-arrow BELOW candle, down-arrow ABOVE
   return { x: x, y: yy };
 }
 
@@ -12408,7 +12492,7 @@ function _tfArrowGetXY(c, a) {
 //    TFARR_ON — delete must work whether the marker tool is ON or OFF. ────
 function _tfArrowHitTest(c, pt) {
   if (!c || !c._taArrows || !c._taArrows.length || !pt) return null;
-  const HIT_R = 7;
+  const HIT_R = Math.max(6, 7 * TFARR_SIZE_SCALE);
   for (let i = c._taArrows.length - 1; i >= 0; i--) {
     const a = c._taArrows[i];
     const p = _tfArrowGetXY(c, a);
@@ -12501,8 +12585,9 @@ function _tfArrowDrawTriangle(ctx, x, y, type, color) {
   ctx.save();
   ctx.fillStyle = color || '#2962ff';
   ctx.beginPath();
-  if (type === 'up') { ctx.moveTo(x, y - 3); ctx.lineTo(x - 2.5, y + 2); ctx.lineTo(x + 2.5, y + 2); }   // ↑
-  else                { ctx.moveTo(x, y + 3); ctx.lineTo(x - 2.5, y - 2); ctx.lineTo(x + 2.5, y - 2); }   // ↓
+  const sc = TFARR_SIZE_SCALE, apex = 3 * sc, half = 2.5 * sc, base = 2 * sc;
+  if (type === 'up') { ctx.moveTo(x, y - apex); ctx.lineTo(x - half, y + base); ctx.lineTo(x + half, y + base); }   // ↑
+  else                { ctx.moveTo(x, y + apex); ctx.lineTo(x - half, y - base); ctx.lineTo(x + half, y - base); }   // ↓
   ctx.closePath(); ctx.fill();
   ctx.restore();
 }
@@ -12525,6 +12610,7 @@ function _tfArrowRedrawAll() {
     CELLS.forEach((c, i) => {
       if (!c || !c.chart) return;
       try {
+        _tfArrowEnforceAutoCap(c);
         const elId = 'cell-chart-' + i;
         _tfArrowWireCell(elId, () => CELLS[i], (cc) => _tfCandleColor(cc.tf));
         _tfArrowDrawCell(c, elId, (cc) => _tfCandleColor(cc.tf));
@@ -12535,6 +12621,7 @@ function _tfArrowRedrawAll() {
     STACK2_CELLS.forEach((c, i) => {
       if (!c || !c.chart) return;
       try {
+        _tfArrowEnforceAutoCap(c);
         const elId = 'stack2-chart-' + i;
         _tfArrowWireCell(elId, () => STACK2_CELLS[i], (cc) => _sv2TfCandleColor(cc.tf));
         _tfArrowDrawCell(c, elId, (cc) => _sv2TfCandleColor(cc.tf));
