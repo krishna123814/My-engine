@@ -18403,21 +18403,26 @@ function _arrowComputeEvents(childData) {
 
 // Draw one solid triangle arrow (no library marker — full pixel control,
 // same philosophy as the Parent-Dot canvas circles).
-//   dir 'down' → tip points DOWN,  placed ABOVE the reference price
-//   dir 'up'   → tip points UP,    placed BELOW the reference price
-function _arrowDrawTriangle(ctx, x, y, dir, color) {
+//   tipY = exact point the arrow's tip touches (already gap-adjusted by the
+//   caller) — the triangle body always extends AWAY from the candle, never
+//   back toward it, so the tip position is the true, guaranteed gap.
+//   dir 'down' → tip points DOWN (tip = tipY, body sits ABOVE tipY)
+//   dir 'up'   → tip points UP   (tip = tipY, body sits BELOW tipY)
+function _arrowDrawTriangle(ctx, x, tipY, dir, color) {
   const halfW = 6, h = 8;
   ctx.save();
   ctx.fillStyle = color;
   ctx.beginPath();
   if (dir === 'down') {
-    ctx.moveTo(x - halfW, y);
-    ctx.lineTo(x + halfW, y);
-    ctx.lineTo(x, y + h);
+    const baseY = tipY - h;   // base further away from the candle (higher up)
+    ctx.moveTo(x - halfW, baseY);
+    ctx.lineTo(x + halfW, baseY);
+    ctx.lineTo(x, tipY);
   } else {
-    ctx.moveTo(x - halfW, y);
-    ctx.lineTo(x + halfW, y);
-    ctx.lineTo(x, y - h);
+    const baseY = tipY + h;   // base further away from the candle (lower down)
+    ctx.moveTo(x - halfW, baseY);
+    ctx.lineTo(x + halfW, baseY);
+    ctx.lineTo(x, tipY);
   }
   ctx.closePath();
   ctx.fill();
@@ -18481,16 +18486,20 @@ function _arrowDraw(idx) {
 
   events.forEach(ev => {
     const bar = ev.bar;
-    // Parent-Dot ka gap price*0.0008 hai (candle ke low ke neeche) — arrow
-    // ka gap thoda bada rakha hai taaki upar/neeche dono taraf dot marker se
-    // kabhi overlap na ho.
-    const gap = bar.close * 0.0016;
-    const priceRef = ev.dir === 'down' ? (bar.high + gap) : (bar.low - gap);
     const x = c.chart.timeScale().timeToCoordinate(bar.time);
-    const y = c.series.priceToCoordinate(priceRef);
-    if (x == null || y == null) return;
-    if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) return;
-    _arrowDrawTriangle(c._arrowCtx, x, y, ev.dir, color);
+    // Wick ka asli screen-pixel coordinate — high (down-arrow) ya low (up-arrow).
+    const wickY = ev.dir === 'down'
+      ? c.series.priceToCoordinate(bar.high)
+      : c.series.priceToCoordinate(bar.low);
+    if (x == null || wickY == null) return;
+    // Fixed CSS-pixel gap (zoom se independent — pehle price% wala gap zoom-out
+    // par sirf 1-2px reh jaata tha aur triangle wapas wick ke andar ghus jata
+    // tha). 'up' arrow ke liye gap thoda zyada, kyunki Parent-Dot bhi low ke
+    // neeche hi baithta hai — dono ke beech spacing bana rehta hai.
+    const gapPx = ev.dir === 'down' ? 6 : 11;
+    const tipY  = ev.dir === 'down' ? (wickY - gapPx) : (wickY + gapPx);
+    if (x < -10 || x > cssW + 10 || tipY < -20 || tipY > cssH + 20) return;
+    _arrowDrawTriangle(c._arrowCtx, x, tipY, ev.dir, color);
   });
 }
 
@@ -18556,13 +18565,15 @@ function _arrow2Draw(idx, cutoffTime) {
 
   events.forEach(ev => {
     const bar = ev.bar;
-    const gap = bar.close * 0.0016;
-    const priceRef = ev.dir === 'down' ? (bar.high + gap) : (bar.low - gap);
     const x = c.chart.timeScale().timeToCoordinate(bar.time);
-    const y = c.series.priceToCoordinate(priceRef);
-    if (x == null || y == null) return;
-    if (x < -10 || x > cssW + 10 || y < -10 || y > cssH + 10) return;
-    _arrowDrawTriangle(c._arrow2Ctx, x, y, ev.dir, color);
+    const wickY = ev.dir === 'down'
+      ? c.series.priceToCoordinate(bar.high)
+      : c.series.priceToCoordinate(bar.low);
+    if (x == null || wickY == null) return;
+    const gapPx = ev.dir === 'down' ? 6 : 11;
+    const tipY  = ev.dir === 'down' ? (wickY - gapPx) : (wickY + gapPx);
+    if (x < -10 || x > cssW + 10 || tipY < -20 || tipY > cssH + 20) return;
+    _arrowDrawTriangle(c._arrow2Ctx, x, tipY, ev.dir, color);
   });
 }
 
