@@ -12334,7 +12334,14 @@ function _tfArrowHookSeries(c) {
       const real = arr.filter(_tfArrowIsRealBar);
       if (real.length) {
         const oldBars = c._taBars;
-        if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
+        if (oldBars && oldBars.length && real.length === oldBars.length) {
+          // SAME count => sirf currently-forming (abhi tak open/live) bar
+          // ka OHLC tick-update hua hai, koi naya bar close NAHI hua.
+          // Yahan koi close-check/arrow-check NAHI karna — warna forming
+          // bar ko galti se "closed" maan kar arrow lag jaata hai. Bas
+          // apna running cache refresh kar do taaki live position/hover
+          // tracking sahi rahe.
+        } else if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
           // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-
           // ek-bar case) => boundary wala bar (ab second-to-last) abhi
           // PAKKA close hua — sirf usi ek boundary ko check karo (fast path).
@@ -12351,7 +12358,14 @@ function _tfArrowHookSeries(c) {
           // khud latest 6 (auto) hi bacha chhodega, purane/stale (jaise
           // resume se pehle wale galat/premature arrows) khud-ba-khud
           // trim ho jaayenge chronological order ke hisaab se.
-          for (let i = 1; i < real.length; i++) {
+          //
+          // IMPORTANT: last real bar abhi bhi FORMING ho sakta hai (replay
+          // ka "virtual now" usi bar ke beech mein ho) — isliye loop ko
+          // last index tak mat le jaao, sirf real.length-1 tak (last bar
+          // ko exclude karo). Wo forming bar ka close-check tab hoga jab
+          // agla naya bar aayega (real.length +1 ho jaayega) aur upar wala
+          // fast-path branch usse turant pick kar lega.
+          for (let i = 1; i < real.length - 1; i++) {
             _tfArrowAutoOnClose(c, real[i], real[i - 1]);
           }
         }
