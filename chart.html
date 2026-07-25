@@ -8010,6 +8010,7 @@ function _buildStack2CellChart(idx) {
   c._taBars    = [];
   c._taLastBar = null;
   c._taArrows  = [];
+  c._taPrevFormingLast = false;
   try { _tfArrowHookSeries(c); } catch(_) {}   // catch the very first setData too
 
   // ── Floating date/time badge — jab is panel ka bottom time-axis
@@ -12418,12 +12419,21 @@ function _tfArrowHookSeries(c) {
         const oldBars = c._taBars;
         const scanEnd = explicitFormingLast ? real.length - 1 : real.length;
         if (oldBars && oldBars.length && real.length === oldBars.length) {
-          // SAME count => sirf currently-forming bar ka OHLC tick-update
-          // hua hai (ya sub-second animation tick), koi naya bar close
-          // nahi hua — koi close-check zaroori nahi (agar kabhi koi bar
-          // yahan genuinely close ho bhi chuka ho, agla +1/re-scan pass
-          // use pakad lega; dedupe-by-time ki wajah se double-count ka
-          // khatra bhi nahi hai).
+          // SAME count => normally just an OHLC tick-update on the still-
+          // forming last bar, no close-check needed. EXCEPTION: if the last
+          // bar was forming on the PREVIOUS call (c._taPrevFormingLast ===
+          // true) and is now reported closed (explicitFormingLast flipped
+          // true → false) while the array length stayed the same — that's
+          // the exact "candle closes on the same base-bar that completes
+          // the bucket" tick. Previously this got silently skipped here and
+          // only caught one tick later by the +1 fast-path below (once a
+          // NEW bucket actually started), which is what caused the
+          // one-tick-delayed arrow (arrow only appears after the NEXT
+          // Play/Step click). Fire the close-check right now instead.
+          if (c._taPrevFormingLast === true && !explicitFormingLast) {
+            const closedIdx = real.length - 1;
+            _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
+          }
         } else if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
           // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-
           // ek-bar case) => boundary wala bar (ab second-to-last) abhi
@@ -12448,6 +12458,7 @@ function _tfArrowHookSeries(c) {
         }
         c._taBars = real;
         c._taLastBar = real[real.length - 1];
+        c._taPrevFormingLast = explicitFormingLast;
       }
     }
     return origSetData(arr);
