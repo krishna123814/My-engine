@@ -11924,6 +11924,66 @@ let TFARR_ON   = false;
 try { _LS.setItem(TFARR_LS_KEY, '0'); } catch(_) {}
 let TFARR_TYPE = _LS.getItem(TFARR_TYPE_LS_KEY) || null;   // null until first pick — type yaad rehta hai (convenience), ON/OFF nahi
 
+// ── AUTOMATIC ARROW (candle-colour reversal) ────────────────────────────────
+// Jab bhi ek candle CLOSE hoti hai (nayi candle banna shuru hoti hai), uska
+// colour pichli (ab-close-ho-chuki) candle se compare hota hai:
+//   Green → Red  reversal:  DOWNWARD arrow (red candle ke UPAR, high se
+//                           anchor) — bilkul manual "Downward Arrow" jaisa.
+//   Red   → Green reversal: UPWARD arrow (green candle ke NEECHE, low se
+//                           anchor) — bilkul manual "Upward Arrow" jaisa.
+// Same-colour lagatar candles par koi arrow nahi. Manual tool (TFARR_ON/
+// TFARR_TYPE) se bilkul independent — apna alag ON/OFF hai, Arrow Settings
+// se toggle hota hai, aur (manual tool ke ulat) reload ke baad bhi apni
+// state yaad rakhta hai kyunki ye ek "set-and-forget" automation hai.
+const TFARR_AUTO_LS_KEY = 'tfArrowAutoOn';
+let TFARR_AUTO_ON = (_LS.getItem(TFARR_AUTO_LS_KEY) === '1');
+function _tfArrowAutoSetEnabled(on) {
+  TFARR_AUTO_ON = !!on;
+  try { _LS.setItem(TFARR_AUTO_LS_KEY, TFARR_AUTO_ON ? '1' : '0'); } catch(_) {}
+}
+// null = doji/flat (open===close) — treated as neutral, never a "reversal".
+function _tfArrowCandleColorOf(bar) {
+  if (!bar || bar.open == null || bar.close == null) return null;
+  if (bar.close > bar.open) return 'green';
+  if (bar.close < bar.open) return 'red';
+  return null;
+}
+// Same TF-colour source the manual arrows already use for each cell, so
+// auto-placed arrows are visually identical to hand-placed ones.
+function _tfArrowAutoColorForCell(c) {
+  try {
+    if (typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS.indexOf(c) !== -1) return _sv2TfCandleColor(c.tf);
+    return _tfCandleColor(c.tf);
+  } catch(_) { return '#2962ff'; }
+}
+// Called exactly once per cell, exactly when a bar has just permanently
+// closed (a new one started forming after it) — see the update()/setData()
+// hooks in _tfArrowHookSeries below, which are the single choke-point for
+// every real-time (SV1) and replay (SV2) candle update in this app.
+function _tfArrowAutoOnClose(c, closedBar, prevBar) {
+  if (!TFARR_AUTO_ON || !c || !closedBar || !prevBar) return;
+  const curCol  = _tfArrowCandleColorOf(closedBar);
+  const prevCol = _tfArrowCandleColorOf(prevBar);
+  if (!curCol || !prevCol || curCol === prevCol) return;   // no reversal (or doji) — skip
+  const type = (prevCol === 'green' && curCol === 'red') ? 'down'
+             : (prevCol === 'red'   && curCol === 'green') ? 'up' : null;
+  if (!type) return;
+  if (!c._taArrows) c._taArrows = [];
+  // Same candle ko dobara mark na kare (e.g. koi redundant setData() call).
+  if (c._taArrows.some(a => a.time === closedBar.time)) return;
+  const refPrice = _tfArrowRefPrice(closedBar, type);
+  if (refPrice == null) return;
+  c._taArrows.push({
+    id: 'ta_auto_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+    time: closedBar.time,
+    type: type,
+    color: _tfArrowAutoColorForCell(c),
+    _lastRef: refPrice,
+    auto: true,   // future-proofing (e.g. a separate "clear auto only" action)
+  });
+  while (c._taArrows.length > 100) c._taArrows.shift();   // same FIFO cap as manual arrows
+}
+
 function _tfArrowSyncBtn() {
   // Same on/off state mirrored onto the SV1 and SV2 vertical-FAB-stack
   // copies of this button (the old shared bottom-bar button was removed —
@@ -12048,12 +12108,22 @@ function _tfArrowOpenSettings() {
   box.innerHTML = `
     <div style="background:#1e222d;border:1px solid #363c4e;border-radius:10px;padding:16px;width:280px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px #0009;">
       <div style="font-size:12px;font-weight:700;color:#d1d4dc;margin-bottom:10px;text-align:center;">Arrow Settings</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 2px;margin-bottom:10px;border:1px solid #2a2e39;border-radius:6px;">
+        <div style="font-size:11px;color:#d1d4dc;line-height:1.35;">
+          🤖 Automatic Arrow<br>
+          <span style="font-size:9.5px;color:#9598a1;font-weight:400;">Green→Red pe ↓, Red→Green pe ↑ (khud-ba-khud)</span>
+        </div>
+        <label class="toggle" style="flex-shrink:0;"><input type="checkbox" id="tfarrow-auto-toggle" ${TFARR_AUTO_ON ? 'checked' : ''}><span class="sl"></span></label>
+      </div>
       <div id="tfarrow-settings-body"></div>
       <button id="tfarrow-clearall" style="width:100%;margin-bottom:8px;padding:10px;border-radius:6px;border:1px solid #f23645;background:#f2364522;color:#f23645;font-size:12px;font-weight:600;cursor:pointer;">🗑 Sab Arrows Clear Karo</button>
       <button id="tfarrow-settings-close" style="width:100%;padding:8px;border-radius:6px;border:1px solid #2a2e39;background:transparent;color:#9598a1;font-size:11px;cursor:pointer;">Close</button>
     </div>`;
   document.body.appendChild(box);
   _rebuild();
+  document.getElementById('tfarrow-auto-toggle').onchange = (e) => {
+    _tfArrowAutoSetEnabled(e.target.checked);
+  };
   document.getElementById('tfarrow-clearall').onclick = () => {
     _tfArrowClearAllArrows();
     _rebuild();
@@ -12157,8 +12227,17 @@ function _tfArrowHookSeries(c) {
       // find the EXACT candle under the cursor later (coordinateToTime only
       // gives a time; we still need that bar's low/high/close to draw at).
       const arr = c._taBars;
-      if (arr.length && arr[arr.length - 1].time === bar.time) arr[arr.length - 1] = bar;
-      else arr.push(bar);
+      if (arr.length && arr[arr.length - 1].time === bar.time) {
+        arr[arr.length - 1] = bar;
+      } else {
+        // Naya bar bannA shuru hua => purana last bar (agar tha) ab PAKKA
+        // close ho chuka — yahi hai automatic reversal-arrow check karne
+        // ka sahi (aur sirf ek hi baar milne wala) mauka.
+        if (arr.length) {
+          _tfArrowAutoOnClose(c, arr[arr.length - 1], arr.length >= 2 ? arr[arr.length - 2] : null);
+        }
+        arr.push(bar);
+      }
       if (arr.length > 3000) arr.shift();   // safety cap
     }
     return origUpdate(bar);
@@ -12170,7 +12249,21 @@ function _tfArrowHookSeries(c) {
     // candle. Keep only real bars in our cache, in order.
     if (Array.isArray(arr) && arr.length) {
       const real = arr.filter(_tfArrowIsRealBar);
-      if (real.length) { c._taBars = real; c._taLastBar = real[real.length - 1]; }
+      if (real.length) {
+        const oldBars = c._taBars;
+        // Exactly ONE naya real bar aaya (SV2 replay ka normal ek-tick-ek-
+        // bar case) => boundary wala bar (ab second-to-last) abhi PAKKA
+        // close hua. Isse zyada ka jump (initial load / symbol switch /
+        // poori history rebuild) jaan-boojhkar SKIP karte hain — hum sirf
+        // AAGE badhte hue candles par arrow chahte hain, purani history
+        // ko backfill nahi karna.
+        if (oldBars && oldBars.length && real.length === oldBars.length + 1) {
+          const closedIdx = oldBars.length - 1;
+          _tfArrowAutoOnClose(c, real[closedIdx], closedIdx >= 1 ? real[closedIdx - 1] : null);
+        }
+        c._taBars = real;
+        c._taLastBar = real[real.length - 1];
+      }
     }
     return origSetData(arr);
   };
@@ -12305,7 +12398,7 @@ function _tfArrowGetXY(c, a) {
   const x = c.chart.timeScale().timeToCoordinate(barTime);
   const y = c.series.priceToCoordinate(refPrice);
   if (x == null || y == null) return null;
-  const yy = a.type === 'up' ? y + 10 : y - 10;   // up-arrow BELOW candle, down-arrow ABOVE
+  const yy = a.type === 'up' ? y + 5 : y - 5;   // up-arrow BELOW candle, down-arrow ABOVE
   return { x: x, y: yy };
 }
 
@@ -12315,7 +12408,7 @@ function _tfArrowGetXY(c, a) {
 //    TFARR_ON — delete must work whether the marker tool is ON or OFF. ────
 function _tfArrowHitTest(c, pt) {
   if (!c || !c._taArrows || !c._taArrows.length || !pt) return null;
-  const HIT_R = 14;
+  const HIT_R = 7;
   for (let i = c._taArrows.length - 1; i >= 0; i--) {
     const a = c._taArrows[i];
     const p = _tfArrowGetXY(c, a);
@@ -12408,8 +12501,8 @@ function _tfArrowDrawTriangle(ctx, x, y, type, color) {
   ctx.save();
   ctx.fillStyle = color || '#2962ff';
   ctx.beginPath();
-  if (type === 'up') { ctx.moveTo(x, y - 6); ctx.lineTo(x - 5, y + 4); ctx.lineTo(x + 5, y + 4); }   // ↑
-  else                { ctx.moveTo(x, y + 6); ctx.lineTo(x - 5, y - 4); ctx.lineTo(x + 5, y - 4); }   // ↓
+  if (type === 'up') { ctx.moveTo(x, y - 3); ctx.lineTo(x - 2.5, y + 2); ctx.lineTo(x + 2.5, y + 2); }   // ↑
+  else                { ctx.moveTo(x, y + 3); ctx.lineTo(x - 2.5, y - 2); ctx.lineTo(x + 2.5, y - 2); }   // ↓
   ctx.closePath(); ctx.fill();
   ctx.restore();
 }
