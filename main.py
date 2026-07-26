@@ -77,14 +77,21 @@ BINANCE_WS_MARKET  = "wss://fstream.binance.com/market/stream"  # ?streams=...
 BN_OPT_UNDERLYING  = "BTCUSDT"   # options underlying jiska chain track karna hai
 
 def _bn_opt_creds() -> tuple[str, str]:
-    """Streamlit Cloud secrets se Binance API key/secret padho.
-    Secrets me daalne honge: BINANCE_API_KEY, BINANCE_API_SECRET
-    (Options trading permission wali API key honi chahiye)."""
+    """Binance API key/secret padho — pehle Streamlit Cloud secrets se try karo,
+    agar wahan na mile (jaise Render ya kisi aur host pe jaha st.secrets nahi
+    hota) to OS environment variables (os.environ) se fallback karo.
+    Dono jagah naam same rakhna hai: BINANCE_API_KEY, BINANCE_API_SECRET
+    (Options trading permission wali)."""
+    key, sec = "", ""
     try:
         key = st.secrets.get("BINANCE_API_KEY", "")
         sec = st.secrets.get("BINANCE_API_SECRET", "")
     except Exception:
-        key, sec = "", ""
+        pass
+    if not key:
+        key = os.environ.get("BINANCE_API_KEY", "")
+    if not sec:
+        sec = os.environ.get("BINANCE_API_SECRET", "")
     return key.strip(), sec.strip()
 
 _BN_OPT_LIVE: dict = {
