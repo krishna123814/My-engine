@@ -4,7 +4,6 @@ import os
 import time
 import threading
 import hashlib
-import bisect
 import zipfile
 import requests
 import pyotp
@@ -775,35 +774,7 @@ def _build_sv2_data() -> dict:
         "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
     }
     _SV2_CACHE["agg"] = agg
-
-    # ── FULL (untrimmed) series — kept in memory ONLY, never injected into
-    # the page HTML (isse mobile payload/hang issue wapas nahi aata). Bar
-    # Replay ke liye jab koi PURANI date (jo trimmed "agg" window se pehle ki
-    # ho) select hoti hai, /api/sv2_window endpoint isi se on-demand ek
-    # window slice karke bhejta hai. ──────────────────────────────────────
-    _SV2_CACHE["full"] = {"bn": bn_tfs, "btc": btc_tfs}
     return agg
-
-
-def _sv2_window_slice(asset: str, tf: str, anchor_sec: int, direction: str, count: int) -> list:
-    """Full (untrimmed) resampled series se anchor epoch ke aas-paas ek window nikaalo.
-
-    direction='before' → anchor SE PEHLE (aur anchor tak inclusive) ki (count) candles.
-    direction='after'  → anchor SE BAAD ki (count) candles.
-    Ye Bar Replay ke us case ke liye hai jab select ki gayi date, HTML mein
-    already-injected trimmed ("latest N candles") window se purani ho.
-    """
-    _build_sv2_data()  # ensure _SV2_CACHE["full"] populated (idempotent, cached)
-    full = _SV2_CACHE.get("full", {})
-    series = (full.get(asset) or {}).get(tf) or []
-    if not series:
-        return []
-    times = [c["time"] for c in series]
-    i = bisect.bisect_right(times, anchor_sec)
-    if direction == "after":
-        return series[i:i + count]
-    start = max(0, i - count)
-    return series[start:i]
 
 # ─── Fyers historical data ─────────────────────────────────────────────────────
 def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
@@ -1259,41 +1230,6 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
-                # ── SV2 Bar Replay lazy window — jab replay ke liye select ki
-                # gayi date, page mein already-injected (trimmed/"latest N")
-                # data se purani ho, chart.html isi endpoint se on-demand
-                # candles maangta hai (dono asset: bn / btc). ────────────────
-                if parsed.path == "/api/sv2_window":
-                    qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
-                    def _q2(k, d=""): return qs2.get(k, [d])[0]
-
-                    asset = _q2("asset", "bn")
-                    tf    = _q2("tf", "")
-                    try:
-                        anchor = int(_q2("anchor", "0"))
-                    except ValueError:
-                        anchor = 0
-                    direction = _q2("dir", "before")
-                    try:
-                        count = max(1, min(int(_q2("count", "3000")), 20000))
-                    except ValueError:
-                        count = 3000
-
-                    try:
-                        candles = _sv2_window_slice(asset, tf, anchor, direction, count)
-                    except Exception:
-                        candles = []
-
-                    body = json.dumps({"candles": candles}).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()
@@ -1739,71 +1675,6 @@ if sess_active or _btc_only:
         sess_active,
     )
     components.html(_chart_html, height=950, scrolling=False)
-
-    # ── SV2 historical-window bridge (replaces broken 8502-8510 side-port) ───
-    # Problem: /api/sv2_window sirf side HTTP server (alag port) pe milta tha,
-    # jo Streamlit Cloud pe unreachable hai (sirf ek hi port expose hota hai).
-    # Fix: same postMessage-fragment pattern jo live-tick ke liye already kaam
-    # kar raha hai (neeche) — bas direction ulti: yahan JS Python ko REQUEST
-    # bhejta hai (hidden st.text_input ke DOM value ko JS se force-set karke,
-    # jisse Streamlit ka apna React state update ho aur is fragment ka rerun
-    # trigger ho — poore app ka rerun NAHI), Python us request ko cached
-    # in-memory data (_SV2_CACHE) se slice karke jawab isi fragment ke agle
-    # tick pe wapas postMessage se push kar deta hai. Chhota response hi jaata
-    # hai (max ~21k candles ek baar me) — poori raw file kabhi client pe nahi
-    # aati, isliye mobile hang ka risk nahi.
-    st.markdown(
-        """<style>
-        div[data-testid="stTextInput"]:has(input[aria-label="SV2_BRIDGE_REQ"]) {
-            position: absolute; width: 1px; height: 1px; overflow: hidden;
-            opacity: 0; pointer-events: none;
-        }
-        </style>""",
-        unsafe_allow_html=True,
-    )
-
-    @st.fragment(run_every=1)
-    def _sv2_window_bridge():
-        req_raw = st.text_input(
-            "SV2_BRIDGE_REQ", key="_sv2_bridge_req", label_visibility="collapsed"
-        )
-        last_seen = st.session_state.get("_sv2_bridge_last", "")
-        payload_json = None
-        if req_raw and req_raw != last_seen:
-            st.session_state["_sv2_bridge_last"] = req_raw
-            req_id = ""
-            try:
-                req = json.loads(req_raw)
-                req_id    = str(req.get("reqId", ""))
-                asset     = str(req.get("asset", ""))
-                tf        = str(req.get("tf", ""))
-                anchor    = int(req.get("anchor", 0))
-                direction = str(req.get("dir", "before"))
-                count     = int(req.get("count", 4000))
-                candles = _sv2_window_slice(asset, tf, anchor, direction, count)
-            except Exception:
-                candles = []
-            payload_json = json.dumps({"reqId": req_id, "candles": candles})
-
-        if payload_json:
-            _sv2_script = f"""
-<script>
-(function() {{
-  var payload = {payload_json};
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: 'sv2_window_data', data: payload }}), '*'
-      );
-    }} catch(e) {{}}
-  }}
-}})();
-</script>
-"""
-            components.html(_sv2_script, height=0, scrolling=False)
-
-    _sv2_window_bridge()
 
     # ── BN Live Tick → postMessage pusher ────────────────────────────────────
     # @st.fragment se sirf yeh component rerun hoga — chart flicker nahi karega.

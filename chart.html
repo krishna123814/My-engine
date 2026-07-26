@@ -6154,200 +6154,6 @@ function _deactivateStack2() {
 
 // ── Stack View 2 Debug overlay — sirf idx=0 cell pe ek compact overlay ──────
 let _sv2DbgLog = [];   // sabhi cells ka log ek jagah collect karo
-
-// ════════════════════════════════════════════════════════════════════════════
-// SV2 REPLAY DEBUG PANEL — date-select / resume-last-replay ke waqt full
-// on-screen report: kahan se kahan tak data aaya, har TF me kitni candle,
-// aur auto-detected possible problems. Copy icon se poora text clipboard
-// mein copy ho jaata hai.
-// ════════════════════════════════════════════════════════════════════════════
-window._SV2_REPLAY_DEBUG = { requested: null, base: null, cells: [] };
-
-function _sv2ReplayDebugReset(meta) {
-  window._SV2_REPLAY_DEBUG = { requested: meta || null, base: null, cells: [] };
-}
-
-function _sv2ReplayDebugSetBase(info) {
-  try { window._SV2_REPLAY_DEBUG.base = info; } catch(_) {}
-}
-
-function _sv2ReplayDebugAddCell(info) {
-  try {
-    // same idx dobara aaye (rebuild) to purana replace kar do, duplicate na ho
-    const arr = window._SV2_REPLAY_DEBUG.cells;
-    const existing = arr.findIndex(c => c.idx === info.idx);
-    if (existing >= 0) arr[existing] = info; else arr.push(info);
-  } catch(_) {}
-}
-
-function _sv2FmtEpoch(t) {
-  if (t === null || t === undefined || !isFinite(t)) return 'n/a';
-  try { return new Date(t * 1000).toISOString().replace('T',' ').slice(0,16) + ' UTC'; }
-  catch(_) { return String(t); }
-}
-
-function _sv2BuildReplayDebugReport() {
-  const D = window._SV2_REPLAY_DEBUG || {};
-  const req  = D.requested || {};
-  const base = D.base || {};
-  const lines = [];
-
-  lines.push('════ SV2 REPLAY DEBUG REPORT ════');
-  lines.push('Generated: ' + new Date().toISOString());
-  lines.push('Phase: ' + (req.phase || 'unknown'));
-  lines.push('Asset: ' + (req.assetKey || 'unknown'));
-  lines.push('Requested cutoff date: ' + (req.cutEpoch !== undefined ? _sv2FmtEpoch(req.cutEpoch) : 'n/a') +
-              (req.cutEpoch !== undefined ? ' (epoch=' + req.cutEpoch + ')' : ''));
-  lines.push('');
-
-  lines.push('── Base data (used to reconstruct replay) ──');
-  if (base && base.baseTF) {
-    lines.push('Base TF: ' + base.baseTF);
-    lines.push('Source: ' + (base.source || 'unknown') +
-                (base.source === 'EXTENDED' ? ' (server /api/sv2_window fetch)' : ' (page-injected trimmed window)'));
-    lines.push('Candle count: ' + base.count);
-    lines.push('Range: ' + _sv2FmtEpoch(base.first) + '  →  ' + _sv2FmtEpoch(base.last));
-    lines.push('Reveal count (candles before cutoff): ' + base.revealCount);
-  } else {
-    lines.push('(no base data captured — build shayad abhi hua hi nahi, ya date range active nahi hai)');
-  }
-  lines.push('');
-
-  lines.push('── Per-timeframe candle counts ──');
-  const cells = (D.cells || []).slice().sort((a,b) => a.idx - b.idx);
-  if (!cells.length) {
-    lines.push('(koi cell data capture nahi hua)');
-  } else {
-    cells.forEach(c => {
-      lines.push('Cell ' + c.idx + ' [' + c.tf + ']  status=' + c.status +
-        '  candles=' + (c.count ?? 'n/a') +
-        '  range=' + (c.first ? _sv2FmtEpoch(c.first) : 'n/a') + ' → ' + (c.last ? _sv2FmtEpoch(c.last) : 'n/a') +
-        (c.indicatorCount !== undefined ? '  indicatorData=' + c.indicatorCount : ''));
-      if (c.note) lines.push('    note: ' + c.note);
-    });
-  }
-  lines.push('');
-
-  lines.push('── Extended-window fetch attempts (/api/sv2_window) ──');
-  const fetchLog = window._SV2_FETCH_LOG || [];
-  if (!fetchLog.length) {
-    lines.push('(koi fetch attempt record nahi hua — shayad already-loaded window ne cutoff cover kar liya, ya EnsureWindowLoaded chala hi nahi)');
-  } else {
-    fetchLog.forEach((f, i) => {
-      if (f.skipped) { lines.push('#' + i + ' SKIPPED — ' + f.reason); return; }
-      if (f.exception) { lines.push('#' + i + ' EXCEPTION — ' + f.exception); return; }
-      lines.push('#' + i + ' dir=' + f.dir + ' count=' + f.count + ' url=' + (f.url || 'n/a'));
-      lines.push('     httpStatus=' + f.httpStatus + ' ok=' + f.ok + ' candlesReturned=' + f.candleCount);
-      if (f.error) lines.push('     ⚠ ' + f.error);
-    });
-  }
-  lines.push('');
-
-  // ── Auto-diagnosis ──────────────────────────────────────────────────────
-  lines.push('── Possible problems (auto-detected) ──');
-  const warns = [];
-  if (base && base.baseTF) {
-    if (req.cutEpoch !== undefined) {
-      if (base.source === 'TRIMMED' && req.cutEpoch < base.first) {
-        const anyFetchTried = fetchLog.some(f => !f.skipped);
-        if (!anyFetchTried) {
-          warns.push('Selected date is OLDER than trimmed base window, aur koi extended fetch attempt hi record nahi hua — EnsureWindowLoaded call hi nahi hua ya time se pehle skip ho gaya.');
-        } else {
-          const failed = fetchLog.filter(f => !f.skipped && (f.error || !f.candleCount));
-          if (failed.length) {
-            warns.push('Extended fetch attempt hui thi lekin fail/empty rahi (neeche "Extended-window fetch attempts" section dekho for exact reason — port/network/HTTP status/empty-response).');
-          } else {
-            warns.push('Extended fetch successful dikh rahi hai per source abhi bhi TRIMMED hai — cache-key mismatch ho sakta hai (asset/tf key check karo).');
-          }
-        }
-      }
-      if (base.source === 'EXTENDED' && base.first > req.cutEpoch) {
-        warns.push('Extended (server) fetch ho chuki hai, lekin earliest candle (' + _sv2FmtEpoch(base.first) + ') requested date (' + _sv2FmtEpoch(req.cutEpoch) + ') se BAAD ki hai. Iska matlab: (a) fetch fail/timeout hua aur PURANI cached window (kisi aur date ki) reuse ho rahi hai, ya (b) source data isse pehle available hi nahi hai. Check karo /api/sv2_window response aur network tab.');
-      }
-      if (base.revealCount === 0) {
-        warns.push('revealCount = 0 → requested cutoff se pehle EK BHI candle nahi mili base data mein. Chart blank/near-blank rahega.');
-      }
-    }
-  } else {
-    warns.push('Base data hi capture nahi hua — window._SV2_DATE_RANGE set nahi hai ya buildStack2() replay-branch tak nahi pahuncha.');
-  }
-  cells.forEach(c => {
-    if (c.status === 'NO_DATA') warns.push('Cell ' + c.idx + ' [' + c.tf + ']: NO_DATA — is TF ke liye store mein data hi nahi mila.');
-    if (c.status === 'BELOW_BASE') warns.push('Cell ' + c.idx + ' [' + c.tf + ']: cell ka TF, current base TF se chhota hai → replay mein reconstruct nahi ho sakta (disabled hint dikh raha hoga).');
-    if (c.count === 0) warns.push('Cell ' + c.idx + ' [' + c.tf + ']: 0 candles bani — screen par yeh cell blank dikhega.');
-    if (c.indicatorCount !== undefined && c.indicatorCount < 3) warns.push('Cell ' + c.idx + ' [' + c.tf + ']: indicatorData=' + c.indicatorCount + ' (<3) → SR/swing/arrow markers is TF pe nahi lagenge (minimum 3 candles chahiye).');
-  });
-  if (!warns.length) warns.push('Koi obvious mismatch nahi mila — data range aur candle counts theek lag rahe hain.');
-  warns.forEach(w => lines.push('⚠ ' + w));
-
-  lines.push('════════════════════════════════');
-  return lines.join('\n');
-}
-
-function _sv2ShowReplayDebugPanel() {
-  try {
-    document.querySelectorAll('._sv2ReplayDbgPanel').forEach(el => el.remove());
-
-    const text = _sv2BuildReplayDebugReport();
-
-    const panel = document.createElement('div');
-    panel.className = '_sv2ReplayDbgPanel';
-    panel.style.cssText = [
-      'position:fixed','top:6px','left:6px','right:6px','bottom:auto',
-      'max-height:70vh','overflow-y:auto',
-      'background:rgba(10,10,15,0.97)','color:#7CFC9A',
-      'font-size:11px','font-family:monospace','line-height:1.4',
-      'padding:34px 10px 10px 10px','border:1px solid #333','border-radius:8px',
-      'z-index:2147483000','white-space:pre-wrap','box-shadow:0 4px 18px rgba(0,0,0,0.6)',
-    ].join(';');
-
-    const pre = document.createElement('div');
-    pre.textContent = text;
-    panel.appendChild(pre);
-
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = '📋 Copy';
-    copyBtn.style.cssText = [
-      'position:absolute','top:5px','right:38px',
-      'background:#2962ff','color:#fff','border:none',
-      'border-radius:5px','padding:5px 10px','font-size:12px',
-      'cursor:pointer','z-index:2147483001',
-    ].join(';');
-    copyBtn.onclick = function(e) {
-      e.stopPropagation();
-      const full = _sv2BuildReplayDebugReport();
-      const done = () => { copyBtn.textContent = '✅ Copied!'; setTimeout(() => { copyBtn.textContent = '📋 Copy'; }, 1500); };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(full).then(done).catch(() => {
-          const ta = document.createElement('textarea');
-          ta.value = full; document.body.appendChild(ta); ta.select();
-          try { document.execCommand('copy'); } catch(_) {}
-          document.body.removeChild(ta); done();
-        });
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = full; document.body.appendChild(ta); ta.select();
-        try { document.execCommand('copy'); } catch(_) {}
-        document.body.removeChild(ta); done();
-      }
-    };
-    panel.appendChild(copyBtn);
-
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕';
-    closeBtn.style.cssText = [
-      'position:absolute','top:5px','right:5px',
-      'background:#444','color:#fff','border:none',
-      'border-radius:5px','width:26px','height:26px','font-size:13px',
-      'cursor:pointer','z-index:2147483001',
-    ].join(';');
-    closeBtn.onclick = function(e) { e.stopPropagation(); panel.remove(); };
-    panel.appendChild(closeBtn);
-
-    document.body.appendChild(panel);
-  } catch(e) { try { console.warn('[SV2 replay debug] panel render failed', e); } catch(_){} }
-}
-window._sv2ShowReplayDebugPanel = _sv2ShowReplayDebugPanel;
 function _sv2DebugShow(idx, reason, lines) {
   try {
     console.warn('[SV2 idx='+idx+'] '+reason, lines);
@@ -8355,7 +8161,6 @@ function _buildStack2CellChart(idx) {
         try {
           if (window.__SV2_DEBUG) _dbg.push('PY_DEBUG: '+window.__SV2_DEBUG);
         } catch(_) {}
-        try { _sv2ReplayDebugAddCell({ idx, tf: tfLabel, status: 'NO_DATA', count: 0 }); } catch(_) {}
         _sv2DebugShow(idx,'NO_DATA',_dbg); return;
       }
 
@@ -8385,20 +8190,8 @@ function _buildStack2CellChart(idx) {
         const baseKeyLive   = _sv2GetBaseTF(assetKey2 === 'bn');
         const baseTfMin     = _sv2BaseTfMin(assetKey2 === 'bn');
         const baseStoreLive = (assetKey2 === 'bn') ? SV2_BN : SV2_BTC;
-        // ── Purani date replay ke liye _sv2EnsureWindowLoaded() ne agar
-        // real anchored window fetch karke cache kiya hai, wahi use karo —
-        // warna default trimmed ("latest N") array pe fallback. ────────────
-        const extKeyLive    = assetKey2 + '|' + baseKeyLive;
-        const extLive       = window._SV2_EXT_CACHE && window._SV2_EXT_CACHE[extKeyLive];
-        const usingExtLive  = !!(extLive && extLive.arr && extLive.arr.length);
-        const baseBarsLive  = usingExtLive ? extLive.arr : (baseStoreLive[baseKeyLive] || []);
+        const baseBarsLive  = baseStoreLive[baseKeyLive] || [];
         const tfMinCell     = _parseTFMin(tfLabel) || 5;
-        console.log('[SV2 replay debug] cell='+idx+' tf='+tfLabel+' baseTF='+baseKeyLive+
-          ' extKey='+extKeyLive+' usingExt='+usingExtLive+
-          ' baseBarsLen='+baseBarsLive.length+
-          ' baseBarsFirst='+(baseBarsLive[0]&&new Date(baseBarsLive[0].time*1000).toISOString())+
-          ' baseBarsLast='+(baseBarsLive[baseBarsLive.length-1]&&new Date(baseBarsLive[baseBarsLive.length-1].time*1000).toISOString())+
-          ' cutoffFrom='+new Date(rng.from*1000).toISOString());
 
         // ── Cell ki TF selected base se CHHOTI hai → replay mein reconstruct
         // nahi ho sakti (base-resample ke waqt hi wo resolution discard ho
@@ -8406,7 +8199,6 @@ function _buildStack2CellChart(idx) {
         if (tfMinCell < baseTfMin) {
           _sv2ShowBelowBaseHint(idx, el, tfLabel, baseKeyLive);
           _dbg.push('BELOW_BASE tfMin='+tfMinCell+' < baseTfMin='+baseTfMin+' → disabled');
-          try { _sv2ReplayDebugAddCell({ idx, tf: tfLabel, status: 'BELOW_BASE', count: 0, note: 'tfMin='+tfMinCell+' < baseTfMin='+baseTfMin }); } catch(_) {}
           return;
         }
 
@@ -8426,27 +8218,6 @@ function _buildStack2CellChart(idx) {
         window._SV2_LIVE.revealIdx = revealCount;
 
         _dbg.push('LIVE-AGG tfMin='+tfMinCell+' baseTF='+baseKeyLive+' baseLen='+baseBarsLive.length+' revealCount='+revealCount+' out='+dataToShow.length);
-
-        // ── Replay debug capture: base window info (ek hi baar per build
-        // theek hai — har cell same base share karta hai, chhoti overwrite
-        // koi issue nahi) + is cell ki real (whitespace se pehle) candle
-        // range/count. ────────────────────────────────────────────────────
-        try {
-          _sv2ReplayDebugSetBase({
-            baseTF: baseKeyLive,
-            source: usingExtLive ? 'EXTENDED' : 'TRIMMED',
-            count:  baseBarsLive.length,
-            first:  baseBarsLive.length ? baseBarsLive[0].time : null,
-            last:   baseBarsLive.length ? baseBarsLive[baseBarsLive.length - 1].time : null,
-            revealCount: revealCount,
-          });
-          _sv2ReplayDebugAddCell({
-            idx, tf: tfLabel, status: 'OK',
-            count: dataToShow.length,
-            first: dataToShow.length ? dataToShow[0].time : null,
-            last:  dataToShow.length ? dataToShow[dataToShow.length - 1].time : null,
-          });
-        } catch(_) {}
       }
 
       // ── Right-offset whitespace: khud sahi future time generate karke ────
@@ -9294,7 +9065,6 @@ function ss2ApplyAndClose() {
 
   function _sv2DrngApply() {
     if (!_selStart) return;
-    console.log('[SV2 replay] ▶ APPLY clicked — selected date:', _fmtDate(_selStart));
     try { if (typeof _sv2OCWarnSessionReset === 'function') _sv2OCWarnSessionReset(); } catch(_){}
 
     // ── Single-date replay logic ───────────────────────────────────────────
@@ -9306,14 +9076,6 @@ function ss2ApplyAndClose() {
     //     ek ek karke reveal honge jab ▶ play hoga
     // rng.to = Infinity  (no upper bound — replay sabhi future bars cover karta hai)
     var cutEpoch = _dateToEpoch(_selStart) + 86400;   // Day D+1 UTC midnight
-
-    try {
-      _sv2ReplayDebugReset({
-        phase: 'APPLY (date select)',
-        assetKey: (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'unknown',
-        cutEpoch: cutEpoch,
-      });
-    } catch(_) {}
 
     window._SV2_DATE_RANGE = {
       from:    cutEpoch,
@@ -9336,17 +9098,6 @@ function ss2ApplyAndClose() {
     } catch(_){}
     console.log('[SV2 Replay] Cutoff applied:', window._SV2_DATE_RANGE);
 
-    // ── Agar selected date, page mein already-loaded (trimmed/"latest N")
-    // data se purani hai (jaise 2021), pehle server se us date ke aas-paas
-    // ka real window fetch kar lo — TAB buildStack2() chalao. Isse replay
-    // sahi date se hi shuru hota hai, "latest" data se nahi. ────────────────
-    _sv2DrngApplyAsync(cutEpoch);
-  }
-  window._sv2DrngApply = _sv2DrngApply;
-
-  async function _sv2DrngApplyAsync(cutEpoch) {
-    try { await _sv2EnsureWindowLoaded(cutEpoch); } catch(_){}
-
     // SV2 rebuild karo — har cell apna data filter karega + replay arm hoga
     if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
       // Hint overlays hatao (agar the)
@@ -9356,13 +9107,10 @@ function ss2ApplyAndClose() {
         setTimeout(_startCellTimers, 200);
         setTimeout(function(){ _applyCrosshairStyle(); _applyCrosshairAxisLabels(); }, 300);
         setTimeout(function(){ try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }, 350);
-        // sv2SwingInit (indicator/SR/arrow) 550ms delay se chalta hai (event
-        // listener), isliye debug panel usse thoda baad dikhao taaki
-        // indicatorCount bhi report mein aa jaaye.
-        setTimeout(function(){ try { _sv2ShowReplayDebugPanel(); } catch(_){} }, 900);
       } catch(_){}
     }
   }
+  window._sv2DrngApply = _sv2DrngApply;
 
   // ── Init (runs after DOM ready) ───────────────────────────────────────────
   function _init() {
@@ -10086,7 +9834,6 @@ function ss2ApplyAndClose() {
     } catch(_) {}
 
     live.revealIdx++;
-    try { _sv2MaybeExtendForward(live); } catch(_) {}
     _rebuildAllCells();
     try { sv2SwingOnStep(live.baseBars[live.revealIdx - 1].time); } catch(_) {}
     try {
@@ -10597,14 +10344,6 @@ function _sv2ResumeLastReplay(assetKey) {
   }
 
   function _armDateRangeAndBuild() {
-    console.log('[SV2 replay] ▶ RESUME LAST REPLAY clicked — saved cutoff:', snap.dateRange.fromStr);
-    try {
-      _sv2ReplayDebugReset({
-        phase: 'RESUME LAST REPLAY',
-        assetKey: assetKey,
-        cutEpoch: snap.dateRange.from,
-      });
-    } catch(_) {}
     window._SV2_DATE_RANGE = {
       from:    snap.dateRange.from,
       to:      snap.dateRange.toInf ? Infinity : snap.dateRange.to,
@@ -10616,16 +10355,10 @@ function _sv2ResumeLastReplay(assetKey) {
     try {
       document.dispatchEvent(new CustomEvent('sv2DateRangeApplied', { detail: window._SV2_DATE_RANGE }));
     } catch(_){}
-    (async function(){
-      try { if (typeof _sv2EnsureWindowLoaded === 'function') await _sv2EnsureWindowLoaded(snap.dateRange.from); } catch(_){}
-      if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
-        try { buildStack2(); } catch(_){}
-        setTimeout(_applySnapAfterBuild, 200);
-        // sv2SwingInit indicator init 550ms delay se chalta hai — usse baad
-        // debug panel dikhao taaki indicatorCount bhi capture ho jaaye.
-        setTimeout(function(){ try { _sv2ShowReplayDebugPanel(); } catch(_){} }, 900);
-      }
-    })();
+    if (typeof _stack2Active !== 'undefined' && _stack2Active && typeof buildStack2 === 'function') {
+      try { buildStack2(); } catch(_){}
+      setTimeout(_applySnapAfterBuild, 200);
+    }
   }
 
   if (S.asset !== targetAssetName) {
@@ -15433,198 +15166,6 @@ async function _extendBNHistory(tfMin, seriesRef, chartRef) {
   _bnExtendInFlight = false;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// SV2 BAR REPLAY — lazy anchored-window loader
-// ────────────────────────────────────────────────────────────────────────────
-// Problem: SV2_BN/SV2_BTC (injected from Python) hold only the LATEST N
-// candles per TF (mobile-hang guard, see _SV2_MAX in main.py). Isliye jab
-// Bar Replay mein koi PURANI date select hoti hai (jaise 2021, jabki injected
-// window sirf pichle kuch mahine cover karti hai), baseBarsLive khaali/blank
-// nikalta hai.
-// Fix: server (/api/sv2_window) ke paas poora (2015→now) untrimmed data
-// memory mein hai. Jab selected cutoff, currently-loaded array se purani
-// nikle, yahan se ek anchored window (cutoff se pehle ka buffer + turant
-// baad ka ek forward runway) fetch karke window._SV2_EXT_CACHE mein cache
-// kar dete hain — cell-render code (_sv2LoadData) aur replay engine (_tick)
-// dono ise, SV2_BN/SV2_BTC ki trimmed array ki jagah, prefer karte hain.
-// ════════════════════════════════════════════════════════════════════════════
-window._SV2_EXT_CACHE = window._SV2_EXT_CACHE || {};   // key: "bn|5m" etc → {arr, hasMoreAfter}
-let _sv2ExtendInFlight = false;
-
-// ─── SV2 window bridge (postMessage, no side-port) ──────────────────────────
-// Purani port-probe/HTTP approach (8502-8510) Streamlit Cloud pe unreachable
-// tha. Ab request Python ko ek hidden st.text_input ke DOM value ko force-set
-// karke bheji jaati hai — Streamlit apna hi websocket use karke isse backend
-// tak pahunchata hai, jo sirf us chhote @st.fragment ko rerun karta hai (poora
-// app/chart reload NAHI hota). Response wapas postMessage se aata hai, reqId
-// se match karke sahi promise resolve hoti hai.
-window._SV2_PENDING = window._SV2_PENDING || {};  // reqId → {resolve, timer}
-let   _sv2ReqSeq     = 0;
-
-if (!window._sv2BridgeListenerAttached) {
-  window._sv2BridgeListenerAttached = true;
-  window.addEventListener('message', function(ev) {
-    let msg = ev.data;
-    try { if (typeof msg === 'string') msg = JSON.parse(msg); } catch(_) { return; }
-    if (!msg || msg.type !== 'sv2_window_data' || !msg.data) return;
-    const reqId  = msg.data.reqId;
-    const pend   = window._SV2_PENDING[reqId];
-    if (!pend) return;  // stale ya kisi aur session ka response — ignore
-    clearTimeout(pend.timer);
-    delete window._SV2_PENDING[reqId];
-    pend.resolve(Array.isArray(msg.data.candles) ? msg.data.candles : []);
-  });
-}
-
-// Parent frame ke hidden bridge <input> ko dhoondh ke uska value force-set
-// karta hai — React ke apne value-tracking ko bypass karne ke liye native
-// setter use karna zaroori hai, phir 'input' event fire karke Streamlit ko
-// batao ki value badla, aur blur se commit karo (text_input blur/Enter pe
-// hi backend ko bhejta hai).
-function _sv2SendBridgeRequest(reqObj) {
-  try {
-    const input = window.parent.document.querySelector('input[aria-label="SV2_BRIDGE_REQ"]');
-    if (!input) return false;
-    const setter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-    setter.call(input, JSON.stringify(reqObj));
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    setTimeout(() => { try { input.blur(); input.focus(); input.blur(); } catch(_) {} }, 30);
-    return true;
-  } catch(e) {
-    console.warn('[SV2 bridge] send failed:', e);
-    return false;
-  }
-}
-
-async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
-  const reqId = 'r' + Date.now() + '_' + (_sv2ReqSeq++);
-  const attempt = { asset, tf, anchorSec, dir, count: count || 4000, reqId, error: null, candleCount: null };
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      delete window._SV2_PENDING[reqId];
-      attempt.error = 'Bridge timeout — 25s me Python se koi response nahi aaya (fragment slow/down ho sakta hai)';
-      try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-      resolve([]);
-    }, 25000);
-
-    window._SV2_PENDING[reqId] = {
-      resolve: (candles) => {
-        attempt.candleCount = candles.length;
-        if (!candles.length) attempt.error = 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
-        try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-        resolve(candles);
-      },
-      timer,
-    };
-
-    const sent = _sv2SendBridgeRequest({ reqId, asset, tf, anchor: anchorSec, dir, count: count || 4000 });
-    if (!sent) {
-      clearTimeout(timer);
-      delete window._SV2_PENDING[reqId];
-      attempt.error = 'Bridge input parent frame me nahi mila — Python side widget render nahi hua ya DOM structure badla';
-      try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-      resolve([]);
-    }
-  });
-}
-
-function _sv2ShowReplayLoading(on) {
-  try {
-    var fabLbl = document.getElementById('sv2-drng-fab');
-    if (fabLbl) fabLbl.title = on
-      ? '⏳ Purani date ka data load ho raha hai…'
-      : (fabLbl.title || '').replace('⏳ Purani date ka data load ho raha hai…', '');
-  } catch(_) {}
-}
-
-// Cutoff date ke liye zaroorat pade to purana data fetch karke extend-cache
-// bhar do. Return hone ke baad caller (buildStack2) fresh, sahi-anchored
-// data use kar sakta hai. Agar already covered hai to turant return hota hai
-// (koi network call nahi) — normal/latest-date replay pe zero extra cost.
-async function _sv2EnsureWindowLoaded(cutEpoch) {
-  window._SV2_FETCH_LOG = [];   // naya attempt session — purana log clear
-  try {
-    if (typeof _stackKeyForAsset !== 'function' || typeof S === 'undefined') return;
-    const assetKey = _stackKeyForAsset(S.asset);
-    if (assetKey !== 'bn' && assetKey !== 'btc') return;   // 'third'/unknown asset — skip
-    const isBN   = (assetKey === 'bn');
-    const baseTF = _sv2GetBaseTF(isBN);
-    const store  = isBN ? SV2_BN : SV2_BTC;
-    const trimmed = (store && store[baseTF]) || [];
-
-    const extKey = assetKey + '|' + baseTF;
-    const ext    = window._SV2_EXT_CACHE[extKey];
-    const haveArr = (ext && ext.arr && ext.arr.length) ? ext.arr : trimmed;
-    const earliest = haveArr.length ? haveArr[0].time : Infinity;
-
-    if (cutEpoch >= earliest) {
-      console.log(`[SV2 replay] window already covers cutoff (skip fetch): ${extKey} earliest=${new Date(earliest*1000).toISOString()} cutoff=${new Date(cutEpoch*1000).toISOString()}`);
-      window._SV2_FETCH_LOG.push({ skipped: true, reason: 'cutoff >= earliest already-loaded candle — no fetch needed', extKey, earliest, cutEpoch });
-      return;
-    }
-
-    console.log(`[SV2 replay] fetching anchored window: ${extKey} cutoff=${new Date(cutEpoch*1000).toISOString()} (current earliest=${isFinite(earliest)?new Date(earliest*1000).toISOString():'n/a'})`);
-    _sv2ShowReplayLoading(true);
-    const [before, after] = await Promise.all([
-      _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'before', 6000),
-      _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'after',  15000),
-    ]);
-    _sv2ShowReplayLoading(false);
-
-    if (!before.length && !after.length) {
-      console.warn(`[SV2 replay] server returned NO candles for ${extKey} (before=0, after=0) — check /api/sv2_window reachability`);
-      return;  // server se bhi kuch nahi mila
-    }
-
-    const merged = before.concat(after);
-    window._SV2_EXT_CACHE[extKey] = {
-      arr: merged,
-      hasMoreAfter: (after.length === 15000),
-    };
-    console.log(`[SV2 replay] extended window loaded: ${extKey} before=${before.length} after=${after.length}`);
-  } catch(e) {
-    console.warn('[SV2 replay] ensure-window-load failed', e);
-    try { window._SV2_FETCH_LOG.push({ exception: (e && e.message) || String(e) }); } catch(_) {}
-  }
-}
-
-// Replay chalte-chalte agar loaded window khatam hone wali hai (aur server
-// ke paas aage aur data hai), background mein agla chunk fetch karke APPEND
-// kar do (revealIdx/undo-stack/tracker jaise indices ko touch nahi karte,
-// isliye ye purani-candle-drop wala trimming nahi karta — sirf aage se
-// silently top-up karta hai taaki lamba replay session bina ruke chal sake).
-async function _sv2MaybeExtendForward(live) {
-  if (_sv2ExtendInFlight || !live || !live.baseBars || !live.baseBars.length) return;
-  const remaining = live.baseBars.length - live.revealIdx;
-  if (remaining > 300) return;   // abhi kaafi buffer bacha hai
-
-  const assetKey = live.isBN ? 'bn' : 'btc';
-  const baseTF   = _sv2GetBaseTF(live.isBN);
-  const extKey   = assetKey + '|' + baseTF;
-  const ext      = window._SV2_EXT_CACHE[extKey];
-  if (ext && ext.hasMoreAfter === false) return;   // server confirm kar chuka — aur data nahi hai
-
-  _sv2ExtendInFlight = true;
-  try {
-    const lastTime = live.baseBars[live.baseBars.length - 1].time;
-    const more = await _sv2FetchWindow(assetKey, baseTF, lastTime, 'after', 8000);
-    if (more.length) {
-      live.baseBars = live.baseBars.concat(more);
-      window._SV2_EXT_CACHE[extKey] = { arr: live.baseBars, hasMoreAfter: (more.length === 8000) };
-      console.log(`[SV2 replay] top-up +${more.length} bars, total=${live.baseBars.length}`);
-    } else {
-      window._SV2_EXT_CACHE[extKey] = { arr: live.baseBars, hasMoreAfter: false };
-    }
-  } catch(e) {
-    console.warn('[SV2 replay] forward top-up failed', e);
-  } finally {
-    _sv2ExtendInFlight = false;
-  }
-}
-window._sv2EnsureWindowLoaded  = _sv2EnsureWindowLoaded;
-window._sv2MaybeExtendForward = _sv2MaybeExtendForward;
-
 function _attachBNLazyScroll(chartRef, seriesRef, tfMin) {
   if (!chartRef || !seriesRef) return;
   try {
@@ -18142,17 +17683,6 @@ function _sv2ComputeCellSR(cellIdx, assetKey, cutoffTime) {
       swingCompute(dataCur, cellTFMin, liveNowSec, _srCfg2)
         .forEach(l => { if (cellTFMin <= l.levelTf) allLines.push(l); });
     }
-    // Replay debug: indicator ke liye actual data length record karo — agar
-    // pehle se isi cellIdx ka entry (candle capture se) maujood hai to usi
-    // mein indicatorCount jod do, warna naya entry bana do.
-    try {
-      const D = window._SV2_REPLAY_DEBUG;
-      if (D && Array.isArray(D.cells)) {
-        const existing = D.cells.find(c => c.idx === cellIdx);
-        if (existing) existing.indicatorCount = dataCur.length;
-        else D.cells.push({ idx: cellIdx, tf: tfLabel, status: 'INDICATOR_ONLY', count: undefined, indicatorCount: dataCur.length });
-      }
-    } catch(_) {}
 
     // Step 2: SV2_SWING_TF_LIST se enabled higher TFs (SV1 se independent)
     // Gated by SV2_SR_HTF_VISIBLE (the SR② FAB) — NOT by SV2_SWING_STATE.visible,
