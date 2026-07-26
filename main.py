@@ -914,44 +914,59 @@ def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
     """Dono .gz files se sab TFs ka data return karo, ek diye gaye date
     ("chunk") ke aas-paas trim karke.
 
-    IMPORTANT: fetch + resample (GitHub se .gz download + TF resampling)
-    sirf EK BAAR hota hai process/session mein pehli dafa (result
-    _SV2_CACHE["bn_tfs_full"] / ["btc_tfs_full"] mein cache hota hai — full,
-    untrimmed). Uske baad, chahe user koi bhi naya "chunk date" chune, sirf
-    halka-sa trim step (_sv2_trim) dobara chalta hai — GitHub fetch ya
-    resample dobara NAHI hota.
+    MEMORY FIX: pehle ye poori history (saalon ka raw data + 16 resampled
+    timeframes) hamesha ke liye RAM me cache karta tha — chahe chunk date
+    kuch bhi ho. Isse chhote free-tier hosts (512MB RAM) pe memory limit
+    cross ho jaata tha.
+
+    Ab sirf CURRENT chunk date ke liye trimmed (chhota) result cache hota
+    hai. Jab tak dates same rahein, koi dobara fetch/resample nahi hota
+    (fast). Jab date badalti hai, purana bada data GC ho jaata hai aur naya
+    fetch+resample+trim hota hai — thoda time lagega (network+resample),
+    lekin RAM me sirf chhota trimmed window rehta hai, poori history nahi.
     """
-    if "bn_tfs_full" not in _SV2_CACHE or "btc_tfs_full" not in _SV2_CACHE:
-        bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
-        btc_raw = _sv2_load_btc_gz()
+    _cache_key = (bn_anchor, btc_anchor)
+    if _SV2_CACHE.get("_agg_key") == _cache_key and "_agg_result" in _SV2_CACHE:
+        return _SV2_CACHE["_agg_result"]
 
-        _SV2_CACHE["bn_tfs_full"] = {
-            "1m_raw": _sv2_resample_bn_intraday(bn_raw, 1),
-            "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
-            "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
-            "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
-            "135m": _sv2_resample_bn_intraday(bn_raw,  135),
-            "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
-            "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
-            "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
-            "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
-        }
-        _SV2_CACHE["btc_tfs_full"] = {
-            "5m_raw": _sv2_resample_btc(btc_raw, 5),
-            "160m": _sv2_resample_btc(btc_raw, 160),
-            "8H":   _sv2_resample_btc(btc_raw, 480),
-            "1D":   _sv2_resample_btc_daily(btc_raw, 1),
-            "3D":   _sv2_resample_btc_daily(btc_raw, 3),
-            "9D":   _sv2_resample_btc_daily(btc_raw, 9),
-            "27D":  _sv2_resample_btc_daily(btc_raw, 27),
-        }
+    bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
+    btc_raw = _sv2_load_btc_gz()
 
-    bn_tfs  = _SV2_CACHE["bn_tfs_full"]
-    btc_tfs = _SV2_CACHE["btc_tfs_full"]
+    bn_tfs = {
+        "1m_raw": _sv2_resample_bn_intraday(bn_raw, 1),
+        "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
+        "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
+        "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
+        "135m": _sv2_resample_bn_intraday(bn_raw,  135),
+        "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
+        "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
+        "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
+        "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
+    }
+    btc_tfs = {
+        "5m_raw": _sv2_resample_btc(btc_raw, 5),
+        "160m": _sv2_resample_btc(btc_raw, 160),
+        "8H":   _sv2_resample_btc(btc_raw, 480),
+        "1D":   _sv2_resample_btc_daily(btc_raw, 1),
+        "3D":   _sv2_resample_btc_daily(btc_raw, 3),
+        "9D":   _sv2_resample_btc_daily(btc_raw, 9),
+        "27D":  _sv2_resample_btc_daily(btc_raw, 27),
+    }
+
     agg = {
         "bn":  {k: _sv2_trim(v, k, bn_anchor,  "bn")  for k, v in bn_tfs.items()},
         "btc": {k: _sv2_trim(v, k, btc_anchor, "btc") for k, v in btc_tfs.items()},
     }
+
+    # Purana bada data (bn_raw/btc_raw/bn_tfs/btc_tfs, jo saalon ka poora
+    # history ho sakta hai) yahan se scope ke bahar jaate hi GC ho jaayega —
+    # sirf chhota trimmed "agg" cache me reh jaata hai.
+    _SV2_CACHE["_agg_key"]    = _cache_key
+    _SV2_CACHE["_agg_result"] = agg
+    _SV2_CACHE.pop("bn_tfs_full", None)
+    _SV2_CACHE.pop("btc_tfs_full", None)
+    _SV2_CACHE.pop("bn_raw", None)
+    _SV2_CACHE.pop("btc_raw", None)
     return agg
 
 # ─── Fyers historical data ─────────────────────────────────────────────────────
