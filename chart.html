@@ -15665,6 +15665,23 @@ if (!window._sv2BridgeListenerAttached) {
       return;
     }
 
+    if (msg.type === 'sv2_window_data_batch') {
+      // Naya batched response: ek hi reqId ke andar multiple parts (before+after)
+      // dono aa rahe hain, taaki 2 alag requests ek hi single-slot bridge
+      // <input> ko clobber na karein (purana bug — dusri request ki value
+      // pehli ko overwrite kar deti thi isse pehle ki Streamlit commit kare).
+      const reqId = msg.data.reqId;
+      const pend  = window._SV2_PENDING[reqId];
+      if (!pend) return;
+      delete window._SV2_PENDING[reqId];
+      const partsByDir = {};
+      (Array.isArray(msg.data.parts) ? msg.data.parts : []).forEach(p => {
+        partsByDir[p.dir] = Array.isArray(p.candles) ? p.candles : [];
+      });
+      pend.resolve(partsByDir);
+      return;
+    }
+
     if (msg.type !== 'sv2_window_data') return;
     const reqId  = msg.data.reqId;
     const pend   = window._SV2_PENDING[reqId];
@@ -15745,6 +15762,44 @@ async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
   });
 }
 
+// Batched version — 'before' aur 'after' dono parts ek hi bridge-request mein
+// ek saath bhejta hai (ek hi <input> write, ek hi reqId). Fix for: purane
+// _sv2FetchWindow() + Promise.all() approach mein dono requests almost
+// same-tick pe hidden <input> ki value set karte the — single-slot
+// st.session_state["_sv2_bridge_pending"] sirf jo bhi value Streamlit ne
+// commit ki thi wahi dekh pata tha, dusri request ka reqId Python tak
+// kabhi pahuncha hi nahi, isliye uska promise hamesha ke liye pending reh
+// jaata tha (yehi "2 requests pending, no timeout" wala symptom tha).
+async function _sv2FetchWindowBatch(asset, tf, anchorSec, parts) {
+  const reqId = 'r' + Date.now() + '_' + (_sv2ReqSeq++);
+  const attempt = { asset, tf, anchorSec, parts, reqId, error: null, candleCount: null, startedAt: Date.now() };
+
+  return new Promise((resolve) => {
+    window._SV2_PENDING[reqId] = {
+      startedAt: Date.now(),
+      lastProgressAt: null,
+      resolve: (partsByDir) => {
+        const before = partsByDir.before || [];
+        const after  = partsByDir.after  || [];
+        attempt.candleCount = before.length + after.length;
+        attempt.waitedMs = Date.now() - attempt.startedAt;
+        if (!before.length && !after.length) attempt.error = 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
+        try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+        if (typeof _sv2UpdateProgressUI === 'function') _sv2UpdateProgressUI(null);
+        resolve({ before, after });
+      },
+    };
+
+    const sent = _sv2SendBridgeRequest({ reqId, asset, tf, anchor: anchorSec, parts });
+    if (!sent) {
+      delete window._SV2_PENDING[reqId];
+      attempt.error = 'Bridge input parent frame me nahi mila — Python side widget render nahi hua ya DOM structure badla';
+      try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+      resolve({ before: [], after: [] });
+    }
+  });
+}
+
 // Live "data aa raha hai" indicator — bridge se progress message aane par
 // yeh loading label mein KB/s + downloaded/total dikhata hai. progress=null
 // -> hide karo (request complete ho gaya).
@@ -15811,9 +15866,9 @@ async function _sv2EnsureWindowLoaded(cutEpoch) {
 
     console.log(`[SV2 replay] fetching anchored window: ${extKey} cutoff=${new Date(cutEpoch*1000).toISOString()} (current earliest=${isFinite(earliest)?new Date(earliest*1000).toISOString():'n/a'})`);
     _sv2ShowReplayLoading(true);
-    const [before, after] = await Promise.all([
-      _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'before', 6000),
-      _sv2FetchWindow(assetKey, baseTF, cutEpoch, 'after',  15000),
+    const { before, after } = await _sv2FetchWindowBatch(assetKey, baseTF, cutEpoch, [
+      { dir: 'before', count: 6000 },
+      { dir: 'after',  count: 15000 },
     ]);
     _sv2ShowReplayLoading(false);
 

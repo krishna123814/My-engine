@@ -1868,33 +1868,50 @@ if sess_active or _btc_only:
             st.session_state["_sv2_bridge_last"] = req_raw
             try:
                 req = json.loads(req_raw)
+                # Naya: "parts" array (batched before+after) — dono ek hi
+                # <input> write mein aate hain, isliye ek dusre ko clobber
+                # nahi karte (purana bug: 2 alag writes almost-same-tick
+                # pe, dusri wali pehli ki value ko commit se pehle hi
+                # overwrite kar deti thi). Backward-compat: agar "parts"
+                # nahi hai to purana single dir/count format bhi chalta hai.
+                parts = req.get("parts")
+                if not parts:
+                    parts = [{"dir": str(req.get("dir", "before")), "count": int(req.get("count", 4000))}]
                 st.session_state["_sv2_bridge_pending"] = {
-                    "reqId":     str(req.get("reqId", "")),
-                    "asset":     str(req.get("asset", "")),
-                    "tf":        str(req.get("tf", "")),
-                    "anchor":    int(req.get("anchor", 0)),
-                    "direction": str(req.get("dir", "before")),
-                    "count":     int(req.get("count", 4000)),
+                    "reqId":  str(req.get("reqId", "")),
+                    "asset":  str(req.get("asset", "")),
+                    "tf":     str(req.get("tf", "")),
+                    "anchor": int(req.get("anchor", 0)),
+                    "parts":  [{"dir": str(p.get("dir", "before")), "count": int(p.get("count", 4000))} for p in parts],
+                    "batch":  bool(req.get("parts")),
                 }
             except Exception:
                 st.session_state["_sv2_bridge_pending"] = None
 
         pending = st.session_state.get("_sv2_bridge_pending")
         payload_json  = None
+        payload_is_batch = False
         progress_json = None
 
         if pending:
             _sv2_ensure_build_started()   # idempotent — pehli baar hi actual thread spawn karta hai
             if _SV2_BUILD["done"]:
                 # Build (fetch + resample) mukammal ho chuka — ab slice fast/instant hai.
-                try:
-                    candles = _sv2_window_slice(
-                        pending["asset"], pending["tf"], pending["anchor"],
-                        pending["direction"], pending["count"],
-                    )
-                except Exception:
-                    candles = []
-                payload_json = json.dumps({"reqId": pending["reqId"], "candles": candles})
+                parts_out = []
+                for p in pending["parts"]:
+                    try:
+                        candles = _sv2_window_slice(
+                            pending["asset"], pending["tf"], pending["anchor"],
+                            p["dir"], p["count"],
+                        )
+                    except Exception:
+                        candles = []
+                    parts_out.append({"dir": p["dir"], "candles": candles})
+                payload_is_batch = bool(pending.get("batch"))
+                if payload_is_batch:
+                    payload_json = json.dumps({"reqId": pending["reqId"], "parts": parts_out})
+                else:
+                    payload_json = json.dumps({"reqId": pending["reqId"], "candles": parts_out[0]["candles"]})
                 st.session_state["_sv2_bridge_pending"] = None
             else:
                 # Abhi bhi download/resample chal raha hai — KOI TIMEOUT NAHI,
@@ -1914,6 +1931,7 @@ if sess_active or _btc_only:
                 })
 
         if payload_json:
+            _sv2_msg_type = "sv2_window_data_batch" if payload_is_batch else "sv2_window_data"
             _sv2_script = f"""
 <script>
 (function() {{
@@ -1922,7 +1940,7 @@ if sess_active or _btc_only:
   for (var i = 0; i < frames.length; i++) {{
     try {{
       frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: 'sv2_window_data', data: payload }}), '*'
+        JSON.stringify({{ type: '{_sv2_msg_type}', data: payload }}), '*'
       );
     }} catch(e) {{}}
   }}
