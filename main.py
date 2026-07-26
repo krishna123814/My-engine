@@ -4,7 +4,6 @@ import os
 import time
 import threading
 import hashlib
-import bisect
 import zipfile
 import requests
 import pyotp
@@ -468,118 +467,38 @@ _GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
 _GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv_json.gz"
 _GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
 
-# ── Live download-progress tracker ──────────────────────────────────────────
-# Koi bhi hard timeout nahi lagaya — chahe download jitna bhi time le, hum
-# bas live progress (bytes downloaded / total / speed) track karte hain
-# taaki bridge frontend ko bataya ja sake "data aa raha hai" bina kabhi
-# beech mein haar maane. Key: "bn" / "btc" -> progress dict.
-_SV2_DL_PROGRESS: dict = {}
-_SV2_DL_PROGRESS_LOCK = threading.Lock()
-
-def _sv2_dl_progress_snapshot() -> dict:
-    with _SV2_DL_PROGRESS_LOCK:
-        return {k: dict(v) for k, v in _SV2_DL_PROGRESS.items()}
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _sv2_fetch_gz_from_url(url: str, progress_key: str = "") -> list:
-    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo.
-
-    IMPORTANT FIX #1: yeh function @st.cache_data se cached hai (process-wide,
-    session-independent) — ek baar fetch hone ke baad TTL (1 hour) tak future
-    har rerun/session ke liye instant milega.
-
-    IMPORTANT FIX #2 (no-timeout + progress): pehle isme timeout=90 tha, jo
-    slow/cold connection pe poora fetch fail kar deta tha, aur JS side ko
-    yeh bhi pata nahi chalta tha ki data ACTUALLY aa raha hai ya stuck hai.
-    Ab hum requests.get(stream=True) se chunk-by-chunk padhte hain — koi
-    timeout nahi (jitna time lage le le), aur har chunk ke baad
-    _SV2_DL_PROGRESS[progress_key] update karte hain (downloaded bytes,
-    total bytes agar Content-Length mila, start time) taaki bridge fragment
-    yeh info periodically frontend ko bhej sake (KB/s speed ke saath).
-    """
-    with _SV2_DL_PROGRESS_LOCK:
-        _SV2_DL_PROGRESS[progress_key] = {
-            "downloaded": 0, "total": 0, "start_ts": time.time(),
-            "done": False, "error": None,
-        }
+def _sv2_fetch_gz_from_url(url: str) -> list:
+    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo."""
     try:
-        # NOTE: pehle timeout=None tha (bilkul koi timeout nahi) — iska
-        # matlab agar TCP connection hi kabhi establish na ho paaye ya beech
-        # mein silently stall ho jaaye (koi bhi naya byte na aaye), request
-        # HAMESHA ke liye hang ho sakti thi, bina kisi error/exception ke —
-        # is case mein progress bhi kabhi nahi badhta (downloaded=0 hi rehta)
-        # aur frontend ko sirf "pending" dikhta reh jaata, hamesha ke liye.
-        # Ab (connect_timeout=15s, read_timeout=60s) — read_timeout streaming
-        # mein har individual chunk-read pe apply hota hai, poore download pe
-        # nahi, isliye genuinely slow-par-flowing download (jitni der bhi
-        # lage) is se kabhi fail nahi hoga — sirf ek SACHMUCH stalled/dead
-        # connection 60s baad exception raise karke `error` field mein
-        # dikhega, taaki frontend ko silent-hang na ho.
-        resp = requests.get(url, stream=True, timeout=(15, 60))
+        resp = requests.get(url, timeout=90)
         resp.raise_for_status()
-        total = int(resp.headers.get("Content-Length") or 0)
-        buf = bytearray()
-        downloaded = 0
-        for chunk in resp.iter_content(chunk_size=131072):  # 128KB chunks
-            if not chunk:
-                continue
-            buf.extend(chunk)
-            downloaded += len(chunk)
-            with _SV2_DL_PROGRESS_LOCK:
-                _SV2_DL_PROGRESS[progress_key]["downloaded"] = downloaded
-                _SV2_DL_PROGRESS[progress_key]["total"] = total
-        with _gzip.open(_io.BytesIO(bytes(buf)), "rb") as f:
+        with _gzip.open(_io.BytesIO(resp.content), "rb") as f:
             data = json.load(f)
-        with _SV2_DL_PROGRESS_LOCK:
-            _SV2_DL_PROGRESS[progress_key]["downloaded"] = downloaded
-            _SV2_DL_PROGRESS[progress_key]["total"] = total or downloaded
-            _SV2_DL_PROGRESS[progress_key]["done"] = True
         # Both formats supported: {"meta":..,"data":[..]} or plain list
         return data["data"] if isinstance(data, dict) else data
-    except Exception as e:
-        with _SV2_DL_PROGRESS_LOCK:
-            _SV2_DL_PROGRESS[progress_key]["done"]  = True
-            _SV2_DL_PROGRESS[progress_key]["error"] = str(e)
-        # IMPORTANT FIX #3: pehle yahan [] return hota tha, jise st.cache_data
-        # "successful result" maan ke 1 ghante ke liye cache kar leta tha —
-        # matlab ek single network blip ke baad AGLA poora ghanta har request
-        # ko khaali data milta rehta tha, asli wajah (rate-limit/timeout/DNS
-        # etc.) bhi kahin dikhti nahi thi. Ab exception RAISE karte hain —
-        # st.cache_data kabhi bhi ek exception ko cache nahi karta, isliye
-        # agli hi request fresh retry karegi, aur asli error string upar tak
-        # pahunchti hai taaki UI par exact reason dikhaya ja sake.
-        _reason = f"{type(e).__name__}: {e}"
-        if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
-            if e.response.status_code == 429:
-                _reason = f"RATE_LIMITED (HTTP 429) from GitHub raw — {e}"
-            else:
-                _reason = f"HTTP {e.response.status_code} from GitHub — {e}"
-        elif isinstance(e, requests.exceptions.ConnectTimeout):
-            _reason = f"CONNECT_TIMEOUT — {e}"
-        elif isinstance(e, requests.exceptions.ReadTimeout):
-            _reason = f"READ_TIMEOUT (stalled download) — {e}"
-        elif isinstance(e, requests.exceptions.ConnectionError):
-            _reason = f"CONNECTION_ERROR — {e}"
-        raise RuntimeError(_reason) from e
+    except Exception:
+        return []
 
 def _sv2_load_bn_gz() -> list:
-    """BankNifty 1m candles — GitHub se fetch karo (st.cache_data backed)."""
-    try:
-        rows = _sv2_fetch_gz_from_url(_GH_BN_URL, "bn")
-    except Exception as e:
-        _SV2_CACHE["bn_err"] = str(e)
-        raise
-    _SV2_CACHE["bn_err"] = ""
+    """BankNifty 1m candles — GitHub se fetch karo (cached)."""
+    if "bn_raw" in _SV2_CACHE:
+        return _SV2_CACHE["bn_raw"]
+    rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
+    if not rows:
+        _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
+        return []
+    _SV2_CACHE["bn_raw"] = rows
     return rows
 
 def _sv2_load_btc_gz() -> list:
-    """BTC 5m candles — GitHub se fetch karo (st.cache_data backed)."""
-    try:
-        rows = _sv2_fetch_gz_from_url(_GH_BTC_URL, "btc")
-    except Exception as e:
-        _SV2_CACHE["btc_err"] = str(e)
-        raise
-    _SV2_CACHE["btc_err"] = ""
+    """BTC 5m candles — GitHub se fetch karo (cached)."""
+    if "btc_raw" in _SV2_CACHE:
+        return _SV2_CACHE["btc_raw"]
+    rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
+    if not rows:
+        _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
+        return []
+    _SV2_CACHE["btc_raw"] = rows
     return rows
 
 ## ── IST-naive timestamp constants ───────────────────────────────────────────
@@ -814,24 +733,19 @@ def _sv2_to_js(data: list) -> str:
     """List of dicts → compact JSON string for inline JS."""
     return json.dumps(data, separators=(",", ":"))
 
-@st.cache_resource(show_spinner=False)
-def _build_sv2_data_cached() -> dict:
-    """Dono .gz files se sab TFs ka aggregated + full data return karo.
+def _build_sv2_data() -> dict:
+    """Dono .gz files se sab TFs ka aggregated data return karo.
 
-    IMPORTANT FIX: pehle yeh function plain _SV2_CACHE (module dict) mein
-    result store karta tha — jo har Streamlit FULL rerun pe reset ho jaata
-    tha (kyunki `_SV2_CACHE: dict = {}` bhi top-level script line hai, dobara
-    chalti hai). Isse resample step (16 passes, dono assets) bhi HAR baar
-    dobara chalta tha jab bhi ek full rerun ke baad koi purani date select
-    hoti — aur agar us waqt raw .gz bhi cache-miss ho (rare ab, upar
-    st.cache_data ki wajah se), to poora pipeline (fetch+decompress+resample)
-    25s JS timeout se zyada le sakta tha.
-
-    Ab @st.cache_resource use kiya hai — yeh Streamlit ka built-in,
-    process-wide persistent cache hai jo kisi bhi full rerun ya naye session
-    se bhi survive karta hai (jab tak server restart na ho). Isliye resample
-    sirf ek hi baar (poore app ke liye) hota hai.
+    IMPORTANT: yeh ab sirf EK BAAR resample karta hai (jab process/session mein
+    pehli dafa call hota hai) aur result ko _SV2_CACHE["agg"] mein store kar
+    deta hai. Uske baad har stackview-2 open / Streamlit rerun pe seedha
+    cached aggregated data return hota hai — resample functions dobara nahi
+    chalte. Raw 1m .gz data ka source same hai, bas resampling ab repeat
+    nahi hoti.
     """
+    if "agg" in _SV2_CACHE:
+        return _SV2_CACHE["agg"]
+
     bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
     btc_raw = _sv2_load_btc_gz()
 
@@ -859,82 +773,8 @@ def _build_sv2_data_cached() -> dict:
         "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
         "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
     }
-    # "full" (untrimmed) series — Bar Replay ke liye jab koi PURANI date (jo
-    # trimmed "agg" window se pehle ki ho) select hoti hai, /api/sv2_window
-    # /bridge isi se on-demand ek window slice karke bhejta hai.
-    full = {"bn": bn_tfs, "btc": btc_tfs}
-    return {"agg": agg, "full": full}
-
-
-def _build_sv2_data() -> dict:
-    """Backward-compat wrapper — sirf 'agg' (trimmed) part return karta hai."""
-    return _build_sv2_data_cached()["agg"]
-
-
-# ── Background builder ──────────────────────────────────────────────────────
-# _build_sv2_data_cached() (fetch + resample) ko seedha bridge fragment ke
-# andar call karne se woh fragment tab tak BLOCK hota — is se progress
-# updates bhej hi nahi paate (thread busy hota download/resample mein).
-# Isliye build ko ek alag daemon thread mein chalate hain; fragment (jo
-# run_every=1 se har second tick hota hai) sirf _SV2_BUILD state check karta
-# hai aur jab tak "done" nahi hota, tab tak _SV2_DL_PROGRESS snapshot bhejta
-# rehta hai (kitna download hua, kitni speed) — koi timeout nahi, jitna time
-# lage utna.
-_SV2_BUILD_LOCK = threading.Lock()
-_SV2_BUILD: dict = {"started": False, "done": False, "error": None, "error_ts": 0.0, "attempts": 0}
-_SV2_BUILD_RETRY_COOLDOWN = 15   # seconds — is se pehle dobara auto-retry nahi (GitHub ko spam na karein)
-
-def _sv2_ensure_build_started() -> None:
-    with _SV2_BUILD_LOCK:
-        if _SV2_BUILD["started"]:
-            # IMPORTANT FIX #4: pehle "started" flag permanent tha — ek baar
-            # build fail ho jaaye (GitHub fetch error/rate-limit) to poori
-            # server-process life mein kabhi dobara try hi nahi hota tha,
-            # sirf manual restart se theek hota tha. Ab agar pichla attempt
-            # error ke saath khatam hua tha aur cooldown guzar chuka hai, to
-            # flag reset karke ek naya attempt allow karte hain — warna
-            # abhi bhi busy/done-ok hai, kuch mat karo.
-            _can_retry = (
-                _SV2_BUILD["done"] and _SV2_BUILD["error"] and
-                (time.time() - _SV2_BUILD["error_ts"]) >= _SV2_BUILD_RETRY_COOLDOWN
-            )
-            if not _can_retry:
-                return
-        _SV2_BUILD["started"] = True
-        _SV2_BUILD["done"]    = False
-        _SV2_BUILD["error"]   = None
-        _SV2_BUILD["attempts"] += 1
-
-    def _runner():
-        try:
-            _build_sv2_data_cached()
-        except Exception as e:
-            _SV2_BUILD["error"]    = str(e)
-            _SV2_BUILD["error_ts"] = time.time()
-        finally:
-            _SV2_BUILD["done"] = True
-
-    threading.Thread(target=_runner, daemon=True, name="sv2-build").start()
-
-
-def _sv2_window_slice(asset: str, tf: str, anchor_sec: int, direction: str, count: int) -> list:
-    """Full (untrimmed) resampled series se anchor epoch ke aas-paas ek window nikaalo.
-
-    direction='before' → anchor SE PEHLE (aur anchor tak inclusive) ki (count) candles.
-    direction='after'  → anchor SE BAAD ki (count) candles.
-    Ye Bar Replay ke us case ke liye hai jab select ki gayi date, HTML mein
-    already-injected trimmed ("latest N candles") window se purani ho.
-    """
-    full = _build_sv2_data_cached()["full"]
-    series = (full.get(asset) or {}).get(tf) or []
-    if not series:
-        return []
-    times = [c["time"] for c in series]
-    i = bisect.bisect_right(times, anchor_sec)
-    if direction == "after":
-        return series[i:i + count]
-    start = max(0, i - count)
-    return series[start:i]
+    _SV2_CACHE["agg"] = agg
+    return agg
 
 # ─── Fyers historical data ─────────────────────────────────────────────────────
 def _fyers_history(resolution: str, from_date: str, to_date: str) -> list:
@@ -1390,41 +1230,6 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
-                # ── SV2 Bar Replay lazy window — jab replay ke liye select ki
-                # gayi date, page mein already-injected (trimmed/"latest N")
-                # data se purani ho, chart.html isi endpoint se on-demand
-                # candles maangta hai (dono asset: bn / btc). ────────────────
-                if parsed.path == "/api/sv2_window":
-                    qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
-                    def _q2(k, d=""): return qs2.get(k, [d])[0]
-
-                    asset = _q2("asset", "bn")
-                    tf    = _q2("tf", "")
-                    try:
-                        anchor = int(_q2("anchor", "0"))
-                    except ValueError:
-                        anchor = 0
-                    direction = _q2("dir", "before")
-                    try:
-                        count = max(1, min(int(_q2("count", "3000")), 20000))
-                    except ValueError:
-                        count = 3000
-
-                    try:
-                        candles = _sv2_window_slice(asset, tf, anchor, direction, count)
-                    except Exception:
-                        candles = []
-
-                    body = json.dumps({"candles": candles}).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()
@@ -1520,6 +1325,13 @@ if "fyers_code" in _qp:
                 "access_token": _tok,
             })
             _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
+    st.rerun()
+
+# Handler 1b: Stack View 2 — user ne replay date select ki, ab hi BN+BTC
+# GitHub .gz data fetch karo (pehle kabhi nahi — page load pe koi fetch nahi hota)
+if _qp.get("sv2_load") == "1":
+    st.session_state["_sv2_data_requested"] = True
+    st.query_params.clear()
     st.rerun()
 
 # Handler 2: TOTP auto-login triggered from chart panel
@@ -1772,49 +1584,68 @@ def _build_chart_html(
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
 
     # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
+    # LAZY LOAD: jab tak user replay date select nahi karta (chart se
+    # ?sv2_load=1 signal aake _sv2_data_requested set nahi karta), GitHub se
+    # koi fetch hi nahi hoga — sirf empty placeholders inject honge. Ye
+    # both BankNifty aur BTC dono par lagu hai (dono ek hi _build_sv2_data()
+    # call se aate hain, isliye ek saath gate hote hain).
+    _sv2_data_requested = bool(st.session_state.get("_sv2_data_requested"))
+    _sv2_all_placeholders = [
+        "__SV2_BN_1M_RAW__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
+        "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
+        "__SV2_BTC_5M_RAW__","__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
+        "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__",
+    ]
     _sv2_err_msg = ""
-    try:
-        _sv2 = _build_sv2_data()
-        _bn  = _sv2["bn"]
-        _btc = _sv2["btc"]
-        # Debug info: paths + counts inject karo
-        _sv2_debug_info = {
-            "bn_path":  _SV2_CACHE.get("bn_path", "?"),
-            "btc_path": _SV2_CACHE.get("btc_path", "?"),
-            "bn_err":   _SV2_CACHE.get("bn_err", ""),
-            "btc_err":  _SV2_CACHE.get("btc_err", ""),
-            "bn_counts": {k: len(v) for k, v in _bn.items()},
-            "btc_counts": {k: len(v) for k, v in _btc.items()},
-        }
-        _sv2_err_msg = json.dumps(_sv2_debug_info)
-        html = html.replace("__SV2_BN_1M_RAW__", _sv2_to_js(_bn["1m_raw"]))
-        html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
-        html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
-        html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
-        html = html.replace("__SV2_BN_135M__", _sv2_to_js(_bn["135m"]))
-        html = html.replace("__SV2_BN_1D__",   _sv2_to_js(_bn["1D"]))
-        html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
-        html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
-        html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
-        html = html.replace("__SV2_BTC_5M_RAW__", _sv2_to_js(_btc["5m_raw"]))
-        html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
-        html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
-        html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
-        html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))
-        html = html.replace("__SV2_BTC_9D__",   _sv2_to_js(_btc["9D"]))
-        html = html.replace("__SV2_BTC_27D__",  _sv2_to_js(_btc["27D"]))
-    except Exception as _sv2_ex:
-        _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
-        # Fallback: empty arrays agar gz file missing/corrupt ho
-        for _ph in ["__SV2_BN_1M_RAW__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
-                    "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
-                    "__SV2_BTC_5M_RAW__","__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
-                    "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__"]:
+    _sv2_data_loaded_ok = False
+    if not _sv2_data_requested:
+        # Abhi tak koi date select nahi hui — GitHub ko chhuna hi nahi hai
+        for _ph in _sv2_all_placeholders:
             html = html.replace(_ph, "[]")
-    # Inject debug info as JS variable — visible via window.__SV2_DEBUG in browser console
+        _sv2_err_msg = "NOT_REQUESTED_YET"
+    else:
+        try:
+            _sv2 = _build_sv2_data()
+            _bn  = _sv2["bn"]
+            _btc = _sv2["btc"]
+            # Debug info: paths + counts inject karo
+            _sv2_debug_info = {
+                "bn_path":  _SV2_CACHE.get("bn_path", "?"),
+                "btc_path": _SV2_CACHE.get("btc_path", "?"),
+                "bn_err":   _SV2_CACHE.get("bn_err", ""),
+                "btc_err":  _SV2_CACHE.get("btc_err", ""),
+                "bn_counts": {k: len(v) for k, v in _bn.items()},
+                "btc_counts": {k: len(v) for k, v in _btc.items()},
+            }
+            _sv2_err_msg = json.dumps(_sv2_debug_info)
+            html = html.replace("__SV2_BN_1M_RAW__", _sv2_to_js(_bn["1m_raw"]))
+            html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
+            html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
+            html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
+            html = html.replace("__SV2_BN_135M__", _sv2_to_js(_bn["135m"]))
+            html = html.replace("__SV2_BN_1D__",   _sv2_to_js(_bn["1D"]))
+            html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
+            html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
+            html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
+            html = html.replace("__SV2_BTC_5M_RAW__", _sv2_to_js(_btc["5m_raw"]))
+            html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
+            html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
+            html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
+            html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))
+            html = html.replace("__SV2_BTC_9D__",   _sv2_to_js(_btc["9D"]))
+            html = html.replace("__SV2_BTC_27D__",  _sv2_to_js(_btc["27D"]))
+            _sv2_data_loaded_ok = True
+        except Exception as _sv2_ex:
+            _sv2_err_msg = f"EXCEPTION: {_sv2_ex} | cache={_SV2_CACHE}"
+            # Fallback: empty arrays agar gz file missing/corrupt ho
+            for _ph in _sv2_all_placeholders:
+                html = html.replace(_ph, "[]")
+    # Inject debug info + loaded-flag as JS variables — chart.html isi flag
+    # se decide karta hai ki data already load hai ya reload trigger karna hai
     _sv2_safe = _sv2_err_msg.replace("</", "<\\/")
     html = html.replace("</body>",
-        f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};</script>\n</body>", 1)
+        f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};"
+        f"window.__SV2_DATA_LOADED={json.dumps(_sv2_data_loaded_ok)};</script>\n</body>", 1)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
@@ -1870,177 +1701,6 @@ if sess_active or _btc_only:
         sess_active,
     )
     components.html(_chart_html, height=950, scrolling=False)
-
-    # ── SV2 historical-window bridge (replaces broken 8502-8510 side-port) ───
-    # Problem: /api/sv2_window sirf side HTTP server (alag port) pe milta tha,
-    # jo Streamlit Cloud pe unreachable hai (sirf ek hi port expose hota hai).
-    # Fix: same postMessage-fragment pattern jo live-tick ke liye already kaam
-    # kar raha hai (neeche) — bas direction ulti: yahan JS Python ko REQUEST
-    # bhejta hai (hidden st.text_input ke DOM value ko JS se force-set karke,
-    # jisse Streamlit ka apna React state update ho aur is fragment ka rerun
-    # trigger ho — poore app ka rerun NAHI), Python us request ko cached
-    # in-memory data (_SV2_CACHE) se slice karke jawab isi fragment ke agle
-    # tick pe wapas postMessage se push kar deta hai. Chhota response hi jaata
-    # hai (max ~21k candles ek baar me) — poori raw file kabhi client pe nahi
-    # aati, isliye mobile hang ka risk nahi.
-    st.markdown(
-        """<style>
-        div[data-testid="stTextInput"]:has(input[aria-label="SV2_BRIDGE_REQ"]),
-        div[data-testid="stTextInput"]:has(input[placeholder="SV2_BRIDGE_REQ_MARKER_9f3a"]) {
-            position: absolute; width: 1px; height: 1px; overflow: hidden;
-            opacity: 0; pointer-events: none;
-        }
-        </style>""",
-        unsafe_allow_html=True,
-    )
-
-    @st.fragment(run_every=1)
-    def _sv2_window_bridge():
-        req_raw = st.text_input(
-            "SV2_BRIDGE_REQ", key="_sv2_bridge_req", label_visibility="collapsed",
-            # NOTE: aria-label akela reliable nahi nikla (debug report se pata
-            # chala ki browser is input ko dhoond hi nahi pa raha tha — Streamlit
-            # version ke hisaab se aria-label render nahi hota/badal jaata hai).
-            # placeholder attribute HTML mein literally set hota hai, ye zyada
-            # reliable hai cross-frame querySelector ke liye. JS side dono
-            # (placeholder + aria-label) try karta hai, fallback ke saath.
-            placeholder="SV2_BRIDGE_REQ_MARKER_9f3a",
-        )
-
-        # Diagnostic-only counters — asli request-processing logic ko touch
-        # nahi karte, sirf future debug reports ke liye pata lagate hain ki
-        # fragment tick ho raha hai ya nahi aur value kabhi badli bhi ya nahi
-        # (pehle wale "hamesha pending, 0 progress" bug mein yeh hi confirm
-        # nahi ho pa raha tha ki request Python tak pahunchi bhi thi ya nahi).
-        st.session_state["_sv2_bridge_ticks"] = st.session_state.get("_sv2_bridge_ticks", 0) + 1
-
-        # Naya request aaya to session_state mein "pending" ke roop mein
-        # store karo — is se agle ticks (jab tak build/slice complete na ho)
-        # bhi isi request ko yaad rakh ke progress bhejte reh sakte hain.
-        # (Pehle sirf ek hi tick pe react hota tha jab input value change
-        # hoti thi — us tick mein hi seedha _build_sv2_data_cached() call
-        # karke poora fetch+resample BLOCKING chalta tha, jisse fragment
-        # tab tak koi progress bhej hi nahi paata tha.)
-        last_seen = st.session_state.get("_sv2_bridge_last", "")
-        if req_raw and req_raw != last_seen:
-            st.session_state["_sv2_bridge_last"] = req_raw
-            try:
-                req = json.loads(req_raw)
-                # Naya: "parts" array (batched before+after) — dono ek hi
-                # <input> write mein aate hain, isliye ek dusre ko clobber
-                # nahi karte (purana bug: 2 alag writes almost-same-tick
-                # pe, dusri wali pehli ki value ko commit se pehle hi
-                # overwrite kar deti thi). Backward-compat: agar "parts"
-                # nahi hai to purana single dir/count format bhi chalta hai.
-                parts = req.get("parts")
-                if not parts:
-                    parts = [{"dir": str(req.get("dir", "before")), "count": int(req.get("count", 4000))}]
-                st.session_state["_sv2_bridge_pending"] = {
-                    "reqId":  str(req.get("reqId", "")),
-                    "asset":  str(req.get("asset", "")),
-                    "tf":     str(req.get("tf", "")),
-                    "anchor": int(req.get("anchor", 0)),
-                    "parts":  [{"dir": str(p.get("dir", "before")), "count": int(p.get("count", 4000))} for p in parts],
-                    "batch":  bool(req.get("parts")),
-                }
-            except Exception:
-                st.session_state["_sv2_bridge_pending"] = None
-
-        pending = st.session_state.get("_sv2_bridge_pending")
-        payload_json  = None
-        payload_is_batch = False
-        progress_json = None
-
-        if pending:
-            _sv2_ensure_build_started()   # idempotent (retry-aware) — build shuru/retry karta hai
-            if _SV2_BUILD["done"]:
-                # Build (fetch + resample) mukammal ho chuka — ab slice fast/instant hai.
-                # ── Reason field: agar poora build hi fail hua (GitHub fetch
-                # error/rate-limit/timeout), to sabse pehle wahi asli reason
-                # bhejo — frontend ko ab silently khaali candles nahi milenge,
-                # exact wajah milegi. Agar build theek se hua lekin is
-                # specific anchor date se pehle genuinely koi data nahi hai
-                # (date, source ki earliest candle se bhi purani hai), to
-                # "OUT_OF_RANGE" wala distinct reason bhejo — taaki UI dono
-                # cases mein alag, sahi message dikha sake. ───────────────────
-                _reason = None
-                if _SV2_BUILD["error"]:
-                    _reason = f"SERVER_FETCH_FAILED: {_SV2_BUILD['error']}"
-                parts_out = []
-                for p in pending["parts"]:
-                    try:
-                        candles = _sv2_window_slice(
-                            pending["asset"], pending["tf"], pending["anchor"],
-                            p["dir"], p["count"],
-                        )
-                    except Exception as _e:
-                        candles = []
-                        if not _reason:
-                            _reason = f"SLICE_FAILED: {_e}"
-                    parts_out.append({"dir": p["dir"], "candles": candles})
-                if _reason is None and not any(po["candles"] for po in parts_out):
-                    _reason = "OUT_OF_RANGE: is date se pehle/baad ka data source (.gz file) mein available nahi hai"
-                payload_is_batch = bool(pending.get("batch"))
-                if payload_is_batch:
-                    payload_json = json.dumps({"reqId": pending["reqId"], "parts": parts_out, "error": _reason})
-                else:
-                    payload_json = json.dumps({"reqId": pending["reqId"], "candles": parts_out[0]["candles"], "error": _reason})
-                st.session_state["_sv2_bridge_pending"] = None
-            else:
-                # Abhi bhi download/resample chal raha hai — KOI TIMEOUT NAHI,
-                # bas har tick pe live progress (bytes + speed) bhej do taaki
-                # frontend ko pata rahe data actually aa raha hai.
-                snap = _sv2_dl_progress_snapshot()
-                now  = time.time()
-                for k, v in snap.items():
-                    elapsed = max(0.001, now - v.get("start_ts", now))
-                    v["speed_kbps"] = round((v.get("downloaded", 0) / 1024.0) / elapsed, 1)
-                    v["elapsed_s"]  = round(elapsed, 1)
-                progress_json = json.dumps({
-                    "reqId": pending["reqId"],
-                    "buildDone": _SV2_BUILD["done"],
-                    "buildError": _SV2_BUILD["error"],
-                    "progress": snap,
-                    "serverTicks": st.session_state.get("_sv2_bridge_ticks", 0),
-                })
-
-        if payload_json:
-            _sv2_msg_type = "sv2_window_data_batch" if payload_is_batch else "sv2_window_data"
-            _sv2_script = f"""
-<script>
-(function() {{
-  var payload = {payload_json};
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: '{_sv2_msg_type}', data: payload }}), '*'
-      );
-    }} catch(e) {{}}
-  }}
-}})();
-</script>
-"""
-            components.html(_sv2_script, height=0, scrolling=False)
-        elif progress_json:
-            _sv2_progress_script = f"""
-<script>
-(function() {{
-  var payload = {progress_json};
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: 'sv2_window_progress', data: payload }}), '*'
-      );
-    }} catch(e) {{}}
-  }}
-}})();
-</script>
-"""
-            components.html(_sv2_progress_script, height=0, scrolling=False)
-
-    _sv2_window_bridge()
 
     # ── BN Live Tick → postMessage pusher ────────────────────────────────────
     # @st.fragment se sirf yeh component rerun hoga — chart flicker nahi karega.
