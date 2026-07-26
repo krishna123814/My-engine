@@ -6270,8 +6270,24 @@ function _sv2BuildReplayDebugReport() {
   lines.push('buildStack2 defined: ' + (typeof buildStack2 === 'function'));
   lines.push('_sv2EnsureWindowLoaded defined: ' + (typeof _sv2EnsureWindowLoaded === 'function'));
   try {
-    const bridgeInput = window.parent.document.querySelector('input[aria-label="SV2_BRIDGE_REQ"]');
-    lines.push('Bridge <input> found in parent frame: ' + !!bridgeInput);
+    const bridgeInput = (typeof _sv2FindBridgeInput === 'function') ? _sv2FindBridgeInput() : null;
+    lines.push('Bridge <input> found in parent frame: ' + !!bridgeInput +
+                (bridgeInput ? ' (matched via: ' + (bridgeInput.placeholder === 'SV2_BRIDGE_REQ_MARKER_9f3a' ? 'placeholder' : 'aria-label') + ')' : ''));
+    if (!bridgeInput) {
+      // Extra clue: parent doc mein kitne <input> hain total, aur unke
+      // placeholder/aria-label kya hain — agar Python widget hi render
+      // nahi hua to yeh list bhi bahut chhoti/khaali hogi.
+      try {
+        const allInputs = Array.from(window.parent.document.querySelectorAll('input'));
+        lines.push('Total <input> elements in parent doc: ' + allInputs.length);
+        const sample = allInputs.slice(0, 15).map((el, i) =>
+          '  [' + i + '] placeholder=' + JSON.stringify(el.placeholder || '') +
+          ' aria-label=' + JSON.stringify(el.getAttribute('aria-label') || ''));
+        if (sample.length) lines.push(sample.join('\n'));
+      } catch(e) {
+        lines.push('Could not enumerate parent <input> elements: ' + ((e && e.message) || String(e)));
+      }
+    }
   } catch(e) {
     lines.push('Bridge <input> lookup threw: ' + ((e && e.message) || String(e)));
   }
@@ -6349,8 +6365,8 @@ function _sv2BuildReplayDebugReport() {
     }
   } catch(_) {}
   try {
-    const bridgeInput = window.parent.document.querySelector('input[aria-label="SV2_BRIDGE_REQ"]');
-    if (!bridgeInput) warns.push('Bridge <input aria-label="SV2_BRIDGE_REQ"> parent frame mein nahi mila — Python-side widget render hi nahi hua (fragment crash ho sakta hai) ya DOM structure badal gaya.');
+    const bridgeInput = (typeof _sv2FindBridgeInput === 'function') ? _sv2FindBridgeInput() : null;
+    if (!bridgeInput) warns.push('Bridge <input> (placeholder="SV2_BRIDGE_REQ_MARKER_9f3a" ya aria-label="SV2_BRIDGE_REQ") parent frame mein nahi mila — Python-side widget render hi nahi hua (fragment crash ho sakta hai) ya DOM structure badal gaya. "Total <input> elements" list dekho environment-checks section mein.');
   } catch(_) {}
   if (!navigator.onLine) warns.push('Browser offline dikha raha hai (navigator.onLine=false) — network hi down ho sakta hai.');
   if (!warns.length) warns.push('Koi obvious mismatch nahi mila — data range aur candle counts theek lag rahe hain.');
@@ -15604,9 +15620,26 @@ if (!window._sv2BridgeListenerAttached) {
 // setter use karna zaroori hai, phir 'input' event fire karke Streamlit ko
 // batao ki value badla, aur blur se commit karo (text_input blur/Enter pe
 // hi backend ko bhejta hai).
+// Naya: Debug report se pata chala ki sirf aria-label selector se input
+// KABHI mila hi nahi (Streamlit version ke hisaab se aria-label ya to
+// render nahi hota ya alag hota hai). Ab placeholder attribute ko primary
+// selector banaya hai (Python side placeholder="SV2_BRIDGE_REQ_MARKER_9f3a"
+// literal HTML attribute set karta hai — yeh version-independent reliable
+// hai), aria-label ko fallback rakha hai backward-compat ke liye.
+function _sv2FindBridgeInput() {
+  try {
+    const doc = window.parent.document;
+    return doc.querySelector('input[placeholder="SV2_BRIDGE_REQ_MARKER_9f3a"]')
+        || doc.querySelector('input[aria-label="SV2_BRIDGE_REQ"]')
+        || null;
+  } catch(e) {
+    return null;
+  }
+}
+
 function _sv2SendBridgeRequest(reqObj) {
   try {
-    const input = window.parent.document.querySelector('input[aria-label="SV2_BRIDGE_REQ"]');
+    const input = _sv2FindBridgeInput();
     if (!input) return false;
     const setter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
     setter.call(input, JSON.stringify(reqObj));
