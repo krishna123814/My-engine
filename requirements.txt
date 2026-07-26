@@ -1,5 +1,7 @@
-streamlit
-requests
-pyotp
-fyers-apiv3
-python-binance==1.0.17
+streamlit>=1.35
+streamlit-js-eval>=0.1.7
+pandas>=2.0
+plotly>=5.20
+requests>=2.31
+pyotp>=2.9
+websocket-client>=1.7
