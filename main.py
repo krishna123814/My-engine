@@ -1298,6 +1298,11 @@ def _bn_opt_user_ws_thread(key: str, secret: str) -> None:
             with _BN_OPT_LOCK:
                 _BN_OPT_LIVE["connected"] = True
             _bn_opt_write_push()
+            # Connect hote hi ek baar turant balance/positions/trades fetch
+            # karo — pehle sirf naye account-events ka wait hota tha, jisse
+            # agar koi naya trade/order na ho to Balance/P&L/Trades hamesha
+            # khaali (—) rehte the.
+            threading.Thread(target=_bn_opt_snapshot, args=(key, secret), daemon=True).start()
 
         def _on_error(ws, err):
             _bn_opt_log_err("user_ws_on_error", err if isinstance(err, Exception) else Exception(str(err)))
@@ -1335,7 +1340,8 @@ def _bn_opt_chain_ws_thread(underlying: str) -> None:
             info = requests.get(f"{BINANCE_EAPI_BASE}/eapi/v1/exchangeInfo", timeout=10).json()
             symbols = [s["symbol"] for s in info.get("optionSymbols", [])
                        if s.get("underlying") == underlying]
-        except Exception:
+        except Exception as e:
+            _bn_opt_log_err("exchangeInfo", e)
             symbols = []
 
         if not symbols:
