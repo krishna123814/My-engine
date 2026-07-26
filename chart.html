@@ -6327,14 +6327,22 @@ function _sv2BuildReplayDebugReport() {
   if (pendingReqs.length) {
     lines.push('  → ' + pendingReqs.length + ' request(s) abhi bhi PENDING hain (koi timeout nahi, wait jaari hai):');
   }
-  if (window._SV2_LAST_PROGRESS && window._SV2_LAST_PROGRESS.progress) {
-    lines.push('  Latest live download progress:');
-    for (const k in window._SV2_LAST_PROGRESS.progress) {
-      const p = window._SV2_LAST_PROGRESS.progress[k];
-      lines.push('    ' + k + ': downloaded=' + (p.downloaded || 0) + 'B total=' + (p.total || 0) +
-        'B speed=' + (p.speed_kbps || 0) + ' KB/s elapsed=' + (p.elapsed_s || 0) + 's done=' + p.done +
-        (p.error ? (' error=' + p.error) : ''));
+  if (window._SV2_LAST_PROGRESS) {
+    lines.push('  Latest server ack: buildDone=' + window._SV2_LAST_PROGRESS.buildDone +
+      ' buildError=' + window._SV2_LAST_PROGRESS.buildError +
+      ' serverTicks=' + window._SV2_LAST_PROGRESS.serverTicks +
+      ' (serverTicks badh raha hai matlab fragment zinda hai aur request Python tak pahunch chuki hai)');
+    if (window._SV2_LAST_PROGRESS.progress && Object.keys(window._SV2_LAST_PROGRESS.progress).length) {
+      lines.push('  Latest live download progress:');
+      for (const k in window._SV2_LAST_PROGRESS.progress) {
+        const p = window._SV2_LAST_PROGRESS.progress[k];
+        lines.push('    ' + k + ': downloaded=' + (p.downloaded || 0) + 'B total=' + (p.total || 0) +
+          'B speed=' + (p.speed_kbps || 0) + ' KB/s elapsed=' + (p.elapsed_s || 0) + 's done=' + p.done +
+          (p.error ? (' error=' + p.error) : ''));
+      }
     }
+  } else if (pendingReqs.length) {
+    lines.push('  ⚠ Ab tak Python se EK BHI progress-ack nahi mila — request shayad Python tak pahunchi hi nahi (bridge <input> ka value-commit fail ho raha hai).');
   }
   lines.push('');
 
@@ -15718,6 +15726,24 @@ function _sv2SendBridgeRequest(reqObj) {
     const input = _sv2FindBridgeInput();
     if (!input) return false;
     const setter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+    // ASLI ROOT CAUSE (mila): React 16+ har controlled <input> pe ek internal
+    // `_valueTracker` rakhta hai jisme uska "last known value" store hota hai.
+    // Jab hum native prototype setter se value force-set karte hain (React ke
+    // apne setter ko bypass karke), DOM ka .value badal jaata hai LEKIN
+    // _valueTracker ka record purana hi reh jaata hai. Uske baad jo 'input'
+    // event hum dispatch karte hain, React uski internal logic mein
+    // tracker.getValue() ko current DOM value se compare karta hai — agar
+    // tracker khud hi (galti se) already naya wala value "yaad" kar chuka ho
+    // (kyunki humne pehle bhi isi tareeke se likha tha), to React ko lagta
+    // hai "kuch badla hi nahi" aur onChange silently fire hi nahi hota —
+    // Streamlit ka session_state kabhi update hi nahi hota, request Python
+    // tak pahunchti hi nahi (yehi tha "request bheji lekin server ne kabhi
+    // dekha hi nahi" wala silent bug — 0 exceptions, 0 progress, bas hamesha
+    // pending). Fix: dispatch se pehle tracker ko forcibly ek DIFFERENT
+    // (khaali) value pe reset karo, taaki React naya value hamesha
+    // "different" samjhe aur onChange guaranteed fire kare.
+    const tracker = input._valueTracker;
+    if (tracker) tracker.setValue('');
     setter.call(input, JSON.stringify(reqObj));
     input.dispatchEvent(new Event('input', { bubbles: true }));
     setTimeout(() => { try { input.blur(); input.focus(); input.blur(); } catch(_) {} }, 30);

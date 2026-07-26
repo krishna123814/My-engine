@@ -503,7 +503,19 @@ def _sv2_fetch_gz_from_url(url: str, progress_key: str = "") -> list:
             "done": False, "error": None,
         }
     try:
-        resp = requests.get(url, stream=True, timeout=None)  # NO timeout
+        # NOTE: pehle timeout=None tha (bilkul koi timeout nahi) — iska
+        # matlab agar TCP connection hi kabhi establish na ho paaye ya beech
+        # mein silently stall ho jaaye (koi bhi naya byte na aaye), request
+        # HAMESHA ke liye hang ho sakti thi, bina kisi error/exception ke —
+        # is case mein progress bhi kabhi nahi badhta (downloaded=0 hi rehta)
+        # aur frontend ko sirf "pending" dikhta reh jaata, hamesha ke liye.
+        # Ab (connect_timeout=15s, read_timeout=60s) — read_timeout streaming
+        # mein har individual chunk-read pe apply hota hai, poore download pe
+        # nahi, isliye genuinely slow-par-flowing download (jitni der bhi
+        # lage) is se kabhi fail nahi hoga — sirf ek SACHMUCH stalled/dead
+        # connection 60s baad exception raise karke `error` field mein
+        # dikhega, taaki frontend ko silent-hang na ho.
+        resp = requests.get(url, stream=True, timeout=(15, 60))
         resp.raise_for_status()
         total = int(resp.headers.get("Content-Length") or 0)
         buf = bytearray()
@@ -1856,6 +1868,13 @@ if sess_active or _btc_only:
             placeholder="SV2_BRIDGE_REQ_MARKER_9f3a",
         )
 
+        # Diagnostic-only counters — asli request-processing logic ko touch
+        # nahi karte, sirf future debug reports ke liye pata lagate hain ki
+        # fragment tick ho raha hai ya nahi aur value kabhi badli bhi ya nahi
+        # (pehle wale "hamesha pending, 0 progress" bug mein yeh hi confirm
+        # nahi ho pa raha tha ki request Python tak pahunchi bhi thi ya nahi).
+        st.session_state["_sv2_bridge_ticks"] = st.session_state.get("_sv2_bridge_ticks", 0) + 1
+
         # Naya request aaya to session_state mein "pending" ke roop mein
         # store karo — is se agle ticks (jab tak build/slice complete na ho)
         # bhi isi request ko yaad rakh ke progress bhejte reh sakte hain.
@@ -1928,6 +1947,7 @@ if sess_active or _btc_only:
                     "buildDone": _SV2_BUILD["done"],
                     "buildError": _SV2_BUILD["error"],
                     "progress": snap,
+                    "serverTicks": st.session_state.get("_sv2_bridge_ticks", 0),
                 })
 
         if payload_json:
