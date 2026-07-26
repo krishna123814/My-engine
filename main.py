@@ -101,6 +101,19 @@ _BN_OPT_LOCK = threading.Lock()
 _BN_OPT_LAST_JSON: dict = {"json": ""}
 _BN_OPT_LAST_LOCK = threading.Lock()
 
+# Debug: last error seen while trying to connect to Binance Options APIs.
+# Isse pata chalega ki connect kyu fail ho raha hai (silent except: pass ki
+# jagah ab yahan capture hoga aur status card + terminal logs dono me dikhega).
+_BN_OPT_LAST_ERR: dict = {"msg": "", "ts": 0}
+_BN_OPT_ERR_LOCK = threading.Lock()
+
+def _bn_opt_log_err(where: str, exc: Exception) -> None:
+    msg = f"[{where}] {type(exc).__name__}: {exc}"
+    with _BN_OPT_ERR_LOCK:
+        _BN_OPT_LAST_ERR["msg"] = msg
+        _BN_OPT_LAST_ERR["ts"]  = time.time()
+    print(f"[BN_OPT_ERROR] {msg}", flush=True)
+
 # Latest tick JSON string — postMessage injector ise padh ke iframe ko bhejta hai
 _LAST_TICK_JS: dict = {"json": ""}
 _LAST_TICK_LOCK = threading.Lock()
@@ -1195,15 +1208,15 @@ def _bn_opt_snapshot(key: str, secret: str) -> None:
         assets = acc.get("asset", []) or []
         bal = next((a for a in assets if a.get("asset") == "USDT"),
                     assets[0] if assets else None)
-    except Exception:
-        pass
+    except Exception as e:
+        _bn_opt_log_err("marginAccount", e)
 
     positions = []
     try:
         positions = _bn_opt_signed_get("/eapi/v1/position", {}, key, secret) or []
         positions = [p for p in positions if float(p.get("quantity", 0) or 0) != 0]
-    except Exception:
-        pass
+    except Exception as e:
+        _bn_opt_log_err("position", e)
 
     total_trades, realized = 0, 0.0
     try:
@@ -1211,8 +1224,8 @@ def _bn_opt_snapshot(key: str, secret: str) -> None:
                                      {"limit": 1000}, key, secret) or []
         total_trades = len(trades)
         realized = sum(float(t.get("realizedProfit", 0) or 0) for t in trades)
-    except Exception:
-        pass
+    except Exception as e:
+        _bn_opt_log_err("userTrades", e)
 
     unrealized = sum(float(p.get("unrealizedPNL", 0) or 0) for p in positions)
 
@@ -1233,7 +1246,8 @@ def _bn_opt_user_ws_thread(key: str, secret: str) -> None:
     while True:
         try:
             listen_key = _bn_opt_start_listen_key(key)
-        except Exception:
+        except Exception as e:
+            _bn_opt_log_err("start_listen_key", e)
             time.sleep(10)
             continue
 
@@ -1264,13 +1278,15 @@ def _bn_opt_user_ws_thread(key: str, secret: str) -> None:
             _bn_opt_write_push()
 
         def _on_error(ws, err):
-            pass
+            _bn_opt_log_err("user_ws_on_error", err if isinstance(err, Exception) else Exception(str(err)))
 
         def _on_close(ws, *a):
             stop_flag["stop"] = True
             with _BN_OPT_LOCK:
                 _BN_OPT_LIVE["connected"] = False
             _bn_opt_write_push()
+            if a:
+                _bn_opt_log_err("user_ws_on_close", Exception(f"code={a[0] if len(a)>0 else '?'} msg={a[1] if len(a)>1 else '?'}"))
 
         try:
             ws_app = _wsc.WebSocketApp(
@@ -1279,8 +1295,8 @@ def _bn_opt_user_ws_thread(key: str, secret: str) -> None:
                 on_error=_on_error, on_close=_on_close,
             )
             ws_app.run_forever(ping_interval=180, ping_timeout=60)
-        except Exception:
-            pass
+        except Exception as e:
+            _bn_opt_log_err("user_ws_run_forever", e)
         stop_flag["stop"] = True
         with _BN_OPT_LOCK:
             _BN_OPT_LIVE["connected"] = False
@@ -2465,7 +2481,9 @@ else:
                 _sub = "Options balance, chain, P&L aur trades live websocket se aa rahe hain"
             else:
                 _badge_cls, _badge_txt = "notlive", "🔴 Not Live"
-                _sub = "Connect ho raha hai… ya API key/permission check karo"
+                with _BN_OPT_ERR_LOCK:
+                    _last_err = _BN_OPT_LAST_ERR["msg"]
+                _sub = f"⚠️ {_last_err}" if _last_err else "Connect ho raha hai… ya API key/permission check karo"
         st.markdown(f"""
         <div class="bnopt-status-card">
             <div>{_BN_ICON_SVG}</div>
