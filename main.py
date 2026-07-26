@@ -468,8 +468,23 @@ _GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
 _GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv_json.gz"
 _GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def _sv2_fetch_gz_from_url(url: str) -> list:
-    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo."""
+    """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo.
+
+    IMPORTANT FIX: yeh function ab @st.cache_data se cached hai, na ki sirf
+    _SV2_CACHE (plain module-level dict) se. Wajah: main.py top-level script
+    hai — Streamlit HAR FULL RERUN pe poori file dobara execute karta hai,
+    jisse `_SV2_CACHE: dict = {}` line bhi dobara chal jaati hai aur cache
+    silently reset ho jaata hai. Isse pehle jab bhi koi full rerun ho jaata
+    (mobile pe websocket reconnect / app background-foreground jaisi common
+    cheez), agla /api/sv2_window request GitHub se PURA .gz phir se fetch +
+    decompress karta tha — yeh 25-90+ second le sakta hai, jabki JS side sirf
+    25s wait karta hai → isi wajah se purani date "block" hoti thi aur
+    timeout ho jaata tha. @st.cache_data process-wide, session-independent
+    hai — ek baar fetch hone ke baad TTL (1 hour) tak future har rerun/session
+    ke liye instant milega.
+    """
     try:
         resp = requests.get(url, timeout=90)
         resp.raise_for_status()
@@ -481,25 +496,19 @@ def _sv2_fetch_gz_from_url(url: str) -> list:
         return []
 
 def _sv2_load_bn_gz() -> list:
-    """BankNifty 1m candles — GitHub se fetch karo (cached)."""
-    if "bn_raw" in _SV2_CACHE:
-        return _SV2_CACHE["bn_raw"]
+    """BankNifty 1m candles — GitHub se fetch karo (st.cache_data backed)."""
     rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
     if not rows:
         _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
         return []
-    _SV2_CACHE["bn_raw"] = rows
     return rows
 
 def _sv2_load_btc_gz() -> list:
-    """BTC 5m candles — GitHub se fetch karo (cached)."""
-    if "btc_raw" in _SV2_CACHE:
-        return _SV2_CACHE["btc_raw"]
+    """BTC 5m candles — GitHub se fetch karo (st.cache_data backed)."""
     rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
     if not rows:
         _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
         return []
-    _SV2_CACHE["btc_raw"] = rows
     return rows
 
 ## ── IST-naive timestamp constants ───────────────────────────────────────────
@@ -734,19 +743,24 @@ def _sv2_to_js(data: list) -> str:
     """List of dicts → compact JSON string for inline JS."""
     return json.dumps(data, separators=(",", ":"))
 
-def _build_sv2_data() -> dict:
-    """Dono .gz files se sab TFs ka aggregated data return karo.
+@st.cache_resource(show_spinner=False)
+def _build_sv2_data_cached() -> dict:
+    """Dono .gz files se sab TFs ka aggregated + full data return karo.
 
-    IMPORTANT: yeh ab sirf EK BAAR resample karta hai (jab process/session mein
-    pehli dafa call hota hai) aur result ko _SV2_CACHE["agg"] mein store kar
-    deta hai. Uske baad har stackview-2 open / Streamlit rerun pe seedha
-    cached aggregated data return hota hai — resample functions dobara nahi
-    chalte. Raw 1m .gz data ka source same hai, bas resampling ab repeat
-    nahi hoti.
+    IMPORTANT FIX: pehle yeh function plain _SV2_CACHE (module dict) mein
+    result store karta tha — jo har Streamlit FULL rerun pe reset ho jaata
+    tha (kyunki `_SV2_CACHE: dict = {}` bhi top-level script line hai, dobara
+    chalti hai). Isse resample step (16 passes, dono assets) bhi HAR baar
+    dobara chalta tha jab bhi ek full rerun ke baad koi purani date select
+    hoti — aur agar us waqt raw .gz bhi cache-miss ho (rare ab, upar
+    st.cache_data ki wajah se), to poora pipeline (fetch+decompress+resample)
+    25s JS timeout se zyada le sakta tha.
+
+    Ab @st.cache_resource use kiya hai — yeh Streamlit ka built-in,
+    process-wide persistent cache hai jo kisi bhi full rerun ya naye session
+    se bhi survive karta hai (jab tak server restart na ho). Isliye resample
+    sirf ek hi baar (poore app ke liye) hota hai.
     """
-    if "agg" in _SV2_CACHE:
-        return _SV2_CACHE["agg"]
-
     bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
     btc_raw = _sv2_load_btc_gz()
 
@@ -774,15 +788,16 @@ def _build_sv2_data() -> dict:
         "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
         "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
     }
-    _SV2_CACHE["agg"] = agg
+    # "full" (untrimmed) series — Bar Replay ke liye jab koi PURANI date (jo
+    # trimmed "agg" window se pehle ki ho) select hoti hai, /api/sv2_window
+    # /bridge isi se on-demand ek window slice karke bhejta hai.
+    full = {"bn": bn_tfs, "btc": btc_tfs}
+    return {"agg": agg, "full": full}
 
-    # ── FULL (untrimmed) series — kept in memory ONLY, never injected into
-    # the page HTML (isse mobile payload/hang issue wapas nahi aata). Bar
-    # Replay ke liye jab koi PURANI date (jo trimmed "agg" window se pehle ki
-    # ho) select hoti hai, /api/sv2_window endpoint isi se on-demand ek
-    # window slice karke bhejta hai. ──────────────────────────────────────
-    _SV2_CACHE["full"] = {"bn": bn_tfs, "btc": btc_tfs}
-    return agg
+
+def _build_sv2_data() -> dict:
+    """Backward-compat wrapper — sirf 'agg' (trimmed) part return karta hai."""
+    return _build_sv2_data_cached()["agg"]
 
 
 def _sv2_window_slice(asset: str, tf: str, anchor_sec: int, direction: str, count: int) -> list:
@@ -793,8 +808,7 @@ def _sv2_window_slice(asset: str, tf: str, anchor_sec: int, direction: str, coun
     Ye Bar Replay ke us case ke liye hai jab select ki gayi date, HTML mein
     already-injected trimmed ("latest N candles") window se purani ho.
     """
-    _build_sv2_data()  # ensure _SV2_CACHE["full"] populated (idempotent, cached)
-    full = _SV2_CACHE.get("full", {})
+    full = _build_sv2_data_cached()["full"]
     series = (full.get(asset) or {}).get(tf) or []
     if not series:
         return []

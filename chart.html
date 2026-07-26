@@ -6463,7 +6463,7 @@ function _sv2ShowReplayDebugPanel() {
       liveTag.textContent = stage.indexOf('done') === 0
         ? '✅ DONE — final report (stopped auto-refresh)'
         : '🔴 LIVE — auto-refresh har 1s… (stage: ' + stage + ')';
-      if (stage.indexOf('done') === 0 || _ticks >= 40) {
+      if (stage.indexOf('done') === 0 || _ticks >= 80) {
         clearInterval(window._sv2DbgRefreshTimer);
         window._sv2DbgRefreshTimer = null;
       }
@@ -15690,10 +15690,10 @@ async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       delete window._SV2_PENDING[reqId];
-      attempt.error = 'Bridge timeout — 25s me Python se koi response nahi aaya (fragment slow/down ho sakta hai)';
+      attempt.error = 'Bridge timeout — 70s me Python se koi response nahi aaya (fragment slow/down ho sakta hai, ya server-side cache abhi cold hai)';
       try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
       resolve([]);
-    }, 25000);
+    }, 70000);
 
     window._SV2_PENDING[reqId] = {
       resolve: (candles) => {
