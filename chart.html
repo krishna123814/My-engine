@@ -6379,6 +6379,7 @@ function _sv2BuildReplayDebugReport() {
 function _sv2ShowReplayDebugPanel() {
   try {
     document.querySelectorAll('._sv2ReplayDbgPanel').forEach(el => el.remove());
+    if (window._sv2DbgRefreshTimer) { clearInterval(window._sv2DbgRefreshTimer); window._sv2DbgRefreshTimer = null; }
 
     const text = _sv2BuildReplayDebugReport();
 
@@ -6392,6 +6393,11 @@ function _sv2ShowReplayDebugPanel() {
       'padding:34px 10px 10px 10px','border:1px solid #333','border-radius:8px',
       'z-index:2147483000','white-space:pre-wrap','box-shadow:0 4px 18px rgba(0,0,0,0.6)',
     ].join(';');
+
+    const liveTag = document.createElement('div');
+    liveTag.textContent = '🔴 LIVE — auto-refresh har 1s (stage khatam hone tak)';
+    liveTag.style.cssText = 'position:absolute;top:5px;left:10px;font-size:10px;color:#ff6b6b;';
+    panel.appendChild(liveTag);
 
     const pre = document.createElement('div');
     pre.textContent = text;
@@ -6433,10 +6439,35 @@ function _sv2ShowReplayDebugPanel() {
       'border-radius:5px','width:26px','height:26px','font-size:13px',
       'cursor:pointer','z-index:2147483001',
     ].join(';');
-    closeBtn.onclick = function(e) { e.stopPropagation(); panel.remove(); };
+    closeBtn.onclick = function(e) {
+      e.stopPropagation();
+      if (window._sv2DbgRefreshTimer) { clearInterval(window._sv2DbgRefreshTimer); window._sv2DbgRefreshTimer = null; }
+      panel.remove();
+    };
     panel.appendChild(closeBtn);
 
     document.body.appendChild(panel);
+
+    // ── Live auto-refresh: user ko manually dobara copy karne/wait timing
+    // guess karne ki zaroorat na pade — jab tak stage "done"-type na ho jaaye
+    // (ya max ~40s safety cutoff), panel har 1s apne aap latest report se
+    // update hota rahega. ────────────────────────────────────────────────
+    let _ticks = 0;
+    window._sv2DbgRefreshTimer = setInterval(function() {
+      _ticks++;
+      if (!document.body.contains(panel)) {
+        clearInterval(window._sv2DbgRefreshTimer); window._sv2DbgRefreshTimer = null; return;
+      }
+      const stage = (window._SV2_REPLAY_DEBUG && window._SV2_REPLAY_DEBUG.stage) || '';
+      pre.textContent = _sv2BuildReplayDebugReport();
+      liveTag.textContent = stage.indexOf('done') === 0
+        ? '✅ DONE — final report (stopped auto-refresh)'
+        : '🔴 LIVE — auto-refresh har 1s… (stage: ' + stage + ')';
+      if (stage.indexOf('done') === 0 || _ticks >= 40) {
+        clearInterval(window._sv2DbgRefreshTimer);
+        window._sv2DbgRefreshTimer = null;
+      }
+    }, 1000);
   } catch(e) { try { console.warn('[SV2 replay debug] panel render failed', e); } catch(_){} }
 }
 window._sv2ShowReplayDebugPanel = _sv2ShowReplayDebugPanel;
