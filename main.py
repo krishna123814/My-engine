@@ -748,6 +748,44 @@ _SV2_MAX_BOUNDS = {
 }
 
 SV2_CHUNK_SETTINGS_FILE = "sv2_chunk_settings.json"
+SV2_LAST_DATE_FILE      = "sv2_last_dates.json"
+
+def load_sv2_last_dates() -> dict:
+    """Pichli baar starting-page pe select ki gayi chunk dates (asset-wise) —
+    ye disk pe save hoti hain taaki naya browser session khulne par bhi
+    date-input pehle se usi date pe fill mile (load abhi bhi automatic
+    NAHI hota, button dabana zaroori hai — sirf field pre-filled rehti hai)."""
+    if os.path.exists(SV2_LAST_DATE_FILE):
+        try:
+            with open(SV2_LAST_DATE_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_sv2_last_dates(d: dict):
+    with open(SV2_LAST_DATE_FILE, "w") as f:
+        json.dump(d, f)
+
+def _sv2_default_date(asset: str):
+    """Date-input widget ka default value: is session mein already select
+    kiya ho to wahi, warna last-saved (disk se), warna aaj ki date."""
+    sess_key = f"_sv2_anchor_date_{asset}"
+    if st.session_state.get(sess_key):
+        return st.session_state[sess_key]
+    _saved = load_sv2_last_dates().get(asset)
+    if _saved:
+        try:
+            return datetime.date.fromisoformat(_saved)
+        except Exception:
+            pass
+    return datetime.date.today()
+
+def _sv2_remember_dates(bn_date, btc_date):
+    """Har rerun pe current widget selection ko disk pe likh do — isse agli
+    baar (naya session/browser refresh) pe bhi wahi date pehle se fill milti
+    hai, chahe 'Chart Kholo' button dabaya ho ya nahi."""
+    save_sv2_last_dates({"bn": str(bn_date), "btc": str(btc_date)})
 
 def load_sv2_chunk_settings() -> dict:
     """Saved overrides load karo: {"bn": {...}, "btc": {...}}."""
@@ -1837,15 +1875,16 @@ if sess_active or _btc_only:
         with _sv2_ecol_bn:
             _sv2_e_bn = st.date_input(
                 "BankNifty chunk date",
-                value=st.session_state.get("_sv2_anchor_date_bn") or datetime.date.today(),
+                value=_sv2_default_date("bn"),
                 key="sv2_bn_date_inp_2",
             )
         with _sv2_ecol_btc:
             _sv2_e_btc = st.date_input(
                 "BTC chunk date",
-                value=st.session_state.get("_sv2_anchor_date_btc") or datetime.date.today(),
+                value=_sv2_default_date("btc"),
                 key="sv2_btc_date_inp_2",
             )
+        _sv2_remember_dates(_sv2_e_bn, _sv2_e_btc)
         if st.button("🔄 Is Date Ka Chunk Load Karo", key="sv2_chunk_reload_btn"):
             st.session_state["_sv2_anchor_date_bn"]  = _sv2_e_bn
             st.session_state["_sv2_anchor_date_btc"] = _sv2_e_btc
@@ -2124,15 +2163,19 @@ else:
     with _sv2_col_bn:
         _sv2_bn_date_pick = st.date_input(
             "BankNifty chunk date",
-            value=st.session_state.get("_sv2_anchor_date_bn") or datetime.date.today(),
+            value=_sv2_default_date("bn"),
             key="sv2_bn_date_inp",
         )
     with _sv2_col_btc:
         _sv2_btc_date_pick = st.date_input(
             "BTC chunk date",
-            value=st.session_state.get("_sv2_anchor_date_btc") or datetime.date.today(),
+            value=_sv2_default_date("btc"),
             key="sv2_btc_date_inp",
         )
+    # Jo bhi date yahan select ho, turant disk pe yaad rakh lo — agli baar
+    # (naya session/refresh) yahi date pehle se field mein fill milegi,
+    # bina "Chart Kholo" dabaye bhi. Load abhi bhi sirf button se hi hota hai.
+    _sv2_remember_dates(_sv2_bn_date_pick, _sv2_btc_date_pick)
     st.markdown("<div style='max-width:620px;margin:6px auto 0;'>", unsafe_allow_html=True)
     if st.button("📊 Chart Kholo (Chunk Date Se)", use_container_width=True, type="primary", key="sv2_chunk_load_btn"):
         st.session_state["_sv2_anchor_date_bn"]  = _sv2_bn_date_pick
