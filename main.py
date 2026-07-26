@@ -717,6 +717,13 @@ def _sv2_resample_btc_daily(rows: list, n_days: int = 1) -> list:
         })
     return out
 
+def _sv2_date_to_anchor_epoch(d) -> int:
+    """Calendar date (datetime.date) ko wahi 'IST-naive-as-UTC' epoch scheme
+    mein convert karo jisme SV2 .gz data ke timestamps stored hain (jaise
+    9:15 IST ko 09:15 UTC ki tarah store kiya gaya hai — is file ke top
+    comments dekho: _IST_NAIVE_OFFSET)."""
+    return int(datetime.datetime(d.year, d.month, d.day, tzinfo=datetime.timezone.utc).timestamp())
+
 # Mobile ke liye max candles per TF (chunked inject)
 _SV2_MAX = {
     "1m_raw": 30000, "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
@@ -724,56 +731,81 @@ _SV2_MAX = {
     "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
 }
 
-def _sv2_trim(data: list, label: str) -> list:
-    """Last N candles rakh, baaki drop karo (mobile hang prevention)."""
+def _sv2_trim(data: list, label: str, anchor_epoch: int = None) -> list:
+    """Chunk select karo (mobile hang prevention, same _SV2_MAX limits).
+
+    - anchor_epoch None  → purana default: sirf LAST N candles (recent data).
+    - anchor_epoch diya  → us date ke aas-paas se window nikaalo: thoda
+      history anchor se PEHLE ka (context ke liye) aur baaki (zyada hissa)
+      anchor ke BAAD ka (kyunki replay ko aage badhne ke liye future candles
+      chahiye) — total count wahi N jo _SV2_MAX mein already set hai.
+    """
     n = _SV2_MAX.get(label, 2000)
-    return data[-n:] if len(data) > n else data
+    if len(data) <= n:
+        return data
+    if anchor_epoch is None:
+        return data[-n:]
+    # Binary search: pehla index jahan bar['time'] >= anchor_epoch
+    lo, hi = 0, len(data)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if data[mid]["time"] < anchor_epoch:
+            lo = mid + 1
+        else:
+            hi = mid
+    idx    = lo
+    before = n // 4                       # ~25% budget anchor se pehle
+    start  = max(0, idx - before)
+    end    = min(len(data), start + n)
+    start  = max(0, end - n)              # series ke end tak clip ho to peeche khiskao
+    return data[start:end]
 
 def _sv2_to_js(data: list) -> str:
     """List of dicts → compact JSON string for inline JS."""
     return json.dumps(data, separators=(",", ":"))
 
-def _build_sv2_data() -> dict:
-    """Dono .gz files se sab TFs ka aggregated data return karo.
+def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
+    """Dono .gz files se sab TFs ka data return karo, ek diye gaye date
+    ("chunk") ke aas-paas trim karke.
 
-    IMPORTANT: yeh ab sirf EK BAAR resample karta hai (jab process/session mein
-    pehli dafa call hota hai) aur result ko _SV2_CACHE["agg"] mein store kar
-    deta hai. Uske baad har stackview-2 open / Streamlit rerun pe seedha
-    cached aggregated data return hota hai — resample functions dobara nahi
-    chalte. Raw 1m .gz data ka source same hai, bas resampling ab repeat
-    nahi hoti.
+    IMPORTANT: fetch + resample (GitHub se .gz download + TF resampling)
+    sirf EK BAAR hota hai process/session mein pehli dafa (result
+    _SV2_CACHE["bn_tfs_full"] / ["btc_tfs_full"] mein cache hota hai — full,
+    untrimmed). Uske baad, chahe user koi bhi naya "chunk date" chune, sirf
+    halka-sa trim step (_sv2_trim) dobara chalta hai — GitHub fetch ya
+    resample dobara NAHI hota.
     """
-    if "agg" in _SV2_CACHE:
-        return _SV2_CACHE["agg"]
+    if "bn_tfs_full" not in _SV2_CACHE or "btc_tfs_full" not in _SV2_CACHE:
+        bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
+        btc_raw = _sv2_load_btc_gz()
 
-    bn_raw  = _sv2_fill_bn_gaps(_sv2_load_bn_gz())
-    btc_raw = _sv2_load_btc_gz()
+        _SV2_CACHE["bn_tfs_full"] = {
+            "1m_raw": _sv2_resample_bn_intraday(bn_raw, 1),
+            "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
+            "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
+            "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
+            "135m": _sv2_resample_bn_intraday(bn_raw,  135),
+            "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
+            "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
+            "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
+            "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
+        }
+        _SV2_CACHE["btc_tfs_full"] = {
+            "5m_raw": _sv2_resample_btc(btc_raw, 5),
+            "160m": _sv2_resample_btc(btc_raw, 160),
+            "8H":   _sv2_resample_btc(btc_raw, 480),
+            "1D":   _sv2_resample_btc_daily(btc_raw, 1),
+            "3D":   _sv2_resample_btc_daily(btc_raw, 3),
+            "9D":   _sv2_resample_btc_daily(btc_raw, 9),
+            "27D":  _sv2_resample_btc_daily(btc_raw, 27),
+        }
 
-    bn_tfs = {
-        "1m_raw": _sv2_resample_bn_intraday(bn_raw, 1),
-        "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
-        "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
-        "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
-        "135m": _sv2_resample_bn_intraday(bn_raw,  135),
-        "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
-        "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
-        "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
-        "27D":  _sv2_resample_bn_daily   (bn_raw,  27),
-    }
-    btc_tfs = {
-        "5m_raw": _sv2_resample_btc(btc_raw, 5),
-        "160m": _sv2_resample_btc(btc_raw, 160),
-        "8H":   _sv2_resample_btc(btc_raw, 480),
-        "1D":   _sv2_resample_btc_daily(btc_raw, 1),
-        "3D":   _sv2_resample_btc_daily(btc_raw, 3),
-        "9D":   _sv2_resample_btc_daily(btc_raw, 9),
-        "27D":  _sv2_resample_btc_daily(btc_raw, 27),
-    }
+    bn_tfs  = _SV2_CACHE["bn_tfs_full"]
+    btc_tfs = _SV2_CACHE["btc_tfs_full"]
     agg = {
-        "bn":  {k: _sv2_trim(v, k) for k, v in bn_tfs.items()},
-        "btc": {k: _sv2_trim(v, k) for k, v in btc_tfs.items()},
+        "bn":  {k: _sv2_trim(v, k, bn_anchor)  for k, v in bn_tfs.items()},
+        "btc": {k: _sv2_trim(v, k, btc_anchor) for k, v in btc_tfs.items()},
     }
-    _SV2_CACHE["agg"] = agg
     return agg
 
 # ─── Fyers historical data ─────────────────────────────────────────────────────
@@ -1327,13 +1359,6 @@ if "fyers_code" in _qp:
             _sess_cache.update({"active": True, "ts": time.time()}); st.session_state["_force_active"] = True
     st.rerun()
 
-# Handler 1b: Stack View 2 — user ne replay date select ki, ab hi BN+BTC
-# GitHub .gz data fetch karo (pehle kabhi nahi — page load pe koi fetch nahi hota)
-if _qp.get("sv2_load") == "1":
-    st.session_state["_sv2_data_requested"] = True
-    st.query_params.clear()
-    st.rerun()
-
 # Handler 2: TOTP auto-login triggered from chart panel
 if _qp.get("totp_trigger") == "1":
     _totp_sec = _qp.get("totp_secret",  "").strip()
@@ -1584,11 +1609,12 @@ def _build_chart_html(
     html = html.replace("__BN_DAILY__",    _to_lwc(bn_day))
 
     # ── Stack View 2: .gz se pre-resampled data inject karo ─────────────────
-    # LAZY LOAD: jab tak user replay date select nahi karta (chart se
-    # ?sv2_load=1 signal aake _sv2_data_requested set nahi karta), GitHub se
-    # koi fetch hi nahi hoga — sirf empty placeholders inject honge. Ye
-    # both BankNifty aur BTC dono par lagu hai (dono ek hi _build_sv2_data()
-    # call se aate hain, isliye ek saath gate hote hain).
+    # LAZY LOAD: jab tak starting screen par "📊 Chart Kholo (Chunk Date Se)"
+    # button se date select karke request nahi ki jaati (_sv2_data_requested),
+    # GitHub se koi fetch hi nahi hoga — sirf empty placeholders inject
+    # honge. Ye both BankNifty aur BTC dono par lagu hai. Jab request hoti
+    # hai, chuni gayi date ("chunk") ke aas-paas hi data trim hokar aata hai
+    # (existing _SV2_MAX limits ke hisaab se) — poori history nahi.
     _sv2_data_requested = bool(st.session_state.get("_sv2_data_requested"))
     _sv2_all_placeholders = [
         "__SV2_BN_1M_RAW__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
@@ -1599,13 +1625,17 @@ def _build_chart_html(
     _sv2_err_msg = ""
     _sv2_data_loaded_ok = False
     if not _sv2_data_requested:
-        # Abhi tak koi date select nahi hui — GitHub ko chhuna hi nahi hai
+        # Abhi tak koi chunk date select nahi hui — GitHub ko chhuna hi nahi hai
         for _ph in _sv2_all_placeholders:
             html = html.replace(_ph, "[]")
         _sv2_err_msg = "NOT_REQUESTED_YET"
     else:
         try:
-            _sv2 = _build_sv2_data()
+            _bn_anchor_d  = st.session_state.get("_sv2_anchor_date_bn")
+            _btc_anchor_d = st.session_state.get("_sv2_anchor_date_btc")
+            _bn_anchor  = _sv2_date_to_anchor_epoch(_bn_anchor_d)  if _bn_anchor_d  else None
+            _btc_anchor = _sv2_date_to_anchor_epoch(_btc_anchor_d) if _btc_anchor_d else None
+            _sv2 = _build_sv2_data(bn_anchor=_bn_anchor, btc_anchor=_btc_anchor)
             _bn  = _sv2["bn"]
             _btc = _sv2["btc"]
             # Debug info: paths + counts inject karo
@@ -1614,6 +1644,8 @@ def _build_chart_html(
                 "btc_path": _SV2_CACHE.get("btc_path", "?"),
                 "bn_err":   _SV2_CACHE.get("bn_err", ""),
                 "btc_err":  _SV2_CACHE.get("btc_err", ""),
+                "bn_chunk_date":  str(_bn_anchor_d)  or "(latest)",
+                "btc_chunk_date": str(_btc_anchor_d) or "(latest)",
                 "bn_counts": {k: len(v) for k, v in _bn.items()},
                 "btc_counts": {k: len(v) for k, v in _btc.items()},
             }
@@ -1695,6 +1727,30 @@ if sess_active or _btc_only:
         st.success("✅ Fyers connected — live data active")
     else:
         st.info("📊 BTC Chart mode — BankNifty data available nahi (Fyers login nahi hai)")
+
+    # ── Stack View 2 chunk-date re-selector (Fyers login wale users ke
+    # liye bhi — starting screen wala picker sirf login-less flow mein
+    # dikhta hai, isliye yahan bhi wahi option chhota expander mein) ───────
+    with st.expander("📅 Stack View 2 — Chunk Date badlo (BankNifty / BTC)"):
+        _sv2_ecol_bn, _sv2_ecol_btc = st.columns(2)
+        with _sv2_ecol_bn:
+            _sv2_e_bn = st.date_input(
+                "BankNifty chunk date",
+                value=st.session_state.get("_sv2_anchor_date_bn") or datetime.date.today(),
+                key="sv2_bn_date_inp_2",
+            )
+        with _sv2_ecol_btc:
+            _sv2_e_btc = st.date_input(
+                "BTC chunk date",
+                value=st.session_state.get("_sv2_anchor_date_btc") or datetime.date.today(),
+                key="sv2_btc_date_inp_2",
+            )
+        if st.button("🔄 Is Date Ka Chunk Load Karo", key="sv2_chunk_reload_btn"):
+            st.session_state["_sv2_anchor_date_bn"]  = _sv2_e_bn
+            st.session_state["_sv2_anchor_date_btc"] = _sv2_e_btc
+            st.session_state["_sv2_data_requested"]  = True
+            st.rerun()
+
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
         bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
@@ -1945,6 +2001,42 @@ else:
 
     st.markdown("<div style='max-width:620px;margin:10px auto 0;'>", unsafe_allow_html=True)
     if st.button("₿ BTC Chart Kholo (Fyers ke bina)", use_container_width=True, key="btc_only_btn"):
+        st.session_state["_btc_only_mode"] = True
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Stack View 2: chunk-date picker (BankNifty + BTC) ──────────────────
+    # Yahi date decide karti hai ki GitHub se konsa "chunk" (date ke aas-paas
+    # ka data window) fetch/embed hoga — jab tak yahan se "Chart Kholo" na
+    # dabao, GitHub se koi data fetch hi nahi hota (dono asset ke liye).
+    st.markdown("<hr style='border:none;border-top:1px solid #2a2e3e;margin:22px 0;'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='max-width:620px;margin:0 auto;color:#d1d4dc;font-size:1rem;font-weight:700;'>"
+        "📅 Stack View 2 — Bar Replay Chunk Date"
+        "</div>"
+        "<div style='max-width:620px;margin:2px auto 14px;color:#555;font-size:0.8rem;'>"
+        "Jis date se replay dekhna hai wo chuno — sirf usi date ke aas-paas ka data load hoga"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    _sv2_col_bn, _sv2_col_btc = st.columns(2)
+    with _sv2_col_bn:
+        _sv2_bn_date_pick = st.date_input(
+            "BankNifty chunk date",
+            value=st.session_state.get("_sv2_anchor_date_bn") or datetime.date.today(),
+            key="sv2_bn_date_inp",
+        )
+    with _sv2_col_btc:
+        _sv2_btc_date_pick = st.date_input(
+            "BTC chunk date",
+            value=st.session_state.get("_sv2_anchor_date_btc") or datetime.date.today(),
+            key="sv2_btc_date_inp",
+        )
+    st.markdown("<div style='max-width:620px;margin:6px auto 0;'>", unsafe_allow_html=True)
+    if st.button("📊 Chart Kholo (Chunk Date Se)", use_container_width=True, type="primary", key="sv2_chunk_load_btn"):
+        st.session_state["_sv2_anchor_date_bn"]  = _sv2_bn_date_pick
+        st.session_state["_sv2_anchor_date_btc"] = _sv2_btc_date_pick
+        st.session_state["_sv2_data_requested"]  = True
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
