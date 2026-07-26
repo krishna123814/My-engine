@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import hashlib
+import hmac
 import zipfile
 import requests
 import pyotp
@@ -63,6 +64,42 @@ _LIVE: dict = {
     "ts":        0,
 }
 _LIVE_LOCK = threading.Lock()
+
+# ─── Binance Options (EAPI) — Balance / Chain / P&L / Trades ─────────────────
+# Sirf Options trading — Spot/Futures/others yahan involve nahi hote.
+# Sab kuch websocket-driven hai: user-data stream (balance/positions/trades)
+# + public market stream (live option chain). REST sirf ek-baar snapshot ke
+# liye (connect hote waqt) — uske baad sab kuch WS push se update hota hai,
+# isliye koi rate-limit polling nahi hai.
+BINANCE_EAPI_BASE  = "https://eapi.binance.com"
+BINANCE_WS_PRIVATE = "wss://fstream.binance.com/private/ws/"   # + listenKey
+BINANCE_WS_MARKET  = "wss://fstream.binance.com/market/stream"  # ?streams=...
+BN_OPT_UNDERLYING  = "BTCUSDT"   # options underlying jiska chain track karna hai
+
+def _bn_opt_creds() -> tuple[str, str]:
+    """Streamlit Cloud secrets se Binance API key/secret padho.
+    Secrets me daalne honge: BINANCE_API_KEY, BINANCE_API_SECRET
+    (Options trading permission wali API key honi chahiye)."""
+    try:
+        key = st.secrets.get("BINANCE_API_KEY", "")
+        sec = st.secrets.get("BINANCE_API_SECRET", "")
+    except Exception:
+        key, sec = "", ""
+    return key.strip(), sec.strip()
+
+_BN_OPT_LIVE: dict = {
+    "balance":     None,   # {asset, marginBalance, available, unrealizedPNL, ...}
+    "positions":   [],     # open option positions (list)
+    "chain":       {},     # {symbol: {bid, ask, last, oi, ts}}
+    "totalTrades": 0,
+    "pnl":         {"unrealized": 0.0, "realized": 0.0},
+    "connected":   False,  # True jab tak user-data websocket live hai
+    "ts":          0,
+}
+_BN_OPT_LOCK = threading.Lock()
+
+_BN_OPT_LAST_JSON: dict = {"json": ""}
+_BN_OPT_LAST_LOCK = threading.Lock()
 
 # Latest tick JSON string — postMessage injector ise padh ke iframe ko bhejta hai
 _LAST_TICK_JS: dict = {"json": ""}
@@ -1107,6 +1144,215 @@ def to_ohlc(bars: list) -> list:
             continue
     return out
 
+# ─── Binance Options — signing, snapshot, websocket threads ──────────────────
+def _bn_sign_qs(params: dict, secret: str) -> str:
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    sig = hmac.new(secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    return f"{qs}&signature={sig}"
+
+def _bn_opt_signed_get(path: str, params: dict, key: str, secret: str, timeout=10):
+    p = dict(params)
+    p["timestamp"] = int(time.time() * 1000)
+    qs = _bn_sign_qs(p, secret)
+    r = requests.get(f"{BINANCE_EAPI_BASE}{path}?{qs}",
+                      headers={"X-MBX-APIKEY": key}, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+def _bn_opt_start_listen_key(key: str) -> str:
+    r = requests.post(f"{BINANCE_EAPI_BASE}/eapi/v1/listenKey",
+                       headers={"X-MBX-APIKEY": key}, timeout=10)
+    r.raise_for_status()
+    return r.json()["listenKey"]
+
+def _bn_opt_keepalive_listen_key(key: str) -> None:
+    try:
+        requests.put(f"{BINANCE_EAPI_BASE}/eapi/v1/listenKey",
+                      headers={"X-MBX-APIKEY": key}, timeout=10)
+    except Exception:
+        pass
+
+def _bn_opt_write_push() -> None:
+    with _BN_OPT_LOCK:
+        snap = dict(_BN_OPT_LIVE)
+        snap["positions"] = list(_BN_OPT_LIVE["positions"])
+        snap["chain"]      = dict(_BN_OPT_LIVE["chain"])
+        snap["pnl"]        = dict(_BN_OPT_LIVE["pnl"])
+    try:
+        payload = json.dumps(snap)
+    except Exception:
+        return
+    with _BN_OPT_LAST_LOCK:
+        _BN_OPT_LAST_JSON["json"] = payload
+
+def _bn_opt_snapshot(key: str, secret: str) -> None:
+    """Balance + open positions + trade history — ek REST snapshot.
+    Isko sirf connect hone par aur user-data WS se koi account/order
+    event aane par call karte hain (event-driven, polling nahi)."""
+    bal = None
+    try:
+        acc = _bn_opt_signed_get("/eapi/v1/marginAccount", {}, key, secret)
+        assets = acc.get("asset", []) or []
+        bal = next((a for a in assets if a.get("asset") == "USDT"),
+                    assets[0] if assets else None)
+    except Exception:
+        pass
+
+    positions = []
+    try:
+        positions = _bn_opt_signed_get("/eapi/v1/position", {}, key, secret) or []
+        positions = [p for p in positions if float(p.get("quantity", 0) or 0) != 0]
+    except Exception:
+        pass
+
+    total_trades, realized = 0, 0.0
+    try:
+        trades = _bn_opt_signed_get("/eapi/v1/userTrades",
+                                     {"limit": 1000}, key, secret) or []
+        total_trades = len(trades)
+        realized = sum(float(t.get("realizedProfit", 0) or 0) for t in trades)
+    except Exception:
+        pass
+
+    unrealized = sum(float(p.get("unrealizedPNL", 0) or 0) for p in positions)
+
+    with _BN_OPT_LOCK:
+        _BN_OPT_LIVE["balance"]     = bal
+        _BN_OPT_LIVE["positions"]   = positions
+        _BN_OPT_LIVE["totalTrades"] = total_trades
+        _BN_OPT_LIVE["pnl"]         = {"unrealized": unrealized, "realized": realized}
+        _BN_OPT_LIVE["ts"]          = time.time()
+    _bn_opt_write_push()
+
+def _bn_opt_user_ws_thread(key: str, secret: str) -> None:
+    """User-data websocket — balance/position/order changes live milte hain.
+    Har relevant event par ek halka REST snapshot refresh karte hain taaki
+    balance/positions/trade-count turant sahi ho jayen."""
+    import websocket as _wsc  # websocket-client package
+
+    while True:
+        try:
+            listen_key = _bn_opt_start_listen_key(key)
+        except Exception:
+            time.sleep(10)
+            continue
+
+        stop_flag = {"stop": False}
+
+        def _keepalive_loop(lk=listen_key):
+            while not stop_flag["stop"]:
+                time.sleep(1800)  # listenKey 60 min valid — 30 min pe refresh
+                if stop_flag["stop"]:
+                    break
+                _bn_opt_keepalive_listen_key(key)
+
+        threading.Thread(target=_keepalive_loop, daemon=True).start()
+
+        def _on_message(ws, msg):
+            try:
+                data = json.loads(msg)
+                ev = data.get("e", "")
+                # ACCOUNT_UPDATE / ORDER_TRADE_UPDATE / balance-position events
+                if ev:
+                    _bn_opt_snapshot(key, secret)
+            except Exception:
+                pass
+
+        def _on_open(ws):
+            with _BN_OPT_LOCK:
+                _BN_OPT_LIVE["connected"] = True
+            _bn_opt_write_push()
+
+        def _on_error(ws, err):
+            pass
+
+        def _on_close(ws, *a):
+            stop_flag["stop"] = True
+            with _BN_OPT_LOCK:
+                _BN_OPT_LIVE["connected"] = False
+            _bn_opt_write_push()
+
+        try:
+            ws_app = _wsc.WebSocketApp(
+                BINANCE_WS_PRIVATE + listen_key,
+                on_open=_on_open, on_message=_on_message,
+                on_error=_on_error, on_close=_on_close,
+            )
+            ws_app.run_forever(ping_interval=180, ping_timeout=60)
+        except Exception:
+            pass
+        stop_flag["stop"] = True
+        with _BN_OPT_LOCK:
+            _BN_OPT_LIVE["connected"] = False
+        _bn_opt_write_push()
+        time.sleep(5)
+
+def _bn_opt_chain_ws_thread(underlying: str) -> None:
+    """Public market websocket — is underlying ke saare option symbols ka
+    live ticker (bid/ask/last/OI) — koi REST polling nahi."""
+    import websocket as _wsc
+
+    while True:
+        try:
+            info = requests.get(f"{BINANCE_EAPI_BASE}/eapi/v1/exchangeInfo", timeout=10).json()
+            symbols = [s["symbol"] for s in info.get("optionSymbols", [])
+                       if s.get("underlying") == underlying]
+        except Exception:
+            symbols = []
+
+        if not symbols:
+            time.sleep(15)
+            continue
+
+        streams = "/".join(f"{s.lower()}@ticker" for s in symbols[:190])
+        url = f"{BINANCE_WS_MARKET}?streams={streams}"
+
+        def _on_message(ws, msg):
+            try:
+                payload = json.loads(msg)
+                d = payload.get("data", payload)
+                sym = d.get("symbol") or d.get("s")
+                if not sym:
+                    return
+                with _BN_OPT_LOCK:
+                    _BN_OPT_LIVE["chain"][sym] = {
+                        "last": d.get("lastPrice") or d.get("c"),
+                        "bid":  d.get("bidPrice")  or d.get("b"),
+                        "ask":  d.get("askPrice")  or d.get("a"),
+                        "oi":   d.get("openInterest") or d.get("o"),
+                        "ts":   time.time(),
+                    }
+                _bn_opt_write_push()
+            except Exception:
+                pass
+
+        try:
+            ws_app = _wsc.WebSocketApp(url, on_message=_on_message)
+            ws_app.run_forever(ping_interval=180, ping_timeout=60)
+        except Exception:
+            pass
+        time.sleep(5)
+
+_bn_opt_threads_started = False
+
+def _start_bn_options_threads() -> None:
+    """Binance Options secrets mile to hi background threads start karo."""
+    global _bn_opt_threads_started
+    if _bn_opt_threads_started:
+        return
+    key, secret = _bn_opt_creds()
+    if not key or not secret:
+        return
+    _bn_opt_threads_started = True
+    try:
+        _bn_opt_snapshot(key, secret)
+    except Exception:
+        pass
+    threading.Thread(target=_bn_opt_user_ws_thread, args=(key, secret), daemon=True).start()
+    threading.Thread(target=_bn_opt_chain_ws_thread, args=(BN_OPT_UNDERLYING,), daemon=True).start()
+
+_start_bn_options_threads()
+
 # ─── Fyers WebSocket (DataSocket) — live BankNifty ticks ─────────────────────
 _ws_thread_started = False
 
@@ -1970,6 +2216,38 @@ if sess_active or _btc_only:
 
         _bn_tick_pusher()
 
+    # ── Binance Options Live → postMessage pusher ────────────────────────────
+    # Fyers login status se independent — sirf Binance secrets hone chahiye.
+    # Data yahan tak sirf websocket-driven updates se pahunchta hai
+    # (_bn_opt_write_push), is fragment ka kaam sirf usko iframe tak
+    # postMessage se relay karna hai.
+    _bn_opt_key, _bn_opt_secret = _bn_opt_creds()
+    if _bn_opt_key and _bn_opt_secret:
+        @st.fragment(run_every=2)
+        def _bn_opt_pusher():
+            with _BN_OPT_LAST_LOCK:
+                _opt_json = _BN_OPT_LAST_JSON["json"]
+            if not _opt_json:
+                return
+            _opt_script = f"""
+<script>
+(function() {{
+  var data = {_opt_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'binance_options', data: data }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_opt_script, height=0, scrolling=False)
+
+        _bn_opt_pusher()
+
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
     _creds_main = load_creds()
@@ -2144,6 +2422,62 @@ else:
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Binance Options — status card (Live / Not Live) ────────────────────────
+    _BN_ICON_SVG = """<svg width="22" height="22" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <g fill="#F0B90B">
+          <rect x="9" y="0" width="6" height="6" transform="rotate(45 12 3)"/>
+          <rect x="9" y="18" width="6" height="6" transform="rotate(45 12 21)"/>
+          <rect x="0" y="9" width="6" height="6" transform="rotate(45 3 12)"/>
+          <rect x="18" y="9" width="6" height="6" transform="rotate(45 21 12)"/>
+          <rect x="9" y="9" width="6" height="6" transform="rotate(45 12 12)"/>
+        </g>
+      </svg>"""
+
+    st.markdown("""
+    <style>
+    .bnopt-status-card{
+        background:#131722;border:1px solid #2a2e3e;border-radius:10px;
+        padding:16px 22px;max-width:620px;margin:14px auto 0;
+        display:flex;align-items:center;gap:14px;
+    }
+    .bnopt-status-info{flex:1;min-width:0}
+    .bnopt-status-title{color:#d1d4dc;font-size:1rem;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+    .bnopt-status-sub{color:#555;font-size:0.8rem}
+    .bnopt-badge{font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap;flex-shrink:0}
+    .bnopt-badge.live{background:#26a69a22;color:#26a69a;border:1px solid #26a69a55}
+    .bnopt-badge.notlive{background:#ef535022;color:#ef5350;border:1px solid #ef535055}
+    .bnopt-badge.unset{background:#78788622;color:#9598a1;border:1px solid #78788655}
+    </style>
+    """, unsafe_allow_html=True)
+
+    @st.fragment(run_every=3)
+    def _bn_opt_status_card():
+        _k, _s = _bn_opt_creds()
+        if not _k or not _s:
+            _badge_cls, _badge_txt = "unset", "⚪ Not Configured"
+            _sub = "Streamlit secrets me BINANCE_API_KEY / BINANCE_API_SECRET daalo (Options permission wali)"
+        else:
+            with _BN_OPT_LOCK:
+                _connected = _BN_OPT_LIVE["connected"]
+            if _connected:
+                _badge_cls, _badge_txt = "live", "🟢 Live"
+                _sub = "Options balance, chain, P&L aur trades live websocket se aa rahe hain"
+            else:
+                _badge_cls, _badge_txt = "notlive", "🔴 Not Live"
+                _sub = "Connect ho raha hai… ya API key/permission check karo"
+        st.markdown(f"""
+        <div class="bnopt-status-card">
+            <div>{_BN_ICON_SVG}</div>
+            <div class="bnopt-status-info">
+                <div class="bnopt-status-title">Binance Options</div>
+                <div class="bnopt-status-sub">{_sub}</div>
+            </div>
+            <div class="bnopt-badge {_badge_cls}">{_badge_txt}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    _bn_opt_status_card()
 
     # ── Stack View 2: chunk-date picker (BankNifty + BTC) ──────────────────
     # Yahi date decide karti hai ki GitHub se konsa "chunk" (date ke aas-paas
