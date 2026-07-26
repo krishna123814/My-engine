@@ -9061,10 +9061,25 @@ function ss2ApplyAndClose() {
   // ── Sheet open / close ────────────────────────────────────────────────────
   function _sv2DrngOpen() {
     if (!_sheet) return;
-    // Initialise calendar to today if nothing selected
-    var today = new Date();
-    _calYear  = today.getFullYear();
-    _calMonth = today.getMonth();
+    // BUG FIX: comment yahan pehle se likha tha "Initialise calendar to
+    // today if nothing selected" — lekin code unconditionally today pe
+    // reset karta tha, chahe _selStart pehle se set ho. Isse ye hota tha:
+    // FAB pe "Cutoff: 1-Jan-2021" dikh raha hota tha (pichli baar select
+    // ki hui date), lekin sheet reopen karte hi calendar VIEW silently
+    // aaj ke month/year (e.g. July 2026) pe jump ho jaata — user ko
+    // wahan se dobara 2021 tak navigate karna padta, aur year dropdown
+    // (jisme 2021/2025 jaise saal paas-paas list mein hote hain) pe
+    // easily galat saal tap ho sakta tha. Fix: agar _selStart already
+    // set hai, calendar view usi date ke month/year pe khulni chahiye —
+    // comment ka wahi intent ab actually implement ho raha hai.
+    if (_selStart) {
+      _calYear  = _selStart.getFullYear();
+      _calMonth = _selStart.getMonth();
+    } else {
+      var today = new Date();
+      _calYear  = today.getFullYear();
+      _calMonth = today.getMonth();
+    }
     _activeTab = 'start';
     _renderTabs();
     _renderCal();
