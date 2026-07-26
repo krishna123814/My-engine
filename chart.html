@@ -15701,6 +15701,9 @@ if (!window._sv2BridgeListenerAttached) {
       (Array.isArray(msg.data.parts) ? msg.data.parts : []).forEach(p => {
         partsByDir[p.dir] = Array.isArray(p.candles) ? p.candles : [];
       });
+      // Server ab asli reason bhejta hai jab candles khaali hon (fetch fail,
+      // rate-limit, ya genuinely out-of-range) — isse aage propagate karo.
+      partsByDir.__error = msg.data.error || null;
       pend.resolve(partsByDir);
       return;
     }
@@ -15710,7 +15713,10 @@ if (!window._sv2BridgeListenerAttached) {
     const pend   = window._SV2_PENDING[reqId];
     if (!pend) return;  // stale ya kisi aur session ka response — ignore
     delete window._SV2_PENDING[reqId];
-    pend.resolve(Array.isArray(msg.data.candles) ? msg.data.candles : []);
+    pend.resolve({
+      __single: Array.isArray(msg.data.candles) ? msg.data.candles : [],
+      __error:  msg.data.error || null,
+    });
   });
 }
 
@@ -15783,10 +15789,14 @@ async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
     window._SV2_PENDING[reqId] = {
       startedAt: Date.now(),
       lastProgressAt: null,
-      resolve: (candles) => {
+      resolve: (payload) => {
+        const candles = (payload && payload.__single) || [];
+        const srvError = payload && payload.__error;
         attempt.candleCount = candles.length;
         attempt.waitedMs = Date.now() - attempt.startedAt;
-        if (!candles.length) attempt.error = 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
+        // Ab server asli reason bhejta hai (fetch fail/rate-limit/out-of-range)
+        // — jab available ho wahi use karo, generic message sirf fallback hai.
+        if (!candles.length) attempt.error = srvError || 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
         try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
         if (typeof _sv2UpdateProgressUI === 'function') _sv2UpdateProgressUI(null); // hide progress UI
         resolve(candles);
@@ -15822,12 +15832,15 @@ async function _sv2FetchWindowBatch(asset, tf, anchorSec, parts) {
       resolve: (partsByDir) => {
         const before = partsByDir.before || [];
         const after  = partsByDir.after  || [];
+        const srvError = partsByDir.__error;
         attempt.candleCount = before.length + after.length;
         attempt.waitedMs = Date.now() - attempt.startedAt;
-        if (!before.length && !after.length) attempt.error = 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
+        // Server ab asli reason bhejta hai jab candles khaali hon — usi ko
+        // aage propagate karo (fetch fail / rate-limit / genuinely out-of-range).
+        if (!before.length && !after.length) attempt.error = srvError || 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
         try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
         if (typeof _sv2UpdateProgressUI === 'function') _sv2UpdateProgressUI(null);
-        resolve({ before, after });
+        resolve({ before, after, error: (!before.length && !after.length) ? (srvError || null) : null });
       },
     };
 
@@ -15836,7 +15849,7 @@ async function _sv2FetchWindowBatch(asset, tf, anchorSec, parts) {
       delete window._SV2_PENDING[reqId];
       attempt.error = 'Bridge input parent frame me nahi mila — Python side widget render nahi hua ya DOM structure badla';
       try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-      resolve({ before: [], after: [] });
+      resolve({ before: [], after: [], error: attempt.error });
     }
   });
 }
@@ -15902,20 +15915,31 @@ async function _sv2EnsureWindowLoaded(cutEpoch) {
     if (cutEpoch >= earliest) {
       console.log(`[SV2 replay] window already covers cutoff (skip fetch): ${extKey} earliest=${new Date(earliest*1000).toISOString()} cutoff=${new Date(cutEpoch*1000).toISOString()}`);
       window._SV2_FETCH_LOG.push({ skipped: true, reason: 'cutoff >= earliest already-loaded candle — no fetch needed', extKey, earliest, cutEpoch });
+      _sv2HideWindowError();   // is date ke liye fetch zaroori nahi thi — purana error (agar tha) irrelevant hai
       return;
     }
 
     console.log(`[SV2 replay] fetching anchored window: ${extKey} cutoff=${new Date(cutEpoch*1000).toISOString()} (current earliest=${isFinite(earliest)?new Date(earliest*1000).toISOString():'n/a'})`);
     _sv2ShowReplayLoading(true);
-    const { before, after } = await _sv2FetchWindowBatch(assetKey, baseTF, cutEpoch, [
+    _sv2HideWindowError();   // purana error banner (agar tha) hata do — naya attempt shuru
+    const { before, after, error } = await _sv2FetchWindowBatch(assetKey, baseTF, cutEpoch, [
       { dir: 'before', count: 6000 },
       { dir: 'after',  count: 15000 },
     ]);
     _sv2ShowReplayLoading(false);
 
     if (!before.length && !after.length) {
-      console.warn(`[SV2 replay] server returned NO candles for ${extKey} (before=0, after=0) — check /api/sv2_window reachability`);
-      return;  // server se bhi kuch nahi mila
+      const reason = error || 'Server se koi candle nahi mili (wajah unknown — /api/sv2_window check karo).';
+      console.warn(`[SV2 replay] server returned NO candles for ${extKey} (before=0, after=0) — reason: ${reason}`);
+      // ── Yahi wo jagah hai jahan pehle chart chup-chaap "latest date" data
+      // ya blank screen dikha deta tha, bina kuch bataye. window._SV2_DATE_RANGE
+      // yahan touch nahi karte (jo already sync set ho chuka hai) — replay
+      // filter apna kaam karta rahega. Naya sirf itna hai: user ko screen
+      // par turant, saaf reason dikhta hai (rate-limit/fetch-fail/out-of-
+      // range), debug panel khole bina. ──────────────────────────────────
+      window._SV2_LAST_WINDOW_ERROR = { cutEpoch, extKey, reason, ts: Date.now() };
+      _sv2ShowWindowError(reason);
+      return;
     }
 
     const merged = before.concat(after);
@@ -15925,9 +15949,46 @@ async function _sv2EnsureWindowLoaded(cutEpoch) {
     };
     console.log(`[SV2 replay] extended window loaded: ${extKey} before=${before.length} after=${after.length}`);
   } catch(e) {
+    const reason = 'JS exception: ' + ((e && e.message) || String(e));
     console.warn('[SV2 replay] ensure-window-load failed', e);
     try { window._SV2_FETCH_LOG.push({ exception: (e && e.message) || String(e) }); } catch(_) {}
+    _sv2ShowWindowError(reason);
   }
+}
+
+// ── Visible on-screen banner (debug panel ke alawa) — taaki normal user
+// (jo debug panel nahi khol raha) ko bhi turant pata chale ki purani date
+// ka data kyun nahi aaya, "latest" data dikhne se pehle confusion na ho. ──
+function _sv2ShowWindowError(reason) {
+  try {
+    let el = document.getElementById('sv2-window-error-banner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'sv2-window-error-banner';
+      el.style.cssText = [
+        'position:fixed', 'top:8px', 'left:50%', 'transform:translateX(-50%)',
+        'z-index:99999', 'max-width:92vw', 'background:#3a1414',
+        'border:1px solid #e05252', 'color:#ffb4b4', 'font-size:12.5px',
+        'line-height:1.4', 'padding:9px 14px', 'border-radius:8px',
+        'box-shadow:0 4px 14px rgba(0,0,0,.4)', 'font-family:inherit',
+      ].join(';');
+      document.body.appendChild(el);
+    }
+    el.innerHTML =
+      '⚠ <b>Purani date ka data load nahi ho saka.</b><br>' +
+      'Wajah: ' + String(reason).replace(/</g, '&lt;') +
+      '<span id="sv2-window-error-close" style="cursor:pointer;margin-left:10px;opacity:.8;">✕</span>';
+    const closeBtn = document.getElementById('sv2-window-error-close');
+    if (closeBtn) closeBtn.onclick = _sv2HideWindowError;
+    el.style.display = 'block';
+  } catch(_) {}
+}
+
+function _sv2HideWindowError() {
+  try {
+    const el = document.getElementById('sv2-window-error-banner');
+    if (el) el.style.display = 'none';
+  } catch(_) {}
 }
 
 // Replay chalte-chalte agar loaded window khatam hone wali hai (aur server

@@ -540,22 +540,46 @@ def _sv2_fetch_gz_from_url(url: str, progress_key: str = "") -> list:
         with _SV2_DL_PROGRESS_LOCK:
             _SV2_DL_PROGRESS[progress_key]["done"]  = True
             _SV2_DL_PROGRESS[progress_key]["error"] = str(e)
-        return []
+        # IMPORTANT FIX #3: pehle yahan [] return hota tha, jise st.cache_data
+        # "successful result" maan ke 1 ghante ke liye cache kar leta tha —
+        # matlab ek single network blip ke baad AGLA poora ghanta har request
+        # ko khaali data milta rehta tha, asli wajah (rate-limit/timeout/DNS
+        # etc.) bhi kahin dikhti nahi thi. Ab exception RAISE karte hain —
+        # st.cache_data kabhi bhi ek exception ko cache nahi karta, isliye
+        # agli hi request fresh retry karegi, aur asli error string upar tak
+        # pahunchti hai taaki UI par exact reason dikhaya ja sake.
+        _reason = f"{type(e).__name__}: {e}"
+        if isinstance(e, requests.exceptions.HTTPError) and e.response is not None:
+            if e.response.status_code == 429:
+                _reason = f"RATE_LIMITED (HTTP 429) from GitHub raw — {e}"
+            else:
+                _reason = f"HTTP {e.response.status_code} from GitHub — {e}"
+        elif isinstance(e, requests.exceptions.ConnectTimeout):
+            _reason = f"CONNECT_TIMEOUT — {e}"
+        elif isinstance(e, requests.exceptions.ReadTimeout):
+            _reason = f"READ_TIMEOUT (stalled download) — {e}"
+        elif isinstance(e, requests.exceptions.ConnectionError):
+            _reason = f"CONNECTION_ERROR — {e}"
+        raise RuntimeError(_reason) from e
 
 def _sv2_load_bn_gz() -> list:
     """BankNifty 1m candles — GitHub se fetch karo (st.cache_data backed)."""
-    rows = _sv2_fetch_gz_from_url(_GH_BN_URL, "bn")
-    if not rows:
-        _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
-        return []
+    try:
+        rows = _sv2_fetch_gz_from_url(_GH_BN_URL, "bn")
+    except Exception as e:
+        _SV2_CACHE["bn_err"] = str(e)
+        raise
+    _SV2_CACHE["bn_err"] = ""
     return rows
 
 def _sv2_load_btc_gz() -> list:
     """BTC 5m candles — GitHub se fetch karo (st.cache_data backed)."""
-    rows = _sv2_fetch_gz_from_url(_GH_BTC_URL, "btc")
-    if not rows:
-        _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
-        return []
+    try:
+        rows = _sv2_fetch_gz_from_url(_GH_BTC_URL, "btc")
+    except Exception as e:
+        _SV2_CACHE["btc_err"] = str(e)
+        raise
+    _SV2_CACHE["btc_err"] = ""
     return rows
 
 ## ── IST-naive timestamp constants ───────────────────────────────────────────
@@ -857,21 +881,36 @@ def _build_sv2_data() -> dict:
 # rehta hai (kitna download hua, kitni speed) — koi timeout nahi, jitna time
 # lage utna.
 _SV2_BUILD_LOCK = threading.Lock()
-_SV2_BUILD: dict = {"started": False, "done": False, "error": None}
+_SV2_BUILD: dict = {"started": False, "done": False, "error": None, "error_ts": 0.0, "attempts": 0}
+_SV2_BUILD_RETRY_COOLDOWN = 15   # seconds — is se pehle dobara auto-retry nahi (GitHub ko spam na karein)
 
 def _sv2_ensure_build_started() -> None:
     with _SV2_BUILD_LOCK:
         if _SV2_BUILD["started"]:
-            return
+            # IMPORTANT FIX #4: pehle "started" flag permanent tha — ek baar
+            # build fail ho jaaye (GitHub fetch error/rate-limit) to poori
+            # server-process life mein kabhi dobara try hi nahi hota tha,
+            # sirf manual restart se theek hota tha. Ab agar pichla attempt
+            # error ke saath khatam hua tha aur cooldown guzar chuka hai, to
+            # flag reset karke ek naya attempt allow karte hain — warna
+            # abhi bhi busy/done-ok hai, kuch mat karo.
+            _can_retry = (
+                _SV2_BUILD["done"] and _SV2_BUILD["error"] and
+                (time.time() - _SV2_BUILD["error_ts"]) >= _SV2_BUILD_RETRY_COOLDOWN
+            )
+            if not _can_retry:
+                return
         _SV2_BUILD["started"] = True
         _SV2_BUILD["done"]    = False
         _SV2_BUILD["error"]   = None
+        _SV2_BUILD["attempts"] += 1
 
     def _runner():
         try:
             _build_sv2_data_cached()
         except Exception as e:
-            _SV2_BUILD["error"] = str(e)
+            _SV2_BUILD["error"]    = str(e)
+            _SV2_BUILD["error_ts"] = time.time()
         finally:
             _SV2_BUILD["done"] = True
 
@@ -1913,9 +1952,20 @@ if sess_active or _btc_only:
         progress_json = None
 
         if pending:
-            _sv2_ensure_build_started()   # idempotent — pehli baar hi actual thread spawn karta hai
+            _sv2_ensure_build_started()   # idempotent (retry-aware) — build shuru/retry karta hai
             if _SV2_BUILD["done"]:
                 # Build (fetch + resample) mukammal ho chuka — ab slice fast/instant hai.
+                # ── Reason field: agar poora build hi fail hua (GitHub fetch
+                # error/rate-limit/timeout), to sabse pehle wahi asli reason
+                # bhejo — frontend ko ab silently khaali candles nahi milenge,
+                # exact wajah milegi. Agar build theek se hua lekin is
+                # specific anchor date se pehle genuinely koi data nahi hai
+                # (date, source ki earliest candle se bhi purani hai), to
+                # "OUT_OF_RANGE" wala distinct reason bhejo — taaki UI dono
+                # cases mein alag, sahi message dikha sake. ───────────────────
+                _reason = None
+                if _SV2_BUILD["error"]:
+                    _reason = f"SERVER_FETCH_FAILED: {_SV2_BUILD['error']}"
                 parts_out = []
                 for p in pending["parts"]:
                     try:
@@ -1923,14 +1973,18 @@ if sess_active or _btc_only:
                             pending["asset"], pending["tf"], pending["anchor"],
                             p["dir"], p["count"],
                         )
-                    except Exception:
+                    except Exception as _e:
                         candles = []
+                        if not _reason:
+                            _reason = f"SLICE_FAILED: {_e}"
                     parts_out.append({"dir": p["dir"], "candles": candles})
+                if _reason is None and not any(po["candles"] for po in parts_out):
+                    _reason = "OUT_OF_RANGE: is date se pehle/baad ka data source (.gz file) mein available nahi hai"
                 payload_is_batch = bool(pending.get("batch"))
                 if payload_is_batch:
-                    payload_json = json.dumps({"reqId": pending["reqId"], "parts": parts_out})
+                    payload_json = json.dumps({"reqId": pending["reqId"], "parts": parts_out, "error": _reason})
                 else:
-                    payload_json = json.dumps({"reqId": pending["reqId"], "candles": parts_out[0]["candles"]})
+                    payload_json = json.dumps({"reqId": pending["reqId"], "candles": parts_out[0]["candles"], "error": _reason})
                 st.session_state["_sv2_bridge_pending"] = None
             else:
                 # Abhi bhi download/resample chal raha hai — KOI TIMEOUT NAHI,
