@@ -468,36 +468,71 @@ _GH_BASE    = "https://raw.githubusercontent.com/krishna123814/My-engine/main"
 _GH_BN_URL  = f"{_GH_BASE}/banknifty_5m_csv_json.gz"
 _GH_BTC_URL = f"{_GH_BASE}/Bitcoin_BTCUSDT_IST_5m_json.gz"
 
+# ── Live download-progress tracker ──────────────────────────────────────────
+# Koi bhi hard timeout nahi lagaya — chahe download jitna bhi time le, hum
+# bas live progress (bytes downloaded / total / speed) track karte hain
+# taaki bridge frontend ko bataya ja sake "data aa raha hai" bina kabhi
+# beech mein haar maane. Key: "bn" / "btc" -> progress dict.
+_SV2_DL_PROGRESS: dict = {}
+_SV2_DL_PROGRESS_LOCK = threading.Lock()
+
+def _sv2_dl_progress_snapshot() -> dict:
+    with _SV2_DL_PROGRESS_LOCK:
+        return {k: dict(v) for k, v in _SV2_DL_PROGRESS.items()}
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def _sv2_fetch_gz_from_url(url: str) -> list:
+def _sv2_fetch_gz_from_url(url: str, progress_key: str = "") -> list:
     """GitHub raw URL se .gz fetch karo, decompress karo, JSON parse karo.
 
-    IMPORTANT FIX: yeh function ab @st.cache_data se cached hai, na ki sirf
-    _SV2_CACHE (plain module-level dict) se. Wajah: main.py top-level script
-    hai — Streamlit HAR FULL RERUN pe poori file dobara execute karta hai,
-    jisse `_SV2_CACHE: dict = {}` line bhi dobara chal jaati hai aur cache
-    silently reset ho jaata hai. Isse pehle jab bhi koi full rerun ho jaata
-    (mobile pe websocket reconnect / app background-foreground jaisi common
-    cheez), agla /api/sv2_window request GitHub se PURA .gz phir se fetch +
-    decompress karta tha — yeh 25-90+ second le sakta hai, jabki JS side sirf
-    25s wait karta hai → isi wajah se purani date "block" hoti thi aur
-    timeout ho jaata tha. @st.cache_data process-wide, session-independent
-    hai — ek baar fetch hone ke baad TTL (1 hour) tak future har rerun/session
-    ke liye instant milega.
+    IMPORTANT FIX #1: yeh function @st.cache_data se cached hai (process-wide,
+    session-independent) — ek baar fetch hone ke baad TTL (1 hour) tak future
+    har rerun/session ke liye instant milega.
+
+    IMPORTANT FIX #2 (no-timeout + progress): pehle isme timeout=90 tha, jo
+    slow/cold connection pe poora fetch fail kar deta tha, aur JS side ko
+    yeh bhi pata nahi chalta tha ki data ACTUALLY aa raha hai ya stuck hai.
+    Ab hum requests.get(stream=True) se chunk-by-chunk padhte hain — koi
+    timeout nahi (jitna time lage le le), aur har chunk ke baad
+    _SV2_DL_PROGRESS[progress_key] update karte hain (downloaded bytes,
+    total bytes agar Content-Length mila, start time) taaki bridge fragment
+    yeh info periodically frontend ko bhej sake (KB/s speed ke saath).
     """
+    with _SV2_DL_PROGRESS_LOCK:
+        _SV2_DL_PROGRESS[progress_key] = {
+            "downloaded": 0, "total": 0, "start_ts": time.time(),
+            "done": False, "error": None,
+        }
     try:
-        resp = requests.get(url, timeout=90)
+        resp = requests.get(url, stream=True, timeout=None)  # NO timeout
         resp.raise_for_status()
-        with _gzip.open(_io.BytesIO(resp.content), "rb") as f:
+        total = int(resp.headers.get("Content-Length") or 0)
+        buf = bytearray()
+        downloaded = 0
+        for chunk in resp.iter_content(chunk_size=131072):  # 128KB chunks
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            downloaded += len(chunk)
+            with _SV2_DL_PROGRESS_LOCK:
+                _SV2_DL_PROGRESS[progress_key]["downloaded"] = downloaded
+                _SV2_DL_PROGRESS[progress_key]["total"] = total
+        with _gzip.open(_io.BytesIO(bytes(buf)), "rb") as f:
             data = json.load(f)
+        with _SV2_DL_PROGRESS_LOCK:
+            _SV2_DL_PROGRESS[progress_key]["downloaded"] = downloaded
+            _SV2_DL_PROGRESS[progress_key]["total"] = total or downloaded
+            _SV2_DL_PROGRESS[progress_key]["done"] = True
         # Both formats supported: {"meta":..,"data":[..]} or plain list
         return data["data"] if isinstance(data, dict) else data
-    except Exception:
+    except Exception as e:
+        with _SV2_DL_PROGRESS_LOCK:
+            _SV2_DL_PROGRESS[progress_key]["done"]  = True
+            _SV2_DL_PROGRESS[progress_key]["error"] = str(e)
         return []
 
 def _sv2_load_bn_gz() -> list:
     """BankNifty 1m candles — GitHub se fetch karo (st.cache_data backed)."""
-    rows = _sv2_fetch_gz_from_url(_GH_BN_URL)
+    rows = _sv2_fetch_gz_from_url(_GH_BN_URL, "bn")
     if not rows:
         _SV2_CACHE["bn_err"] = "GITHUB_FETCH_FAILED"
         return []
@@ -505,7 +540,7 @@ def _sv2_load_bn_gz() -> list:
 
 def _sv2_load_btc_gz() -> list:
     """BTC 5m candles — GitHub se fetch karo (st.cache_data backed)."""
-    rows = _sv2_fetch_gz_from_url(_GH_BTC_URL)
+    rows = _sv2_fetch_gz_from_url(_GH_BTC_URL, "btc")
     if not rows:
         _SV2_CACHE["btc_err"] = "GITHUB_FETCH_FAILED"
         return []
@@ -798,6 +833,37 @@ def _build_sv2_data_cached() -> dict:
 def _build_sv2_data() -> dict:
     """Backward-compat wrapper — sirf 'agg' (trimmed) part return karta hai."""
     return _build_sv2_data_cached()["agg"]
+
+
+# ── Background builder ──────────────────────────────────────────────────────
+# _build_sv2_data_cached() (fetch + resample) ko seedha bridge fragment ke
+# andar call karne se woh fragment tab tak BLOCK hota — is se progress
+# updates bhej hi nahi paate (thread busy hota download/resample mein).
+# Isliye build ko ek alag daemon thread mein chalate hain; fragment (jo
+# run_every=1 se har second tick hota hai) sirf _SV2_BUILD state check karta
+# hai aur jab tak "done" nahi hota, tab tak _SV2_DL_PROGRESS snapshot bhejta
+# rehta hai (kitna download hua, kitni speed) — koi timeout nahi, jitna time
+# lage utna.
+_SV2_BUILD_LOCK = threading.Lock()
+_SV2_BUILD: dict = {"started": False, "done": False, "error": None}
+
+def _sv2_ensure_build_started() -> None:
+    with _SV2_BUILD_LOCK:
+        if _SV2_BUILD["started"]:
+            return
+        _SV2_BUILD["started"] = True
+        _SV2_BUILD["done"]    = False
+        _SV2_BUILD["error"]   = None
+
+    def _runner():
+        try:
+            _build_sv2_data_cached()
+        except Exception as e:
+            _SV2_BUILD["error"] = str(e)
+        finally:
+            _SV2_BUILD["done"] = True
+
+    threading.Thread(target=_runner, daemon=True, name="sv2-build").start()
 
 
 def _sv2_window_slice(asset: str, tf: str, anchor_sec: int, direction: str, count: int) -> list:
@@ -1789,23 +1855,63 @@ if sess_active or _btc_only:
             # (placeholder + aria-label) try karta hai, fallback ke saath.
             placeholder="SV2_BRIDGE_REQ_MARKER_9f3a",
         )
+
+        # Naya request aaya to session_state mein "pending" ke roop mein
+        # store karo — is se agle ticks (jab tak build/slice complete na ho)
+        # bhi isi request ko yaad rakh ke progress bhejte reh sakte hain.
+        # (Pehle sirf ek hi tick pe react hota tha jab input value change
+        # hoti thi — us tick mein hi seedha _build_sv2_data_cached() call
+        # karke poora fetch+resample BLOCKING chalta tha, jisse fragment
+        # tab tak koi progress bhej hi nahi paata tha.)
         last_seen = st.session_state.get("_sv2_bridge_last", "")
-        payload_json = None
         if req_raw and req_raw != last_seen:
             st.session_state["_sv2_bridge_last"] = req_raw
-            req_id = ""
             try:
                 req = json.loads(req_raw)
-                req_id    = str(req.get("reqId", ""))
-                asset     = str(req.get("asset", ""))
-                tf        = str(req.get("tf", ""))
-                anchor    = int(req.get("anchor", 0))
-                direction = str(req.get("dir", "before"))
-                count     = int(req.get("count", 4000))
-                candles = _sv2_window_slice(asset, tf, anchor, direction, count)
+                st.session_state["_sv2_bridge_pending"] = {
+                    "reqId":     str(req.get("reqId", "")),
+                    "asset":     str(req.get("asset", "")),
+                    "tf":        str(req.get("tf", "")),
+                    "anchor":    int(req.get("anchor", 0)),
+                    "direction": str(req.get("dir", "before")),
+                    "count":     int(req.get("count", 4000)),
+                }
             except Exception:
-                candles = []
-            payload_json = json.dumps({"reqId": req_id, "candles": candles})
+                st.session_state["_sv2_bridge_pending"] = None
+
+        pending = st.session_state.get("_sv2_bridge_pending")
+        payload_json  = None
+        progress_json = None
+
+        if pending:
+            _sv2_ensure_build_started()   # idempotent — pehli baar hi actual thread spawn karta hai
+            if _SV2_BUILD["done"]:
+                # Build (fetch + resample) mukammal ho chuka — ab slice fast/instant hai.
+                try:
+                    candles = _sv2_window_slice(
+                        pending["asset"], pending["tf"], pending["anchor"],
+                        pending["direction"], pending["count"],
+                    )
+                except Exception:
+                    candles = []
+                payload_json = json.dumps({"reqId": pending["reqId"], "candles": candles})
+                st.session_state["_sv2_bridge_pending"] = None
+            else:
+                # Abhi bhi download/resample chal raha hai — KOI TIMEOUT NAHI,
+                # bas har tick pe live progress (bytes + speed) bhej do taaki
+                # frontend ko pata rahe data actually aa raha hai.
+                snap = _sv2_dl_progress_snapshot()
+                now  = time.time()
+                for k, v in snap.items():
+                    elapsed = max(0.001, now - v.get("start_ts", now))
+                    v["speed_kbps"] = round((v.get("downloaded", 0) / 1024.0) / elapsed, 1)
+                    v["elapsed_s"]  = round(elapsed, 1)
+                progress_json = json.dumps({
+                    "reqId": pending["reqId"],
+                    "buildDone": _SV2_BUILD["done"],
+                    "buildError": _SV2_BUILD["error"],
+                    "progress": snap,
+                })
 
         if payload_json:
             _sv2_script = f"""
@@ -1824,6 +1930,23 @@ if sess_active or _btc_only:
 </script>
 """
             components.html(_sv2_script, height=0, scrolling=False)
+        elif progress_json:
+            _sv2_progress_script = f"""
+<script>
+(function() {{
+  var payload = {progress_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'sv2_window_progress', data: payload }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_sv2_progress_script, height=0, scrolling=False)
 
     _sv2_window_bridge()
 

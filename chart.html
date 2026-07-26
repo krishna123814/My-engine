@@ -6308,6 +6308,8 @@ function _sv2BuildReplayDebugReport() {
   lines.push('');
 
   lines.push('── Extended-window fetch attempts (/api/sv2_window) ──');
+  lines.push('NOTE: ab koi hard timeout nahi hai — jab tak bridge <input> mila hai, request');
+  lines.push('  hamesha wait karti rahegi (chahe download/resample me jitna time lage).');
   const fetchLog = window._SV2_FETCH_LOG || [];
   if (!fetchLog.length) {
     lines.push('(koi fetch attempt record nahi hua — shayad already-loaded window ne cutoff cover kar liya, ya EnsureWindowLoaded chala hi nahi)');
@@ -6315,10 +6317,24 @@ function _sv2BuildReplayDebugReport() {
     fetchLog.forEach((f, i) => {
       if (f.skipped) { lines.push('#' + i + ' SKIPPED — ' + f.reason); return; }
       if (f.exception) { lines.push('#' + i + ' EXCEPTION — ' + f.exception); return; }
-      lines.push('#' + i + ' dir=' + f.dir + ' count=' + f.count + ' url=' + (f.url || 'n/a'));
-      lines.push('     httpStatus=' + f.httpStatus + ' ok=' + f.ok + ' candlesReturned=' + f.candleCount);
+      lines.push('#' + i + ' dir=' + f.dir + ' count=' + f.count + ' waitedMs=' + (f.waitedMs !== undefined ? f.waitedMs : 'pending'));
+      lines.push('     candlesReturned=' + f.candleCount);
       if (f.error) lines.push('     ⚠ ' + f.error);
     });
+  }
+  // Abhi in-flight download ka live progress (agar server abhi bhi fetch/resample kar raha hai)
+  const pendingReqs = Object.keys(window._SV2_PENDING || {});
+  if (pendingReqs.length) {
+    lines.push('  → ' + pendingReqs.length + ' request(s) abhi bhi PENDING hain (koi timeout nahi, wait jaari hai):');
+  }
+  if (window._SV2_LAST_PROGRESS && window._SV2_LAST_PROGRESS.progress) {
+    lines.push('  Latest live download progress:');
+    for (const k in window._SV2_LAST_PROGRESS.progress) {
+      const p = window._SV2_LAST_PROGRESS.progress[k];
+      lines.push('    ' + k + ': downloaded=' + (p.downloaded || 0) + 'B total=' + (p.total || 0) +
+        'B speed=' + (p.speed_kbps || 0) + ' KB/s elapsed=' + (p.elapsed_s || 0) + 's done=' + p.done +
+        (p.error ? (' error=' + p.error) : ''));
+    }
   }
   lines.push('');
 
@@ -15631,16 +15647,28 @@ let _sv2ExtendInFlight = false;
 window._SV2_PENDING = window._SV2_PENDING || {};  // reqId → {resolve, timer}
 let   _sv2ReqSeq     = 0;
 
+window._SV2_LAST_PROGRESS = window._SV2_LAST_PROGRESS || null; // debug-report ke liye latest snapshot
+
 if (!window._sv2BridgeListenerAttached) {
   window._sv2BridgeListenerAttached = true;
   window.addEventListener('message', function(ev) {
     let msg = ev.data;
     try { if (typeof msg === 'string') msg = JSON.parse(msg); } catch(_) { return; }
-    if (!msg || msg.type !== 'sv2_window_data' || !msg.data) return;
+    if (!msg || !msg.data) return;
+
+    if (msg.type === 'sv2_window_progress') {
+      // Abhi bhi download/resample chal raha hai — koi timeout nahi, bas UI update karo.
+      window._SV2_LAST_PROGRESS = msg.data;
+      const pend = window._SV2_PENDING[msg.data.reqId];
+      if (pend) pend.lastProgressAt = Date.now();
+      if (typeof _sv2UpdateProgressUI === 'function') _sv2UpdateProgressUI(msg.data);
+      return;
+    }
+
+    if (msg.type !== 'sv2_window_data') return;
     const reqId  = msg.data.reqId;
     const pend   = window._SV2_PENDING[reqId];
     if (!pend) return;  // stale ya kisi aur session ka response — ignore
-    clearTimeout(pend.timer);
     delete window._SV2_PENDING[reqId];
     pend.resolve(Array.isArray(msg.data.candles) ? msg.data.candles : []);
   });
@@ -15683,37 +15711,67 @@ function _sv2SendBridgeRequest(reqObj) {
   }
 }
 
+// KOI TIMEOUT NAHI — chahe download/resample jitna bhi time le, hum bas
+// wait karte rehte hain. Har progress tick pe UI update hoti hai (KB/s,
+// downloaded/total) taaki pata chalta rahe ki data actually aa raha hai,
+// stuck nahi hai. Sirf ek hi cheez turant fail hoti hai: agar bridge <input>
+// khud parent frame mein mila hi nahi (us case mein wait karne ka koi
+// fayda nahi, request bheji hi nahi ja saki).
 async function _sv2FetchWindow(asset, tf, anchorSec, dir, count) {
   const reqId = 'r' + Date.now() + '_' + (_sv2ReqSeq++);
-  const attempt = { asset, tf, anchorSec, dir, count: count || 4000, reqId, error: null, candleCount: null };
+  const attempt = { asset, tf, anchorSec, dir, count: count || 4000, reqId, error: null, candleCount: null, startedAt: Date.now() };
 
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      delete window._SV2_PENDING[reqId];
-      attempt.error = 'Bridge timeout — 70s me Python se koi response nahi aaya (fragment slow/down ho sakta hai, ya server-side cache abhi cold hai)';
-      try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
-      resolve([]);
-    }, 70000);
-
     window._SV2_PENDING[reqId] = {
+      startedAt: Date.now(),
+      lastProgressAt: null,
       resolve: (candles) => {
         attempt.candleCount = candles.length;
+        attempt.waitedMs = Date.now() - attempt.startedAt;
         if (!candles.length) attempt.error = 'Bridge se 0 candles mile (us range me server-side data nahi hai)';
         try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
+        if (typeof _sv2UpdateProgressUI === 'function') _sv2UpdateProgressUI(null); // hide progress UI
         resolve(candles);
       },
-      timer,
     };
 
     const sent = _sv2SendBridgeRequest({ reqId, asset, tf, anchor: anchorSec, dir, count: count || 4000 });
     if (!sent) {
-      clearTimeout(timer);
       delete window._SV2_PENDING[reqId];
       attempt.error = 'Bridge input parent frame me nahi mila — Python side widget render nahi hua ya DOM structure badla';
       try { (window._SV2_FETCH_LOG = window._SV2_FETCH_LOG || []).push(attempt); } catch(_) {}
       resolve([]);
     }
   });
+}
+
+// Live "data aa raha hai" indicator — bridge se progress message aane par
+// yeh loading label mein KB/s + downloaded/total dikhata hai. progress=null
+// -> hide karo (request complete ho gaya).
+function _sv2FmtBytes(n) {
+  if (!n || n <= 0) return '0 KB';
+  if (n > 1024 * 1024) return (n / (1024 * 1024)).toFixed(2) + ' MB';
+  return (n / 1024).toFixed(1) + ' KB';
+}
+
+function _sv2UpdateProgressUI(data) {
+  try {
+    var fabLbl = document.getElementById('sv2-drng-fab');
+    if (!fabLbl) return;
+    if (!data || !data.progress) {
+      fabLbl.title = (fabLbl.title || '').replace(/⏳[^]*$/, '').trim();
+      return;
+    }
+    var parts = [];
+    for (var key in data.progress) {
+      var p = data.progress[key];
+      if (!p) continue;
+      var pct = p.total ? Math.min(100, Math.round((p.downloaded / p.total) * 100)) + '%' : _sv2FmtBytes(p.downloaded);
+      parts.push(key + ': ' + _sv2FmtBytes(p.downloaded) + (p.total ? '/' + _sv2FmtBytes(p.total) + ' (' + pct + ')' : '') + ' @ ' + (p.speed_kbps || 0) + ' KB/s');
+    }
+    if (data.buildError) parts.push('error: ' + data.buildError);
+    fabLbl.title = '⏳ Purani date ka data download ho raha hai (koi timeout nahi)… ' + parts.join(' | ');
+  } catch(_) {}
 }
 
 function _sv2ShowReplayLoading(on) {
