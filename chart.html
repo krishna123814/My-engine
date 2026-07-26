@@ -638,6 +638,65 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #grid-btn:active{background:#2a2e39}
 #grid-btn.active{border-color:#f0b429;color:#f0b429}
+#chunk-settings-btn{
+  height:18px;padding:0 8px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+}
+#chunk-settings-btn:active{background:#2a2e39}
+#chunk-settings-btn.active{border-color:#26a69a;color:#26a69a}
+
+/* ── SV2 Chunk / Candle-Count Settings Panel (bottom-bar 📦 icon) ────── */
+#chunk-settings-panel{
+  display:none;position:fixed;z-index:10002;bottom:30px;left:50%;transform:translateX(-50%);
+  width:min(340px,94vw);max-height:76vh;
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 8px 32px #000c;flex-direction:column;overflow:hidden;
+}
+.cs-hdr{
+  display:flex;align-items:center;gap:6px;padding:10px 12px;
+  border-bottom:1px solid #2a2e39;flex-shrink:0;
+}
+.cs-hdr span{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
+.cs-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
+.cs-close:active{color:#ef5350}
+.cs-info{
+  font-size:10.5px;color:#787b86;padding:6px 12px;border-bottom:1px solid #2a2e39;
+  flex-shrink:0;line-height:1.4;
+}
+.cs-tabs{display:flex;gap:4px;padding:8px 12px 0;flex-shrink:0}
+.cs-tab{
+  flex:1;height:26px;border:1px solid #2a2e39;border-radius:5px;background:transparent;
+  color:#9598a1;font-size:11px;font-weight:600;cursor:pointer;
+}
+.cs-tab.active{border-color:#2962ff;color:#2962ff;background:#2962ff14}
+.cs-body{
+  flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;
+  scrollbar-width:thin;
+}
+.cs-row{display:flex;align-items:center;gap:6px}
+.cs-row-label{flex:1;font-size:11.5px;color:#d1d4dc;white-space:nowrap}
+.cs-step{
+  width:24px;height:24px;flex-shrink:0;border:1px solid #363c4e;border-radius:4px;
+  background:#2a2e39;color:#d1d4dc;font-size:14px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;line-height:1;
+}
+.cs-step:active{background:#363c4e}
+.cs-inp{
+  width:76px;flex-shrink:0;text-align:center;
+  background:#131722;border:1px solid #363c4e;border-radius:4px;
+  color:#d1d4dc;font-size:12px;padding:4px 2px;outline:none;
+}
+.cs-inp:focus{border-color:#2962ff}
+.cs-ftr{display:flex;gap:6px;padding:10px 12px;border-top:1px solid #2a2e39;flex-shrink:0}
+.cs-btn{
+  flex:1;height:30px;border:none;border-radius:5px;font-size:11.5px;font-weight:700;cursor:pointer;
+  background:#2a2e39;color:#9598a1;
+}
+.cs-btn:active{background:#363c4e}
+.cs-btn.cs-apply{background:#2962ff;color:#fff}
+.cs-btn.cs-apply:active{background:#1a53e0}
+.cs-btn.cs-reset:active{color:#ef5350}
 
 /* ── Grid Layout Picker ──────────────────────────────────────────── */
 #grid-picker{
@@ -3229,6 +3288,7 @@ function _hdrRelayout(){
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
+  <button id="chunk-settings-btn" onclick="toggleChunkSettings()" title="Chunk / Candle-Count Settings">📦 Chunk</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
@@ -3280,6 +3340,25 @@ function _hdrRelayout(){
     <input id="ovl-count-inp" type="number" min="1" max="4" value="2">
   </div>
   <button class="goto-date-go" style="margin-top:10px;width:100%" onclick="closeOverlaySetting()">Done</button>
+</div>
+
+<!-- ═══ SV2 CHUNK / CANDLE-COUNT SETTINGS PANEL (bottom-bar 📦 icon) ═══ -->
+<div id="chunk-settings-panel">
+  <div class="cs-hdr">
+    <span>📦 Chunk / Candle Settings</span>
+    <button class="cs-close" onclick="toggleChunkSettings()">✕</button>
+  </div>
+  <div class="cs-info" id="cs-info-line">Current bar-replay chunk info…</div>
+  <div class="cs-tabs">
+    <button class="cs-tab active" onclick="_csSwitchTab('bn', this)">BankNifty</button>
+    <button class="cs-tab" onclick="_csSwitchTab('btc', this)">BTC</button>
+  </div>
+  <div class="cs-body" id="cs-body-bn"></div>
+  <div class="cs-body" id="cs-body-btc" style="display:none"></div>
+  <div class="cs-ftr">
+    <button class="cs-btn cs-reset" onclick="_csReset()">↺ Reset Default</button>
+    <button class="cs-btn cs-apply" onclick="_csApply()">✅ Apply &amp; Reload</button>
+  </div>
 </div>
 
 </div><!-- #app -->
@@ -13924,6 +14003,132 @@ function openOverlaySetting() {
 function closeOverlaySetting() {
   const p=document.getElementById('ovl-setting-panel');
   if(p) p.style.display='none';
+}
+
+// ── SV2 Chunk / Candle-Count Settings Panel (bottom-bar 📦 icon) ──────────
+// BankNifty aur BTC har ek timeframe ke liye "kitni candles inject hongi"
+// (chunk size) yahan se dekha/badla ja sakta hai. Apply karne par yahi
+// mechanism use hota hai jo broker-login panel use karta hai: parent
+// document mein ek GET form banake submit karo → Streamlit query_params
+// se padh ke settings save karta hai aur naye data ke saath rerun hota hai.
+const _CS_LABELS = {
+  bn:  { "1m_raw":"1 Min",  "5m":"5 Min",  "15m":"15 Min", "45m":"45 Min", "135m":"135 Min",
+         "1D":"1 Day", "3D":"3 Day", "9D":"9 Day", "27D":"27 Day" },
+  btc: { "5m_raw":"5 Min",  "160m":"160 Min", "8H":"8 Hour",
+         "1D":"1 Day", "3D":"3 Day", "9D":"9 Day", "27D":"27 Day" },
+};
+const _CS_STEP = {
+  "1m_raw":1000, "5m":500, "15m":250, "45m":100, "135m":100,
+  "5m_raw":2000, "160m":100, "8H":100,
+  "1D":100, "3D":50, "9D":25, "27D":10,
+};
+
+function _csData(){
+  return window.__SV2_CHUNK_SETTINGS || { bn:{}, btc:{}, bounds:{}, bn_chunk_date:'', btc_chunk_date:'' };
+}
+
+function toggleChunkSettings() {
+  const p = document.getElementById('chunk-settings-panel');
+  if (!p) return;
+  const show = getComputedStyle(p).display === 'none';
+  if (show) {
+    // Doosre bottom-bar panels band kardo taaki overlap na ho
+    ['goto-date-panel','notepad-panel','overlay-dd','ovl-setting-panel','grid-picker'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) { el.style.display = 'none'; el.classList.remove('open'); }
+    });
+    _csBuild();
+    p.style.display = 'flex';
+  } else {
+    p.style.display = 'none';
+  }
+}
+
+function _csBuild() {
+  const d = _csData();
+  const infoLine = document.getElementById('cs-info-line');
+  if (infoLine) {
+    infoLine.textContent =
+      `BN chunk date: ${d.bn_chunk_date || '(latest)'}   ·   BTC chunk date: ${d.btc_chunk_date || '(latest)'}`;
+  }
+  ['bn','btc'].forEach(asset => {
+    const body = document.getElementById('cs-body-' + asset);
+    if (!body) return;
+    body.innerHTML = '';
+    const labels = _CS_LABELS[asset];
+    const vals   = d[asset] || {};
+    const bounds = d.bounds || {};
+    Object.keys(labels).forEach(tf => {
+      const b   = bounds[tf] || [10, 200000];
+      const val = (vals[tf] != null) ? vals[tf] : 0;
+      const row = document.createElement('div');
+      row.className = 'cs-row';
+      row.innerHTML =
+        `<span class="cs-row-label">${labels[tf]}</span>` +
+        `<button class="cs-step" onclick="_csStep('${asset}','${tf}',-1)">−</button>` +
+        `<input type="number" class="cs-inp" id="cs-inp-${asset}-${tf}" min="${b[0]}" max="${b[1]}" value="${val}">` +
+        `<button class="cs-step" onclick="_csStep('${asset}','${tf}',1)">+</button>`;
+      body.appendChild(row);
+    });
+  });
+}
+
+function _csStep(asset, tf, dir) {
+  const inp = document.getElementById(`cs-inp-${asset}-${tf}`);
+  if (!inp) return;
+  const step = _CS_STEP[tf] || 100;
+  const lo = parseInt(inp.min, 10), hi = parseInt(inp.max, 10);
+  let v = (parseInt(inp.value, 10) || 0) + dir * step;
+  if (v < lo) v = lo;
+  if (v > hi) v = hi;
+  inp.value = v;
+}
+
+function _csSwitchTab(asset, btn) {
+  document.querySelectorAll('.cs-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  const bnBody  = document.getElementById('cs-body-bn');
+  const btcBody = document.getElementById('cs-body-btc');
+  if (bnBody)  bnBody.style.display  = (asset === 'bn')  ? 'flex' : 'none';
+  if (btcBody) btcBody.style.display = (asset === 'btc') ? 'flex' : 'none';
+}
+
+function _csSubmit(params) {
+  // Streamlit iframe sandbox blocks direct window.parent.location assignment
+  // — usi tarah ka parent-document form-submit workaround jo broker login
+  // panel (bkConnect/bkTotpLogin) use karta hai.
+  try {
+    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
+    const pdoc = window.parent.document;
+    const form = pdoc.createElement('form');
+    form.method = 'GET';
+    form.action = parentUrl;
+    Object.keys(params).forEach(name => {
+      const el = pdoc.createElement('input');
+      el.type = 'hidden'; el.name = name; el.value = params[name];
+      form.appendChild(el);
+    });
+    pdoc.body.appendChild(form);
+    form.submit();
+  } catch (err) {
+    alert('Chunk settings save nahi ho payi: ' + err.message);
+  }
+}
+
+function _csApply() {
+  const params = { sv2_chunk_trigger: '1' };
+  ['bn','btc'].forEach(asset => {
+    Object.keys(_CS_LABELS[asset]).forEach(tf => {
+      const inp = document.getElementById(`cs-inp-${asset}-${tf}`);
+      if (inp && inp.value !== '') params[`sv2${asset}_${tf}`] = inp.value;
+    });
+  });
+  _csSubmit(params);
+}
+
+function _csReset() {
+  if (!confirm('BankNifty aur BTC dono ki candle-count settings default par reset karein?')) return;
+  _csSubmit({ sv2_chunk_reset: '1' });
 }
 // Fix 13: drag overlay panels
 function _dragPanel(e, panel) {

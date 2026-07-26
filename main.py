@@ -724,23 +724,74 @@ def _sv2_date_to_anchor_epoch(d) -> int:
     comments dekho: _IST_NAIVE_OFFSET)."""
     return int(datetime.datetime(d.year, d.month, d.day, tzinfo=datetime.timezone.utc).timestamp())
 
-# Mobile ke liye max candles per TF (chunked inject)
-_SV2_MAX = {
+# ─── Mobile ke liye max candles per TF (chunked inject) ───────────────────────
+# Ab BankNifty aur BTC ke liye ALAG-ALAG default hain (pehle "1D/3D/9D/27D"
+# jaisi daily labels dono asset ke beech shared hoti thi — ab har asset ki
+# apni settings hain). Ye "factory defaults" hain; asli effective values
+# _sv2_get_max() se aati hain, jo isme user ke saved overrides (bottom-bar
+# ke 📦 Chunk icon se set kiye gaye) merge karta hai.
+_SV2_MAX_BN_DEFAULT = {
     "1m_raw": 30000, "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
+    "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
+}
+_SV2_MAX_BTC_DEFAULT = {
     "5m_raw": 64000, "160m": 2000, "8H": 2000,
     "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
 }
+# Safe min/max bounds per label — user chahe jitna bhi likhe, isi range mein
+# clamp ho jaayega (mobile hang / bahut kam data dono se bachne ke liye).
+_SV2_MAX_BOUNDS = {
+    "1m_raw": (500, 60000), "5m": (200, 20000), "15m": (200, 10000),
+    "45m": (100, 8000), "135m": (100, 8000),
+    "5m_raw": (500, 120000), "160m": (100, 8000), "8H": (100, 8000),
+    "1D": (100, 6000), "3D": (50, 4000), "9D": (30, 2000), "27D": (20, 1000),
+}
 
-def _sv2_trim(data: list, label: str, anchor_epoch: int = None) -> list:
-    """Chunk select karo (mobile hang prevention, same _SV2_MAX limits).
+SV2_CHUNK_SETTINGS_FILE = "sv2_chunk_settings.json"
+
+def load_sv2_chunk_settings() -> dict:
+    """Saved overrides load karo: {"bn": {...}, "btc": {...}}."""
+    if os.path.exists(SV2_CHUNK_SETTINGS_FILE):
+        try:
+            with open(SV2_CHUNK_SETTINGS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_sv2_chunk_settings(d: dict):
+    with open(SV2_CHUNK_SETTINGS_FILE, "w") as f:
+        json.dump(d, f)
+
+def _sv2_get_max(asset: str) -> dict:
+    """Asset ('bn'/'btc') ki effective per-TF candle-count limits: factory
+    default + user ke saved overrides (clamped to _SV2_MAX_BOUNDS). Session
+    ke andar cache hota hai taaki har rerun pe file dobara na padhni pade."""
+    cache_key = f"_sv2_max_eff_{asset}"
+    if cache_key not in st.session_state:
+        default = _SV2_MAX_BN_DEFAULT if asset == "bn" else _SV2_MAX_BTC_DEFAULT
+        saved   = load_sv2_chunk_settings().get(asset, {})
+        eff = dict(default)
+        for k, v in saved.items():
+            if k in eff:
+                try:
+                    lo, hi = _SV2_MAX_BOUNDS.get(k, (10, 200000))
+                    eff[k] = max(lo, min(hi, int(v)))
+                except Exception:
+                    pass
+        st.session_state[cache_key] = eff
+    return st.session_state[cache_key]
+
+def _sv2_trim(data: list, label: str, anchor_epoch: int = None, asset: str = "bn") -> list:
+    """Chunk select karo (mobile hang prevention, per-asset per-TF limits).
 
     - anchor_epoch None  → purana default: sirf LAST N candles (recent data).
     - anchor_epoch diya  → us date ke aas-paas se window nikaalo: thoda
       history anchor se PEHLE ka (context ke liye) aur baaki (zyada hissa)
       anchor ke BAAD ka (kyunki replay ko aage badhne ke liye future candles
-      chahiye) — total count wahi N jo _SV2_MAX mein already set hai.
+      chahiye) — total count wahi N jo _sv2_get_max(asset) se aata hai.
     """
-    n = _SV2_MAX.get(label, 2000)
+    n = _sv2_get_max(asset).get(label, 2000)
     if len(data) <= n:
         return data
     if anchor_epoch is None:
@@ -803,8 +854,8 @@ def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
     bn_tfs  = _SV2_CACHE["bn_tfs_full"]
     btc_tfs = _SV2_CACHE["btc_tfs_full"]
     agg = {
-        "bn":  {k: _sv2_trim(v, k, bn_anchor)  for k, v in bn_tfs.items()},
-        "btc": {k: _sv2_trim(v, k, btc_anchor) for k, v in btc_tfs.items()},
+        "bn":  {k: _sv2_trim(v, k, bn_anchor,  "bn")  for k, v in bn_tfs.items()},
+        "btc": {k: _sv2_trim(v, k, btc_anchor, "btc") for k, v in btc_tfs.items()},
     }
     return agg
 
@@ -1381,6 +1432,46 @@ if _qp.get("totp_trigger") == "1":
             st.session_state["totp_log"] = _log2
     st.rerun()
 
+# Handler 3: SV2 chunk / candle-count settings — Apply (bottom-bar 📦 icon)
+if _qp.get("sv2_chunk_trigger") == "1":
+    _new_bn, _new_btc = {}, {}
+    for _k in _SV2_MAX_BN_DEFAULT.keys():
+        _pk = f"sv2bn_{_k}"
+        if _pk in _qp:
+            try:
+                _new_bn[_k] = int(_qp.get(_pk))
+            except Exception:
+                pass
+    for _k in _SV2_MAX_BTC_DEFAULT.keys():
+        _pk = f"sv2btc_{_k}"
+        if _pk in _qp:
+            try:
+                _new_btc[_k] = int(_qp.get(_pk))
+            except Exception:
+                pass
+    st.query_params.clear()
+    if _new_bn or _new_btc:
+        _cs_settings = load_sv2_chunk_settings()
+        _cs_settings.setdefault("bn",  {}).update(_new_bn)
+        _cs_settings.setdefault("btc", {}).update(_new_btc)
+        save_sv2_chunk_settings(_cs_settings)
+        # session cache invalidate karo taaki naya value turant lagu ho
+        st.session_state.pop("_sv2_max_eff_bn",  None)
+        st.session_state.pop("_sv2_max_eff_btc", None)
+    st.rerun()
+
+# Handler 4: SV2 chunk / candle-count settings — Reset to default
+if _qp.get("sv2_chunk_reset") == "1":
+    st.query_params.clear()
+    if os.path.exists(SV2_CHUNK_SETTINGS_FILE):
+        try:
+            os.remove(SV2_CHUNK_SETTINGS_FILE)
+        except Exception:
+            pass
+    st.session_state.pop("_sv2_max_eff_bn",  None)
+    st.session_state.pop("_sv2_max_eff_btc", None)
+    st.rerun()
+
 creds      = load_creds()
 sess_active = is_session_active()
 
@@ -1675,9 +1766,19 @@ def _build_chart_html(
     # Inject debug info + loaded-flag as JS variables — chart.html isi flag
     # se decide karta hai ki data already load hai ya reload trigger karna hai
     _sv2_safe = _sv2_err_msg.replace("</", "<\\/")
+    # Bottom-bar "📦 Chunk" icon panel ke liye: current effective candle-count
+    # limits (BN + BTC), unki safe bounds, aur current chunk dates.
+    _sv2_chunk_ui_info = {
+        "bn":            _sv2_get_max("bn"),
+        "btc":           _sv2_get_max("btc"),
+        "bounds":        _SV2_MAX_BOUNDS,
+        "bn_chunk_date":  str(st.session_state.get("_sv2_anchor_date_bn")  or ""),
+        "btc_chunk_date": str(st.session_state.get("_sv2_anchor_date_btc") or ""),
+    }
     html = html.replace("</body>",
         f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};"
-        f"window.__SV2_DATA_LOADED={json.dumps(_sv2_data_loaded_ok)};</script>\n</body>", 1)
+        f"window.__SV2_DATA_LOADED={json.dumps(_sv2_data_loaded_ok)};"
+        f"window.__SV2_CHUNK_SETTINGS={json.dumps(_sv2_chunk_ui_info)};</script>\n</body>", 1)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
