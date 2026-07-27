@@ -645,44 +645,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #chunk-settings-btn:active{background:#2a2e39}
 #chunk-settings-btn.active{border-color:#26a69a;color:#26a69a}
-#binance-opt-btn{
-  height:18px;width:26px;padding:0;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;
-  background:transparent;border:1px solid #2a2e39;border-radius:3px;cursor:pointer;
+#bnc-connect-btn{
+  height:18px;padding:0 8px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
 }
-#binance-opt-btn:active{background:#2a2e39}
-#binance-opt-btn.active{border-color:#F0B90B}
-#binance-opt-btn svg{width:13px;height:13px;display:block}
-
-/* ── Binance Options Panel (bottom-bar Binance icon) ─────────────────── */
-#binance-opt-panel{
-  display:none;position:fixed;z-index:10002;bottom:30px;left:50%;transform:translateX(-50%);
-  width:min(360px,94vw);max-height:76vh;
-  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
-  box-shadow:0 8px 32px #000c;flex-direction:column;overflow:hidden;
-}
-#binance-opt-panel.open{display:flex}
-.bnopt-hdr{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #2a2e39;flex-shrink:0}
-.bnopt-hdr span{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
-.bnopt-hdr button{width:24px;height:24px;border:none;border-radius:6px;background:#2a2e39;color:#9598a1;font-size:13px;cursor:pointer}
-.bnopt-live-badge{font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:10px;flex-shrink:0;background:#78788622;color:#9598a1}
-.bnopt-live-badge.live{background:#26a69a22;color:#26a69a}
-.bnopt-live-badge.notlive{background:#ef535022;color:#ef5350}
-.bnopt-body{overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:10px}
-.bnopt-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.bnopt-card{background:#131722;border:1px solid #2a2e39;border-radius:8px;padding:8px 10px}
-.bnopt-card-label{font-size:9.5px;color:#787b86;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
-.bnopt-card-val{font-size:14px;color:#d1d4dc;font-weight:700;margin-top:2px}
-.bnopt-card-val.pos{color:#26a69a}
-.bnopt-card-val.neg{color:#ef5350}
-.bnopt-chain-title{font-size:11px;font-weight:700;color:#9598a1;margin-top:2px}
-.bnopt-chain-wrap{max-height:220px;overflow-y:auto;border:1px solid #2a2e39;border-radius:6px}
-.bnopt-chain-table{width:100%;border-collapse:collapse;font-size:10.5px}
-.bnopt-chain-table th{position:sticky;top:0;background:#131722;color:#787b86;font-weight:600;text-align:right;padding:4px 5px;border-bottom:1px solid #2a2e39}
-.bnopt-chain-table td{color:#d1d4dc;text-align:right;padding:4px 5px;border-bottom:1px solid #1a1e29;white-space:nowrap}
-.bnopt-chain-table th:first-child,.bnopt-chain-table td:first-child{text-align:left}
-.bnopt-empty{font-size:11px;color:#787b86;text-align:center;padding:14px 0}
-.bnopt-note{font-size:9.5px;color:#787b86;line-height:1.4}
+#bnc-connect-btn:active{background:#2a2e39}
+#bnc-connect-btn.active{border-color:#f3ba2f;color:#f3ba2f}
+#bnc-connect-btn.bnc-live{border-color:#26a69a;color:#26a69a}
 
 /* ── SV2 Chunk / Candle-Count Settings Panel (bottom-bar 📦 icon) ────── */
 #chunk-settings-panel{
@@ -735,6 +705,25 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .cs-btn.cs-apply{background:#2962ff;color:#fff}
 .cs-btn.cs-apply:active{background:#1a53e0}
 .cs-btn.cs-reset:active{color:#ef5350}
+
+/* ── Binance Options — Live Connect Panel (bottom-bar ₿ Options icon) ──── */
+#bnc-connect-panel{
+  display:none;position:fixed;z-index:10002;bottom:30px;left:50%;transform:translateX(-50%);
+  width:min(320px,94vw);max-height:76vh;
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 8px 32px #000c;flex-direction:column;overflow:hidden;
+}
+.bnc-inp-full{
+  width:100%;box-sizing:border-box;text-align:left;
+  background:#131722;border:1px solid #363c4e;border-radius:4px;
+  color:#d1d4dc;font-size:12px;padding:6px 8px;outline:none;
+}
+.bnc-inp-full:focus{border-color:#f3ba2f}
+.bnc-col{display:flex;flex-direction:column;gap:3px}
+.bnc-col label{font-size:10.5px;color:#9598a1}
+#bnc-status-line.bnc-ok{color:#26a69a}
+#bnc-status-line.bnc-err{color:#ef5350}
+#bnc-live-price{font-size:22px;font-weight:700;color:#f3ba2f}
 
 /* ── Grid Layout Picker ──────────────────────────────────────────── */
 #grid-picker{
@@ -3327,17 +3316,7 @@ function _hdrRelayout(){
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
   <button id="chunk-settings-btn" onclick="toggleChunkSettings()" title="Chunk / Candle-Count Settings">📦 Chunk</button>
-  <button id="binance-opt-btn" onclick="toggleBinanceOptPanel()" title="Binance Options">
-    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <g fill="#F0B90B">
-        <rect x="9" y="0" width="6" height="6" transform="rotate(45 12 3)"/>
-        <rect x="9" y="18" width="6" height="6" transform="rotate(45 12 21)"/>
-        <rect x="0" y="9" width="6" height="6" transform="rotate(45 3 12)"/>
-        <rect x="18" y="9" width="6" height="6" transform="rotate(45 21 12)"/>
-        <rect x="9" y="9" width="6" height="6" transform="rotate(45 12 12)"/>
-      </g>
-    </svg>
-  </button>
+  <button id="bnc-connect-btn" onclick="toggleBncConnect()" title="Binance Options — Live Connect">₿ Options</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
   <button id="stack-down-btn" onclick="_stackStepJump(document.getElementById('stack-container'), 1)" title="Scroll down (later charts)">▼</button>
@@ -3391,54 +3370,6 @@ function _hdrRelayout(){
   <button class="goto-date-go" style="margin-top:10px;width:100%" onclick="closeOverlaySetting()">Done</button>
 </div>
 
-<!-- ═══ BINANCE OPTIONS PANEL (bottom-bar Binance icon) ═══════════════ -->
-<div id="binance-opt-panel">
-  <div class="bnopt-hdr">
-    <svg width="15" height="15" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-      <g fill="#F0B90B">
-        <rect x="9" y="0" width="6" height="6" transform="rotate(45 12 3)"/>
-        <rect x="9" y="18" width="6" height="6" transform="rotate(45 12 21)"/>
-        <rect x="0" y="9" width="6" height="6" transform="rotate(45 3 12)"/>
-        <rect x="18" y="9" width="6" height="6" transform="rotate(45 21 12)"/>
-        <rect x="9" y="9" width="6" height="6" transform="rotate(45 12 12)"/>
-      </g>
-    </svg>
-    <span>Binance Options</span>
-    <span class="bnopt-live-badge" id="bnopt-live-badge">⚪ —</span>
-    <button onclick="toggleBinanceOptPanel()">✕</button>
-  </div>
-  <div class="bnopt-body">
-    <div class="bnopt-stats">
-      <div class="bnopt-card">
-        <div class="bnopt-card-label">Balance</div>
-        <div class="bnopt-card-val" id="bnopt-balance">—</div>
-      </div>
-      <div class="bnopt-card">
-        <div class="bnopt-card-label">P&amp;L</div>
-        <div class="bnopt-card-val" id="bnopt-pnl">—</div>
-      </div>
-      <div class="bnopt-card">
-        <div class="bnopt-card-label">Total Trades</div>
-        <div class="bnopt-card-val" id="bnopt-trades">—</div>
-      </div>
-      <div class="bnopt-card">
-        <div class="bnopt-card-label">Open Positions</div>
-        <div class="bnopt-card-val" id="bnopt-positions">—</div>
-      </div>
-    </div>
-    <div class="bnopt-chain-title">Option Chain (live)</div>
-    <div class="bnopt-chain-wrap">
-      <table class="bnopt-chain-table">
-        <thead><tr><th>Symbol</th><th>Bid</th><th>Ask</th><th>Last</th><th>OI</th></tr></thead>
-        <tbody id="bnopt-chain-tbody">
-          <tr><td colspan="5" class="bnopt-empty">Waiting for live data…</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bnopt-note" id="bnopt-note"></div>
-  </div>
-</div>
-
 <!-- ═══ SV2 CHUNK / CANDLE-COUNT SETTINGS PANEL (bottom-bar 📦 icon) ═══ -->
 <div id="chunk-settings-panel">
   <div class="cs-hdr">
@@ -3455,6 +3386,37 @@ function _hdrRelayout(){
   <div class="cs-ftr">
     <button class="cs-btn cs-reset" onclick="_csReset()">↺ Reset Default</button>
     <button class="cs-btn cs-apply" onclick="_csApply()">✅ Apply &amp; Reload</button>
+  </div>
+</div>
+
+<!-- ═══ BINANCE OPTIONS — LIVE CONNECT PANEL (bottom-bar ₿ Options icon) ═══ -->
+<div id="bnc-connect-panel">
+  <div class="cs-hdr">
+    <span>₿ Binance Options — Live Connect</span>
+    <button class="cs-close" onclick="toggleBncConnect()">✕</button>
+  </div>
+  <div class="cs-info" id="bnc-status-line">Status: Disconnected</div>
+  <div class="cs-body">
+    <div class="bnc-col">
+      <label>API Key</label>
+      <input type="password" id="bnc-api-key" class="bnc-inp-full" placeholder="Binance API Key" autocomplete="off">
+    </div>
+    <div class="bnc-col">
+      <label>Secret Key</label>
+      <input type="password" id="bnc-secret-key" class="bnc-inp-full" placeholder="Binance Secret Key" autocomplete="off">
+    </div>
+    <div class="bnc-col">
+      <label>Option Symbol</label>
+      <input type="text" id="bnc-symbol" class="bnc-inp-full" placeholder="e.g. BTC-250829-60000-C" autocomplete="off">
+    </div>
+    <div id="bnc-live-display" style="display:none;text-align:center;padding:8px 0 2px;">
+      <div id="bnc-live-price">--</div>
+      <div id="bnc-live-meta" style="font-size:10.5px;color:#787b86;margin-top:2px">—</div>
+    </div>
+  </div>
+  <div class="cs-ftr">
+    <button class="cs-btn" id="bnc-disconnect-btn" onclick="_bncDisconnect()" style="display:none">✕ Disconnect</button>
+    <button class="cs-btn cs-apply" id="bnc-connect-action-btn" onclick="_bncConnect()">🔌 Connect</button>
   </div>
 </div>
 
@@ -14130,7 +14092,7 @@ function toggleChunkSettings() {
   const show = getComputedStyle(p).display === 'none';
   if (show) {
     // Doosre bottom-bar panels band kardo taaki overlap na ho
-    ['goto-date-panel','notepad-panel','overlay-dd','ovl-setting-panel','grid-picker','binance-opt-panel'].forEach(id=>{
+    ['goto-date-panel','notepad-panel','overlay-dd','ovl-setting-panel','grid-picker','bnc-connect-panel'].forEach(id=>{
       const el = document.getElementById(id);
       if (el) { el.style.display = 'none'; el.classList.remove('open'); }
     });
@@ -14226,6 +14188,126 @@ function _csApply() {
 function _csReset() {
   if (!confirm('BankNifty aur BTC dono ki candle-count settings default par reset karein?')) return;
   _csSubmit({ sv2_chunk_reset: '1' });
+}
+
+// ── Binance Options — Live Connect (bottom-bar ₿ Options icon) ────────────
+// IMPORTANT: is poore block ka WebSocket seedha is BROWSER (aapke phone/PC)
+// se Binance ke saath khulta hai — Streamlit ke Python server se NAHI.
+// Isi wajah se Streamlit Cloud (jiska server-IP Binance block karta hai) is
+// feature ko affect nahi karta: jo bhi request/connection ban rahi hai wo
+// aapke apne device ke internet (residential/mobile IP) se ja rahi hai.
+// Abhi sirf market-data WebSocket (public, bina auth) connect hota hai —
+// API Key/Secret abhi sirf save ho rahe hain taaki aage order-placement
+// (signed calls) ke liye reuse ho sakein; unka signature/HMAC step abhi
+// implement nahi hai.
+window.__BNC = { ws: null, creds: null };
+
+function toggleBncConnect() {
+  const p = document.getElementById('bnc-connect-panel');
+  if (!p) return;
+  const show = getComputedStyle(p).display === 'none';
+  if (show) {
+    ['goto-date-panel','notepad-panel','overlay-dd','ovl-setting-panel','grid-picker','chunk-settings-panel'].forEach(id=>{
+      const el = document.getElementById(id);
+      if (el) { el.style.display = 'none'; el.classList.remove('open'); }
+    });
+    // Pehle se saved creds ho to fields me wapas dikha do (sirf is session ke liye, memory me)
+    const c = window.__BNC.creds;
+    if (c) {
+      document.getElementById('bnc-api-key').value    = c.apiKey    || '';
+      document.getElementById('bnc-secret-key').value = c.secretKey || '';
+      document.getElementById('bnc-symbol').value     = c.symbol    || '';
+    }
+    p.style.display = 'flex';
+  } else {
+    p.style.display = 'none';
+  }
+}
+
+function _bncSetStatus(text, cls) {
+  const el = document.getElementById('bnc-status-line');
+  if (!el) return;
+  el.textContent = 'Status: ' + text;
+  el.classList.remove('bnc-ok','bnc-err');
+  if (cls) el.classList.add(cls);
+}
+
+function _bncConnect() {
+  const apiKey    = document.getElementById('bnc-api-key').value.trim();
+  const secretKey = document.getElementById('bnc-secret-key').value.trim();
+  const symbol    = document.getElementById('bnc-symbol').value.trim().toUpperCase();
+
+  if (!symbol) {
+    _bncSetStatus('Option Symbol daalo (e.g. BTC-250829-60000-C)', 'bnc-err');
+    return;
+  }
+
+  // Creds sirf is browser-session ki memory me — kahin bheji nahi ja rahi
+  window.__BNC.creds = { apiKey, secretKey, symbol };
+
+  _bncSetStatus('Connecting…');
+  const btn = document.getElementById('bnc-connect-btn');
+  if (btn) btn.classList.add('active');
+
+  if (window.__BNC.ws) { try { window.__BNC.ws.close(); } catch(e) {} }
+
+  // Binance European Options — public market WebSocket (auth ki zaroorat nahi,
+  // isliye API Key/Secret na hone par bhi live price chal jayega)
+  const url = 'wss://nbstream.binance.com/eoptions/ws/' + symbol + '@ticker';
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    _bncSetStatus('Connect fail: ' + e.message, 'bnc-err');
+    return;
+  }
+  window.__BNC.ws = ws;
+
+  ws.onopen = function () {
+    _bncSetStatus('Connected ✅ Live (' + symbol + ')', 'bnc-ok');
+    if (btn) { btn.classList.remove('active'); btn.classList.add('bnc-live'); }
+    document.getElementById('bnc-connect-action-btn').style.display = 'none';
+    document.getElementById('bnc-disconnect-btn').style.display     = '';
+    document.getElementById('bnc-live-display').style.display       = '';
+  };
+
+  ws.onmessage = function (evt) {
+    let d;
+    try { d = JSON.parse(evt.data); } catch (e) { return; }
+    // Options ticker payload me last-traded price aam taur par "c" me aata hai
+    // (jaisa Binance ke spot/futures ticker streams me hota hai). Agar field
+    // naam thoda alag nikla to yahan fallback try kar rahe hain.
+    const last = d.c ?? d.C ?? d.markPrice ?? d.lastPrice ?? null;
+    const priceEl = document.getElementById('bnc-live-price');
+    const metaEl  = document.getElementById('bnc-live-meta');
+    if (last != null && priceEl) {
+      priceEl.textContent = parseFloat(last).toFixed(2);
+    } else if (priceEl) {
+      priceEl.textContent = '(data mila, field check karo)';
+    }
+    if (metaEl) {
+      metaEl.textContent = symbol + ' · last update: ' + new Date().toLocaleTimeString();
+    }
+  };
+
+  ws.onerror = function () {
+    _bncSetStatus('Error — dobara try karo ya symbol check karo', 'bnc-err');
+  };
+
+  ws.onclose = function () {
+    if (btn) { btn.classList.remove('active'); btn.classList.remove('bnc-live'); }
+    document.getElementById('bnc-connect-action-btn').style.display = '';
+    document.getElementById('bnc-disconnect-btn').style.display     = 'none';
+    document.getElementById('bnc-live-display').style.display       = 'none';
+    _bncSetStatus('Disconnected');
+  };
+}
+
+function _bncDisconnect() {
+  if (window.__BNC.ws) {
+    try { window.__BNC.ws.close(); } catch (e) {}
+    window.__BNC.ws = null;
+  }
 }
 // Fix 13: drag overlay panels
 function _dragPanel(e, panel) {
@@ -15916,97 +15998,6 @@ function _flushBnGridPending() {
   }
 }
 let _bnGridDomCatchupTid = null;
-
-// ── Binance Options — bottom-bar icon panel (Balance / Chain / P&L / Trades) ──
-// Data pushed from main.py via postMessage (type:'binance_options'), sourced
-// entirely from Binance EAPI user-data + market websockets — no REST polling
-// from this side, so no rate-limit concern.
-function toggleBinanceOptPanel() {
-  const panel = document.getElementById('binance-opt-panel');
-  const btn   = document.getElementById('binance-opt-btn');
-  const willOpen = !panel.classList.contains('open');
-  if (willOpen) {
-    // Doosre bottom-bar panels band kardo taaki overlap na ho
-    ['goto-date-panel','notepad-panel','overlay-dd','ovl-setting-panel','grid-picker','chunk-settings-panel'].forEach(id=>{
-      const el = document.getElementById(id);
-      if (el) { el.style.display = 'none'; el.classList.remove('open'); }
-    });
-  }
-  panel.classList.toggle('open', willOpen);
-  btn.classList.toggle('active', willOpen);
-}
-
-function _renderBinanceOptions(data) {
-  try {
-    if (!data) return;
-
-    // Live / Not Live badge
-    const liveBadge = document.getElementById('bnopt-live-badge');
-    if (liveBadge) {
-      if (data.connected) {
-        liveBadge.textContent = '🟢 Live';
-        liveBadge.className = 'bnopt-live-badge live';
-      } else {
-        liveBadge.textContent = '🔴 Not Live';
-        liveBadge.className = 'bnopt-live-badge notlive';
-      }
-    }
-
-    // Balance
-    const bal = data.balance;
-    const balEl = document.getElementById('bnopt-balance');
-    if (bal) {
-      const amt = parseFloat(bal.marginBalance ?? bal.available ?? 0);
-      balEl.textContent = amt.toFixed(2) + ' ' + (bal.asset || 'USDT');
-    } else {
-      balEl.textContent = '—';
-    }
-
-    // P&L (realized + unrealized)
-    const pnl = data.pnl || {};
-    const unrealized = parseFloat(pnl.unrealized || 0);
-    const realized   = parseFloat(pnl.realized || 0);
-    const totalPnl    = unrealized + realized;
-    const pnlEl = document.getElementById('bnopt-pnl');
-    pnlEl.textContent = (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(2) + ' USDT';
-    pnlEl.className = 'bnopt-card-val ' + (totalPnl >= 0 ? 'pos' : 'neg');
-
-    // Total trades
-    document.getElementById('bnopt-trades').textContent =
-      (data.totalTrades != null) ? data.totalTrades : '—';
-
-    // Open positions count
-    const positions = data.positions || [];
-    document.getElementById('bnopt-positions').textContent = positions.length;
-
-    // Live option chain table
-    const chain = data.chain || {};
-    const tbody = document.getElementById('bnopt-chain-tbody');
-    const symbols = Object.keys(chain).sort();
-    if (!symbols.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="bnopt-empty">Waiting for live data…</td></tr>';
-    } else {
-      tbody.innerHTML = symbols.map(sym => {
-        const c = chain[sym] || {};
-        return '<tr><td>' + sym + '</td><td>' + (c.bid ?? '-') + '</td><td>' +
-               (c.ask ?? '-') + '</td><td>' + (c.last ?? '-') + '</td><td>' +
-               (c.oi ?? '-') + '</td></tr>';
-      }).join('');
-    }
-
-    const note = document.getElementById('bnopt-note');
-    if (note) note.textContent = data.ts ? ('Last update: ' + new Date(data.ts*1000).toLocaleTimeString()) : '';
-  } catch (_) {}
-}
-
-window.addEventListener('message', function(evt) {
-  try {
-    const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'binance_options') {
-      _renderBinanceOptions(msg.data);
-    }
-  } catch (_) {}
-});
 
 // Listen for postMessage from Streamlit parent (Python pushes tick every ~1s)
 window.addEventListener('message', function(evt) {
