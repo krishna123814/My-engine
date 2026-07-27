@@ -3406,13 +3406,14 @@ function _hdrRelayout(){
       <input type="password" id="bnc-secret-key" class="bnc-inp-full" placeholder="Binance Secret Key" autocomplete="off">
     </div>
     <div class="bnc-col">
-      <label>Option Symbol</label>
-      <input type="text" id="bnc-symbol" class="bnc-inp-full" placeholder="e.g. BTC-250829-60000-C" autocomplete="off">
+      <label>Underlying (sirf ye chahiye — koi contract nahi)</label>
+      <input type="text" id="bnc-symbol" class="bnc-inp-full" placeholder="BTCUSDT" value="BTCUSDT" autocomplete="off">
     </div>
     <div id="bnc-live-display" style="display:none;text-align:center;padding:8px 0 2px;">
       <div id="bnc-live-price">--</div>
       <div id="bnc-live-meta" style="font-size:10.5px;color:#787b86;margin-top:2px">—</div>
     </div>
+    <div id="bnc-debug-box" style="display:none;background:#0d1017;border:1px solid #363c4e;border-radius:5px;padding:6px 8px;font-size:10px;color:#9598a1;line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;"></div>
   </div>
   <div class="cs-ftr">
     <button class="cs-btn" id="bnc-disconnect-btn" onclick="_bncDisconnect()" style="display:none">✕ Disconnect</button>
@@ -14232,18 +14233,44 @@ function _bncSetStatus(text, cls) {
   if (cls) el.classList.add(cls);
 }
 
+function _bncDebug(line) {
+  const box = document.getElementById('bnc-debug-box');
+  if (!box) return;
+  box.style.display = 'block';
+  const t = new Date().toLocaleTimeString();
+  box.textContent += '[' + t + '] ' + line + '\n';
+  box.scrollTop = box.scrollHeight;
+}
+
+// Common WebSocket close-codes ka plain-language matlab (debug box me dikhane ke liye)
+const _WS_CLOSE_MEANINGS = {
+  1000: 'Normal close (khud disconnect kiya gaya)',
+  1001: 'Server/browser ja raha hai (tab close / navigation)',
+  1002: 'Protocol error',
+  1003: 'Unsupported data type',
+  1005: 'No status received',
+  1006: 'Abnormal — connection bana hi nahi (galat symbol, server ne turant reject kiya, ya network/firewall ne block kiya)',
+  1008: 'Policy violation (server ne mana kiya — shayad symbol invalid/expired hai)',
+  1009: 'Message too big',
+  1011: 'Server internal error',
+  1015: 'TLS handshake fail',
+};
+
 function _bncConnect() {
   const apiKey    = document.getElementById('bnc-api-key').value.trim();
   const secretKey = document.getElementById('bnc-secret-key').value.trim();
   const symbol    = document.getElementById('bnc-symbol').value.trim().toUpperCase();
 
   if (!symbol) {
-    _bncSetStatus('Option Symbol daalo (e.g. BTC-250829-60000-C)', 'bnc-err');
+    _bncSetStatus('Underlying daalo (e.g. BTCUSDT)', 'bnc-err');
     return;
   }
 
   // Creds sirf is browser-session ki memory me — kahin bheji nahi ja rahi
   window.__BNC.creds = { apiKey, secretKey, symbol };
+
+  const box = document.getElementById('bnc-debug-box');
+  if (box) { box.textContent = ''; box.style.display = 'none'; }
 
   _bncSetStatus('Connecting…');
   const btn = document.getElementById('bnc-connect-btn');
@@ -14251,19 +14278,26 @@ function _bncConnect() {
 
   if (window.__BNC.ws) { try { window.__BNC.ws.close(); } catch(e) {} }
 
-  // Binance European Options — public market WebSocket (auth ki zaroorat nahi,
-  // isliye API Key/Secret na hone par bhi live price chal jayega)
-  const url = 'wss://nbstream.binance.com/eoptions/ws/' + symbol + '@ticker';
+  // Binance Options — Underlying Index Price stream (public, koi specific
+  // option contract/strike/expiry select karne ki zaroorat nahi, sirf
+  // underlying jaise BTCUSDT/ETHUSDT). Auth ki bhi zaroorat nahi.
+  const url = 'wss://nbstream.binance.com/eoptions/ws/' + symbol + '@index';
+  _bncDebug('Connecting to: ' + url);
+
   let ws;
   try {
     ws = new WebSocket(url);
   } catch (e) {
     _bncSetStatus('Connect fail: ' + e.message, 'bnc-err');
+    _bncDebug('Constructor error: ' + e.message);
     return;
   }
   window.__BNC.ws = ws;
+  window.__BNC._loggedFirstMsg = false;
+  const connectStartTs = Date.now();
 
   ws.onopen = function () {
+    _bncDebug('OPEN event — handshake successful, readyState=' + ws.readyState);
     _bncSetStatus('Connected ✅ Live (' + symbol + ')', 'bnc-ok');
     if (btn) { btn.classList.remove('active'); btn.classList.add('bnc-live'); }
     document.getElementById('bnc-connect-action-btn').style.display = 'none';
@@ -14273,33 +14307,52 @@ function _bncConnect() {
 
   ws.onmessage = function (evt) {
     let d;
-    try { d = JSON.parse(evt.data); } catch (e) { return; }
-    // Options ticker payload me last-traded price aam taur par "c" me aata hai
-    // (jaisa Binance ke spot/futures ticker streams me hota hai). Agar field
-    // naam thoda alag nikla to yahan fallback try kar rahe hain.
-    const last = d.c ?? d.C ?? d.markPrice ?? d.lastPrice ?? null;
+    try { d = JSON.parse(evt.data); } catch (e) {
+      _bncDebug('Message JSON parse fail: ' + e.message + ' | raw: ' + String(evt.data).slice(0,200));
+      return;
+    }
+    if (!window.__BNC._loggedFirstMsg) {
+      window.__BNC._loggedFirstMsg = true;
+      _bncDebug('First message raw keys: ' + Object.keys(d).join(',') + ' | raw: ' + JSON.stringify(d).slice(0,300));
+    }
+    // Index price stream me price aam taur par "p" me aata hai. Fallback bhi
+    // rakhe hain agar payload thoda alag nikla to.
+    const last = d.p ?? d.c ?? d.C ?? d.markPrice ?? d.lastPrice ?? d.indexPrice ?? null;
     const priceEl = document.getElementById('bnc-live-price');
     const metaEl  = document.getElementById('bnc-live-meta');
     if (last != null && priceEl) {
       priceEl.textContent = parseFloat(last).toFixed(2);
     } else if (priceEl) {
-      priceEl.textContent = '(data mila, field check karo)';
+      priceEl.textContent = '(data mila, field check karo — debug box dekho)';
     }
     if (metaEl) {
       metaEl.textContent = symbol + ' · last update: ' + new Date().toLocaleTimeString();
     }
   };
 
-  ws.onerror = function () {
-    _bncSetStatus('Error — dobara try karo ya symbol check karo', 'bnc-err');
+  ws.onerror = function (ev) {
+    // Browser security ke wajah se onerror me detail nahi milti (sirf ek generic
+    // Event object) — asli wajah aam taur par turant baad aane wale onclose ke
+    // code/reason me pata chalti hai, isliye wahi print kar rahe hain.
+    _bncDebug('ERROR event fired (browser detail nahi deta — niche CLOSE event dekho)');
+    _bncSetStatus('Error — neeche debug dekho', 'bnc-err');
   };
 
-  ws.onclose = function () {
+  ws.onclose = function (ev) {
+    const ms = Date.now() - connectStartTs;
+    const meaning = _WS_CLOSE_MEANINGS[ev.code] || 'Unknown code';
+    _bncDebug(
+      'CLOSE event — code=' + ev.code + ' (' + meaning + ') · reason="' +
+      (ev.reason || '(khaali)') + '" · wasClean=' + ev.wasClean + ' · ' + ms + 'ms baad'
+    );
+    if (ms < 1500 && ev.code === 1006) {
+      _bncDebug('Hint: itni jaldi 1006 aana aksar iska matlab — symbol Binance Options par abhi trade nahi ho raha (expired/galat strike), ya connection bilkul ban hi nahi paya.');
+    }
     if (btn) { btn.classList.remove('active'); btn.classList.remove('bnc-live'); }
     document.getElementById('bnc-connect-action-btn').style.display = '';
     document.getElementById('bnc-disconnect-btn').style.display     = 'none';
     document.getElementById('bnc-live-display').style.display       = 'none';
-    _bncSetStatus('Disconnected');
+    _bncSetStatus('Disconnected (code ' + ev.code + ' — debug box me detail hai)', 'bnc-err');
   };
 }
 
