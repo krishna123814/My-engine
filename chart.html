@@ -14535,7 +14535,11 @@ function _bncDisconnect() {
 // comment jaisi hi wajah: server-IP Binance ke liye unreliable ho sakti hai, jabki
 // device ka apna internet reliable rehta hai). API Key/Secret sirf is browser-tab
 // ki memory (window.__BNC.creds) me rehte hain, kabhi disk/server pe nahi jaate.
-const BNC_BASE = 'https://eapi.binance.com';
+// Pehle seedha 'https://eapi.binance.com' tha — browser se signed calls
+// CORS ki wajah se fail hoti hain (Binance private endpoints pe CORS header
+// nahi bhejta). Ab humara apna Render proxy (server-to-server) beech me hai —
+// wahi Binance ko call karta hai, phir CORS header laga ke jawab wapas bhejta hai.
+const BNC_BASE = 'https://my-engine-au06.onrender.com';
 
 function _bncTabSwitch(tab) {
   document.querySelectorAll('.bnc-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
