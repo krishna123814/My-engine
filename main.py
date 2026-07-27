@@ -293,7 +293,11 @@ def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
     try:
         data = r.json()
     except Exception:
-        return "blocked", f"HTTP {r.status_code} — JSON nahi mila (geo/IP-block ka sanket)"
+        _snippet = (r.text or "")[:200].replace("\n", " ")
+        return "blocked", (
+            f"HTTP {r.status_code} — JSON nahi mila (geo/IP-block ka sanket). "
+            f"Response body (debug): {_snippet!r}"
+        )
     if r.status_code == 200 and isinstance(data, dict):
         return "real", "Binance ne account data diya hai — ye genuine, verified login hai"
     code = data.get("code") if isinstance(data, dict) else None
