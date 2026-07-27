@@ -243,6 +243,36 @@ def _write_login_log(payload: dict, status_code: int, response: dict):
 #                (key sahi ho sakti hai, bas yahan se pata nahi chal sakta)
 BINANCE_EAPI_BASE = "https://eapi.binance.com"
 
+# ─── Static-IP outbound proxy (Webshare) for Binance signed calls ─────────────
+# Streamlit Cloud ka outbound IP random/dynamic hota hai, jabki Binance API
+# keys ko ek fixed IP pe whitelist karna padta hai. Isliye signed Binance
+# calls yahan se ek static residential proxy ke through jaate hain.
+#
+# Credential kabhi bhi seedha code me hardcode NAHI karna — GitHub secret
+# scanning aise push ko block/deny kar deta hai. Iski jagah Streamlit Cloud
+# ke "Secrets" (Settings → Secrets) me ya local .streamlit/secrets.toml me
+# ye daalo:
+#
+#   WEBSHARE_PROXY = "http://pyzxofpu:iuwdubctq5qf@84.247.60.125:6095"
+#
+# Ya environment variable ke through:
+#   export WEBSHARE_PROXY="http://pyzxofpu:iuwdubctq5qf@84.247.60.125:6095"
+def _get_webshare_proxy_url() -> str:
+    val = os.environ.get("WEBSHARE_PROXY", "")
+    if val:
+        return val
+    try:
+        val = st.secrets.get("WEBSHARE_PROXY", "")
+    except Exception:
+        val = ""
+    return val
+
+def _binance_proxies():
+    proxy_url = _get_webshare_proxy_url()
+    if not proxy_url:
+        return None
+    return {"http": proxy_url, "https": proxy_url}
+
 def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
     """Server-side signed call to Binance to verify real account login. Returns (status, message)."""
     if not api_key or not secret_key:
@@ -252,7 +282,12 @@ def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
     sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
     url = f"{BINANCE_EAPI_BASE}/eapi/v1/account?{qs}&signature={sig}"
     try:
-        r = requests.get(url, headers={"X-MBX-APIKEY": api_key}, timeout=10)
+        r = requests.get(
+            url,
+            headers={"X-MBX-APIKEY": api_key},
+            proxies=_binance_proxies(),
+            timeout=10,
+        )
     except requests.exceptions.RequestException as e:
         return "blocked", f"Server se Binance tak connect nahi hua: {e}"
     try:
