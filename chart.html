@@ -14408,11 +14408,15 @@ function _bncConnect() {
   window.__BNC.creds = { apiKey, secretKey, symbol };
 
   const box = document.getElementById('bnc-debug-box');
-  if (box) { box.textContent = ''; box.style.display = 'none'; }
+  if (box) { box.textContent = ''; box.style.display = 'block'; }
 
   _bncSetStatus('Connecting…');
   const btn = document.getElementById('bnc-connect-btn');
   if (btn) btn.classList.add('active');
+
+  // Diagnostics turant chalao (REST reachability/CORS/signed-call test) —
+  // WS market-data attempt ke parallel, taaki dono ka result debug box me dikhe.
+  _bncRunDiagnostics();
 
   if (window.__BNC.ws) { try { window.__BNC.ws.onclose = null; window.__BNC.ws.close(); } catch(e) {} }
 
@@ -14557,6 +14561,7 @@ function _bncCreds() {
 
 // Generic signed request. method: 'GET'|'POST'|'DELETE'. path e.g. '/eapi/v1/account'.
 // params: plain object of query/body params (timestamp/signature auto-added).
+// Har step (URL, headers, error) debug box me bhi likha jaata hai (Connect tab kholo dekhne ke liye).
 async function _bncSignedRequest(method, path, params) {
   const creds = _bncCreds();
   if (!creds) throw new Error('Pehle Connect tab me API Key/Secret bharo aur Connect dabao');
@@ -14575,10 +14580,30 @@ async function _bncSignedRequest(method, path, params) {
     opts.body = fullQs;
   }
   const finalUrl = (method === 'POST' || method === 'PUT') ? BNC_BASE + path : url;
-  const res = await fetch(finalUrl, opts);
+  _bncDebug('SIGNED ' + method + ' → ' + finalUrl.split('?')[0] + (finalUrl.includes('?') ? ' (+query, hidden)' : ''));
+  let res;
+  try {
+    res = await fetch(finalUrl, opts);
+  } catch (e) {
+    // Fetch khud reject ho gaya — matlab request Binance tak pahunchi hi nahi
+    // (CORS preflight fail, DNS block, ya network/firewall). Response object
+    // bilkul nahi milta isliye status code bhi nahi pata chalta.
+    _bncDebug('❌ NETWORK/CORS ERROR — fetch() reject: ' + e.name + ': ' + e.message +
+      ' | Matlab: request browser se nikli hi nahi ya Binance ne turant reject kar diya, bina koi response diye.');
+    throw new Error('Network/CORS fail: ' + e.message);
+  }
+  _bncDebug('Response: HTTP ' + res.status + ' ' + res.statusText);
   let data;
-  try { data = await res.json(); } catch (e) { throw new Error('Response parse fail: HTTP ' + res.status); }
-  if (!res.ok) throw new Error((data && (data.msg || JSON.stringify(data))) || ('HTTP ' + res.status));
+  const rawText = await res.text();
+  try { data = JSON.parse(rawText); } catch (e) {
+    _bncDebug('Response body parse fail, raw: ' + rawText.slice(0, 300));
+    throw new Error('Response parse fail: HTTP ' + res.status + ' body: ' + rawText.slice(0, 200));
+  }
+  if (!res.ok) {
+    _bncDebug('❌ Binance error body: ' + JSON.stringify(data).slice(0, 300));
+    throw new Error((data && (data.msg || JSON.stringify(data))) || ('HTTP ' + res.status));
+  }
+  _bncDebug('✅ OK — ' + JSON.stringify(data).slice(0, 150) + (JSON.stringify(data).length > 150 ? '…' : ''));
   return data;
 }
 
@@ -14588,11 +14613,69 @@ async function _bncPublicRequest(path, params) {
   const qs = Object.keys(p).filter(k => p[k] !== undefined && p[k] !== null && p[k] !== '')
     .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(p[k])).join('&');
   const url = BNC_BASE + path + (qs ? '?' + qs : '');
-  const res = await fetch(url);
-  const data = await res.json();
-  if (!res.ok) throw new Error((data && (data.msg || JSON.stringify(data))) || ('HTTP ' + res.status));
+  _bncDebug('PUBLIC GET → ' + url);
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    _bncDebug('❌ NETWORK/CORS ERROR — fetch() reject: ' + e.name + ': ' + e.message);
+    throw new Error('Network/CORS fail: ' + e.message);
+  }
+  _bncDebug('Response: HTTP ' + res.status + ' ' + res.statusText);
+  const rawText = await res.text();
+  let data;
+  try { data = JSON.parse(rawText); } catch (e) {
+    _bncDebug('Response body parse fail, raw: ' + rawText.slice(0, 300));
+    throw new Error('Response parse fail: HTTP ' + res.status);
+  }
+  if (!res.ok) {
+    _bncDebug('❌ Binance error body: ' + JSON.stringify(data).slice(0, 300));
+    throw new Error((data && (data.msg || JSON.stringify(data))) || ('HTTP ' + res.status));
+  }
+  _bncDebug('✅ OK — array/object len: ' + (Array.isArray(data) ? data.length : Object.keys(data).length));
   return data;
 }
+
+// ── Diagnostic probe — Connect dabate hi turant chalta hai ────────────────
+// Batata hai: (1) normal fetch se REST tak pahunch rahe ho ya turant CORS-block
+// ho raha hai, (2) no-cors mode se pata chalta hai ki Binance server reachable
+// hai ya nahi (agar no-cors bhi fail ho to ye network/firewall issue hai, CORS
+// nahi), (3) agar keys diye hain to ek signed call ka bhi real error dikhega.
+async function _bncRunDiagnostics() {
+  _bncDebug('── Diagnostics start ──');
+  // 1) Normal fetch to a public endpoint
+  try {
+    const t0 = Date.now();
+    const res = await fetch(BNC_BASE + '/eapi/v1/time');
+    const body = await res.text();
+    _bncDebug('Public GET /eapi/v1/time → HTTP ' + res.status + ' in ' + (Date.now()-t0) + 'ms, body: ' + body.slice(0,120));
+  } catch (e) {
+    _bncDebug('Public GET /eapi/v1/time → FAILED: ' + e.name + ': ' + e.message + ' (CORS block ya network issue)');
+    // 2) no-cors probe — agar ye bhi fail ho to server hi unreachable hai (DNS/firewall), CORS nahi
+    try {
+      const t0 = Date.now();
+      await fetch(BNC_BASE + '/eapi/v1/time', { mode: 'no-cors' });
+      _bncDebug('no-cors probe → SUCCESS in ' + (Date.now()-t0) + 'ms → Binance server reachable hai, sirf CORS header missing hai (confirmed CORS block, network theek hai)');
+    } catch (e2) {
+      _bncDebug('no-cors probe → bhi FAILED: ' + e2.message + ' → ye CORS nahi, network/DNS/firewall level block hai');
+    }
+  }
+  // 3) Signed call, agar keys diye ho
+  const creds = _bncCreds();
+  if (creds) {
+    try {
+      await _bncSignedRequest('GET', '/eapi/v1/account', {});
+      _bncDebug('Signed /eapi/v1/account → SUCCESS ✅ (keys valid, CORS bhi allow ho raha hai)');
+    } catch (e) {
+      _bncDebug('Signed /eapi/v1/account → FAILED (upar detail dekho)');
+    }
+  } else {
+    _bncDebug('Signed test skip — API Key/Secret nahi bhare');
+  }
+  _bncDebug('── Diagnostics end ──');
+}
+
+
 
 // ── Balance ──────────────────────────────────────────────────────────────
 async function _bncFetchBalance() {
