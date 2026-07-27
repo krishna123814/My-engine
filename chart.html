@@ -3406,7 +3406,7 @@ function _hdrRelayout(){
       <input type="password" id="bnc-secret-key" class="bnc-inp-full" placeholder="Binance Secret Key" autocomplete="off">
     </div>
     <div class="bnc-col">
-      <label>Underlying (sirf ye chahiye — koi contract nahi)</label>
+      <label>Symbol (sirf live price — koi contract nahi)</label>
       <input type="text" id="bnc-symbol" class="bnc-inp-full" placeholder="BTCUSDT" value="BTCUSDT" autocomplete="off">
     </div>
     <div id="bnc-live-display" style="display:none;text-align:center;padding:8px 0 2px;">
@@ -14276,28 +14276,48 @@ function _bncConnect() {
   const btn = document.getElementById('bnc-connect-btn');
   if (btn) btn.classList.add('active');
 
-  if (window.__BNC.ws) { try { window.__BNC.ws.close(); } catch(e) {} }
+  if (window.__BNC.ws) { try { window.__BNC.ws.onclose = null; window.__BNC.ws.close(); } catch(e) {} }
 
-  // Binance Options — Underlying Index Price stream (public, koi specific
-  // option contract/strike/expiry select karne ki zaroorat nahi, sirf
-  // underlying jaise BTCUSDT/ETHUSDT). Auth ki bhi zaroorat nahi.
-  const url = 'wss://nbstream.binance.com/eoptions/ws/' + symbol + '@index';
-  _bncDebug('Connecting to: ' + url);
+  // Pichli baar 'nbstream.binance.com/eoptions' (options-specific domain) turant
+  // (~600ms) 1006 ke saath fail hui thi. Isi app ka BTC live chart 'stream.binance.com'
+  // (spot domain) se already bharosemand chal raha hai (production me proven) — isliye
+  // ab wahi domain-family reuse kar rahe hain, sirf ticker stream se live price ke liye.
+  const sym = symbol.toLowerCase();
+  const urls = [
+    'wss://stream.binance.com/ws/'      + sym + '@ticker',
+    'wss://data-stream.binance.com/ws/' + sym + '@ticker',
+    'wss://stream.binance.com:9443/ws/' + sym + '@ticker',
+  ];
+  window.__BNC._loggedFirstMsg = false;
+  _bncTryUrls(urls, 0, symbol, btn);
+}
+
+function _bncTryUrls(urls, idx, symbol, btn) {
+  if (idx >= urls.length) {
+    _bncSetStatus('Sabhi mirrors fail ho gaye — neeche debug dekho', 'bnc-err');
+    _bncDebug('Sabhi ' + urls.length + ' URL try ho gaye, koi bhi connect nahi hua. Ye network/firewall-level block ka sanket hai.');
+    if (btn) btn.classList.remove('active');
+    return;
+  }
+
+  const url = urls[idx];
+  _bncDebug('Trying (' + (idx+1) + '/' + urls.length + '): ' + url);
 
   let ws;
   try {
     ws = new WebSocket(url);
   } catch (e) {
-    _bncSetStatus('Connect fail: ' + e.message, 'bnc-err');
     _bncDebug('Constructor error: ' + e.message);
+    _bncTryUrls(urls, idx + 1, symbol, btn);
     return;
   }
   window.__BNC.ws = ws;
-  window.__BNC._loggedFirstMsg = false;
+  let opened = false;
   const connectStartTs = Date.now();
 
   ws.onopen = function () {
-    _bncDebug('OPEN event — handshake successful, readyState=' + ws.readyState);
+    opened = true;
+    _bncDebug('OPEN event — handshake successful on mirror ' + (idx+1) + ', readyState=' + ws.readyState);
     _bncSetStatus('Connected ✅ Live (' + symbol + ')', 'bnc-ok');
     if (btn) { btn.classList.remove('active'); btn.classList.add('bnc-live'); }
     document.getElementById('bnc-connect-action-btn').style.display = 'none';
@@ -14315,9 +14335,8 @@ function _bncConnect() {
       window.__BNC._loggedFirstMsg = true;
       _bncDebug('First message raw keys: ' + Object.keys(d).join(',') + ' | raw: ' + JSON.stringify(d).slice(0,300));
     }
-    // Index price stream me price aam taur par "p" me aata hai. Fallback bhi
-    // rakhe hain agar payload thoda alag nikla to.
-    const last = d.p ?? d.c ?? d.C ?? d.markPrice ?? d.lastPrice ?? d.indexPrice ?? null;
+    // 24hr ticker stream me last-traded price "c" me aata hai.
+    const last = d.c ?? d.C ?? d.p ?? d.markPrice ?? d.lastPrice ?? null;
     const priceEl = document.getElementById('bnc-live-price');
     const metaEl  = document.getElementById('bnc-live-meta');
     if (last != null && priceEl) {
@@ -14330,37 +14349,43 @@ function _bncConnect() {
     }
   };
 
-  ws.onerror = function (ev) {
-    // Browser security ke wajah se onerror me detail nahi milti (sirf ek generic
-    // Event object) — asli wajah aam taur par turant baad aane wale onclose ke
-    // code/reason me pata chalti hai, isliye wahi print kar rahe hain.
+  ws.onerror = function () {
     _bncDebug('ERROR event fired (browser detail nahi deta — niche CLOSE event dekho)');
-    _bncSetStatus('Error — neeche debug dekho', 'bnc-err');
   };
 
   ws.onclose = function (ev) {
     const ms = Date.now() - connectStartTs;
     const meaning = _WS_CLOSE_MEANINGS[ev.code] || 'Unknown code';
     _bncDebug(
-      'CLOSE event — code=' + ev.code + ' (' + meaning + ') · reason="' +
+      'CLOSE event (mirror ' + (idx+1) + ') — code=' + ev.code + ' (' + meaning + ') · reason="' +
       (ev.reason || '(khaali)') + '" · wasClean=' + ev.wasClean + ' · ' + ms + 'ms baad'
     );
-    if (ms < 1500 && ev.code === 1006) {
-      _bncDebug('Hint: itni jaldi 1006 aana aksar iska matlab — symbol Binance Options par abhi trade nahi ho raha (expired/galat strike), ya connection bilkul ban hi nahi paya.');
+    if (opened) {
+      // Kabhi connect hua tha, phir baad me disconnect ho gaya — retry se pehle
+      // user ko clearly dikhna chahiye ki live band ho gaya
+      if (btn) { btn.classList.remove('active'); btn.classList.remove('bnc-live'); }
+      document.getElementById('bnc-connect-action-btn').style.display = '';
+      document.getElementById('bnc-disconnect-btn').style.display     = 'none';
+      document.getElementById('bnc-live-display').style.display       = 'none';
+      _bncSetStatus('Disconnected (code ' + ev.code + ')', 'bnc-err');
+    } else {
+      // Ye mirror kabhi khula hi nahi — agla mirror try karo
+      _bncTryUrls(urls, idx + 1, symbol, btn);
     }
-    if (btn) { btn.classList.remove('active'); btn.classList.remove('bnc-live'); }
-    document.getElementById('bnc-connect-action-btn').style.display = '';
-    document.getElementById('bnc-disconnect-btn').style.display     = 'none';
-    document.getElementById('bnc-live-display').style.display       = 'none';
-    _bncSetStatus('Disconnected (code ' + ev.code + ' — debug box me detail hai)', 'bnc-err');
   };
 }
 
 function _bncDisconnect() {
   if (window.__BNC.ws) {
-    try { window.__BNC.ws.close(); } catch (e) {}
+    try { window.__BNC.ws.onclose = null; window.__BNC.ws.close(); } catch (e) {}
     window.__BNC.ws = null;
   }
+  const btn = document.getElementById('bnc-connect-btn');
+  if (btn) { btn.classList.remove('active'); btn.classList.remove('bnc-live'); }
+  document.getElementById('bnc-connect-action-btn').style.display = '';
+  document.getElementById('bnc-disconnect-btn').style.display     = 'none';
+  document.getElementById('bnc-live-display').style.display       = 'none';
+  _bncSetStatus('Disconnected');
 }
 // Fix 13: drag overlay panels
 function _dragPanel(e, panel) {
