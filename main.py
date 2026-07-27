@@ -4,6 +4,7 @@ import os
 import time
 import threading
 import hashlib
+import hmac
 import zipfile
 import requests
 import pyotp
@@ -225,6 +226,47 @@ def _write_login_log(payload: dict, status_code: int, response: dict):
             json.dump(entry, f, indent=2)
     except Exception:
         pass
+
+# ─── Binance Account — server-side REAL login verify ──────────────────────
+# Browser se Binance ke signed/private endpoint (account info) call karna
+# hamesha "Failed to fetch" dega — Binance in endpoints par CORS allow nahi
+# karta (security ke liye). Isliye ye check yahan Python (server) se hota
+# hai, jahan CORS ka koi matlab hi nahi hota (server-to-server call).
+#
+# NOTE: Ye app Streamlit Cloud par hai, aur Binance kabhi-kabhi cloud/data-
+# center IP ranges ko block/restrict kar deta hai (regulatory reasons se).
+# Isliye is function ke 3 alag results hain — "blocked" ko "failed" (galat
+# key) samajh kar confuse mat hona, ye do alag cheezein hain:
+#   "real"    -> Binance ne account data diya = 100% genuine, verified login
+#   "failed"  -> Binance ne khud bola signature/key galat hai
+#   "blocked" -> Streamlit Cloud ka server-IP hi Binance tak nahi pahuncha
+#                (key sahi ho sakti hai, bas yahan se pata nahi chal sakta)
+BINANCE_EAPI_BASE = "https://eapi.binance.com"
+
+def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
+    """Server-side signed call to Binance to verify real account login. Returns (status, message)."""
+    if not api_key or not secret_key:
+        return "failed", "API Key ya Secret Key khaali hai"
+    ts = int(time.time() * 1000)
+    qs = f"timestamp={ts}&recvWindow=5000"
+    sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    url = f"{BINANCE_EAPI_BASE}/eapi/v1/account?{qs}&signature={sig}"
+    try:
+        r = requests.get(url, headers={"X-MBX-APIKEY": api_key}, timeout=10)
+    except requests.exceptions.RequestException as e:
+        return "blocked", f"Server se Binance tak connect nahi hua: {e}"
+    try:
+        data = r.json()
+    except Exception:
+        return "blocked", f"HTTP {r.status_code} — JSON nahi mila (geo/IP-block ka sanket)"
+    if r.status_code == 200 and isinstance(data, dict):
+        return "real", "Binance ne account data diya hai — ye genuine, verified login hai"
+    code = data.get("code") if isinstance(data, dict) else None
+    if code in (-2014, -2015, -1022, -2008):
+        return "failed", f"Binance ne khud reject kiya: {data.get('msg', data)}"
+    if r.status_code in (403, 451):
+        return "blocked", f"Binance ne is server-IP ko block kiya (HTTP {r.status_code}) — key valid ho sakti hai, yahan se confirm nahi ho payega"
+    return "failed", f"Binance error: {data}"
 
 # ─── Fully automated Fyers login (TOTP-based, zero user input) ────────────────
 def auto_fyers_login() -> tuple[bool, str, dict]:
@@ -2143,6 +2185,32 @@ else:
     if st.button("₿ BTC Chart Kholo (Fyers ke bina)", use_container_width=True, key="btc_only_btn"):
         st.session_state["_btc_only_mode"] = True
         st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ── Binance Real Login Verify (Server-Side, CORS-safe) ─────────────────
+    st.markdown("<hr style='border:none;border-top:1px solid #2a2e3e;margin:22px 0;'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='max-width:620px;margin:0 auto;color:#d1d4dc;font-size:1rem;font-weight:700;'>"
+        "🔒 Binance Real Login Verify (Server-Side)"
+        "</div>"
+        "<div style='max-width:620px;margin:2px auto 14px;color:#555;font-size:0.8rem;'>"
+        "Chart ke andar wala ₿ Options icon browser se verify nahi kar sakta (Binance CORS block karta hai) "
+        "— yahan Python server se seedha, reliable check hota hai"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='max-width:620px;margin:0 auto;'>", unsafe_allow_html=True)
+    _bnc_key_in = st.text_input("Binance API Key", type="password", key="bnc_verify_api_key")
+    _bnc_sec_in = st.text_input("Binance Secret Key", type="password", key="bnc_verify_secret_key")
+    if st.button("🔎 Verify Real Login", key="bnc_verify_btn"):
+        with st.spinner("Binance se seedha check ho raha hai…"):
+            _bnc_status, _bnc_msg = binance_verify_login(_bnc_key_in.strip(), _bnc_sec_in.strip())
+        if _bnc_status == "real":
+            st.success(f"🔒 REAL LOGIN — {_bnc_msg}")
+        elif _bnc_status == "blocked":
+            st.warning(f"🚫 Server-IP Blocked (key ka pata nahi) — {_bnc_msg}")
+        else:
+            st.error(f"⚠️ FAILED (galat key/secret) — {_bnc_msg}")
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Stack View 2: chunk-date picker (BankNifty + BTC) ──────────────────

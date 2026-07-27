@@ -14379,6 +14379,10 @@ function _bncRenderStatus() {
     el.textContent = 'Status: ⚠️ Login FAILED — API key/secret galat/reject, koi real account connect nahi hua (' + priceTxt + ')';
     el.classList.add('bnc-err');
     if (badge) { badge.textContent = '⚠️ FAILED'; badge.classList.add('bnc-badge-failed'); }
+  } else if (st === 'blocked') {
+    el.textContent = 'Status: 🚫 Browser se verify nahi ho sakta (Binance CORS block) — neeche "🔒 Binance Real Login Verify" wala Streamlit form use karo (' + priceTxt + ')';
+    el.classList.add('bnc-public');
+    if (badge) { badge.textContent = '🚫 UNKNOWN'; badge.classList.add('bnc-badge-public'); }
   } else if (st === 'public') {
     el.textContent = 'Status: 🌐 PUBLIC DATA ONLY — koi API key nahi diya, account login bilkul nahi hua (' + priceTxt + ')';
     el.classList.add('bnc-public');
@@ -14404,8 +14408,17 @@ async function _bncVerifyRealLogin() {
     window.__BNC.loginState = 'real';
     _bncDebug('✅ Binance ne signed request ACCEPT kiya — ye asli, authenticated account login hai.');
   } catch (e) {
-    window.__BNC.loginState = 'failed';
-    _bncDebug('❌ Binance ne signed request REJECT kiya: ' + e.message + ' — API key/secret invalid hai, koi real login nahi hua.');
+    const isCorsBlock = /Failed to fetch|NetworkError|Load failed/i.test(e.message || '');
+    if (isCorsBlock) {
+      // Ye "galat key" nahi hai — Binance browser se private/signed calls par
+      // CORS hi allow nahi karta, isliye request kabhi Binance tak pahunchi
+      // hi nahi. Real verification sirf server-side (Streamlit) se hoti hai.
+      window.__BNC.loginState = 'blocked';
+      _bncDebug('🚫 Browser se Binance tak request pahunch hi nahi payi (CORS block) — is se key ke sahi/galat hone ka pata NAHI chalta. Real check ke liye Streamlit ka "🔒 Binance Real Login Verify" form use karo.');
+    } else {
+      window.__BNC.loginState = 'failed';
+      _bncDebug('❌ Binance ne signed request REJECT kiya: ' + e.message + ' — API key/secret invalid hai, koi real login nahi hua.');
+    }
   }
   _bncRenderStatus();
 }
