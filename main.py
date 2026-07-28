@@ -274,28 +274,27 @@ def _binance_proxies():
     return {"http": proxy_url, "https": proxy_url}
 
 def binance_eapi_diagnose(api_key: str = "", secret_key: str = "") -> str:
-    """Debug helper: hits public eapi endpoints + the signed account endpoint
-    (with redirects disabled) and reports status/headers for each, so we can
-    tell apart routing/WAF issues from signing/permission/region issues."""
+    """Debug helper: hits public Spot endpoints + the signed Spot account endpoint
+    (with redirects disabled) and reports status/headers for each."""
     lines = []
     session = requests.Session()
     session.headers.update({"Accept": "application/json"})
 
     # 1) Public: server time (no auth needed)
     try:
-        t = session.get(f"{BINANCE_EAPI_BASE}/eapi/v1/time", timeout=10, allow_redirects=False)
+        t = session.get(f"{BINANCE_SAPI_BASE}/api/v3/time", timeout=10, allow_redirects=False)
         _body = (t.text or "")[:150].replace("\n", " ")
-        lines.append(f"① /eapi/v1/time → HTTP {t.status_code} | body: {_body!r}")
+        lines.append(f"① /api/v3/time → HTTP {t.status_code} | body: {_body!r}")
     except requests.exceptions.RequestException as e:
-        lines.append(f"① /eapi/v1/time → ERROR: {e}")
+        lines.append(f"① /api/v3/time → ERROR: {e}")
 
     # 2) Public: exchange info (no auth needed)
     try:
-        ei = session.get(f"{BINANCE_EAPI_BASE}/eapi/v1/exchangeInfo", timeout=10, allow_redirects=False)
+        ei = session.get(f"{BINANCE_SAPI_BASE}/api/v3/exchangeInfo", timeout=10, allow_redirects=False)
         _body = (ei.text or "")[:150].replace("\n", " ")
-        lines.append(f"② /eapi/v1/exchangeInfo → HTTP {ei.status_code} | body: {_body!r}")
+        lines.append(f"② /api/v3/exchangeInfo → HTTP {ei.status_code} | body: {_body!r}")
     except requests.exceptions.RequestException as e:
-        lines.append(f"② /eapi/v1/exchangeInfo → ERROR: {e}")
+        lines.append(f"② /api/v3/exchangeInfo → ERROR: {e}")
 
     # 3) Signed: account (only if key/secret given)
     if api_key and secret_key:
@@ -304,7 +303,7 @@ def binance_eapi_diagnose(api_key: str = "", secret_key: str = "") -> str:
             qs = f"timestamp={ts}&recvWindow=5000"
             sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
             r = session.get(
-                f"{BINANCE_EAPI_BASE}/eapi/v1/account?{qs}&signature={sig}",
+                f"{BINANCE_SAPI_BASE}/api/v3/account?{qs}&signature={sig}",
                 headers={"X-MBX-APIKEY": api_key},
                 timeout=10,
                 allow_redirects=False,
@@ -313,23 +312,28 @@ def binance_eapi_diagnose(api_key: str = "", secret_key: str = "") -> str:
             _hdrs = {k: v for k, v in r.headers.items() if k.lower() in (
                 "server", "content-type", "location", "cf-ray", "x-mbx-uuid"
             )}
-            lines.append(f"③ /eapi/v1/account (signed) → HTTP {r.status_code} | headers: {_hdrs} | body: {_body!r}")
+            lines.append(f"③ /api/v3/account (signed) → HTTP {r.status_code} | headers: {_hdrs} | body: {_body!r}")
         except requests.exceptions.RequestException as e:
-            lines.append(f"③ /eapi/v1/account (signed) → ERROR: {e}")
+            lines.append(f"③ /api/v3/account (signed) → ERROR: {e}")
     else:
-        lines.append("③ /eapi/v1/account (signed) → skipped (key/secret nahi diya)")
+        lines.append("③ /api/v3/account (signed) → skipped (key/secret nahi diya)")
 
     return "\n\n".join(lines)
 
 
+BINANCE_SAPI_BASE = "https://api.binance.com"
+
 def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
-    """Server-side signed call to Binance to verify real account login. Returns (status, message)."""
+    """Server-side signed call to Binance SPOT account endpoint to verify real
+    account login. Uses api.binance.com (Spot) instead of eapi.binance.com
+    (Options) because Options is region-locked (HTTP 451) even with valid
+    read-only keys — Spot only needs 'Enable Reading' permission."""
     if not api_key or not secret_key:
         return "failed", "API Key ya Secret Key khaali hai"
     ts = int(time.time() * 1000)
     qs = f"timestamp={ts}&recvWindow=5000"
     sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
-    url = f"{BINANCE_EAPI_BASE}/eapi/v1/account?{qs}&signature={sig}"
+    url = f"{BINANCE_SAPI_BASE}/api/v3/account?{qs}&signature={sig}"
     try:
         r = requests.get(
             url,
@@ -356,7 +360,7 @@ def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
             f"Response body (debug): {_snippet!r}"
         )
     if r.status_code == 200 and isinstance(data, dict):
-        return "real", "Binance ne account data diya hai — ye genuine, verified login hai"
+        return "real", "Binance ne Spot account data diya hai — ye genuine, verified login hai"
     code = data.get("code") if isinstance(data, dict) else None
     if code in (-2014, -2015, -1022, -2008):
         return "failed", f"Binance ne khud reject kiya: {data.get('msg', data)}"
