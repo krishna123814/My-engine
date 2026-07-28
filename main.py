@@ -273,6 +273,55 @@ def _binance_proxies():
         return None
     return {"http": proxy_url, "https": proxy_url}
 
+def binance_eapi_diagnose(api_key: str = "", secret_key: str = "") -> str:
+    """Debug helper: hits public eapi endpoints + the signed account endpoint
+    (with redirects disabled) and reports status/headers for each, so we can
+    tell apart routing/WAF issues from signing/permission/region issues."""
+    lines = []
+    session = requests.Session()
+    session.headers.update({"Accept": "application/json"})
+
+    # 1) Public: server time (no auth needed)
+    try:
+        t = session.get(f"{BINANCE_EAPI_BASE}/eapi/v1/time", timeout=10, allow_redirects=False)
+        _body = (t.text or "")[:150].replace("\n", " ")
+        lines.append(f"① /eapi/v1/time → HTTP {t.status_code} | body: {_body!r}")
+    except requests.exceptions.RequestException as e:
+        lines.append(f"① /eapi/v1/time → ERROR: {e}")
+
+    # 2) Public: exchange info (no auth needed)
+    try:
+        ei = session.get(f"{BINANCE_EAPI_BASE}/eapi/v1/exchangeInfo", timeout=10, allow_redirects=False)
+        _body = (ei.text or "")[:150].replace("\n", " ")
+        lines.append(f"② /eapi/v1/exchangeInfo → HTTP {ei.status_code} | body: {_body!r}")
+    except requests.exceptions.RequestException as e:
+        lines.append(f"② /eapi/v1/exchangeInfo → ERROR: {e}")
+
+    # 3) Signed: account (only if key/secret given)
+    if api_key and secret_key:
+        try:
+            ts = int(time.time() * 1000)
+            qs = f"timestamp={ts}&recvWindow=5000"
+            sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
+            r = session.get(
+                f"{BINANCE_EAPI_BASE}/eapi/v1/account?{qs}&signature={sig}",
+                headers={"X-MBX-APIKEY": api_key},
+                timeout=10,
+                allow_redirects=False,
+            )
+            _body = (r.text or "")[:200].replace("\n", " ")
+            _hdrs = {k: v for k, v in r.headers.items() if k.lower() in (
+                "server", "content-type", "location", "cf-ray", "x-mbx-uuid"
+            )}
+            lines.append(f"③ /eapi/v1/account (signed) → HTTP {r.status_code} | headers: {_hdrs} | body: {_body!r}")
+        except requests.exceptions.RequestException as e:
+            lines.append(f"③ /eapi/v1/account (signed) → ERROR: {e}")
+    else:
+        lines.append("③ /eapi/v1/account (signed) → skipped (key/secret nahi diya)")
+
+    return "\n\n".join(lines)
+
+
 def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
     """Server-side signed call to Binance to verify real account login. Returns (status, message)."""
     if not api_key or not secret_key:
@@ -284,7 +333,15 @@ def binance_verify_login(api_key: str, secret_key: str) -> tuple[str, str]:
     try:
         r = requests.get(
             url,
-            headers={"X-MBX-APIKEY": api_key},
+            headers={
+                "X-MBX-APIKEY": api_key,
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json",
+            },
             proxies=_binance_proxies(),
             timeout=10,
         )
@@ -2250,6 +2307,10 @@ else:
             st.warning(f"🚫 Server-IP Blocked (key ka pata nahi) — {_bnc_msg}")
         else:
             st.error(f"⚠️ FAILED (galat key/secret) — {_bnc_msg}")
+    if st.button("🔧 Debug Test (public + signed endpoints)", key="bnc_debug_btn"):
+        with st.spinner("Diagnostic chal raha hai…"):
+            _diag = binance_eapi_diagnose(_bnc_key_in.strip(), _bnc_sec_in.strip())
+        st.code(_diag, language=None)
     st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Stack View 2: chunk-date picker (BankNifty + BTC) ──────────────────
