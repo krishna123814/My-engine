@@ -643,7 +643,8 @@ def _sv2_resample_bn_daily(rows: list, n_days: int = 1) -> list:
 def _sv2_resample_btc(rows: list, tf_min: int) -> list:
     """BTC 5m data ko UTC-anchored TF mein resample karo (24/7 crypto).
 
-    NOTE: sirf 160m/8H (intraday, tf_min < 1440) ke liye use karo. Daily+
+    NOTE: sirf 8H (intraday, tf_min < 1440) ke liye use karo (160m band kar
+    diya gaya hai). Daily+
     (1D/3D/9D/27D) ke liye _sv2_resample_btc_daily() use karo — wo epoch
     (1970) anchor ki jagah data ke apne Day-1 se index-based chunking
     karta hai, jisse 3D/9D/27D hamesha same date se sync start hote hain.
@@ -735,15 +736,17 @@ _SV2_MAX_BN_DEFAULT = {
     "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
 }
 _SV2_MAX_BTC_DEFAULT = {
-    "5m_raw": 64000, "160m": 2000, "8H": 2000,
-    "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
+    # 160m removed (no longer used); 8H/1D/3D/9D/27D are now FULL-HISTORY
+    # (no chunking/trim) for BTC — see _build_sv2_data(). Only 5m_raw (used
+    # for forming-candle interpolation smoothness) is still size-limited.
+    "5m_raw": 64000,
 }
 # Safe min/max bounds per label — user chahe jitna bhi likhe, isi range mein
 # clamp ho jaayega (mobile hang / bahut kam data dono se bachne ke liye).
 _SV2_MAX_BOUNDS = {
     "1m_raw": (500, 60000), "5m": (200, 20000), "15m": (200, 10000),
     "45m": (100, 8000), "135m": (100, 8000),
-    "5m_raw": (500, 120000), "160m": (100, 8000), "8H": (100, 8000),
+    "5m_raw": (500, 120000),
     "1D": (100, 6000), "3D": (50, 4000), "9D": (30, 2000), "27D": (20, 1000),
 }
 
@@ -881,7 +884,6 @@ def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
         }
         _SV2_CACHE["btc_tfs_full"] = {
             "5m_raw": _sv2_resample_btc(btc_raw, 5),
-            "160m": _sv2_resample_btc(btc_raw, 160),
             "8H":   _sv2_resample_btc(btc_raw, 480),
             "1D":   _sv2_resample_btc_daily(btc_raw, 1),
             "3D":   _sv2_resample_btc_daily(btc_raw, 3),
@@ -891,9 +893,14 @@ def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
 
     bn_tfs  = _SV2_CACHE["bn_tfs_full"]
     btc_tfs = _SV2_CACHE["btc_tfs_full"]
+    # BTC: 8H/1D/3D/9D/27D ab chunk/trim NAHI hote — poori history jaati hai
+    # as-is (bade TFs hain, candle-count kam hoti hai, phone hang nahi karta).
+    # Sirf "5m_raw" (forming-candle interpolation ke liye) trimmed rehta hai,
+    # kyunki wo bahut bada array hota (~1M candles) agar poora bheja jaaye.
     agg = {
-        "bn":  {k: _sv2_trim(v, k, bn_anchor,  "bn")  for k, v in bn_tfs.items()},
-        "btc": {k: _sv2_trim(v, k, btc_anchor, "btc") for k, v in btc_tfs.items()},
+        "bn":  {k: _sv2_trim(v, k, bn_anchor, "bn") for k, v in bn_tfs.items()},
+        "btc": {k: (_sv2_trim(v, k, btc_anchor, "btc") if k == "5m_raw" else v)
+                for k, v in btc_tfs.items()},
     }
     return agg
 
@@ -1748,7 +1755,7 @@ def _build_chart_html(
     _sv2_all_placeholders = [
         "__SV2_BN_1M_RAW__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
         "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
-        "__SV2_BTC_5M_RAW__","__SV2_BTC_160M__","__SV2_BTC_8H__","__SV2_BTC_1D__",
+        "__SV2_BTC_5M_RAW__","__SV2_BTC_8H__","__SV2_BTC_1D__",
         "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__",
     ]
     _sv2_err_msg = ""
@@ -1789,7 +1796,6 @@ def _build_chart_html(
             html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
             html = html.replace("__SV2_BN_27D__",  _sv2_to_js(_bn["27D"]))
             html = html.replace("__SV2_BTC_5M_RAW__", _sv2_to_js(_btc["5m_raw"]))
-            html = html.replace("__SV2_BTC_160M__", _sv2_to_js(_btc["160m"]))
             html = html.replace("__SV2_BTC_8H__",   _sv2_to_js(_btc["8H"]))
             html = html.replace("__SV2_BTC_1D__",   _sv2_to_js(_btc["1D"]))
             html = html.replace("__SV2_BTC_3D__",   _sv2_to_js(_btc["3D"]))

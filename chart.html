@@ -4456,9 +4456,10 @@ const BN_45M      = __BN_45M__;
 const BN_DAILY    = __BN_DAILY__;
 
 // ── Stack View 2: pre-resampled data from .gz files (injected by Python) ────
-// BN: 5m, 15m, 45m, 135m, 1D, 3D, 9D, 27D  |  BTC: 160m, 8H, 1D, 3D, 9D, 27D
+// BN: 5m, 15m, 45m, 135m, 1D, 3D, 9D, 27D  |  BTC: 8H, 1D, 3D, 9D, 27D (160m removed)
 // Each value is an array of {time,open,high,low,close} objects (LWC format).
-// Chunks of last ~3000 candles per TF so mobile doesn't hang.
+// BN TFs chunked (~last N candles) so mobile doesn't hang; BTC's 8H/1D/3D/9D/27D
+// are now sent FULL-HISTORY, untrimmed (bigger TFs = fewer candles, no hang risk).
 const SV2_BN = {
   '1m_raw': __SV2_BN_1M_RAW__,
   '5m':   __SV2_BN_5M__,
@@ -4530,7 +4531,6 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
 
 const SV2_BTC = {
   '5m_raw': __SV2_BTC_5M_RAW__,
-  '160m': __SV2_BTC_160M__,
   '8H':   __SV2_BTC_8H__,
   '1D':   __SV2_BTC_1D__,
   '3D':   __SV2_BTC_3D__,
@@ -4554,15 +4554,16 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 //         1D/3D/9D/27D ka bhi FULL-HISTORY pre-resampled data maujood hai
 //         (SV2_BN['1D']/['3D']/['9D']/['27D'] — backend main.py se
 //         already inject hote hain), isliye ye bhi valid base options hain.
-//   BTC → 160m ke saath-saath 8H/1D/3D/9D/27D ka bhi full-history data
-//         maujood hai (SV2_BTC['8H']/['1D']/['3D']/['9D']/['27D']).
+//   BTC → 160m hata diya gaya hai (concept khatam). 8H/1D/3D/9D/27D ka
+//         full-history data maujood hai (SV2_BTC['8H']/['1D']/['3D']/
+//         ['9D']/['27D']), bina kisi chunking/trim ke.
 const _SV2_BASE_TF_OPTIONS = {
   bn:  ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
-  btc: ['160m', '8H', '1D', '3D', '9D', '27D'],
+  btc: ['8H', '1D', '3D', '9D', '27D'],
 };
 // Har TF (base ho ya na ho) ke minutes — close-watch list banane ke liye.
 const _TF_ALL_MIN_BN  = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
-const _TF_ALL_MIN_BTC = [160, 480, 1440, 4320, 12960, 38880];
+const _TF_ALL_MIN_BTC = [480, 1440, 4320, 12960, 38880];
 
 const _SV2_BASE_TF_KEY = 'sv2BaseTf1';
 function _sv2LoadBaseTfCfg() {
@@ -4573,13 +4574,13 @@ function _sv2LoadBaseTfCfg() {
       if (o && _SV2_BASE_TF_OPTIONS.bn.indexOf(o.bn) !== -1 && _SV2_BASE_TF_OPTIONS.btc.indexOf(o.btc) !== -1) return o;
     }
   } catch(_) {}
-  return { bn: '5m', btc: '160m' };   // defaults — same as the old hardcoded behaviour
+  return { bn: '5m', btc: '8H' };   // defaults — 160m removed, 8H ab BTC ka smallest/base TF hai
 }
 function _sv2SaveBaseTfCfg(o) { try { _LS.setItem(_SV2_BASE_TF_KEY, JSON.stringify(o)); } catch(_) {} }
 let _sv2BaseTfCfg = _sv2LoadBaseTfCfg();
 
-function _sv2GetBaseTF(isBN) { return isBN ? (_sv2BaseTfCfg.bn || '5m') : (_sv2BaseTfCfg.btc || '160m'); }
-function _sv2BaseTfMin(isBN) { return _parseTFMin(_sv2GetBaseTF(isBN)) || (isBN ? 5 : 160); }
+function _sv2GetBaseTF(isBN) { return isBN ? (_sv2BaseTfCfg.bn || '5m') : (_sv2BaseTfCfg.btc || '8H'); }
+function _sv2BaseTfMin(isBN) { return _parseTFMin(_sv2GetBaseTF(isBN)) || (isBN ? 5 : 480); }
 function _sv2BaseTfSec(isBN) { return _sv2BaseTfMin(isBN) * 60; }
 function _sv2SetBaseTF(isBN, label) {
   var opts = isBN ? _SV2_BASE_TF_OPTIONS.bn : _SV2_BASE_TF_OPTIONS.btc;
@@ -6204,10 +6205,10 @@ _stack2OnOff = _loadStack2OnOff();
 function _stack2DefaultCfg() {
   return {
     btc: {
-      total:   6,
+      total:   5,
       visible: 4,
       step:    1,
-      tfs: ['160m', '8H', '1D', '3D', '9D', '27D'],
+      tfs: ['8H', '1D', '3D', '9D', '27D'],
     },
     bn: {
       total:   8,
@@ -8930,7 +8931,7 @@ function ss2ApplyAndClose() {
     if (opts.length <= 1) {
       var note = document.createElement('div');
       note.style.cssText = 'font-size:9px;color:#4a5068;padding:4px 2px;';
-      note.textContent = 'BTC ke liye abhi sirf 160m base available hai (backend mein aur granularity resample karke isme aur options add ho sakte hain).';
+      note.textContent = 'Base TF ke liye abhi sirf ek hi option available hai.';
       box.appendChild(note);
     }
   }
@@ -11843,10 +11844,10 @@ if (document.readyState === 'loading') {
 //                    bar individually check hota hai, koi bhi transition
 //                    skip nahi hota — fast/auto replay mein bhi sahi rehta hai.
 const _TF_CLOSE_WATCH_BN   = [15, 45, 135, 1440, 4320, 12960, 38880]; // 15m,45m,135m,1D,3D,9D,27D (5m base excluded)
-const _TF_CLOSE_WATCH_BTC  = [480, 1440, 4320, 12960, 38880];         // 8H,1D,3D,9D,27D (160m base excluded)
+const _TF_CLOSE_WATCH_BTC  = [480, 1440, 4320, 12960, 38880];         // 8H,1D,3D,9D,27D (default base=8H excluded)
 const _TF_CLOSE_DISPLAY_MS = 15000;  // close ke baad kitni real der tak dikhna hai
 const _TF_BASE_SEC_BN      = 300;    // BankNifty base candle = 5m
-const _TF_BASE_SEC_BTC     = 9600;   // BTC base candle = 160m
+const _TF_BASE_SEC_BTC     = 28800;  // BTC base candle = 8H (160m removed)
 let _tfCloseState = {
   sv1: { lastBucket: {}, recent: [] },
   sv2: { lastBucket: {}, recent: [] }
@@ -14014,12 +14015,11 @@ function closeOverlaySetting() {
 const _CS_LABELS = {
   bn:  { "1m_raw":"1 Min",  "5m":"5 Min",  "15m":"15 Min", "45m":"45 Min", "135m":"135 Min",
          "1D":"1 Day", "3D":"3 Day", "9D":"9 Day", "27D":"27 Day" },
-  btc: { "5m_raw":"5 Min",  "160m":"160 Min", "8H":"8 Hour",
-         "1D":"1 Day", "3D":"3 Day", "9D":"9 Day", "27D":"27 Day" },
+  btc: { "5m_raw":"5 Min" },   // 8H/1D/3D/9D/27D ab full-history hain, chunk-settings mein nahi dikhte
 };
 const _CS_STEP = {
   "1m_raw":1000, "5m":500, "15m":250, "45m":100, "135m":100,
-  "5m_raw":2000, "160m":100, "8H":100,
+  "5m_raw":2000,
   "1D":100, "3D":50, "9D":25, "27D":10,
 };
 
@@ -17813,7 +17813,6 @@ function _sv2ApplyPreset(presetName) {
       { min: 38880, label: '27D',  enabled: true, swingColor: '#ffeb3b', candleColor: '#ffeb3b' },
     ],
     BTC: [
-      { min: 160,   label: '160m', enabled: true, swingColor: '#9c27b0', candleColor: '#9c27b0' },
       { min: 480,   label: '8H',   enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
       { min: 1440,  label: '1D',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
       { min: 4320,  label: '3D',   enabled: true, swingColor: '#4caf50', candleColor: '#4caf50' },
