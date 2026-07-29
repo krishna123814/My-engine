@@ -2,7 +2,6 @@ import io
 import json
 import os
 import time
-import hmac
 import threading
 import hashlib
 import zipfile
@@ -11,7 +10,6 @@ import pyotp
 import streamlit as st
 import streamlit.components.v1 as components
 import datetime
-from urllib.parse import urlencode
 
 # ─── Fast2SMS API key (hardcoded) ────────────────────────────────────────────
 FAST2SMS_KEY = "TnrcsN4L3xpA8RVeG5dq1KhtWOiSEo7YyPFmlCIQHfjgavMwbU9iH7wDM2yjE5hkrROt06eBboJVa8u1"
@@ -57,22 +55,6 @@ DEFAULT_SECRET    = "RWKTJYZ2YI"
 DEFAULT_CLIENT_ID = "FAJ86844"
 DEFAULT_PASSWORD  = "2552"
 REDIRECT_URI      = "https://www.google.com"
-
-# ─── Binance API credentials ───────────────────────────────────────────────────
-# Priority: .streamlit/secrets.toml (safe, git-ignored) > yahan hardcoded default
-def _load_binance_defaults() -> tuple[str, str]:
-    try:
-        return (
-            st.secrets.get("BINANCE_API_KEY", ""),
-            st.secrets.get("BINANCE_SECRET_KEY", ""),
-        )
-    except Exception:
-        return "", ""
-
-_BN_SECRET_API_KEY, _BN_SECRET_SECRET_KEY = _load_binance_defaults()
-
-DEFAULT_BINANCE_API_KEY    = _BN_SECRET_API_KEY    or ""   # <-- fallback: yahan apni Binance API Key paste karo
-DEFAULT_BINANCE_SECRET_KEY = _BN_SECRET_SECRET_KEY or ""   # <-- fallback: yahan apni Binance Secret Key paste karo
 
 # ─── Global live-tick store (updated by WebSocket thread) ─────────────────────
 _LIVE: dict = {
@@ -129,105 +111,6 @@ def load_creds() -> dict:
 def save_creds(d: dict):
     with open(CREDS_FILE, "w") as f:
         json.dump(d, f)
-
-# ─── Binance read-only login + balance fetch ──────────────────────────────────
-BINANCE_BASE_URL = "https://api.binance.com"
-
-
-def binance_get_server_time() -> int:
-    """Binance server time — timestamp sync se -1021 error kam aata hai."""
-    try:
-        r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
-        return r.json().get("serverTime", int(time.time() * 1000))
-    except Exception:
-        return int(time.time() * 1000)
-
-
-def binance_generate_signature(query_string: str, secret_key: str) -> str:
-    return hmac.new(
-        secret_key.encode("utf-8"),
-        query_string.encode("utf-8"),
-        hashlib.sha256
-    ).hexdigest()
-
-
-def binance_send_signed_request(http_method: str, url_path: str, payload: dict, api_key: str, secret_key: str):
-    """Signed request Binance API ko — read-only account info ke liye."""
-    payload = dict(payload)
-    payload["timestamp"] = binance_get_server_time()
-    query_string = urlencode(payload, doseq=True)
-    signature = binance_generate_signature(query_string, secret_key)
-    full_query_string = f"{query_string}&signature={signature}"
-    url = f"{BINANCE_BASE_URL}{url_path}?{full_query_string}"
-
-    headers = {"X-MBX-APIKEY": api_key}
-
-    try:
-        response = requests.request(http_method, url, headers=headers, timeout=15)
-
-        try:
-            data = response.json()
-        except ValueError:
-            data = {
-                "code": response.status_code,
-                "msg": f"Non-JSON response from Binance: {response.text}"
-            }
-
-        if response.status_code != 200:
-            return {"success": False, "status_code": response.status_code, "error": data}
-
-        return {"success": True, "data": data}
-
-    except requests.exceptions.Timeout:
-        return {"success": False, "error": {"code": "TIMEOUT", "msg": "Request timed out while connecting to Binance."}}
-
-    except requests.exceptions.ConnectionError:
-        return {"success": False, "error": {"code": "CONNECTION_ERROR", "msg": "Could not connect to Binance. Check internet or Binance availability."}}
-
-    except requests.exceptions.RequestException as e:
-        return {"success": False, "error": {"code": "REQUEST_EXCEPTION", "msg": str(e)}}
-
-    except Exception as e:
-        return {"success": False, "error": {"code": "UNKNOWN_ERROR", "msg": str(e)}}
-
-
-def binance_get_account_info(api_key: str, secret_key: str):
-    return binance_send_signed_request("GET", "/api/v3/account", {}, api_key, secret_key)
-
-
-def binance_format_balances(account_data: dict):
-    balances = account_data.get("balances", [])
-    non_zero = []
-
-    for item in balances:
-        free_amt = float(item["free"])
-        locked_amt = float(item["locked"])
-        total_amt = free_amt + locked_amt
-
-        if total_amt > 0:
-            non_zero.append({
-                "asset": item["asset"],
-                "free": free_amt,
-                "locked": locked_amt,
-                "total": total_amt
-            })
-
-    non_zero.sort(key=lambda x: x["total"], reverse=True)
-    return non_zero
-
-
-def binance_explain_error(code, msg: str) -> str:
-    error_map = {
-        -2015: "Invalid API key, wrong IP whitelist, ya READ permission missing hai.",
-        -1022: "Request signature invalid hai. Secret key galat ho sakti hai.",
-        -1021: "System time Binance server se mismatch kar raha hai.",
-        -2014: "API key format invalid hai.",
-        -1003: "Bahut zyada requests ho gayi. Thoda ruk kar try karo.",
-        401: "Unauthorized request.",
-        403: "Forbidden request. IP restriction ya permission issue ho sakta hai.",
-        429: "Rate limit exceed ho gaya.",
-    }
-    return error_map.get(code, f"Unhandled Binance error: {msg}")
 
 # ─── OTP-based automated Fyers login ──────────────────────────────────────────
 def fyers_send_otp(client_id: str, app_id: str) -> tuple[bool, str]:
@@ -2221,74 +2104,6 @@ else:
                     st.code(json.dumps(_resp_u, indent=2), language="json")
         else:
             st.warning("URL ya auth_code paste karo pehle")
-
-    st.markdown('''</div>''', unsafe_allow_html=True)
-
-    # ── Binance Login (read-only) + Balance Fetch ──────────────────────────────
-    if "binance_logged_in" not in st.session_state:
-        st.session_state["binance_logged_in"] = False
-
-    st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
-    st.markdown('''<div class="login-title">💰 Binance Login (Read-Only)</div>''', unsafe_allow_html=True)
-    st.markdown(
-        '''<div class="login-sub">API Key + Secret Key daalo — sirf balance fetch hoga (read-only, koi trade/withdraw nahi)</div>''',
-        unsafe_allow_html=True,
-    )
-
-    with st.form("binance_login_form"):
-        _bn_api_key = st.text_input("Binance API Key", value=DEFAULT_BINANCE_API_KEY, type="password", key="bn_api_key_inp")
-        _bn_secret_key = st.text_input("Binance Secret Key", value=DEFAULT_BINANCE_SECRET_KEY, type="password", key="bn_secret_key_inp")
-        _bn_submitted = st.form_submit_button("🔑 Login & Fetch Balance", type="primary", use_container_width=True)
-
-    # Agar upar constants me apni key/secret already daal rakhi hai, to page load
-    # hote hi ek baar khud-ba-khud balance fetch ho jayega — form bharne ki zarurat nahi.
-    if (
-        DEFAULT_BINANCE_API_KEY and DEFAULT_BINANCE_SECRET_KEY
-        and not st.session_state.get("binance_logged_in")
-        and not st.session_state.get("_binance_auto_tried")
-    ):
-        st.session_state["_binance_auto_tried"] = True
-        _bn_submitted = True
-        _bn_api_key = DEFAULT_BINANCE_API_KEY
-        _bn_secret_key = DEFAULT_BINANCE_SECRET_KEY
-
-    if _bn_submitted:
-        if not _bn_api_key or not _bn_secret_key:
-            st.error("Please enter both API Key and Secret Key.")
-        else:
-            with st.spinner("Connecting to Binance and fetching balances..."):
-                _bn_result = binance_get_account_info(_bn_api_key, _bn_secret_key)
-
-            if _bn_result["success"]:
-                _bn_account_data = _bn_result["data"]
-                st.session_state["binance_logged_in"] = True
-                st.session_state["binance_api_key"] = _bn_api_key
-                st.session_state["binance_secret_key"] = _bn_secret_key
-                st.session_state["binance_account_data"] = _bn_account_data
-                st.success("✅ Login successful. Balance fetched successfully.")
-            else:
-                st.session_state["binance_logged_in"] = False
-                _bn_error = _bn_result.get("error", {})
-                _bn_code = _bn_error.get("code", "UNKNOWN")
-                _bn_msg = _bn_error.get("msg", "Unknown error")
-                st.error(f"❌ Failed to fetch balance.\n\nError Code: {_bn_code}\nMessage: {_bn_msg}")
-                st.warning(binance_explain_error(_bn_code, _bn_msg))
-
-    if st.session_state.get("binance_logged_in") and st.session_state.get("binance_account_data"):
-        _bn_account_data = st.session_state["binance_account_data"]
-        _bn_balances = binance_format_balances(_bn_account_data)
-
-        st.markdown("**Account Info**")
-        st.write(f"Can Trade: {_bn_account_data.get('canTrade')}")
-        st.write(f"Can Withdraw: {_bn_account_data.get('canWithdraw')}")
-        st.write(f"Can Deposit: {_bn_account_data.get('canDeposit')}")
-        st.write(f"Account Type: {_bn_account_data.get('accountType', 'N/A')}")
-
-        st.markdown("**Non-Zero Balances**")
-        if _bn_balances:
-            st.dataframe(_bn_balances, use_container_width=True)
-        else:
-            st.info("No non-zero balances found.")
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
