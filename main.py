@@ -1505,6 +1505,20 @@ if _qp.get("sv2_chunk_trigger") == "1":
         st.session_state.pop("_sv2_max_eff_btc", None)
     st.rerun()
 
+# Handler 3b: SV2 in-chart calendar's lazy-load fallback (safety net —
+# normally not needed anymore since SV2 data is now always pre-requested
+# before the chart renders, see below near `_btc_only`). Agar phir bhi
+# JS side se ye trigger ho (purana cached chart.html, ya koi aur edge
+# case), to isse properly handle karo taaki app sach me "restart" na ho
+# jaaye — bas data request kar ke turant chart wapas dikha do.
+if _qp.get("sv2_load") == "1":
+    st.query_params.clear()
+    st.session_state.setdefault("_sv2_anchor_date_bn", _sv2_default_date("bn"))
+    st.session_state["_sv2_anchor_date_btc"] = None
+    st.session_state["_sv2_data_requested"]  = True
+    st.session_state["_btc_only_mode"] = True
+    st.rerun()
+
 # Handler 4: SV2 chunk / candle-count settings — Reset to default
 if _qp.get("sv2_chunk_reset") == "1":
     st.query_params.clear()
@@ -1867,6 +1881,18 @@ st.markdown("## 📊 BankNifty Live Chart")
 # ── BTC-only mode (no Fyers needed) ──────────────────────────────────────────
 _btc_only = st.session_state.get("_btc_only_mode", False)
 
+# Chart render hone se pehle SV2 data hamesha "requested" hona chahiye —
+# chahe Fyers login se aaye ho ya BTC-only button se. Warna in-chart
+# Stack View 2 calendar (📅) se date select karte waqt JS ko
+# _sv2DataIsLoaded()==false milta hai aur wo ek broken full-page reload
+# try karta hai (window.parent form-submit) jo poori app ko "restart"
+# jaisa dikha deta hai. Yahan pehle hi default anchor set karke us bug
+# ko root se khatam kar diya.
+if (sess_active or _btc_only) and not st.session_state.get("_sv2_data_requested"):
+    st.session_state.setdefault("_sv2_anchor_date_bn",  _sv2_default_date("bn"))
+    st.session_state["_sv2_anchor_date_btc"] = None
+    st.session_state["_sv2_data_requested"]  = True
+
 if sess_active or _btc_only:
     if sess_active:
         st.success("✅ Fyers connected — live data active")
@@ -1876,24 +1902,16 @@ if sess_active or _btc_only:
     # ── Stack View 2 chunk-date re-selector (Fyers login wale users ke
     # liye bhi — starting screen wala picker sirf login-less flow mein
     # dikhta hai, isliye yahan bhi wahi option chhota expander mein) ───────
-    with st.expander("📅 Stack View 2 — Chunk Date badlo (BankNifty / BTC)"):
-        _sv2_ecol_bn, _sv2_ecol_btc = st.columns(2)
-        with _sv2_ecol_bn:
-            _sv2_e_bn = st.date_input(
-                "BankNifty chunk date",
-                value=_sv2_default_date("bn"),
-                key="sv2_bn_date_inp_2",
-            )
-        with _sv2_ecol_btc:
-            _sv2_e_btc = st.date_input(
-                "BTC chunk date",
-                value=_sv2_default_date("btc"),
-                key="sv2_btc_date_inp_2",
-            )
-        _sv2_remember_dates(_sv2_e_bn, _sv2_e_btc)
+    with st.expander("📅 Stack View 2 — Chunk Date badlo (BankNifty)"):
+        _sv2_e_bn = st.date_input(
+            "BankNifty chunk date",
+            value=_sv2_default_date("bn"),
+            key="sv2_bn_date_inp_2",
+        )
+        _sv2_remember_dates(_sv2_e_bn, None)
         if st.button("🔄 Is Date Ka Chunk Load Karo", key="sv2_chunk_reload_btn"):
             st.session_state["_sv2_anchor_date_bn"]  = _sv2_e_bn
-            st.session_state["_sv2_anchor_date_btc"] = _sv2_e_btc
+            st.session_state["_sv2_anchor_date_btc"] = None
             st.session_state["_sv2_data_requested"]  = True
             st.rerun()
 
@@ -2147,45 +2165,47 @@ else:
 
     st.markdown("<div style='max-width:620px;margin:10px auto 0;'>", unsafe_allow_html=True)
     if st.button("₿ BTC Chart Kholo (Fyers ke bina)", use_container_width=True, key="btc_only_btn"):
+        # BTC ka chunk system khatam ho chuka hai (koi date-anchor nahi
+        # chahiye), lekin SV2 data (BN + BTC dono) turant "requested" mark
+        # karna zaroori hai — warna in-chart calendar (Stack View 2) se date
+        # select karte waqt _sv2DataIsLoaded() false milta hai aur JS ek
+        # broken full-page reload try karta hai jo poori app ko restart
+        # jaisa dikhaata hai. Isliye yahin se hi data load kara do.
+        st.session_state["_sv2_anchor_date_bn"]  = _sv2_default_date("bn")
+        st.session_state["_sv2_anchor_date_btc"] = None
+        st.session_state["_sv2_data_requested"]  = True
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # ── Stack View 2: chunk-date picker (BankNifty + BTC) ──────────────────
-    # Yahi date decide karti hai ki GitHub se konsa "chunk" (date ke aas-paas
-    # ka data window) fetch/embed hoga — jab tak yahan se "Chart Kholo" na
-    # dabao, GitHub se koi data fetch hi nahi hota (dono asset ke liye).
+    # ── Stack View 2: chunk-date picker (sirf BankNifty ke liye) ───────────
+    # BTC ka chunk-date system hata diya gaya hai (BTC ab hamesha latest/
+    # full-history data leta hai, bina kisi date-anchor ke) — isliye yahan
+    # sirf BankNifty ke liye date chunayi jaati hai. Jab tak "Chart Kholo"
+    # na dabao, GitHub se koi data fetch hi nahi hota.
     st.markdown("<hr style='border:none;border-top:1px solid #2a2e3e;margin:22px 0;'>", unsafe_allow_html=True)
     st.markdown(
         "<div style='max-width:620px;margin:0 auto;color:#d1d4dc;font-size:1rem;font-weight:700;'>"
-        "📅 Stack View 2 — Bar Replay Chunk Date"
+        "📅 Stack View 2 — Bar Replay Chunk Date (BankNifty)"
         "</div>"
         "<div style='max-width:620px;margin:2px auto 14px;color:#555;font-size:0.8rem;'>"
         "Jis date se replay dekhna hai wo chuno — sirf usi date ke aas-paas ka data load hoga"
         "</div>",
         unsafe_allow_html=True,
     )
-    _sv2_col_bn, _sv2_col_btc = st.columns(2)
-    with _sv2_col_bn:
-        _sv2_bn_date_pick = st.date_input(
-            "BankNifty chunk date",
-            value=_sv2_default_date("bn"),
-            key="sv2_bn_date_inp",
-        )
-    with _sv2_col_btc:
-        _sv2_btc_date_pick = st.date_input(
-            "BTC chunk date",
-            value=_sv2_default_date("btc"),
-            key="sv2_btc_date_inp",
-        )
+    _sv2_bn_date_pick = st.date_input(
+        "BankNifty chunk date",
+        value=_sv2_default_date("bn"),
+        key="sv2_bn_date_inp",
+    )
     # Jo bhi date yahan select ho, turant disk pe yaad rakh lo — agli baar
     # (naya session/refresh) yahi date pehle se field mein fill milegi,
     # bina "Chart Kholo" dabaye bhi. Load abhi bhi sirf button se hi hota hai.
-    _sv2_remember_dates(_sv2_bn_date_pick, _sv2_btc_date_pick)
+    _sv2_remember_dates(_sv2_bn_date_pick, None)
     st.markdown("<div style='max-width:620px;margin:6px auto 0;'>", unsafe_allow_html=True)
     if st.button("📊 Chart Kholo (Chunk Date Se)", use_container_width=True, type="primary", key="sv2_chunk_load_btn"):
         st.session_state["_sv2_anchor_date_bn"]  = _sv2_bn_date_pick
-        st.session_state["_sv2_anchor_date_btc"] = _sv2_btc_date_pick
+        st.session_state["_sv2_anchor_date_btc"] = None
         st.session_state["_sv2_data_requested"]  = True
         st.session_state["_btc_only_mode"] = True
         st.rerun()
