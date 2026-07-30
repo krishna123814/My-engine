@@ -1319,54 +1319,6 @@ def _bn_history_handler_data(resolution: str, from_date: str, to_date: str) -> d
     return {"candles": converted, "cached": False}
 
 
-# ─── Binance BTC Options proxy — server-side fetch, no CORS issue ─────────────
-# Browser -> eapi.binance.com direct fetch gets blocked by CORS (Binance eapi
-# doesn't send Access-Control-Allow-Origin for browser origins). Python's
-# `requests` isn't subject to CORS (browser-only restriction), so we fetch
-# here server-side and re-serve to chart.html via the same side-port server
-# that already powers /api/bn_history and /api/bn_tick.
-_OC_EXINFO_CACHE = {"ts": 0.0, "data": None}
-_OC_EXINFO_TTL   = 6 * 3600   # strikes/expiries rarely change intraday
-_OC_QUOTES_CACHE = {"ts": 0.0, "data": None}
-_OC_QUOTES_TTL   = 2          # seconds — light cache so multiple pollers don't hammer Binance
-
-def _get_option_exchange_info() -> dict:
-    now = time.time()
-    if _OC_EXINFO_CACHE["data"] is not None and (now - _OC_EXINFO_CACHE["ts"]) < _OC_EXINFO_TTL:
-        return _OC_EXINFO_CACHE["data"]
-    try:
-        data = requests.get("https://eapi.binance.com/eapi/v1/exchangeInfo", timeout=10).json()
-    except Exception as e:
-        data = {"error": str(e)}
-    _OC_EXINFO_CACHE["data"] = data
-    _OC_EXINFO_CACHE["ts"]   = now
-    return data
-
-def _get_option_quotes() -> dict:
-    now = time.time()
-    if _OC_QUOTES_CACHE["data"] is not None and (now - _OC_QUOTES_CACHE["ts"]) < _OC_QUOTES_TTL:
-        return _OC_QUOTES_CACHE["data"]
-    out = {"mark": [], "ticker": [], "index": []}
-    try:
-        out["mark"] = requests.get("https://eapi.binance.com/eapi/v1/mark", timeout=8).json()
-    except Exception:
-        pass
-    try:
-        out["ticker"] = requests.get("https://eapi.binance.com/eapi/v1/ticker", timeout=8).json()
-    except Exception:
-        pass
-    try:
-        out["index"] = requests.get(
-            "https://eapi.binance.com/eapi/v1/index",
-            params={"underlying": "BTCUSDT"}, timeout=8,
-        ).json()
-    except Exception:
-        pass
-    _OC_QUOTES_CACHE["data"] = out
-    _OC_QUOTES_CACHE["ts"]   = now
-    return out
-
-
 def _register_api_route():
     """Start a lightweight HTTP server on _API_PORT for /api/bn_history.
 
@@ -1397,29 +1349,6 @@ def _register_api_route():
                 if parsed.path == "/api/bn_tick":
                     payload = _get_live_payload()
                     body = json.dumps(payload if payload is not None else {}).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
-                # ── BTC option chain proxy (Binance eapi) — see _get_option_* above.
-                if parsed.path == "/api/option_chain/exchangeInfo":
-                    body = json.dumps(_get_option_exchange_info()).encode()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
-                if parsed.path == "/api/option_chain/quotes":
-                    body = json.dumps(_get_option_quotes()).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
