@@ -21211,8 +21211,50 @@ if (document.readyState === 'loading') {
 // change nahi. Balance/positions/history apni ALAG localStorage keys mein.
 // ════════════════════════════════════════════════════════════════════════════
 (function () {
-  var API = 'https://eapi.binance.com/eapi/v1';
   var UNDERLYING = 'BTCUSDT';
+
+  // ── Proxy-aware fetch ──────────────────────────────────────────────────────
+  // Binance eapi.binance.com doesn't send CORS headers for browser origins,
+  // so a direct browser fetch always fails with "Failed to fetch". When this
+  // page runs inside the Streamlit app, main.py runs a side-port proxy server
+  // (same one /api/bn_history uses) that fetches Binance server-side (no CORS
+  // there) and re-serves it to us. _resolvedApiPort / _probeApiPort() are
+  // already defined earlier in this file for that same mechanism.
+  function _sv1OCUrl(path) {
+    var port = (typeof _resolvedApiPort !== 'undefined') ? _resolvedApiPort : 0;
+    var host = window.location.hostname || 'localhost';
+    return port > 0 ? ('http://' + host + ':' + port + path) : path;
+  }
+  function _sv1OCProbe() {
+    return (typeof _probeApiPort === 'function') ? _probeApiPort() : Promise.resolve(0);
+  }
+  function _sv1OCExchangeInfoFetch(timeoutMs) {
+    return _sv1OCProbe().then(function (port) {
+      if (!port) return Promise.reject(new Error('proxy not available'));
+      return fetch(_sv1OCUrl('/api/option_chain/exchangeInfo'), { signal: AbortSignal.timeout(timeoutMs) })
+        .then(function (r) { return r.json(); });
+    }).catch(function () {
+      // Fallback for standalone (non-Streamlit) HTML open — best effort only,
+      // will still hit CORS in most real browsers.
+      return fetch('https://eapi.binance.com/eapi/v1/exchangeInfo', { signal: AbortSignal.timeout(timeoutMs) })
+        .then(function (r) { return r.json(); });
+    });
+  }
+  function _sv1OCQuotesFetch(timeoutMs) {
+    return _sv1OCProbe().then(function (port) {
+      if (!port) return Promise.reject(new Error('proxy not available'));
+      return fetch(_sv1OCUrl('/api/option_chain/quotes'), { signal: AbortSignal.timeout(timeoutMs) })
+        .then(function (r) { return r.json(); });
+    }).catch(function () {
+      var BASE = 'https://eapi.binance.com/eapi/v1';
+      var p1 = fetch(BASE + '/mark', { signal: AbortSignal.timeout(timeoutMs) }).then(function (r) { return r.json(); }).catch(function () { return null; });
+      var p2 = fetch(BASE + '/ticker', { signal: AbortSignal.timeout(timeoutMs) }).then(function (r) { return r.json(); }).catch(function () { return null; });
+      var p3 = fetch(BASE + '/index?underlying=' + UNDERLYING, { signal: AbortSignal.timeout(timeoutMs) }).then(function (r) { return r.json(); }).catch(function () { return null; });
+      return Promise.all([p1, p2, p3]).then(function (res) {
+        return { mark: res[0], ticker: res[1], index: res[2] };
+      });
+    });
+  }
 
   var LS_POS  = 'sv1oc_positions_v1';
   var LS_BAL  = 'sv1oc_balance_v1';
@@ -21302,8 +21344,7 @@ if (document.readyState === 'loading') {
     if (ST.expiries.length && (now - ST.exchangeInfoTs) < 6 * 3600 * 1000) {
       return Promise.resolve(true);
     }
-    return fetch(API + '/exchangeInfo', { signal: AbortSignal.timeout(12000) })
-      .then(function (r) { return r.json(); })
+    return _sv1OCExchangeInfoFetch(12000)
       .then(function (data) {
         var syms = (data && data.optionSymbols) || [];
         var byExp = {};
@@ -21337,15 +21378,8 @@ if (document.readyState === 'loading') {
   }
 
   function fetchPremiumsAndSpot() {
-    var p1 = fetch(API + '/mark', { signal: AbortSignal.timeout(10000) })
-      .then(function (r) { return r.json(); }).catch(function () { return null; });
-    var p2 = fetch(API + '/ticker', { signal: AbortSignal.timeout(10000) })
-      .then(function (r) { return r.json(); }).catch(function () { return null; });
-    var p3 = fetch(API + '/index?underlying=' + UNDERLYING, { signal: AbortSignal.timeout(10000) })
-      .then(function (r) { return r.json(); }).catch(function () { return null; });
-
-    return Promise.all([p1, p2, p3]).then(function (res) {
-      var mark = res[0], ticker = res[1], idx = res[2];
+    return _sv1OCQuotesFetch(10000).then(function (res) {
+      var mark = (res && res.mark) || null, ticker = (res && res.ticker) || null, idx = (res && res.index) || null;
       var map = {}; // symbol -> {bid, ask, mark}
       if (Array.isArray(ticker)) {
         ticker.forEach(function (t) {
