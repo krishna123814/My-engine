@@ -19592,24 +19592,32 @@ function _arrowSetCount(view, count) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SV2 MANUAL ARROW TOOL — independent module (green / red draggable tail-arrow)
+// SV2 MANUAL ARROW TOOL — NATIVE lightweight-charts v4.2 Series Primitive
 // ────────────────────────────────────────────────────────────────────────────
+// REWRITE (was: raw <canvas> element manually appended/z-indexed/raised over
+// the chart — fragile, could end up hidden behind other layers after a cell
+// rebuild, so an arrow could "draw ho jaata tha lekin set/persist nahi hota
+// tha screen par"). Now uses series.attachPrimitive(): the arrow is painted
+// directly inside LightweightCharts' OWN render pipeline via requestUpdate(),
+// so it is always drawn in perfect sync with pan/zoom/data/rebuilds — no
+// manual canvas, no z-index, no raise-canvas timing hacks needed at all.
+//
 // Isse Drawing Tools Engine (_DT, line ~7734) aur Automatic Reversal Arrow
 // Marker (_ARROW2_ON / #sv2-arrow-btn) — dono se BILKUL ALAG rakha gaya hai:
-//   • Apna khud ka canvas (per stack2 cell, class sv2-ma-canvas, z-index 51)
+//   • Apna khud ka primitive (per stack2 cell, series.attachPrimitive)
 //   • Apna khud ka state object (_MA) aur localStorage key (sv2ManArrows)
-//   • Koi shared function/array reuse nahi kiya (sirf coordinate-conversion
-//     ka PATTERN copy kiya hai, code khud alag hai)
+//   • Koi shared function/array reuse nahi kiya
 //
-// GESTURE: single continuous drag.
-//   touchstart → tail set ho jaata hai (jahan finger rakha)
-//   touchmove  → live preview line finger follow karti hai
-//   touchend   → head set ho jaata hai (jahan finger uthaya)
-//   → poora arrow (tail+head, editable) EK HI attempt me ban jaata hai.
+// GESTURE: single continuous drag (touchstart=tail, touchmove=preview,
+// touchend=head) — bound directly on the STABLE cell container `el` (reused
+// across rebuilds, never recreated) using capture-phase listeners: jab tool
+// armed hai ya koi arrow selected hai tab hi event ko consume (preventDefault
+// + stopPropagation) karte hain, warna chart ka normal pan/zoom untouched
+// rehta hai.
 //
 // EDIT: baad me arrow par tap karo → select ho jaata hai (glow + endpoint
 // dots + ✕ delete button). Tail/head dot ko drag karke reposition kar sakte
-// ho. Kahi aur tap karne se deselect ho jaata hai.
+// ho, dono independent. Kahi aur tap karne se deselect ho jaata hai.
 // ════════════════════════════════════════════════════════════════════════════
 const _MA_LSKEY = 'sv2ManArrows';
 const _MA = {
@@ -19618,7 +19626,7 @@ const _MA = {
   p1: null, tempP2: null, chartKey: null,
   drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color}]
   _nextId: 1,
-  _canvases: {},         // chartKey -> {chartObj, seriesObj, el, canvas, ctx, _bound, _editBound, _tapBound}
+  _charts: {},           // chartKey -> {chartObj, seriesObj, el, primitive, _bound}
   _selectedId: null,     // edit-mode: kaunsa arrow select hua hai
 };
 
@@ -19665,140 +19673,89 @@ function _maMenuClose() {
 }
 function _maPick(color) {
   _maMenuClose();
+  _maDeselect(); // ek waqt me ya to draw ya edit — dono saath nahi
   _MA.pendingColor = color;
-  _maSetDrawMode(true);
   const btn = document.getElementById('sv2-manarrow-btn');
   if (btn) {
     btn.classList.add(color === 'red' ? 'armed-red' : 'armed-green');
     btn.classList.remove(color === 'red' ? 'armed-green' : 'armed-red');
   }
 }
-
-// ── Draw-mode ON/OFF across every registered stack2 cell ─────────────────────
 function _maSetDrawMode(on) {
-  Object.keys(_MA._canvases).forEach(k => on ? _maAttach(k) : _maDetach(k));
   if (!on) {
     _MA.pendingColor = null;
     const btn = document.getElementById('sv2-manarrow-btn');
     if (btn) btn.classList.remove('armed-green', 'armed-red');
   }
+  // Koi alag canvas attach/detach nahi karna — container listeners hamesha
+  // bound rehte hain aur har baar _MA.pendingColor / _MA._selectedId check
+  // karte hain, isliye yahan sirf state clear karna kaafi hai.
+}
+
+// ── NATIVE PRIMITIVE — draws directly inside the chart's own render loop ────
+class _MAPaneRenderer {
+  constructor(chartKey) { this.chartKey = chartKey; }
+  draw(target) {
+    const key = this.chartKey;
+    target.useMediaCoordinateSpace(({ context }) => {
+      context.save();
+      context.lineCap = 'round'; context.lineJoin = 'round';
+      for (const d of _MA.drawings) {
+        if (d.chartKey !== key) continue;
+        _maDrawOne(context, d, key, d.id === _MA._selectedId);
+      }
+      // in-progress preview (drag chal raha hai)
+      if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
+        _maDrawOne(context, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, _preview:true }, key, false);
+      }
+      context.restore();
+    });
+  }
+}
+class _MAPaneView {
+  constructor(chartKey) { this._renderer = new _MAPaneRenderer(chartKey); }
+  renderer() { return this._renderer; }
+}
+class _MAPrimitive {
+  constructor(chartKey) {
+    this.chartKey = chartKey;
+    this._paneView = new _MAPaneView(chartKey);
+    this._requestUpdate = null;
+  }
+  attached(param) { this._requestUpdate = param && param.requestUpdate; }
+  detached() { this._requestUpdate = null; }
+  updateAllViews() {}
+  paneViews() { return [this._paneView]; }
+  requestUpdate() { if (this._requestUpdate) this._requestUpdate(); }
 }
 
 // ── Register a chart — called from buildStack2() (same call-site as _DT) ────
+// `el` (the cell container) is REUSED across rebuilds, so interaction
+// listeners are bound to it exactly once — never recreated, never buried.
 function _maRegisterChart(chartKey, chartObj, seriesObj, containerEl) {
-  if (!_MA._canvases[chartKey]) {
-    _MA._canvases[chartKey] = { chartObj, seriesObj, el: containerEl, canvas:null, ctx:null, _bound:null, _editBound:null, _tapBound:false };
+  let rec = _MA._charts[chartKey];
+  if (rec && rec.primitive && rec.seriesObj) {
+    try { rec.seriesObj.detachPrimitive(rec.primitive); } catch(_) {}
+  }
+  if (!rec) {
+    rec = _MA._charts[chartKey] = { chartObj, seriesObj, el: containerEl, primitive: null, _bound: false };
   } else {
-    Object.assign(_MA._canvases[chartKey], { chartObj, seriesObj, el: containerEl });
+    Object.assign(rec, { chartObj, seriesObj, el: containerEl });
   }
-  _maMakeCanvas(chartKey);
-  let _rRAF = null;
-  const _rRedraw = () => {
-    if (_rRAF) return;
-    _rRAF = requestAnimationFrame(() => { _rRAF = null; _maRedraw(chartKey); });
-  };
-  try { chartObj.timeScale().subscribeVisibleLogicalRangeChange(_rRedraw); } catch(_) {}
-  try { seriesObj.priceScale().subscribeVisiblePriceRangeChange(_rRedraw); } catch(_) {}
-  if (_MA.pendingColor) _maAttach(chartKey);
-  setTimeout(() => _maRaiseCanvas(chartKey), 100);
-  setTimeout(() => _maRaiseCanvas(chartKey), 1000);
-}
+  const primitive = new _MAPrimitive(chartKey);
+  try { seriesObj.attachPrimitive(primitive); } catch(_) {}
+  rec.primitive = primitive;
 
-// ── Canvas (independent from _DT's canvas — own z-index 51, above DT's 50) ──
-function _maMakeCanvas(key) {
-  const rec = _MA._canvases[key];
-  if (!rec || !rec.el) return;
-  if (rec.canvas?.parentNode) rec.canvas.parentNode.removeChild(rec.canvas);
-  const el = rec.el;
-  el.style.position = 'relative';
-  const c = document.createElement('canvas');
-  c.className = 'sv2-ma-canvas';
-  const dpr = window.devicePixelRatio || 1;
-  c.width  = el.clientWidth  * dpr;
-  c.height = el.clientHeight * dpr;
-  c.style.cssText = `width:${el.clientWidth}px;height:${el.clientHeight}px;position:absolute;top:0;left:0;z-index:51;pointer-events:none;`;
-  el.appendChild(c);
-  rec.canvas = c; rec.ctx = c.getContext('2d');
-
-  // Tap on an existing arrow (jab draw-mode OFF ho) → select for editing
-  if (!rec._tapBound) {
-    let _tx=0, _ty=0, _tt=0;
-    el.addEventListener('touchstart', (e) => {
-      if (_MA.pendingColor) return;   // draw-mode apna alag handler leta hai (canvas pointer-events:all)
-      if (e.touches.length !== 1) return;
-      _tx = e.touches[0].clientX; _ty = e.touches[0].clientY; _tt = Date.now();
-    }, {passive:true});
-    el.addEventListener('touchend', (e) => {
-      if (_MA.pendingColor) return;
-      if (Date.now() - _tt > 500) return; // not a tap
-      const t = e.changedTouches[0];
-      if (Math.abs(t.clientX - _tx) > 12 || Math.abs(t.clientY - _ty) > 12) return; // moved = scroll/pan
-      const r = el.getBoundingClientRect();
-      const x = t.clientX - r.left, y = t.clientY - r.top;
-      const hit = _maHitTest(key, x, y);
-      if (hit) { e.preventDefault(); _maSelect(hit.id); } else { _maDeselect(); }
-    }, {passive:false});
-    rec._tapBound = true;
+  if (!rec._bound) {
+    _maBindContainer(chartKey, containerEl);
+    rec._bound = true;
   }
-  _maRedraw(key);
+  primitive.requestUpdate();
 }
 
-function _maRaiseCanvas(key) {
-  const rec = _MA._canvases[key];
-  if (!rec?.canvas || !rec.el) return;
-  rec.el.appendChild(rec.canvas);
-  if (_MA._selectedId != null) _maRepositionDelBtn();
-}
-function _maResizeCanvas(key) {
-  const rec = _MA._canvases[key];
-  if (!rec?.canvas || !rec.el) return;
-  const dpr = window.devicePixelRatio || 1;
-  const w = rec.el.clientWidth, h = rec.el.clientHeight;
-  if (rec.canvas.width !== w*dpr || rec.canvas.height !== h*dpr) {
-    rec.canvas.width  = w*dpr; rec.canvas.height = h*dpr;
-    rec.canvas.style.width  = w+'px'; rec.canvas.style.height = h+'px';
-  }
-}
-
-// ── Draw-mode listeners: SINGLE drag = tail→head, one attempt, poora arrow ───
-function _maAttach(key) {
-  const rec = _MA._canvases[key];
-  if (!rec?.canvas) return;
-  _maDetach(key);
-  const canvas = rec.canvas;
-  canvas.style.pointerEvents = 'all';
-  const onDown = (e) => { e.stopPropagation(); _maPointerDown(key, e); };
-  const onMove = (e) => { if (_MA.active) { e.stopPropagation(); e.preventDefault(); } _maPointerMove(key, e); };
-  const onUp   = (e) => { e.stopPropagation(); _maPointerUp(key, e); };
-  canvas.addEventListener('touchstart', onDown, {passive:false});
-  canvas.addEventListener('touchmove',  onMove, {passive:false});
-  canvas.addEventListener('touchend',   onUp,   {passive:false});
-  canvas.addEventListener('mousedown',  onDown);
-  canvas.addEventListener('mousemove',  onMove);
-  canvas.addEventListener('mouseup',    onUp);
-  rec._bound = { onDown, onMove, onUp };
-}
-function _maDetach(key) {
-  const rec = _MA._canvases[key];
-  if (!rec?.canvas || !rec._bound) return;
-  const { onDown, onMove, onUp } = rec._bound;
-  if (!_MA._selectedId) rec.canvas.style.pointerEvents = 'none';
-  rec.canvas.removeEventListener('touchstart', onDown);
-  rec.canvas.removeEventListener('touchmove',  onMove);
-  rec.canvas.removeEventListener('touchend',   onUp);
-  rec.canvas.removeEventListener('mousedown',  onDown);
-  rec.canvas.removeEventListener('mousemove',  onMove);
-  rec.canvas.removeEventListener('mouseup',    onUp);
-  rec._bound = null;
-}
-
-function _maEventXY(canvas, e) {
-  const r = canvas.getBoundingClientRect();
-  const src = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
-  return { x: src.clientX - r.left, y: src.clientY - r.top };
-}
+// ── Coordinate helpers ────────────────────────────────────────────────────────
 function _maXYtoPt(key, x, y) {
-  const rec = _MA._canvases[key];
+  const rec = _MA._charts[key];
   if (!rec?.chartObj || !rec.seriesObj) return null;
   try {
     const time  = rec.chartObj.timeScale().coordinateToTime(x);
@@ -19808,7 +19765,7 @@ function _maXYtoPt(key, x, y) {
   } catch(_) { return null; }
 }
 function _maPtToXY(key, pt) {
-  const rec = _MA._canvases[key];
+  const rec = _MA._charts[key];
   if (!rec?.chartObj || !rec.seriesObj || !pt) return null;
   try {
     const px = rec.chartObj.timeScale().timeToCoordinate(pt.time);
@@ -19818,61 +19775,116 @@ function _maPtToXY(key, pt) {
   } catch(_) { return null; }
 }
 
-// ── Pointer down: TAIL set (drag start, jahan cursor/finger rakha) ───────────
-function _maPointerDown(key, e) {
-  if (!_MA.pendingColor) return;
-  if (e.touches) e.preventDefault();
-  const rec = _MA._canvases[key];
-  if (!rec) return;
-  const {x, y} = _maEventXY(rec.canvas, e);
-  const pt = _maXYtoPt(key, x, y);
-  if (!pt) return;
-  _MA.active = true;
-  _MA.chartKey = key;
-  _MA.p1 = pt;
-  _MA.tempP2 = pt;
-  _maRedraw(key);
-}
+// ── One unified input handler per chart — placement drag, handle-drag edit,
+//    aur idle tap-to-select — sab isi me, `el` par bound (stable, kabhi
+//    recreate nahi hota). Capture-phase, sirf jab actually consume karna ho
+//    tab hi preventDefault/stopPropagation karta hai; warna chart ka normal
+//    pan/zoom bilkul untouched rehta hai. ──────────────────────────────────
+function _maBindContainer(key, el) {
+  let _tx = 0, _ty = 0, _tt = 0;
+  let dragMode = null; // null | 'place' | 'p1' | 'p2'
 
-let _maMoveRAF = null, _maMoveXY = null;
-function _maPointerMove(key, e) {
-  if (!_MA.active || _MA.chartKey !== key) return;
-  if (e.touches) e.preventDefault();
-  const rec = _MA._canvases[key];
-  if (!rec) return;
-  _maMoveXY = _maEventXY(rec.canvas, e);
-  if (_maMoveRAF) return;
-  _maMoveRAF = requestAnimationFrame(() => {
-    _maMoveRAF = null;
-    if (!_maMoveXY || !_MA.active) return;
-    const pt = _maXYtoPt(key, _maMoveXY.x, _maMoveXY.y);
-    if (!pt) return;
-    _MA.tempP2 = pt;
-    _maRedraw(key);
-  });
-}
+  const xyOf = (e) => {
+    const r = el.getBoundingClientRect();
+    const src = e.touches?.[0] || e.changedTouches?.[0] || e;
+    return { x: src.clientX - r.left, y: src.clientY - r.top };
+  };
 
-// ── Pointer up: HEAD set (jahan finger uthaya) → commit — FIRST ATTEMPT me
-//    hi poora tail+head arrow ban jaata hai, koi doosra tap nahi chahiye ────
-function _maPointerUp(key, e) {
-  if (!_MA.active || _MA.chartKey !== key) return;
-  _MA.active = false;
-  const rec = _MA._canvases[key];
-  if (rec && e) {
-    const {x, y} = _maEventXY(rec.canvas, e);
+  const onDown = (e) => {
+    const rec = _MA._charts[key]; if (!rec) return;
+    const { x, y } = xyOf(e);
+
+    // Priority 1 — placing a NEW arrow (tool armed via green/red pick)
+    if (_MA.pendingColor) {
+      const pt = _maXYtoPt(key, x, y);
+      if (!pt) return;
+      e.preventDefault(); e.stopPropagation();
+      _MA.active = true; _MA.chartKey = key; _MA.p1 = pt; _MA.tempP2 = pt;
+      dragMode = 'place';
+      rec.primitive.requestUpdate();
+      return;
+    }
+    // Priority 2 — dragging a selected arrow's tail/head handle
+    if (_MA._selectedId != null) {
+      const d = _MA.drawings.find(dd => dd.id === _MA._selectedId);
+      if (d && d.chartKey === key) {
+        const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+        if (xy1 && Math.hypot(x - xy1.x, y - xy1.y) < _MA_HIT_R) {
+          dragMode = 'p1'; _maHideDelBtn(); e.preventDefault(); e.stopPropagation(); return;
+        }
+        if (xy2 && Math.hypot(x - xy2.x, y - xy2.y) < _MA_HIT_R) {
+          dragMode = 'p2'; _maHideDelBtn(); e.preventDefault(); e.stopPropagation(); return;
+        }
+      }
+    }
+    // Priority 3 — idle: just remember start point/time for tap-vs-pan check.
+    // No preventDefault here — normal chart pan/zoom stays fully working.
+    dragMode = null;
+    const src = e.touches ? e.touches[0] : e;
+    _tx = src.clientX; _ty = src.clientY; _tt = Date.now();
+  };
+
+  const onMove = (e) => {
+    if (!dragMode) return;
+    e.preventDefault(); e.stopPropagation();
+    const rec = _MA._charts[key]; if (!rec) return;
+    const { x, y } = xyOf(e);
     const pt = _maXYtoPt(key, x, y);
-    if (pt) _MA.tempP2 = pt;
-  }
-  // Bahut chhota drag (galti se tap ho gaya) — arrow mat banao
-  const xy1 = _maPtToXY(key, _MA.p1), xy2 = _maPtToXY(key, _MA.tempP2);
-  const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
-  if (_MA.p1 && _MA.tempP2 && !tooSmall) {
-    _MA.drawings.push({ id: _MA._nextId++, chartKey: key, p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor });
-    _maSave();
-  }
-  _MA.p1 = null; _MA.tempP2 = null; _MA.chartKey = null;
-  _maSetDrawMode(false);   // ek arrow ban gaya → draw-mode apne aap band
-  _maRedrawAll();
+    if (!pt) return;
+    if (dragMode === 'place') {
+      _MA.tempP2 = pt;
+    } else {
+      const d = _MA.drawings.find(dd => dd.id === _MA._selectedId);
+      if (d) d[dragMode] = pt;
+      if (_maDelBtnKey === key) _maRepositionDelBtn();
+    }
+    rec.primitive.requestUpdate();
+  };
+
+  const onUp = (e) => {
+    const rec = _MA._charts[key]; if (!rec) return;
+
+    if (dragMode === 'place') {
+      e.preventDefault(); e.stopPropagation();
+      const { x, y } = xyOf(e);
+      const pt = _maXYtoPt(key, x, y);
+      if (pt) _MA.tempP2 = pt;
+      // Bahut chhota drag (galti se tap ho gaya) — arrow mat banao
+      const xy1 = _maPtToXY(key, _MA.p1), xy2 = _maPtToXY(key, _MA.tempP2);
+      const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
+      if (_MA.p1 && _MA.tempP2 && !tooSmall) {
+        _MA.drawings.push({ id: _MA._nextId++, chartKey: key, p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor });
+        _maSave();
+      }
+      _MA.active = false; _MA.p1 = null; _MA.tempP2 = null; _MA.chartKey = null;
+      dragMode = null;
+      _maSetDrawMode(false);   // ek arrow ban gaya → draw-mode apne aap band
+      _maRedrawAll();
+      return;
+    }
+    if (dragMode === 'p1' || dragMode === 'p2') {
+      e.preventDefault(); e.stopPropagation();
+      dragMode = null;
+      _maSave();
+      if (_MA._selectedId != null) _maShowDelBtn(key, _MA._selectedId);
+      _maRedrawAll();
+      return;
+    }
+    // Idle — tap-to-select check (must be a genuine tap, not a pan/scroll)
+    if (Date.now() - _tt > 500) return;
+    const src = e.changedTouches ? e.changedTouches[0] : e;
+    if (Math.abs(src.clientX - _tx) > 12 || Math.abs(src.clientY - _ty) > 12) return;
+    const { x, y } = xyOf(e);
+    const hit = _maHitTest(key, x, y);
+    if (hit) { e.preventDefault(); _maSelect(hit.id); } else { _maDeselect(); }
+  };
+
+  el.addEventListener('touchstart', onDown, { passive: false, capture: true });
+  el.addEventListener('touchmove',  onMove, { passive: false, capture: true });
+  el.addEventListener('touchend',   onUp,   { passive: false, capture: true });
+  el.addEventListener('mousedown',  onDown, { capture: true });
+  el.addEventListener('mousemove',  onMove, { capture: true });
+  el.addEventListener('mouseup',    onUp,   { capture: true });
 }
 
 // ── Hit test (tap-to-select an existing arrow) ───────────────────────────────
@@ -19899,76 +19911,16 @@ function _maDistToSeg(px, py, ax, ay, bx, by) {
 
 // ── Select / deselect (edit-mode) ────────────────────────────────────────────
 function _maSelect(id) {
-  _maDisableEditDrag();
   _MA._selectedId = id;
   const d = _MA.drawings.find(x => x.id === id);
-  if (d) { _maEnableEditDrag(d.chartKey, id); _maShowDelBtn(d.chartKey, id); }
+  if (d) _maShowDelBtn(d.chartKey, id);
   _maRedrawAll();
 }
 function _maDeselect() {
   if (_MA._selectedId == null && !_MA.active) return;
-  _maDisableEditDrag();
   _maHideDelBtn();
   _MA._selectedId = null;
   _maRedrawAll();
-}
-
-// ── Edit-drag: tail/head endpoint ko drag karke reposition karo ─────────────
-let _maEditRAF = null;
-function _maEnableEditDrag(key, id) {
-  const rec = _MA._canvases[key];
-  if (!rec?.canvas) return;
-  rec.canvas.style.pointerEvents = 'all';
-  let dragHandle = null; // 'p1' (tail) | 'p2' (head)
-  const onDown = (e) => {
-    const d = _MA.drawings.find(x => x.id === id);
-    if (!d) return;
-    const {x, y} = _maEventXY(rec.canvas, e);
-    const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
-    if (xy1 && Math.hypot(x-xy1.x, y-xy1.y) < _MA_HIT_R)      dragHandle = 'p1';
-    else if (xy2 && Math.hypot(x-xy2.x, y-xy2.y) < _MA_HIT_R) dragHandle = 'p2';
-    else { dragHandle = null; return; }
-    _maHideDelBtn();
-    e.stopPropagation(); if (e.touches) e.preventDefault();
-  };
-  const onMove = (e) => {
-    if (!dragHandle) return;
-    e.stopPropagation(); if (e.touches) e.preventDefault();
-    const {x, y} = _maEventXY(rec.canvas, e);
-    const pt = _maXYtoPt(key, x, y);
-    if (!pt) return;
-    const d = _MA.drawings.find(x2 => x2.id === id);
-    if (!d) return;
-    d[dragHandle] = pt;
-    if (_maEditRAF) return;
-    _maEditRAF = requestAnimationFrame(() => { _maEditRAF = null; _maRedraw(key); });
-  };
-  const onUp = () => {
-    if (dragHandle) { _maSave(); _maShowDelBtn(key, id); }
-    dragHandle = null;
-  };
-  rec.canvas.addEventListener('touchstart', onDown, {passive:false});
-  rec.canvas.addEventListener('touchmove',  onMove, {passive:false});
-  rec.canvas.addEventListener('touchend',   onUp,   {passive:false});
-  rec.canvas.addEventListener('mousedown',  onDown);
-  rec.canvas.addEventListener('mousemove',  onMove);
-  rec.canvas.addEventListener('mouseup',    onUp);
-  rec._editBound = { onDown, onMove, onUp };
-}
-function _maDisableEditDrag() {
-  Object.keys(_MA._canvases).forEach(key => {
-    const rec = _MA._canvases[key];
-    if (!rec?.canvas || !rec._editBound) return;
-    const { onDown, onMove, onUp } = rec._editBound;
-    rec.canvas.removeEventListener('touchstart', onDown);
-    rec.canvas.removeEventListener('touchmove',  onMove);
-    rec.canvas.removeEventListener('touchend',   onUp);
-    rec.canvas.removeEventListener('mousedown',  onDown);
-    rec.canvas.removeEventListener('mousemove',  onMove);
-    rec.canvas.removeEventListener('mouseup',    onUp);
-    rec._editBound = null;
-    if (!_MA.pendingColor) rec.canvas.style.pointerEvents = 'none';
-  });
 }
 
 // ── Delete (✕) button — selected arrow ke head ke paas floating dikhta hai ──
@@ -19976,7 +19928,7 @@ let _maDelBtn = null, _maDelBtnKey = null, _maDelBtnId = null;
 function _maShowDelBtn(key, id) {
   _maHideDelBtn();
   const d = _MA.drawings.find(x => x.id === id);
-  const rec = _MA._canvases[key];
+  const rec = _MA._charts[key];
   if (!d || !rec?.el) return;
   const xy2 = _maPtToXY(key, d.p2);
   if (!xy2) return;
@@ -20009,30 +19961,14 @@ function _maDeleteSelected() {
   _maDeselect();
 }
 
-// ── Redraw ────────────────────────────────────────────────────────────────────
+// ── Redraw — via the native primitive's requestUpdate(), never a manual
+//    canvas repaint, so it's always in sync with the chart's own paint loop ─
 function _maRedraw(key) {
-  const rec = _MA._canvases[key];
-  if (!rec?.canvas || !rec.ctx) return;
-  _maResizeCanvas(key);
-  const ctx = rec.ctx;
-  const dpr = window.devicePixelRatio || 1;
-  const W = rec.canvas.width/dpr, H = rec.canvas.height/dpr;
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.imageSmoothingEnabled = false;
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.clearRect(0,0,W,H);
-
-  for (const d of _MA.drawings) {
-    if (d.chartKey !== key) continue;
-    _maDrawOne(ctx, d, key, d.id === _MA._selectedId);
-  }
-  // in-progress preview (drag chal raha hai)
-  if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
-    _maDrawOne(ctx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, _preview:true }, key, false);
-  }
+  const rec = _MA._charts[key];
+  if (rec && rec.primitive) rec.primitive.requestUpdate();
   if (_MA._selectedId != null && _maDelBtnKey === key) _maRepositionDelBtn();
 }
-function _maRedrawAll() { Object.keys(_MA._canvases).forEach(k => _maRedraw(k)); }
+function _maRedrawAll() { Object.keys(_MA._charts).forEach(k => _maRedraw(k)); }
 
 function _maDrawOne(ctx, d, key, isSelected) {
   const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
@@ -20041,9 +19977,9 @@ function _maDrawOne(ctx, d, key, isSelected) {
   const lw = 2;
   ctx.save();
   // Selection dots drawn FIRST (underneath) so the arrowhead tip stays sharp
-  // and fully visible on top — previously drawn after the arrow, the head
-  // dot at xy2 (10px diameter) fully covered the ~9px arrowhead triangle,
-  // making the arrow look blunt/shrunk the moment it got tapped to select.
+  // and fully visible on top — drawing them after used to fully cover the
+  // ~9px arrowhead triangle with a 10px dot, making the arrow look blunt/
+  // shrunk the moment it got tapped to select.
   if (isSelected && !d._preview) {
     _maDot(ctx, xy1, col); _maDot(ctx, xy2, col);
   }
