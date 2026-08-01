@@ -1840,6 +1840,18 @@ def _build_chart_html(
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
+    # ── Supabase sync (saved layouts / settings / app state) ────────────────
+    # URL is not sensitive, but pulling both from Streamlit Cloud secrets
+    # (Settings → Secrets) keeps things in one place. Publishable key is
+    # safe for the browser (RLS + anonymous auth restrict access per device).
+    try:
+        _sb_url = st.secrets.get("SUPABASE_URL", "")
+        _sb_key = st.secrets.get("SUPABASE_ANON_KEY", "")
+    except Exception:
+        _sb_url, _sb_key = "", ""
+    html = html.replace("__SUPABASE_URL__",      _sb_url)
+    html = html.replace("__SUPABASE_ANON_KEY__", _sb_key)
+
     # ── Inject side-API port so chart.html knows which port to call ──────────
     _api_port = 0
     try:

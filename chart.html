@@ -287,6 +287,192 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover">
 <script>
+/* ════════════════════════════════════════════════════════════════
+   SUPABASE SYNC LAYER — must run first, before any other script.
+   The Supabase URL/key placeholders below are injected by
+   main.py's _build_chart_html() from st.secrets (see main.py).
+   Covers: saved layouts (__ss_backup__), app_settings (arrow
+   toggles/sizes/gaps, TF colors, parentDotCfg2, replay tick,
+   FAB positions), and app_state (main btcDashState2 object).
+   ════════════════════════════════════════════════════════════════ */
+(function () {
+  var SUPABASE_URL      = "__SUPABASE_URL__";
+  var SUPABASE_ANON_KEY = "__SUPABASE_ANON_KEY__";
+
+  if (!SUPABASE_URL || SUPABASE_URL.indexOf("__SUPABASE_URL__") !== -1) {
+    return; // placeholders weren't injected — skip sync silently, app still works locally
+  }
+
+  var REFRESH_TOKEN_KEY = "_sb_refresh_token";
+  var DEVICE_UID_KEY    = "_sb_device_uid";
+
+  var SETTINGS_KEYS = [
+    "tfSrColors2", "parentDotCfg2",
+    "arrowToggle1", "arrowToggle2",
+    "arrowSize1", "arrowSize2",
+    "arrowGap1", "arrowGap2",
+    "sv2_replay_tick_ms",
+    "sv2DrngFabPos", "sv1SrFabPos"
+  ];
+  var STATE_KEY  = "btcDashState2";
+  var BACKUP_KEY = "__ss_backup__";
+
+  function xhrSync(method, url, headers, body) {
+    try {
+      var x = new XMLHttpRequest();
+      x.open(method, url, false);
+      for (var h in headers) x.setRequestHeader(h, headers[h]);
+      x.send(body || null);
+      if (x.status >= 200 && x.status < 300) {
+        try { return JSON.parse(x.responseText); } catch (e) { return null; }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  function ensureAnonSession() {
+    var refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    if (refreshToken) {
+      var r = xhrSync("POST",
+        SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token",
+        { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        JSON.stringify({ refresh_token: refreshToken }));
+      if (r && r.access_token) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, r.refresh_token);
+        return { access_token: r.access_token, uid: r.user.id };
+      }
+    }
+    var r2 = xhrSync("POST",
+      SUPABASE_URL + "/auth/v1/signup",
+      { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      JSON.stringify({}));
+    if (r2 && r2.access_token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, r2.refresh_token);
+      localStorage.setItem(DEVICE_UID_KEY, r2.user.id);
+      return { access_token: r2.access_token, uid: r2.user.id };
+    }
+    return null;
+  }
+
+  var session = ensureAnonSession();
+  window._SB_URL = SUPABASE_URL;
+  window._SB_KEY = SUPABASE_ANON_KEY;
+  window._SB_SESSION = session;
+
+  if (session) {
+    var authHeaders = {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": "Bearer " + session.access_token,
+      "Content-Type": "application/json"
+    };
+
+    var st = xhrSync("GET",
+      SUPABASE_URL + "/rest/v1/app_state?device_id=eq." + session.uid + "&select=state_data",
+      authHeaders);
+    if (st && st[0] && st[0].state_data) {
+      localStorage.setItem(STATE_KEY, JSON.stringify(st[0].state_data));
+    }
+
+    var stg = xhrSync("GET",
+      SUPABASE_URL + "/rest/v1/app_settings?device_id=eq." + session.uid + "&select=settings_data",
+      authHeaders);
+    if (stg && stg[0] && stg[0].settings_data) {
+      var bundle = stg[0].settings_data;
+      SETTINGS_KEYS.forEach(function (k) {
+        if (bundle[k] !== undefined) {
+          var v = bundle[k];
+          localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v));
+        }
+      });
+    }
+  }
+
+  var origSetItem = localStorage.setItem.bind(localStorage);
+  var timers = {};
+
+  function debounced(name, fn, delay) {
+    clearTimeout(timers[name]);
+    timers[name] = setTimeout(fn, delay || 1500);
+  }
+
+  function pushAppState() {
+    if (!window._SB_SESSION) return;
+    var raw = localStorage.getItem(STATE_KEY);
+    if (!raw) return;
+    var stateData;
+    try { stateData = JSON.parse(raw); } catch (e) { return; }
+    fetch(SUPABASE_URL + "/rest/v1/app_state?on_conflict=device_id", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + window._SB_SESSION.access_token,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({
+        device_id: window._SB_SESSION.uid,
+        state_data: stateData,
+        updated_at: new Date().toISOString()
+      })
+    }).catch(function () {});
+  }
+
+  function pushSettings() {
+    if (!window._SB_SESSION) return;
+    var bundle = {};
+    SETTINGS_KEYS.forEach(function (k) {
+      var v = localStorage.getItem(k);
+      if (v === null) return;
+      try { bundle[k] = JSON.parse(v); } catch (e) { bundle[k] = v; }
+    });
+    fetch(SUPABASE_URL + "/rest/v1/app_settings?on_conflict=device_id", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + window._SB_SESSION.access_token,
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates"
+      },
+      body: JSON.stringify({
+        device_id: window._SB_SESSION.uid,
+        settings_data: bundle,
+        updated_at: new Date().toISOString()
+      })
+    }).catch(function () {});
+  }
+
+  function pushSavedLayout(jsonBlob) {
+    if (!window._SB_SESSION) return;
+    var parsed;
+    try { parsed = JSON.parse(jsonBlob); } catch (e) { return; }
+    fetch(SUPABASE_URL + "/rest/v1/saved_layouts", {
+      method: "POST",
+      headers: {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + window._SB_SESSION.access_token,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        device_id: window._SB_SESSION.uid,
+        layout_name: "Backup " + new Date().toLocaleString(),
+        layout_data: parsed
+      })
+    }).catch(function () {});
+  }
+
+  localStorage.setItem = function (key, value) {
+    origSetItem(key, value);
+    if (key === BACKUP_KEY) {
+      pushSavedLayout(value);
+    } else if (key === STATE_KEY) {
+      debounced("state", pushAppState, 1500);
+    } else if (SETTINGS_KEYS.indexOf(key) !== -1) {
+      debounced("settings", pushSettings, 1500);
+    }
+  };
+})();
+</script>
+<script>
 /* ── CSS-based self-fullscreen (no user gesture needed) ── */
 (function(){
   function _fixParentViewport(){
