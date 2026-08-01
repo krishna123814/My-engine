@@ -294,14 +294,36 @@
    Covers: saved layouts (__ss_backup__), app_settings (arrow
    toggles/sizes/gaps, TF colors, parentDotCfg2, replay tick,
    FAB positions), and app_state (main btcDashState2 object).
+
+   DEBUG: everything this layer does gets logged into
+   window._SB_LOG (see debug panel script right after this one).
    ════════════════════════════════════════════════════════════════ */
 (function () {
   var SUPABASE_URL      = "__SUPABASE_URL__";
   var SUPABASE_ANON_KEY = "__SUPABASE_ANON_KEY__";
 
-  if (!SUPABASE_URL || SUPABASE_URL.indexOf("__SUPABASE_URL__") !== -1) {
-    return; // placeholders weren't injected — skip sync silently, app still works locally
+  window._SB_LOG = {
+    placeholdersInjected: null,
+    url: SUPABASE_URL,
+    keyPreview: SUPABASE_ANON_KEY ? (SUPABASE_ANON_KEY.slice(0, 12) + "...") : "(empty)",
+    session: null,
+    sessionError: null,
+    pulls: [],   // {table, ok, count, error, at}
+    pushes: []   // {table, ok, status, error, at}
+  };
+
+  function log(arr, entry) {
+    entry.at = new Date().toLocaleTimeString();
+    window._SB_LOG[arr].unshift(entry);
+    if (window._SB_LOG[arr].length > 20) window._SB_LOG[arr].length = 20;
   }
+
+  if (!SUPABASE_URL || SUPABASE_URL.indexOf("__SUPABASE_URL__") !== -1) {
+    window._SB_LOG.placeholdersInjected = false;
+    window._SB_LOG.sessionError = "Placeholders not injected — check main.py secrets (SUPABASE_URL / SUPABASE_ANON_KEY missing or empty in Streamlit Cloud Secrets).";
+    return; // skip sync silently, app still works locally
+  }
+  window._SB_LOG.placeholdersInjected = true;
 
   var REFRESH_TOKEN_KEY = "_sb_refresh_token";
   var DEVICE_UID_KEY    = "_sb_device_uid";
@@ -317,6 +339,7 @@
   var STATE_KEY  = "btcDashState2";
   var BACKUP_KEY = "__ss_backup__";
 
+  // Returns { data, error } instead of swallowing failures.
   function xhrSync(method, url, headers, body) {
     try {
       var x = new XMLHttpRequest();
@@ -324,10 +347,13 @@
       for (var h in headers) x.setRequestHeader(h, headers[h]);
       x.send(body || null);
       if (x.status >= 200 && x.status < 300) {
-        try { return JSON.parse(x.responseText); } catch (e) { return null; }
+        try { return { data: JSON.parse(x.responseText), error: null }; }
+        catch (e) { return { data: null, error: "Bad JSON in response: " + x.responseText.slice(0,200) }; }
       }
-    } catch (e) {}
-    return null;
+      return { data: null, error: "HTTP " + x.status + ": " + x.responseText.slice(0, 300) };
+    } catch (e) {
+      return { data: null, error: "Network/XHR exception: " + e.message };
+    }
   }
 
   function ensureAnonSession() {
@@ -337,20 +363,25 @@
         SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token",
         { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
         JSON.stringify({ refresh_token: refreshToken }));
-      if (r && r.access_token) {
-        localStorage.setItem(REFRESH_TOKEN_KEY, r.refresh_token);
-        return { access_token: r.access_token, uid: r.user.id };
+      if (r.data && r.data.access_token) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, r.data.refresh_token);
+        return { access_token: r.data.access_token, uid: r.data.user.id };
       }
+      window._SB_LOG.sessionError = "Refresh-token sign-in failed: " + r.error;
+      // fall through to fresh signup
     }
     var r2 = xhrSync("POST",
       SUPABASE_URL + "/auth/v1/signup",
       { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
       JSON.stringify({}));
-    if (r2 && r2.access_token) {
-      localStorage.setItem(REFRESH_TOKEN_KEY, r2.refresh_token);
-      localStorage.setItem(DEVICE_UID_KEY, r2.user.id);
-      return { access_token: r2.access_token, uid: r2.user.id };
+    if (r2.data && r2.data.access_token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, r2.data.refresh_token);
+      localStorage.setItem(DEVICE_UID_KEY, r2.data.user.id);
+      return { access_token: r2.data.access_token, uid: r2.data.user.id };
     }
+    window._SB_LOG.sessionError = (window._SB_LOG.sessionError ? window._SB_LOG.sessionError + " | " : "") +
+      "Anonymous sign-up failed: " + r2.error +
+      " (check: Authentication → Sign In/Providers → 'Allow anonymous sign-ins' is ON and saved)";
     return null;
   }
 
@@ -358,6 +389,7 @@
   window._SB_URL = SUPABASE_URL;
   window._SB_KEY = SUPABASE_ANON_KEY;
   window._SB_SESSION = session;
+  window._SB_LOG.session = session ? { uid: session.uid } : null;
 
   if (session) {
     var authHeaders = {
@@ -369,15 +401,17 @@
     var st = xhrSync("GET",
       SUPABASE_URL + "/rest/v1/app_state?device_id=eq." + session.uid + "&select=state_data",
       authHeaders);
-    if (st && st[0] && st[0].state_data) {
-      localStorage.setItem(STATE_KEY, JSON.stringify(st[0].state_data));
+    log("pulls", { table: "app_state", ok: !st.error, count: st.data ? st.data.length : 0, error: st.error });
+    if (st.data && st.data[0] && st.data[0].state_data) {
+      localStorage.setItem(STATE_KEY, JSON.stringify(st.data[0].state_data));
     }
 
     var stg = xhrSync("GET",
       SUPABASE_URL + "/rest/v1/app_settings?device_id=eq." + session.uid + "&select=settings_data",
       authHeaders);
-    if (stg && stg[0] && stg[0].settings_data) {
-      var bundle = stg[0].settings_data;
+    log("pulls", { table: "app_settings", ok: !stg.error, count: stg.data ? stg.data.length : 0, error: stg.error });
+    if (stg.data && stg.data[0] && stg.data[0].settings_data) {
+      var bundle = stg.data[0].settings_data;
       SETTINGS_KEYS.forEach(function (k) {
         if (bundle[k] !== undefined) {
           var v = bundle[k];
@@ -395,13 +429,31 @@
     timers[name] = setTimeout(fn, delay || 1500);
   }
 
+  function doFetch(table, url, opts) {
+    fetch(url, opts).then(function (res) {
+      return res.text().then(function (txt) {
+        log("pushes", {
+          table: table,
+          ok: res.ok,
+          status: res.status,
+          error: res.ok ? null : ("HTTP " + res.status + ": " + txt.slice(0, 300))
+        });
+      });
+    }).catch(function (e) {
+      log("pushes", { table: table, ok: false, status: null, error: "Network exception: " + e.message });
+    });
+  }
+
   function pushAppState() {
-    if (!window._SB_SESSION) return;
+    if (!window._SB_SESSION) { log("pushes", { table: "app_state", ok: false, error: "No session" }); return; }
     var raw = localStorage.getItem(STATE_KEY);
     if (!raw) return;
     var stateData;
-    try { stateData = JSON.parse(raw); } catch (e) { return; }
-    fetch(SUPABASE_URL + "/rest/v1/app_state?on_conflict=device_id", {
+    try { stateData = JSON.parse(raw); } catch (e) {
+      log("pushes", { table: "app_state", ok: false, error: "Local JSON.parse failed: " + e.message });
+      return;
+    }
+    doFetch("app_state", SUPABASE_URL + "/rest/v1/app_state?on_conflict=device_id", {
       method: "POST",
       headers: {
         "apikey": SUPABASE_ANON_KEY,
@@ -414,18 +466,18 @@
         state_data: stateData,
         updated_at: new Date().toISOString()
       })
-    }).catch(function () {});
+    });
   }
 
   function pushSettings() {
-    if (!window._SB_SESSION) return;
+    if (!window._SB_SESSION) { log("pushes", { table: "app_settings", ok: false, error: "No session" }); return; }
     var bundle = {};
     SETTINGS_KEYS.forEach(function (k) {
       var v = localStorage.getItem(k);
       if (v === null) return;
       try { bundle[k] = JSON.parse(v); } catch (e) { bundle[k] = v; }
     });
-    fetch(SUPABASE_URL + "/rest/v1/app_settings?on_conflict=device_id", {
+    doFetch("app_settings", SUPABASE_URL + "/rest/v1/app_settings?on_conflict=device_id", {
       method: "POST",
       headers: {
         "apikey": SUPABASE_ANON_KEY,
@@ -438,14 +490,17 @@
         settings_data: bundle,
         updated_at: new Date().toISOString()
       })
-    }).catch(function () {});
+    });
   }
 
   function pushSavedLayout(jsonBlob) {
-    if (!window._SB_SESSION) return;
+    if (!window._SB_SESSION) { log("pushes", { table: "saved_layouts", ok: false, error: "No session" }); return; }
     var parsed;
-    try { parsed = JSON.parse(jsonBlob); } catch (e) { return; }
-    fetch(SUPABASE_URL + "/rest/v1/saved_layouts", {
+    try { parsed = JSON.parse(jsonBlob); } catch (e) {
+      log("pushes", { table: "saved_layouts", ok: false, error: "Local JSON.parse failed: " + e.message });
+      return;
+    }
+    doFetch("saved_layouts", SUPABASE_URL + "/rest/v1/saved_layouts", {
       method: "POST",
       headers: {
         "apikey": SUPABASE_ANON_KEY,
@@ -457,8 +512,10 @@
         layout_name: "Backup " + new Date().toLocaleString(),
         layout_data: parsed
       })
-    }).catch(function () {});
+    });
   }
+
+  window._SB_forceSync = function () { pushAppState(); pushSettings(); };
 
   localStorage.setItem = function (key, value) {
     origSetItem(key, value);
@@ -470,6 +527,74 @@
       debounced("settings", pushSettings, 1500);
     }
   };
+})();
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════
+   SUPABASE DEBUG PANEL — small floating button (bottom-right, "☁")
+   Tap it to see: session status, last pulls, last pushes, real
+   error messages. No need to open Supabase dashboard to debug.
+   ════════════════════════════════════════════════════════════════ */
+(function () {
+  function ready(fn) {
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
+  }
+  ready(function () {
+    var btn = document.createElement("div");
+    btn.id = "_sbDebugBtn";
+    btn.textContent = "☁";
+    btn.style.cssText = "position:fixed;right:8px;bottom:70px;z-index:999999;" +
+      "width:34px;height:34px;border-radius:50%;background:#1e293b;color:#fff;" +
+      "display:flex;align-items:center;justify-content:center;font-size:16px;" +
+      "box-shadow:0 2px 6px rgba(0,0,0,.4);opacity:.85;";
+
+    var panel = document.createElement("div");
+    panel.id = "_sbDebugPanel";
+    panel.style.cssText = "position:fixed;right:8px;bottom:112px;z-index:999999;" +
+      "width:min(92vw,380px);max-height:70vh;overflow:auto;background:#0f172a;" +
+      "color:#e2e8f0;font:11px/1.4 monospace;padding:10px;border-radius:8px;" +
+      "box-shadow:0 4px 16px rgba(0,0,0,.5);display:none;white-space:pre-wrap;word-break:break-word;";
+
+    document.body.appendChild(btn);
+    document.body.appendChild(panel);
+
+    function esc(s){ return (s+"").replace(/</g,"&lt;"); }
+
+    function render() {
+      var L = window._SB_LOG || {};
+      var html = "";
+      html += "<b>Supabase Debug</b><br>";
+      html += "URL: " + esc(L.url || "?") + "<br>";
+      html += "Key: " + esc(L.keyPreview || "?") + "<br>";
+      html += "Placeholders injected: " + (L.placeholdersInjected === true ? "✅ yes" : "❌ NO") + "<br>";
+      html += "Session: " + (L.session ? "✅ uid " + esc(L.session.uid) : "❌ none") + "<br>";
+      if (L.sessionError) html += "<span style='color:#f87171'>Session error: " + esc(L.sessionError) + "</span><br>";
+      html += "<br><b>Last pulls (page load):</b><br>";
+      (L.pulls || []).forEach(function (p) {
+        html += (p.ok ? "✅ " : "❌ ") + p.at + " " + esc(p.table) + " rows=" + p.count +
+          (p.error ? " <span style='color:#f87171'>" + esc(p.error) + "</span>" : "") + "<br>";
+      });
+      if (!L.pulls || !L.pulls.length) html += "(none yet)<br>";
+      html += "<br><b>Last pushes (saves):</b><br>";
+      (L.pushes || []).forEach(function (p) {
+        html += (p.ok ? "✅ " : "❌ ") + p.at + " " + esc(p.table) +
+          (p.status ? " [" + p.status + "]" : "") +
+          (p.error ? " <span style='color:#f87171'>" + esc(p.error) + "</span>" : "") + "<br>";
+      });
+      if (!L.pushes || !L.pushes.length) html += "(none yet — change a setting or Save Layout to trigger one)<br>";
+      panel.innerHTML = html;
+    }
+
+    btn.onclick = function () {
+      var open = panel.style.display === "block";
+      panel.style.display = open ? "none" : "block";
+      if (!open) render();
+    };
+    setInterval(function () {
+      if (panel.style.display === "block") render();
+    }, 1000);
+  });
 })();
 </script>
 <script>
