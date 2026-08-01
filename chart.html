@@ -2640,12 +2640,23 @@ select.s-select, input.s-select{
   display:flex;align-items:center;justify-content:center;
   line-height:1;pointer-events:none;white-space:nowrap;
 }
-/* ── TF-Just-Closed widget — sirf cell 0 par, market-timer ke thik neeche.
+/* ── Live IST clock badge — sirf cell 0 (top/first chart) par, market-timer
+   ke thik neeche (settings gear/screen-badge ke stack mein, thoda niche).
+   Sirf "3:00pm" / "9:00am" jaisa plain number+am/pm dikhata hai. ──────── */
+.sv-live-clock{
+  position:absolute;top:35px;right:3px;z-index:20;
+  height:14px;padding:0 2px;
+  background:transparent;border:none;
+  color:#d1d4dc;font-size:7px;font-weight:600;letter-spacing:-0.2px;
+  display:flex;align-items:center;justify-content:center;
+  line-height:1;pointer-events:none;white-space:nowrap;
+}
+/* ── TF-Just-Closed widget — sirf cell 0 par, live clock ke thik neeche.
    White background (as requested) — sirf abhi-abhi close hui candles ke
    TF labels dikhaata hai, kuch second baad apne aap hide ho jaata hai. ──── */
 .cell-tf-closed-widget{
   display:none;
-  position:absolute;top:35px;right:3px;z-index:20;
+  position:absolute;top:51px;right:3px;z-index:20;
   max-width:120px;
   background:#ffffff;border-radius:3px;
   color:#111;font-size:7px;font-weight:700;letter-spacing:-0.2px;
@@ -8377,6 +8388,12 @@ function buildStack2() {
       marketTimer.className = 'cell-market-timer';
       cell.appendChild(marketTimer);
 
+      // Live IST clock — market-timer ke thik neeche, sirf badge-wale cell par
+      const liveClock = document.createElement('span');
+      liveClock.className = 'sv-live-clock';
+      liveClock.id = 'sv2-live-clock';
+      cell.appendChild(liveClock);
+
       const tfClosedWidget = document.createElement('div');
       tfClosedWidget.className = 'cell-tf-closed-widget';
       tfClosedWidget.id = 'sv2-tf-closed-widget';
@@ -11296,6 +11313,12 @@ function buildStack() {
       marketTimer.className = 'cell-market-timer';
       cell.appendChild(marketTimer);
 
+      // Live IST clock — market-timer ke thik neeche, sirf pehle (top) cell par
+      const liveClock = document.createElement('span');
+      liveClock.className = 'sv-live-clock';
+      liveClock.id = 'sv1-live-clock';
+      cell.appendChild(liveClock);
+
       const tfClosedWidget = document.createElement('div');
       tfClosedWidget.className = 'cell-tf-closed-widget';
       tfClosedWidget.id = 'sv1-tf-closed-widget';
@@ -12241,6 +12264,37 @@ if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', _updateMarketTimers);
 } else {
   _updateMarketTimers();
+}
+
+// ── Live IST clock (top cell of Stack View 1 & 2) — sirf "3:00pm" jaisa
+//    plain number+am/pm, koi seconds/date nahi. ─────────────────────────
+function _fmtIstClockNow() {
+  try {
+    const s = new Date().toLocaleTimeString('en-US', {
+      timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit', hour12: true
+    });
+    // "3:00 PM" -> "3:00pm"
+    return s.replace(' ', '').toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+function _updateLiveClocks() {
+  const t = _fmtIstClockNow();
+  try {
+    const el1 = document.getElementById('sv1-live-clock');
+    if (el1) el1.textContent = t;
+  } catch (_) {}
+  try {
+    const el2 = document.getElementById('sv2-live-clock');
+    if (el2) el2.textContent = t;
+  } catch (_) {}
+}
+setInterval(_updateLiveClocks, 1000);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _updateLiveClocks);
+} else {
+  _updateLiveClocks();
 }
 
 // ── TF "Just Closed" Widget ───────────────────────────────────────────────
@@ -19074,13 +19128,15 @@ function _pdot2SetOpacity(idx, level) {
 // touch the ~15 places that call _pdotDraw/_pdot2Draw around the file.
 // ════════════════════════════════════════════════════════════════════════════
 
-const _ARROW_MAX = 6;               // max arrows visible per cell (up+down combined)
+const _ARROW_MAX = 6;               // fallback default max arrows per cell (up+down combined)
 const _ARROW1_KEY = 'arrowToggle1'; // SV1 (main chart / grid) ON-OFF, localStorage
 const _ARROW2_KEY = 'arrowToggle2'; // SV2 (bar-replay stack) ON-OFF, localStorage
 const _ARROW1_SIZE_KEY = 'arrowSize1'; // SV1 size level (0-4), localStorage
 const _ARROW2_SIZE_KEY = 'arrowSize2'; // SV2 size level (0-4), localStorage
 const _ARROW1_GAP_KEY  = 'arrowGap1';  // SV1 gap level (1-5), localStorage
 const _ARROW2_GAP_KEY  = 'arrowGap2';  // SV2 gap level (1-5), localStorage
+const _ARROW1_COUNT_KEY = 'arrowCount1'; // SV1 kitne arrows dikhane hain (1-8), localStorage
+const _ARROW2_COUNT_KEY = 'arrowCount2'; // SV2 kitne arrows dikhane hain (1-8), localStorage
 
 // Size level → triangle half-width / height in CSS pixels (independent per view).
 // Level 0 = extra small (chhota se bhi chhota).
@@ -19104,6 +19160,8 @@ let _ARROW1_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_SIZ
 let _ARROW2_SIZE = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_SIZE_KEY),10); return (v>=0 && v<=4) ? v : 2; } catch(_) { return 2; } })();
 let _ARROW1_GAP  = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_GAP_KEY), 10); return (v>=1 && v<=5) ? v : 3; } catch(_) { return 3; } })();
 let _ARROW2_GAP  = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_GAP_KEY), 10); return (v>=1 && v<=5) ? v : 3; } catch(_) { return 3; } })();
+let _ARROW1_COUNT = (function(){ try { const v = parseInt(_LS.getItem(_ARROW1_COUNT_KEY), 10); return (v>=1 && v<=8) ? v : _ARROW_MAX; } catch(_) { return _ARROW_MAX; } })();
+let _ARROW2_COUNT = (function(){ try { const v = parseInt(_LS.getItem(_ARROW2_COUNT_KEY), 10); return (v>=1 && v<=8) ? v : _ARROW_MAX; } catch(_) { return _ARROW_MAX; } })();
 
 function _arrow1Save() { try { _LS.setItem(_ARROW1_KEY, _ARROW1_ON ? '1' : '0'); } catch(_){} }
 function _arrow2Save() { try { _LS.setItem(_ARROW2_KEY, _ARROW2_ON ? '1' : '0'); } catch(_){} }
@@ -19111,6 +19169,8 @@ function _arrow1SizeSave() { try { _LS.setItem(_ARROW1_SIZE_KEY, String(_ARROW1_
 function _arrow2SizeSave() { try { _LS.setItem(_ARROW2_SIZE_KEY, String(_ARROW2_SIZE)); } catch(_){} }
 function _arrow1GapSave()  { try { _LS.setItem(_ARROW1_GAP_KEY,  String(_ARROW1_GAP));  } catch(_){} }
 function _arrow2GapSave()  { try { _LS.setItem(_ARROW2_GAP_KEY,  String(_ARROW2_GAP));  } catch(_){} }
+function _arrow1CountSave() { try { _LS.setItem(_ARROW1_COUNT_KEY, String(_ARROW1_COUNT)); } catch(_){} }
+function _arrow2CountSave() { try { _LS.setItem(_ARROW2_COUNT_KEY, String(_ARROW2_COUNT)); } catch(_){} }
 
 // Candle body color — same close>=open convention the chart library itself
 // uses to color the candle body.
@@ -19122,9 +19182,10 @@ function _arrowBarColor(bar) { return bar.close >= bar.open ? 'green' : 'red'; }
 // Replay mein jab pehli candle complete close hoti hai, arrow usi par draw
 // hota hai — pichli candle par nahi. Non-replay (static) path mein last
 // candle hamesha live/forming hoti hai isliye wahan bhi same flag kaam karta hai.
-function _arrowComputeEvents(childData) {
+function _arrowComputeEvents(childData, maxCount) {
   const events = [];
   if (!Array.isArray(childData) || childData.length < 3) return events;
+  const cap = (maxCount >= 1 && maxCount <= 8) ? maxCount : _ARROW_MAX;
   // _formingLast=true  → last element abhi ban rahi hai, drop karo (replay + live dono)
   // _formingLast=false → last element complete closed hai, include karo (replay path)
   // _formingLast undefined → purana/static path, pehle jaisa last drop karo (safe fallback)
@@ -19140,8 +19201,8 @@ function _arrowComputeEvents(childData) {
       events.push({ bar: closed[i], dir: 'up' });     // green candle, arrow below, face up
     }
   }
-  // Rolling FIFO — sirf latest 6 rakho, purane turant hat jaate hain.
-  return events.length > _ARROW_MAX ? events.slice(events.length - _ARROW_MAX) : events;
+  // Rolling FIFO — sirf latest `cap` rakho (user-configurable 1-8), purane turant hat jaate hain.
+  return events.length > cap ? events.slice(events.length - cap) : events;
 }
 
 // Draw one solid triangle arrow (no library marker — full pixel control,
@@ -19223,7 +19284,7 @@ function _arrowDraw(idx) {
   if (!_ARROW1_ON) return;
 
   const childData = _pdotGetData(c.asset, c.tf);   // reuse existing data helper
-  const events = _arrowComputeEvents(childData);
+  const events = _arrowComputeEvents(childData, _ARROW1_COUNT);
   if (!events.length) return;
 
   const color = (typeof _tfSrColor === 'function') ? _tfSrColor(c.tf) : '#2962ff';
@@ -19301,7 +19362,7 @@ function _arrow2Draw(idx, cutoffTime) {
   const assetKey = _stackKeyForAsset(c.asset);
   const co = (typeof cutoffTime === 'number') ? cutoffTime : _pdot2CurrentCutoff();
   const childData = _pdot2GetData(assetKey, c.tf, null, co);
-  const events = _arrowComputeEvents(childData);
+  const events = _arrowComputeEvents(childData, _ARROW2_COUNT);
   if (!events.length) return;
 
   const color = (typeof _sv2TfSrColor === 'function') ? _sv2TfSrColor(c.tf) : '#2962ff';
@@ -19343,19 +19404,26 @@ let _arrowSettingsPanel = null;
 let _arrowSettingsView  = null;   // 1 or 2 — jis view ka panel abhi khula hai
 
 function _arrowSettingsHTML(view) {
-  const on   = (view === 1) ? _ARROW1_ON   : _ARROW2_ON;
-  const size = (view === 1) ? _ARROW1_SIZE : _ARROW2_SIZE;
-  const gap  = (view === 1) ? _ARROW1_GAP  : _ARROW2_GAP;
+  const on    = (view === 1) ? _ARROW1_ON    : _ARROW2_ON;
+  const size  = (view === 1) ? _ARROW1_SIZE  : _ARROW2_SIZE;
+  const gap   = (view === 1) ? _ARROW1_GAP   : _ARROW2_GAP;
+  const count = (view === 1) ? _ARROW1_COUNT : _ARROW2_COUNT;
   const btnS = (v, label) =>
     `<button style="min-width:22px;height:22px;padding:0 3px;border-radius:3px;border:1.5px solid ${size===v?'#2962ff':'#363c4e'};background:${size===v?'#2962ff22':'transparent'};color:${size===v?'#2962ff':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_arrowSetSize(${view},${v})">${label}</button>`;
   const btnG = (v, label) =>
     `<button style="min-width:22px;height:22px;padding:0 3px;border-radius:3px;border:1.5px solid ${gap===v?'#f59e0b':'#363c4e'};background:${gap===v?'#f59e0b22':'transparent'};color:${gap===v?'#f59e0b':'#787b86'};font-size:9px;font-weight:700;cursor:pointer" onclick="event.stopPropagation();_arrowSetGap(${view},${v})">${label}</button>`;
+  const countOpts = [1,2,3,4,5,6,7,8]
+    .map(v => `<option value="${v}" ${count===v?'selected':''}>${v}</option>`)
+    .join('');
   return (
     `<div class="csp-title"><span>Arrow Marker</span><button class="csp-close" onclick="_arrowSettingsClose()">✕</button></div>` +
     `<div class="csp-row"><span>Show</span>` +
       `<label class="toggle" style="transform:scale(0.75);transform-origin:right center">` +
         `<input type="checkbox" ${on ? 'checked' : ''} onchange="_arrowSetOn(${view},this.checked)">` +
         `<span class="sl"></span></label></div>` +
+    `<div class="csp-row"><span>Count</span>` +
+      `<select style="height:22px;background:#1e222d;color:#d1d4dc;border:1.5px solid #363c4e;border-radius:3px;font-size:10px;padding:0 3px" onchange="event.stopPropagation();_arrowSetCount(${view},parseInt(this.value,10))">${countOpts}</select>` +
+    `</div>` +
     `<div class="csp-row"><span>Size</span>` +
       `<div style="display:flex;gap:3px">${[0,1,2,3,4].map((v,i) => btnS(v, ['XS','S','M','L','XL'][i])).join('')}</div>` +
     `</div>` +
@@ -19422,6 +19490,12 @@ function _arrowSetGap(view, gap) {
   gap = Math.max(1, Math.min(5, gap));
   if (view === 1) { _ARROW1_GAP = gap; _arrow1GapSave(); _arrowDrawAll(); }
   else            { _ARROW2_GAP = gap; _arrow2GapSave(); _arrow2DrawAll(); }
+  _arrowSettingsRefresh();
+}
+function _arrowSetCount(view, count) {
+  count = Math.max(1, Math.min(8, count));
+  if (view === 1) { _ARROW1_COUNT = count; _arrow1CountSave(); _arrowDrawAll(); }
+  else            { _ARROW2_COUNT = count; _arrow2CountSave(); _arrow2DrawAll(); }
   _arrowSettingsRefresh();
 }
 
