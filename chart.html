@@ -1389,6 +1389,75 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   color:#26a69a;
 }
 
+/* ── SV2 — Manual Arrow Tool (green/red draggable tail-arrow) — calendar/
+   ▶ Play stack ke saath, sabse neeche. Bilkul INDEPENDENT hai — na Drawing
+   Tools Engine (_DT) se, na Automatic Reversal Arrow Marker (#sv2-arrow-btn)
+   se. Tap karne par green/red picker menu khulta hai. ──────────────────── */
+#sv2-manarrow-btn{
+  display:none;
+  position:fixed;
+  z-index:8499;
+  width:24px;height:24px;
+  border-radius:50%;
+  background:#1e222d;
+  border:1px solid #787b86;
+  box-shadow:0 4px 16px #0007;
+  font-size:12px;
+  font-weight:700;
+  cursor:pointer;
+  align-items:center;justify-content:center;
+  touch-action:manipulation;
+  user-select:none;
+  -webkit-user-select:none;
+  transition:border-color .2s, background .2s, color .2s;
+  color:#787b86;
+}
+#sv2-manarrow-btn.visible{ display:flex; }
+#sv2-manarrow-btn.armed-green{ background:#26a69a22; border-color:#26a69a; color:#26a69a; }
+#sv2-manarrow-btn.armed-red{   background:#ef535022; border-color:#ef5350; color:#ef5350; }
+
+/* Green/Red picker popup — FAB button tap karne par khulta hai */
+.sv2-ma-menu{
+  position:fixed;
+  z-index:8600;
+  display:flex;
+  gap:8px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  padding:6px;
+  box-shadow:0 4px 16px #0009;
+}
+.sv2-ma-swatch{
+  width:34px;height:34px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:15px;font-weight:700;
+  cursor:pointer;
+  touch-action:manipulation;
+  -webkit-user-select:none;user-select:none;
+  border:1.5px solid;
+}
+.sv2-ma-swatch.green{ background:#26a69a22;border-color:#26a69a;color:#26a69a; }
+.sv2-ma-swatch.red{   background:#ef535022;border-color:#ef5350;color:#ef5350; }
+.sv2-ma-swatch:active{ opacity:.75; }
+
+/* Selected arrow ka delete (✕) button — edit-mode me arrow ke head ke paas dikhta hai */
+.sv2-ma-del-btn{
+  position:absolute;
+  z-index:52;
+  width:22px;height:22px;
+  border-radius:50%;
+  background:#ef5350;
+  color:#fff;
+  border:none;
+  font-size:12px;font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  touch-action:manipulation;
+  box-shadow:0 2px 8px #0007;
+}
+
 /* ── Floating crosshair date/time badge — jab kisi Stack View (1 ya 2) ka
    bottom time-axis "Display" toggle se HIDE kiya gaya ho, tab bhi candle
    par cursor/finger rakhne par date+time yahan dikhta hai (chart pane ke
@@ -2647,7 +2716,7 @@ select.s-select, input.s-select{
   position:absolute;top:35px;right:3px;z-index:20;
   height:14px;padding:0 2px;
   background:transparent;border:none;
-  color:#d1d4dc;font-size:7px;font-weight:600;letter-spacing:-0.2px;
+  color:#ff0000;font-size:7px;font-weight:700;letter-spacing:-0.2px;
   display:flex;align-items:center;justify-content:center;
   line-height:1;pointer-events:none;white-space:nowrap;
 }
@@ -3822,6 +3891,8 @@ function _hdrRelayout(){
      calendar sheet ke andar ek switch tha — ab yahan icon ke roop mein:
      ek tap = preview line dikhao, dubara tap = hide. ═══════════════════ -->
 <button id="sv2-openpx-btn" title="Opening Price Preview line Show/Hide karo" onclick="_sv2OpenPxToggle()">📍</button>
+<!-- ═══ SV2 MANUAL ARROW TOOL — independent green/red draggable tail-arrow ═══ -->
+<button id="sv2-manarrow-btn" title="Manual Arrow — tail se head tak drag karke banao" onclick="_maMenuToggle(this)">↗</button>
 
 <!-- ═══ SV2 DATE RANGE — Bottom Sheet Backdrop ═══════════════════════════ -->
 <div id="sv2-drng-backdrop"></div>
@@ -8868,6 +8939,11 @@ function _buildStack2CellChart(idx) {
   if (typeof _dtRegisterChart === 'function') {
     try { _dtRegisterChart('stack2-' + idx, c.chart, c.series, el); } catch(_) {}
   }
+  // Manual Arrow Tool support — completely independent module (own canvas,
+  // own state, own storage), see #sv2-manarrow-btn section.
+  if (typeof _maRegisterChart === 'function') {
+    try { _maRegisterChart('stack2-' + idx, c.chart, c.series, el); } catch(_) {}
+  }
   // Mobile touch UX
   // NOTE: attachMobileTouchUX() adds touchstart/touchmove/touchend listeners
   // directly on `el` (the container DOM node), which is REUSED across
@@ -9764,6 +9840,7 @@ function ss2ApplyAndClose() {
   var _ocPnlBtn = null;       // #sv2-ocpnl-btn — Option Chain position P&L overlay show/hide
   var _openPxBtn = null;      // #sv2-openpx-btn — Opening Price Preview line show/hide
   var _arrowBtn  = null;      // #sv2-arrow-btn — Automatic Reversal Arrow Marker show/hide
+  var _manArrowBtn = null;    // #sv2-manarrow-btn — Manual Arrow Tool (green/red, independent)
   var _timerId   = null;   // setTimeout handle (self-rescheduling) — OUR metronome, not a clock read
   var _running   = false;
   // Virtual-clock parameter: kitne real seconds mein 1 candle poori hoti hai.
@@ -9816,6 +9893,11 @@ function ss2ApplyAndClose() {
     // jab tak Stack View 2 active hai (Play ki tarah replay-range specific
     // nahi, kyunki candle-close arrows replay ke bina bhi kaam karte hain).
     if (_arrowBtn) _arrowBtn.classList.toggle('visible', stack2On);
+    // ↗ Manual Arrow Tool — calendar/Play group ke saath hamesha dikhta hai
+    // jab tak Stack View 2 active hai (Automatic Reversal Arrow Marker jaisa
+    // hi — replay-range specific nahi, kyunki manual arrow replay ke bina
+    // bhi banaya ja sakta hai).
+    if (_manArrowBtn) _manArrowBtn.classList.toggle('visible', stack2On);
     if (!show) { _pause(); }
     _renderPlayIcon();
     _syncPos();
@@ -9869,6 +9951,11 @@ function ss2ApplyAndClose() {
     if (_openPxBtn) {
       _openPxBtn.style.left = r.left + 'px';
       _openPxBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29 + 29) + 'px';
+    }
+    // ↗ Manual Arrow Tool — stack ke sabse neeche
+    if (_manArrowBtn) {
+      _manArrowBtn.style.left = r.left + 'px';
+      _manArrowBtn.style.top  = (r.bottom + GAP + stackOffset + 29 + 29 + 29 + 29 + 29 + 29) + 'px';
     }
   }
 
@@ -10763,6 +10850,7 @@ function ss2ApplyAndClose() {
     if (_openPxBtn) _openPxBtn.classList.toggle('on', !!(typeof window._sv2GetOpenPxOnOff === 'function' && window._sv2GetOpenPxOnOff()));
     _arrowBtn = document.getElementById('sv2-arrow-btn');
     if (_arrowBtn) _arrowBtn.classList.toggle('on', !!(typeof _ARROW2_ON !== 'undefined' && _ARROW2_ON));
+    _manArrowBtn = document.getElementById('sv2-manarrow-btn');
     if (_resetBtn) _resetBtn.addEventListener('click', _reset);
     if (_srToggleBtn) _srToggleBtn.classList.toggle('on', !!SV2_SR_HTF_VISIBLE);
 
@@ -14729,6 +14817,10 @@ document.addEventListener('click', (e) => {
   if(_arrowSettingsPanel && !_arrowSettingsPanel.contains(e.target) &&
      e.target.id!=='sv1-arrow-fab' && e.target.id!=='sv2-arrow-btn')
     { _arrowSettingsClose(); }
+  // Manual Arrow Tool — green/red picker menu (independent module)
+  if(typeof _maMenuEl!=='undefined' && _maMenuEl && !_maMenuEl.contains(e.target) &&
+     e.target.id!=='sv2-manarrow-btn')
+    { _maMenuClose(); }
   // Main chart settings panel
   if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
      e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
@@ -19497,6 +19589,479 @@ function _arrowSetCount(view, count) {
   if (view === 1) { _ARROW1_COUNT = count; _arrow1CountSave(); _arrowDrawAll(); }
   else            { _ARROW2_COUNT = count; _arrow2CountSave(); _arrow2DrawAll(); }
   _arrowSettingsRefresh();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// SV2 MANUAL ARROW TOOL — independent module (green / red draggable tail-arrow)
+// ────────────────────────────────────────────────────────────────────────────
+// Isse Drawing Tools Engine (_DT, line ~7734) aur Automatic Reversal Arrow
+// Marker (_ARROW2_ON / #sv2-arrow-btn) — dono se BILKUL ALAG rakha gaya hai:
+//   • Apna khud ka canvas (per stack2 cell, class sv2-ma-canvas, z-index 51)
+//   • Apna khud ka state object (_MA) aur localStorage key (sv2ManArrows)
+//   • Koi shared function/array reuse nahi kiya (sirf coordinate-conversion
+//     ka PATTERN copy kiya hai, code khud alag hai)
+//
+// GESTURE: single continuous drag.
+//   touchstart → tail set ho jaata hai (jahan finger rakha)
+//   touchmove  → live preview line finger follow karti hai
+//   touchend   → head set ho jaata hai (jahan finger uthaya)
+//   → poora arrow (tail+head, editable) EK HI attempt me ban jaata hai.
+//
+// EDIT: baad me arrow par tap karo → select ho jaata hai (glow + endpoint
+// dots + ✕ delete button). Tail/head dot ko drag karke reposition kar sakte
+// ho. Kahi aur tap karne se deselect ho jaata hai.
+// ════════════════════════════════════════════════════════════════════════════
+const _MA_LSKEY = 'sv2ManArrows';
+const _MA = {
+  pendingColor: null,   // 'green' | 'red' | null — draw-mode ON hai kis color ke liye
+  active: false,        // abhi drag chal raha hai (tail rakh diya, head abhi tak nahi)
+  p1: null, tempP2: null, chartKey: null,
+  drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color}]
+  _nextId: 1,
+  _canvases: {},         // chartKey -> {chartObj, seriesObj, el, canvas, ctx, _bound, _editBound, _tapBound}
+  _selectedId: null,     // edit-mode: kaunsa arrow select hua hai
+};
+
+function _maLoad() {
+  try {
+    const raw = _LS.getItem(_MA_LSKEY);
+    if (raw) _MA.drawings = JSON.parse(raw) || [];
+  } catch(_) { _MA.drawings = []; }
+  let maxId = 0;
+  _MA.drawings.forEach(d => { if (d.id > maxId) maxId = d.id; });
+  _MA._nextId = maxId + 1;
+}
+function _maSave() {
+  try { _LS.setItem(_MA_LSKEY, JSON.stringify(_MA.drawings)); } catch(_) {}
+}
+_maLoad();
+
+// ── FAB green/red picker menu ────────────────────────────────────────────────
+let _maMenuEl = null;
+function _maMenuToggle(btn) {
+  if (_maMenuEl) { _maMenuClose(); return; }
+  _maDeselect(); // koi arrow select/edit-mode me hai to pehle usse clear karo
+  const menu = document.createElement('div');
+  menu.className = 'sv2-ma-menu';
+  menu.innerHTML =
+    `<button class="sv2-ma-swatch green" onclick="event.stopPropagation();_maPick('green')" title="Green Arrow">↗</button>` +
+    `<button class="sv2-ma-swatch red"   onclick="event.stopPropagation();_maPick('red')"   title="Red Arrow">↗</button>`;
+  document.body.appendChild(menu);
+  const mW = menu.offsetWidth || 92, mH = menu.offsetHeight || 46;
+  const r  = btn.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = r.left - mW - 6;          // FAB ke left side me khulta hai (FAB right edge par hoti hai)
+  if (left < 4) left = r.right + 6;    // jagah na ho to right side try karo
+  let top = r.top + (r.height - mH) / 2;
+  if (top < 4) top = 4;
+  if (top + mH > vh - 4) top = vh - mH - 4;
+  if (left + mW > vw - 4) left = vw - mW - 4;
+  menu.style.left = left + 'px';
+  menu.style.top  = top  + 'px';
+  _maMenuEl = menu;
+}
+function _maMenuClose() {
+  if (_maMenuEl) { _maMenuEl.remove(); _maMenuEl = null; }
+}
+function _maPick(color) {
+  _maMenuClose();
+  _MA.pendingColor = color;
+  _maSetDrawMode(true);
+  const btn = document.getElementById('sv2-manarrow-btn');
+  if (btn) {
+    btn.classList.add(color === 'red' ? 'armed-red' : 'armed-green');
+    btn.classList.remove(color === 'red' ? 'armed-green' : 'armed-red');
+  }
+}
+
+// ── Draw-mode ON/OFF across every registered stack2 cell ─────────────────────
+function _maSetDrawMode(on) {
+  Object.keys(_MA._canvases).forEach(k => on ? _maAttach(k) : _maDetach(k));
+  if (!on) {
+    _MA.pendingColor = null;
+    const btn = document.getElementById('sv2-manarrow-btn');
+    if (btn) btn.classList.remove('armed-green', 'armed-red');
+  }
+}
+
+// ── Register a chart — called from buildStack2() (same call-site as _DT) ────
+function _maRegisterChart(chartKey, chartObj, seriesObj, containerEl) {
+  if (!_MA._canvases[chartKey]) {
+    _MA._canvases[chartKey] = { chartObj, seriesObj, el: containerEl, canvas:null, ctx:null, _bound:null, _editBound:null, _tapBound:false };
+  } else {
+    Object.assign(_MA._canvases[chartKey], { chartObj, seriesObj, el: containerEl });
+  }
+  _maMakeCanvas(chartKey);
+  let _rRAF = null;
+  const _rRedraw = () => {
+    if (_rRAF) return;
+    _rRAF = requestAnimationFrame(() => { _rRAF = null; _maRedraw(chartKey); });
+  };
+  try { chartObj.timeScale().subscribeVisibleLogicalRangeChange(_rRedraw); } catch(_) {}
+  try { seriesObj.priceScale().subscribeVisiblePriceRangeChange(_rRedraw); } catch(_) {}
+  if (_MA.pendingColor) _maAttach(chartKey);
+  setTimeout(() => _maRaiseCanvas(chartKey), 100);
+  setTimeout(() => _maRaiseCanvas(chartKey), 1000);
+}
+
+// ── Canvas (independent from _DT's canvas — own z-index 51, above DT's 50) ──
+function _maMakeCanvas(key) {
+  const rec = _MA._canvases[key];
+  if (!rec || !rec.el) return;
+  if (rec.canvas?.parentNode) rec.canvas.parentNode.removeChild(rec.canvas);
+  const el = rec.el;
+  el.style.position = 'relative';
+  const c = document.createElement('canvas');
+  c.className = 'sv2-ma-canvas';
+  const dpr = window.devicePixelRatio || 1;
+  c.width  = el.clientWidth  * dpr;
+  c.height = el.clientHeight * dpr;
+  c.style.cssText = `width:${el.clientWidth}px;height:${el.clientHeight}px;position:absolute;top:0;left:0;z-index:51;pointer-events:none;`;
+  el.appendChild(c);
+  rec.canvas = c; rec.ctx = c.getContext('2d');
+
+  // Tap on an existing arrow (jab draw-mode OFF ho) → select for editing
+  if (!rec._tapBound) {
+    let _tx=0, _ty=0, _tt=0;
+    el.addEventListener('touchstart', (e) => {
+      if (_MA.pendingColor) return;   // draw-mode apna alag handler leta hai (canvas pointer-events:all)
+      if (e.touches.length !== 1) return;
+      _tx = e.touches[0].clientX; _ty = e.touches[0].clientY; _tt = Date.now();
+    }, {passive:true});
+    el.addEventListener('touchend', (e) => {
+      if (_MA.pendingColor) return;
+      if (Date.now() - _tt > 500) return; // not a tap
+      const t = e.changedTouches[0];
+      if (Math.abs(t.clientX - _tx) > 12 || Math.abs(t.clientY - _ty) > 12) return; // moved = scroll/pan
+      const r = el.getBoundingClientRect();
+      const x = t.clientX - r.left, y = t.clientY - r.top;
+      const hit = _maHitTest(key, x, y);
+      if (hit) { e.preventDefault(); _maSelect(hit.id); } else { _maDeselect(); }
+    }, {passive:false});
+    rec._tapBound = true;
+  }
+  _maRedraw(key);
+}
+
+function _maRaiseCanvas(key) {
+  const rec = _MA._canvases[key];
+  if (!rec?.canvas || !rec.el) return;
+  rec.el.appendChild(rec.canvas);
+  if (_MA._selectedId != null) _maRepositionDelBtn();
+}
+function _maResizeCanvas(key) {
+  const rec = _MA._canvases[key];
+  if (!rec?.canvas || !rec.el) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = rec.el.clientWidth, h = rec.el.clientHeight;
+  if (rec.canvas.width !== w*dpr || rec.canvas.height !== h*dpr) {
+    rec.canvas.width  = w*dpr; rec.canvas.height = h*dpr;
+    rec.canvas.style.width  = w+'px'; rec.canvas.style.height = h+'px';
+  }
+}
+
+// ── Draw-mode listeners: SINGLE drag = tail→head, one attempt, poora arrow ───
+function _maAttach(key) {
+  const rec = _MA._canvases[key];
+  if (!rec?.canvas) return;
+  _maDetach(key);
+  const canvas = rec.canvas;
+  canvas.style.pointerEvents = 'all';
+  const onDown = (e) => { e.stopPropagation(); _maPointerDown(key, e); };
+  const onMove = (e) => { if (_MA.active) { e.stopPropagation(); e.preventDefault(); } _maPointerMove(key, e); };
+  const onUp   = (e) => { _maPointerUp(key, e); };
+  canvas.addEventListener('touchstart', onDown, {passive:false});
+  canvas.addEventListener('touchmove',  onMove, {passive:false});
+  canvas.addEventListener('touchend',   onUp,   {passive:false});
+  canvas.addEventListener('mousedown',  onDown);
+  canvas.addEventListener('mousemove',  onMove);
+  canvas.addEventListener('mouseup',    onUp);
+  rec._bound = { onDown, onMove, onUp };
+}
+function _maDetach(key) {
+  const rec = _MA._canvases[key];
+  if (!rec?.canvas || !rec._bound) return;
+  const { onDown, onMove, onUp } = rec._bound;
+  if (!_MA._selectedId) rec.canvas.style.pointerEvents = 'none';
+  rec.canvas.removeEventListener('touchstart', onDown);
+  rec.canvas.removeEventListener('touchmove',  onMove);
+  rec.canvas.removeEventListener('touchend',   onUp);
+  rec.canvas.removeEventListener('mousedown',  onDown);
+  rec.canvas.removeEventListener('mousemove',  onMove);
+  rec.canvas.removeEventListener('mouseup',    onUp);
+  rec._bound = null;
+}
+
+function _maEventXY(canvas, e) {
+  const r = canvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : (e.changedTouches ? e.changedTouches[0] : e);
+  return { x: src.clientX - r.left, y: src.clientY - r.top };
+}
+function _maXYtoPt(key, x, y) {
+  const rec = _MA._canvases[key];
+  if (!rec?.chartObj || !rec.seriesObj) return null;
+  try {
+    const time  = rec.chartObj.timeScale().coordinateToTime(x);
+    const price = rec.seriesObj.coordinateToPrice(y);
+    if (time == null || price == null) return null;
+    return { time, price };
+  } catch(_) { return null; }
+}
+function _maPtToXY(key, pt) {
+  const rec = _MA._canvases[key];
+  if (!rec?.chartObj || !rec.seriesObj || !pt) return null;
+  try {
+    const px = rec.chartObj.timeScale().timeToCoordinate(pt.time);
+    const py = rec.seriesObj.priceToCoordinate(pt.price);
+    if (px == null || py == null) return null;
+    return { x: px, y: py };
+  } catch(_) { return null; }
+}
+
+// ── Pointer down: TAIL set (drag start, jahan cursor/finger rakha) ───────────
+function _maPointerDown(key, e) {
+  if (!_MA.pendingColor) return;
+  if (e.touches) e.preventDefault();
+  const rec = _MA._canvases[key];
+  if (!rec) return;
+  const {x, y} = _maEventXY(rec.canvas, e);
+  const pt = _maXYtoPt(key, x, y);
+  if (!pt) return;
+  _MA.active = true;
+  _MA.chartKey = key;
+  _MA.p1 = pt;
+  _MA.tempP2 = pt;
+  _maRedraw(key);
+}
+
+let _maMoveRAF = null, _maMoveXY = null;
+function _maPointerMove(key, e) {
+  if (!_MA.active || _MA.chartKey !== key) return;
+  if (e.touches) e.preventDefault();
+  const rec = _MA._canvases[key];
+  if (!rec) return;
+  _maMoveXY = _maEventXY(rec.canvas, e);
+  if (_maMoveRAF) return;
+  _maMoveRAF = requestAnimationFrame(() => {
+    _maMoveRAF = null;
+    if (!_maMoveXY || !_MA.active) return;
+    const pt = _maXYtoPt(key, _maMoveXY.x, _maMoveXY.y);
+    if (!pt) return;
+    _MA.tempP2 = pt;
+    _maRedraw(key);
+  });
+}
+
+// ── Pointer up: HEAD set (jahan finger uthaya) → commit — FIRST ATTEMPT me
+//    hi poora tail+head arrow ban jaata hai, koi doosra tap nahi chahiye ────
+function _maPointerUp(key, e) {
+  if (!_MA.active || _MA.chartKey !== key) return;
+  _MA.active = false;
+  const rec = _MA._canvases[key];
+  if (rec && e) {
+    const {x, y} = _maEventXY(rec.canvas, e);
+    const pt = _maXYtoPt(key, x, y);
+    if (pt) _MA.tempP2 = pt;
+  }
+  // Bahut chhota drag (galti se tap ho gaya) — arrow mat banao
+  const xy1 = _maPtToXY(key, _MA.p1), xy2 = _maPtToXY(key, _MA.tempP2);
+  const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
+  if (_MA.p1 && _MA.tempP2 && !tooSmall) {
+    _MA.drawings.push({ id: _MA._nextId++, chartKey: key, p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor });
+    _maSave();
+  }
+  _MA.p1 = null; _MA.tempP2 = null; _MA.chartKey = null;
+  _maSetDrawMode(false);   // ek arrow ban gaya → draw-mode apne aap band
+  _maRedrawAll();
+}
+
+// ── Hit test (tap-to-select an existing arrow) ───────────────────────────────
+const _MA_HIT_R = 22; // px — mobile finger-friendly
+function _maHitTest(key, x, y) {
+  for (let i = _MA.drawings.length - 1; i >= 0; i--) {
+    const d = _MA.drawings[i];
+    if (d.chartKey !== key) continue;
+    const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+    if (!xy1 || !xy2) continue;
+    if (_maDistToSeg(x, y, xy1.x, xy1.y, xy2.x, xy2.y) < _MA_HIT_R) return d;
+    if (Math.hypot(x - xy1.x, y - xy1.y) < _MA_HIT_R) return d;
+    if (Math.hypot(x - xy2.x, y - xy2.y) < _MA_HIT_R) return d;
+  }
+  return null;
+}
+function _maDistToSeg(px, py, ax, ay, bx, by) {
+  const dx = bx-ax, dy = by-ay, len2 = dx*dx+dy*dy;
+  if (len2 === 0) return Math.hypot(px-ax, py-ay);
+  let t = ((px-ax)*dx + (py-ay)*dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax+t*dx), py - (ay+t*dy));
+}
+
+// ── Select / deselect (edit-mode) ────────────────────────────────────────────
+function _maSelect(id) {
+  _maDisableEditDrag();
+  _MA._selectedId = id;
+  const d = _MA.drawings.find(x => x.id === id);
+  if (d) { _maEnableEditDrag(d.chartKey, id); _maShowDelBtn(d.chartKey, id); }
+  _maRedrawAll();
+}
+function _maDeselect() {
+  if (_MA._selectedId == null && !_MA.active) return;
+  _maDisableEditDrag();
+  _maHideDelBtn();
+  _MA._selectedId = null;
+  _maRedrawAll();
+}
+
+// ── Edit-drag: tail/head endpoint ko drag karke reposition karo ─────────────
+let _maEditRAF = null;
+function _maEnableEditDrag(key, id) {
+  const rec = _MA._canvases[key];
+  if (!rec?.canvas) return;
+  rec.canvas.style.pointerEvents = 'all';
+  let dragHandle = null; // 'p1' (tail) | 'p2' (head)
+  const onDown = (e) => {
+    const d = _MA.drawings.find(x => x.id === id);
+    if (!d) return;
+    const {x, y} = _maEventXY(rec.canvas, e);
+    const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+    if (xy1 && Math.hypot(x-xy1.x, y-xy1.y) < _MA_HIT_R)      dragHandle = 'p1';
+    else if (xy2 && Math.hypot(x-xy2.x, y-xy2.y) < _MA_HIT_R) dragHandle = 'p2';
+    else { dragHandle = null; return; }
+    _maHideDelBtn();
+    e.stopPropagation(); if (e.touches) e.preventDefault();
+  };
+  const onMove = (e) => {
+    if (!dragHandle) return;
+    e.stopPropagation(); if (e.touches) e.preventDefault();
+    const {x, y} = _maEventXY(rec.canvas, e);
+    const pt = _maXYtoPt(key, x, y);
+    if (!pt) return;
+    const d = _MA.drawings.find(x2 => x2.id === id);
+    if (!d) return;
+    d[dragHandle] = pt;
+    if (_maEditRAF) return;
+    _maEditRAF = requestAnimationFrame(() => { _maEditRAF = null; _maRedraw(key); });
+  };
+  const onUp = () => {
+    if (dragHandle) { _maSave(); _maShowDelBtn(key, id); }
+    dragHandle = null;
+  };
+  rec.canvas.addEventListener('touchstart', onDown, {passive:false});
+  rec.canvas.addEventListener('touchmove',  onMove, {passive:false});
+  rec.canvas.addEventListener('touchend',   onUp,   {passive:false});
+  rec.canvas.addEventListener('mousedown',  onDown);
+  rec.canvas.addEventListener('mousemove',  onMove);
+  rec.canvas.addEventListener('mouseup',    onUp);
+  rec._editBound = { onDown, onMove, onUp };
+}
+function _maDisableEditDrag() {
+  Object.keys(_MA._canvases).forEach(key => {
+    const rec = _MA._canvases[key];
+    if (!rec?.canvas || !rec._editBound) return;
+    const { onDown, onMove, onUp } = rec._editBound;
+    rec.canvas.removeEventListener('touchstart', onDown);
+    rec.canvas.removeEventListener('touchmove',  onMove);
+    rec.canvas.removeEventListener('touchend',   onUp);
+    rec.canvas.removeEventListener('mousedown',  onDown);
+    rec.canvas.removeEventListener('mousemove',  onMove);
+    rec.canvas.removeEventListener('mouseup',    onUp);
+    rec._editBound = null;
+    if (!_MA.pendingColor) rec.canvas.style.pointerEvents = 'none';
+  });
+}
+
+// ── Delete (✕) button — selected arrow ke head ke paas floating dikhta hai ──
+let _maDelBtn = null, _maDelBtnKey = null, _maDelBtnId = null;
+function _maShowDelBtn(key, id) {
+  _maHideDelBtn();
+  const d = _MA.drawings.find(x => x.id === id);
+  const rec = _MA._canvases[key];
+  if (!d || !rec?.el) return;
+  const xy2 = _maPtToXY(key, d.p2);
+  if (!xy2) return;
+  const btn = document.createElement('button');
+  btn.className = 'sv2-ma-del-btn';
+  btn.textContent = '✕';
+  btn.style.left = (xy2.x + 8) + 'px';
+  btn.style.top  = (xy2.y - 22) + 'px';
+  btn.onclick = (e) => { e.stopPropagation(); _maDeleteSelected(); };
+  rec.el.appendChild(btn);
+  _maDelBtn = btn; _maDelBtnKey = key; _maDelBtnId = id;
+}
+function _maRepositionDelBtn() {
+  if (!_maDelBtn || _maDelBtnId == null) return;
+  const d = _MA.drawings.find(x => x.id === _maDelBtnId);
+  if (!d) return;
+  const xy2 = _maPtToXY(_maDelBtnKey, d.p2);
+  if (!xy2) return;
+  _maDelBtn.style.left = (xy2.x + 8) + 'px';
+  _maDelBtn.style.top  = (xy2.y - 22) + 'px';
+}
+function _maHideDelBtn() {
+  if (_maDelBtn) { _maDelBtn.remove(); _maDelBtn = null; }
+  _maDelBtnKey = null; _maDelBtnId = null;
+}
+function _maDeleteSelected() {
+  if (_MA._selectedId == null) return;
+  _MA.drawings = _MA.drawings.filter(d => d.id !== _MA._selectedId);
+  _maSave();
+  _maDeselect();
+}
+
+// ── Redraw ────────────────────────────────────────────────────────────────────
+function _maRedraw(key) {
+  const rec = _MA._canvases[key];
+  if (!rec?.canvas || !rec.ctx) return;
+  _maResizeCanvas(key);
+  const ctx = rec.ctx;
+  const dpr = window.devicePixelRatio || 1;
+  const W = rec.canvas.width/dpr, H = rec.canvas.height/dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.clearRect(0,0,W,H);
+
+  for (const d of _MA.drawings) {
+    if (d.chartKey !== key) continue;
+    _maDrawOne(ctx, d, key, d.id === _MA._selectedId);
+  }
+  // in-progress preview (drag chal raha hai)
+  if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
+    _maDrawOne(ctx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, _preview:true }, key, false);
+  }
+  if (_MA._selectedId != null && _maDelBtnKey === key) _maRepositionDelBtn();
+}
+function _maRedrawAll() { Object.keys(_MA._canvases).forEach(k => _maRedraw(k)); }
+
+function _maDrawOne(ctx, d, key, isSelected) {
+  const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+  if (!xy1 || !xy2) return;
+  const col = d.color === 'red' ? '#ef5350' : '#26a69a';
+  const lw = 2;
+  ctx.save();
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = lw;
+  ctx.globalAlpha = d._preview ? 0.65 : 1;
+  if (isSelected && !d._preview) { ctx.shadowColor = col; ctx.shadowBlur = 6; }
+  ctx.beginPath(); ctx.moveTo(xy1.x, xy1.y); ctx.lineTo(xy2.x, xy2.y); ctx.stroke();
+  const ang = Math.atan2(xy2.y - xy1.y, xy2.x - xy1.x), al = 9;
+  ctx.beginPath(); ctx.moveTo(xy2.x, xy2.y);
+  ctx.lineTo(xy2.x - al*Math.cos(ang-0.4), xy2.y - al*Math.sin(ang-0.4));
+  ctx.lineTo(xy2.x - al*Math.cos(ang+0.4), xy2.y - al*Math.sin(ang+0.4));
+  ctx.closePath(); ctx.fill();
+  if (isSelected && !d._preview) {
+    ctx.shadowBlur = 0;
+    _maDot(ctx, xy1, col); _maDot(ctx, xy2, col);
+  }
+  ctx.restore();
+}
+function _maDot(ctx, pt, col) {
+  ctx.save();
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(pt.x, pt.y, 5, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();
 }
 
 // ── Wrap the existing Parent-Dot draw/resize functions so every existing
