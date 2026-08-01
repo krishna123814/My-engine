@@ -19769,7 +19769,7 @@ function _maAttach(key) {
   canvas.style.pointerEvents = 'all';
   const onDown = (e) => { e.stopPropagation(); _maPointerDown(key, e); };
   const onMove = (e) => { if (_MA.active) { e.stopPropagation(); e.preventDefault(); } _maPointerMove(key, e); };
-  const onUp   = (e) => { _maPointerUp(key, e); };
+  const onUp   = (e) => { e.stopPropagation(); _maPointerUp(key, e); };
   canvas.addEventListener('touchstart', onDown, {passive:false});
   canvas.addEventListener('touchmove',  onMove, {passive:false});
   canvas.addEventListener('touchend',   onUp,   {passive:false});
@@ -20040,6 +20040,13 @@ function _maDrawOne(ctx, d, key, isSelected) {
   const col = d.color === 'red' ? '#ef5350' : '#26a69a';
   const lw = 2;
   ctx.save();
+  // Selection dots drawn FIRST (underneath) so the arrowhead tip stays sharp
+  // and fully visible on top — previously drawn after the arrow, the head
+  // dot at xy2 (10px diameter) fully covered the ~9px arrowhead triangle,
+  // making the arrow look blunt/shrunk the moment it got tapped to select.
+  if (isSelected && !d._preview) {
+    _maDot(ctx, xy1, col); _maDot(ctx, xy2, col);
+  }
   ctx.strokeStyle = col; ctx.fillStyle = col;
   ctx.lineWidth = lw;
   ctx.globalAlpha = d._preview ? 0.65 : 1;
@@ -20050,10 +20057,6 @@ function _maDrawOne(ctx, d, key, isSelected) {
   ctx.lineTo(xy2.x - al*Math.cos(ang-0.4), xy2.y - al*Math.sin(ang-0.4));
   ctx.lineTo(xy2.x - al*Math.cos(ang+0.4), xy2.y - al*Math.sin(ang+0.4));
   ctx.closePath(); ctx.fill();
-  if (isSelected && !d._preview) {
-    ctx.shadowBlur = 0;
-    _maDot(ctx, xy1, col); _maDot(ctx, xy2, col);
-  }
   ctx.restore();
 }
 function _maDot(ctx, pt, col) {
