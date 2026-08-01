@@ -1852,6 +1852,17 @@ def _build_chart_html(
     html = html.replace("__SUPABASE_URL__",      _sb_url)
     html = html.replace("__SUPABASE_ANON_KEY__", _sb_key)
 
+    # Optional auto-login credentials (personal app — same trust model as
+    # the existing Fyers app_id/secret injection above). If left blank in
+    # secrets, chart.html falls back to showing the manual login form.
+    try:
+        _sb_email = st.secrets.get("SUPABASE_LOGIN_EMAIL", "")
+        _sb_pass  = st.secrets.get("SUPABASE_LOGIN_PASSWORD", "")
+    except Exception:
+        _sb_email, _sb_pass = "", ""
+    html = html.replace("__SUPABASE_LOGIN_EMAIL__",    _sb_email)
+    html = html.replace("__SUPABASE_LOGIN_PASSWORD__", _sb_pass)
+
     # ── Inject side-API port so chart.html knows which port to call ──────────
     _api_port = 0
     try:

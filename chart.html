@@ -327,6 +327,15 @@
 
   var REFRESH_TOKEN_KEY = "_sb_refresh_token";
   var DEVICE_UID_KEY    = "_sb_device_uid";
+  var LOGIN_EMAIL    = "__SUPABASE_LOGIN_EMAIL__";
+  var LOGIN_PASSWORD = "__SUPABASE_LOGIN_PASSWORD__";
+  // Check by shape, not by matching the placeholder text itself — Python's
+  // html.replace() is a global find-replace, so writing the literal
+  // placeholder string anywhere else in this file would get replaced too
+  // (this exact bug bit the URL check earlier — see chat history).
+  var hasAutoCreds = LOGIN_EMAIL.indexOf("@") > 0 &&
+                      LOGIN_PASSWORD.length > 0 &&
+                      LOGIN_PASSWORD.indexOf("_") !== 0;
 
   var SETTINGS_KEYS = [
     "tfSrColors2", "parentDotCfg2",
@@ -356,7 +365,7 @@
     }
   }
 
-  function ensureAnonSession() {
+  function ensureSession() {
     var refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       var r = xhrSync("POST",
@@ -365,31 +374,37 @@
         JSON.stringify({ refresh_token: refreshToken }));
       if (r.data && r.data.access_token) {
         localStorage.setItem(REFRESH_TOKEN_KEY, r.data.refresh_token);
+        if (r.data.user && r.data.user.email) localStorage.setItem("_sb_user_email", r.data.user.email);
         return { access_token: r.data.access_token, uid: r.data.user.id };
       }
-      window._SB_LOG.sessionError = "Refresh-token sign-in failed: " + r.error;
-      // fall through to fresh signup
+      window._SB_LOG.sessionError = "Saved login expired or invalid: " + r.error + " — please log in again.";
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
     }
-    var r2 = xhrSync("POST",
-      SUPABASE_URL + "/auth/v1/signup",
-      { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-      JSON.stringify({}));
-    if (r2.data && r2.data.access_token) {
-      localStorage.setItem(REFRESH_TOKEN_KEY, r2.data.refresh_token);
-      localStorage.setItem(DEVICE_UID_KEY, r2.data.user.id);
-      return { access_token: r2.data.access_token, uid: r2.data.user.id };
+    // No valid saved session — try auto-login with injected secret credentials
+    if (hasAutoCreds) {
+      var ar = xhrSync("POST",
+        SUPABASE_URL + "/auth/v1/token?grant_type=password",
+        { "apikey": SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        JSON.stringify({ email: LOGIN_EMAIL, password: LOGIN_PASSWORD }));
+      if (ar.data && ar.data.access_token) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, ar.data.refresh_token);
+        if (ar.data.user && ar.data.user.email) localStorage.setItem("_sb_user_email", ar.data.user.email);
+        return { access_token: ar.data.access_token, uid: ar.data.user.id };
+      }
+      window._SB_LOG.sessionError = (window._SB_LOG.sessionError ? window._SB_LOG.sessionError + " | " : "") +
+        "Auto-login (from secrets) failed: " + ar.error;
     }
-    window._SB_LOG.sessionError = (window._SB_LOG.sessionError ? window._SB_LOG.sessionError + " | " : "") +
-      "Anonymous sign-up failed: " + r2.error +
-      " (check: Authentication → Sign In/Providers → 'Allow anonymous sign-ins' is ON and saved)";
+    // Still nothing — the manual login overlay (next script) will handle it
     return null;
   }
 
-  var session = ensureAnonSession();
+  window._SB_LOG.autoCredsInjected = hasAutoCreds;
+
+  var session = ensureSession();
   window._SB_URL = SUPABASE_URL;
   window._SB_KEY = SUPABASE_ANON_KEY;
   window._SB_SESSION = session;
-  window._SB_LOG.session = session ? { uid: session.uid } : null;
+  window._SB_LOG.session = session ? { uid: session.uid, email: localStorage.getItem("_sb_user_email") || "" } : null;
 
   if (session) {
     var authHeaders = {
@@ -531,6 +546,89 @@
 </script>
 <script>
 /* ════════════════════════════════════════════════════════════════
+   SUPABASE LOGIN OVERLAY — shown only when there's no valid saved
+   session (window._SB_SESSION is null after the sync layer above).
+   Personal single-user app: log in once with email/password, the
+   refresh token is saved in localStorage so future loads (any
+   device/browser) skip this as long as that device has logged in
+   before. On successful login, the page reloads so the sync layer
+   at the top re-runs with the fresh session and pulls your data
+   BEFORE the rest of the app boots.
+   ════════════════════════════════════════════════════════════════ */
+(function () {
+  if (!window._SB_URL || !window._SB_KEY) return; // secrets not injected, nothing to do
+  if (window._SB_SESSION) return; // already logged in
+
+  function ready(fn) {
+    if (document.readyState !== "loading") fn();
+    else document.addEventListener("DOMContentLoaded", fn);
+  }
+
+  ready(function () {
+    var overlay = document.createElement("div");
+    overlay.id = "_sbLoginOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:1000000;" +
+      "background:rgba(15,23,42,.96);display:flex;align-items:center;" +
+      "justify-content:center;padding:20px;font-family:sans-serif;";
+
+    overlay.innerHTML =
+      '<div style="width:100%;max-width:320px;background:#1e293b;border-radius:12px;padding:24px;color:#e2e8f0;">' +
+        '<div style="font-size:18px;font-weight:600;margin-bottom:4px;">🔒 My-engine Login</div>' +
+        '<div style="font-size:12px;color:#94a3b8;margin-bottom:18px;">Sign in to sync your layout &amp; settings</div>' +
+        '<input id="_sbEmail" type="email" placeholder="Email" autocomplete="username" ' +
+          'style="width:100%;box-sizing:border-box;padding:10px;margin-bottom:10px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px;">' +
+        '<input id="_sbPassword" type="password" placeholder="Password" autocomplete="current-password" ' +
+          'style="width:100%;box-sizing:border-box;padding:10px;margin-bottom:14px;border-radius:6px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px;">' +
+        '<button id="_sbLoginBtn" style="width:100%;padding:11px;border:none;border-radius:6px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;">Log in</button>' +
+        '<div id="_sbLoginErr" style="color:#f87171;font-size:12px;margin-top:10px;min-height:14px;"></div>' +
+      '</div>';
+
+    document.body.appendChild(overlay);
+
+    var emailEl = document.getElementById("_sbEmail");
+    var passEl  = document.getElementById("_sbPassword");
+    var btnEl   = document.getElementById("_sbLoginBtn");
+    var errEl   = document.getElementById("_sbLoginErr");
+
+    function doLogin() {
+      var email = emailEl.value.trim();
+      var pass  = passEl.value;
+      if (!email || !pass) { errEl.textContent = "Enter email and password."; return; }
+      btnEl.disabled = true;
+      btnEl.textContent = "Logging in...";
+      errEl.textContent = "";
+
+      fetch(window._SB_URL + "/auth/v1/token?grant_type=password", {
+        method: "POST",
+        headers: { "apikey": window._SB_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: pass })
+      }).then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      }).then(function (r) {
+        if (r.ok && r.data.access_token) {
+          localStorage.setItem("_sb_refresh_token", r.data.refresh_token);
+          if (r.data.user && r.data.user.email) localStorage.setItem("_sb_user_email", r.data.user.email);
+          overlay.innerHTML = '<div style="color:#4ade80;font-family:sans-serif;">✅ Logged in — loading your data...</div>';
+          setTimeout(function () { location.reload(); }, 300);
+        } else {
+          btnEl.disabled = false;
+          btnEl.textContent = "Log in";
+          errEl.textContent = (r.data && (r.data.error_description || r.data.msg)) || "Login failed — check email/password.";
+        }
+      }).catch(function (e) {
+        btnEl.disabled = false;
+        btnEl.textContent = "Log in";
+        errEl.textContent = "Network error: " + e.message;
+      });
+    }
+
+    btnEl.onclick = doLogin;
+    passEl.addEventListener("keydown", function (e) { if (e.key === "Enter") doLogin(); });
+  });
+})();
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════
    SUPABASE DEBUG PANEL — small floating button (bottom-right, "☁")
    Tap it to see: session status, last pulls, last pushes, real
    error messages. No need to open Supabase dashboard to debug.
@@ -568,7 +666,8 @@
       html += "URL: " + esc(L.url || "?") + "<br>";
       html += "Key: " + esc(L.keyPreview || "?") + "<br>";
       html += "Placeholders injected: " + (L.placeholdersInjected === true ? "✅ yes" : "❌ NO") + "<br>";
-      html += "Session: " + (L.session ? "✅ uid " + esc(L.session.uid) : "❌ none") + "<br>";
+      html += "Auto-login creds injected: " + (L.autoCredsInjected ? "✅ yes" : "❌ no (manual login will be shown)") + "<br>";
+      html += "Session: " + (L.session ? "✅ uid " + esc(L.session.uid) + (L.session.email ? " (" + esc(L.session.email) + ")" : "") : "❌ none — log in") + "<br>";
       if (L.sessionError) html += "<span style='color:#f87171'>Session error: " + esc(L.sessionError) + "</span><br>";
       html += "<br><b>Last pulls (page load):</b><br>";
       (L.pulls || []).forEach(function (p) {
@@ -583,7 +682,17 @@
           (p.error ? " <span style='color:#f87171'>" + esc(p.error) + "</span>" : "") + "<br>";
       });
       if (!L.pushes || !L.pushes.length) html += "(none yet — change a setting or Save Layout to trigger one)<br>";
+      if (L.session) html += '<br><a href="#" id="_sbLogoutLink" style="color:#fbbf24;">Log out</a>';
       panel.innerHTML = html;
+      var logoutLink = document.getElementById("_sbLogoutLink");
+      if (logoutLink) {
+        logoutLink.onclick = function (e) {
+          e.preventDefault();
+          localStorage.removeItem("_sb_refresh_token");
+          localStorage.removeItem("_sb_user_email");
+          location.reload();
+        };
+      }
     }
 
     btn.onclick = function () {
