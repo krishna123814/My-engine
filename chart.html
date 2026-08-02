@@ -2927,6 +2927,28 @@ select.s-select, input.s-select{
 }
 .music-nav-btn:active{background:#363c4e}
 .music-nav-btn:disabled{opacity:.4;cursor:default}
+#music-fav-toggle{
+  height:24px;border:1px solid #363c4e;border-radius:5px;background:transparent;
+  color:#9598a1;font-size:10px;font-weight:600;cursor:pointer;padding:0 8px;align-self:flex-start;
+}
+#music-fav-toggle.on{background:#2a2e39;color:#ffb300;border-color:#ffb300}
+#music-list{
+  max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;
+  border-top:1px solid #2a2e39;border-bottom:1px solid #2a2e39;
+}
+.music-item{
+  display:flex;align-items:center;gap:6px;padding:6px 4px;border-radius:4px;cursor:pointer;
+}
+.music-item:active{background:#1a1e29}
+.music-item.playing{background:#132a24}
+.music-item-star{font-size:14px;flex-shrink:0;padding:2px;color:#555}
+.music-item-star.on{color:#ffb300}
+.music-item-name{
+  flex:1;font-size:11px;color:#c8cbd3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.music-item.playing .music-item-name{color:#26a69a;font-weight:600}
+.music-item-tag{font-size:9px;color:#26a69a;flex-shrink:0}
+#music-list-empty{font-size:11px;color:#555;text-align:center;padding:10px 0}
 #music-audio{width:100%;height:32px}
 #music-file-inp{display:none}
 
@@ -3888,8 +3910,12 @@ function _hdrRelayout(){
       <button class="music-nav-btn" id="music-prev-btn" onclick="_musicPrev()" disabled>⏮ Prev</button>
       <button class="music-nav-btn" id="music-next-btn" onclick="_musicNext()" disabled>Next ⏭</button>
     </div>
+    <button id="music-fav-toggle" onclick="_musicToggleFavFilter()">⭐ Favourites</button>
+    <div id="music-list"><div id="music-list-empty">Folder select karne ke baad list yaha dikhegi</div></div>
   </div>
 </div>
+
+<!-- ═══ MUSIC PANEL END ═══════════════════════════════════════════════ -->
 
 <!-- ═══ CLOSE-ALL OVERLAYS BUTTON ══════════════════════════════════ -->
 <button id="ovl-close-all" onclick="_closeAllOverlays()">✕ Close All Overlays</button>
@@ -5131,8 +5157,62 @@ function toggleMusic() {
 // Folder select hote hi — Android file manager poore folder ki files deta
 // hai (webkitdirectory). Hum sirf audio/* files chunte hain aur ek playlist
 // bana lete hain. Koi upload nahi — sirf local blob URLs.
+const MUSIC_FAV_KEY = 'tvMusicFavs';
 let _musicPlaylist = [];
 let _musicIdx = -1;
+let _musicFavs = new Set();
+let _musicFavFilterOn = false;
+
+(function _musicLoadFavs() {
+  try {
+    const raw = _LS.getItem(MUSIC_FAV_KEY);
+    if (raw) _musicFavs = new Set(JSON.parse(raw));
+  } catch(_) { _musicFavs = new Set(); }
+})();
+
+function _musicSaveFavs() {
+  try { _LS.setItem(MUSIC_FAV_KEY, JSON.stringify(Array.from(_musicFavs))); } catch(_){}
+}
+
+function _musicToggleFav(name, evt) {
+  if (evt) evt.stopPropagation();
+  if (_musicFavs.has(name)) _musicFavs.delete(name); else _musicFavs.add(name);
+  _musicSaveFavs();
+  _musicRenderList();
+}
+
+function _musicToggleFavFilter() {
+  _musicFavFilterOn = !_musicFavFilterOn;
+  const btn = document.getElementById('music-fav-toggle');
+  if (btn) btn.classList.toggle('on', _musicFavFilterOn);
+  _musicRenderList();
+}
+
+function _musicRenderList() {
+  const listEl = document.getElementById('music-list');
+  if (!listEl) return;
+  if (!_musicPlaylist.length) {
+    listEl.innerHTML = '<div id="music-list-empty">Folder select karne ke baad list yaha dikhegi</div>';
+    return;
+  }
+  const rows = [];
+  _musicPlaylist.forEach((track, idx) => {
+    const isFav = _musicFavs.has(track.name);
+    if (_musicFavFilterOn && !isFav) return;
+    const isPlaying = idx === _musicIdx;
+    const isNext = _musicPlaylist.length > 1 && idx === (_musicIdx + 1) % _musicPlaylist.length && !isPlaying;
+    const safeName = track.name.replace(/'/g, "\\'");
+    rows.push(
+      `<div class="music-item${isPlaying ? ' playing' : ''}" onclick="_musicLoadTrack(${idx}, true)">` +
+      `<span class="music-item-star${isFav ? ' on' : ''}" onclick="_musicToggleFav('${safeName}', event)">${isFav ? '★' : '☆'}</span>` +
+      `<span class="music-item-name">${track.name}</span>` +
+      (isPlaying ? '<span class="music-item-tag">▶ Playing</span>' : isNext ? '<span class="music-item-tag">Next</span>' : '') +
+      `</div>`
+    );
+  });
+  listEl.innerHTML = rows.length ? rows.join('') :
+    '<div id="music-list-empty">Koi favourite song nahi mili</div>';
+}
 
 function _musicFolderPicked(evt) {
   const files = Array.from(evt.target.files || []);
@@ -5168,6 +5248,7 @@ function _musicLoadTrack(idx, autoplay) {
   const nextBtn = document.getElementById('music-next-btn');
   if (prevBtn) prevBtn.disabled = _musicPlaylist.length < 2;
   if (nextBtn) nextBtn.disabled = _musicPlaylist.length < 2;
+  _musicRenderList();
 }
 
 function _musicNext() {
