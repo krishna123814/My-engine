@@ -2919,6 +2919,14 @@ select.s-select, input.s-select{
 #music-track-name{
   font-size:11px;color:#787b86;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
+#music-track-count{font-size:10px;color:#555}
+#music-nav{display:flex;gap:6px}
+.music-nav-btn{
+  flex:1;height:26px;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer;
+  background:#2a2e39;color:#9598a1;
+}
+.music-nav-btn:active{background:#363c4e}
+.music-nav-btn:disabled{opacity:.4;cursor:default}
 #music-audio{width:100%;height:32px}
 #music-file-inp{display:none}
 
@@ -3871,10 +3879,15 @@ function _hdrRelayout(){
     <button id="music-close" onclick="toggleMusic()">✕</button>
   </div>
   <div id="music-body">
-    <button id="music-pick-btn" onclick="document.getElementById('music-file-inp').click()">📁 Choose File (Mobile Storage)</button>
-    <input type="file" id="music-file-inp" accept="audio/*" onchange="_musicFilePicked(event)">
-    <div id="music-track-name">Koi file select nahi hui</div>
-    <audio id="music-audio" controls></audio>
+    <button id="music-pick-btn" onclick="document.getElementById('music-file-inp').click()">📁 Choose Folder (Mobile Storage)</button>
+    <input type="file" id="music-file-inp" webkitdirectory directory multiple accept="audio/*" onchange="_musicFolderPicked(event)">
+    <div id="music-track-name">Koi folder select nahi hui</div>
+    <div id="music-track-count"></div>
+    <audio id="music-audio" controls onended="_musicNext()"></audio>
+    <div id="music-nav">
+      <button class="music-nav-btn" id="music-prev-btn" onclick="_musicPrev()" disabled>⏮ Prev</button>
+      <button class="music-nav-btn" id="music-next-btn" onclick="_musicNext()" disabled>Next ⏭</button>
+    </div>
   </div>
 </div>
 
@@ -5005,7 +5018,6 @@ function _notepadClear() {
 // ════════════════════════════════════════════════════════════════════════════
 const MUSIC_POS_KEY = 'tvMusicPos';
 let _musicDragWired = false;
-let _musicBlobUrl = null;
 
 function _musicViewport() {
   const vv = window.visualViewport;
@@ -5116,17 +5128,56 @@ function toggleMusic() {
   }
 }
 
-// File manager se file select hote hi — koi upload nahi, sirf local blob URL
-// bana ke <audio> ko de dete hain, turant play ho jaata hai.
-function _musicFilePicked(evt) {
-  const file = evt.target.files && evt.target.files[0];
-  if (!file) return;
-  const audio = document.getElementById('music-audio');
-  const nameEl = document.getElementById('music-track-name');
-  if (_musicBlobUrl) { try { URL.revokeObjectURL(_musicBlobUrl); } catch(_){} }
-  _musicBlobUrl = URL.createObjectURL(file);
-  if (audio) { audio.src = _musicBlobUrl; audio.play().catch(()=>{}); }
-  if (nameEl) nameEl.textContent = file.name;
+// Folder select hote hi — Android file manager poore folder ki files deta
+// hai (webkitdirectory). Hum sirf audio/* files chunte hain aur ek playlist
+// bana lete hain. Koi upload nahi — sirf local blob URLs.
+let _musicPlaylist = [];
+let _musicIdx = -1;
+
+function _musicFolderPicked(evt) {
+  const files = Array.from(evt.target.files || []);
+  const audioFiles = files.filter(f => f.type.startsWith('audio/') ||
+    /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(f.name));
+  const nameEl  = document.getElementById('music-track-name');
+  const countEl = document.getElementById('music-track-count');
+  if (!audioFiles.length) {
+    if (nameEl) nameEl.textContent = 'Is folder me koi audio file nahi mili';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  // Purani blob URLs cleanup karo
+  _musicPlaylist.forEach(t => { try { URL.revokeObjectURL(t.url); } catch(_){} });
+  _musicPlaylist = audioFiles.map(f => ({ name: f.name, url: URL.createObjectURL(f) }));
+  _musicLoadTrack(0, true);
+}
+
+function _musicLoadTrack(idx, autoplay) {
+  if (idx < 0 || idx >= _musicPlaylist.length) return;
+  _musicIdx = idx;
+  const track = _musicPlaylist[idx];
+  const audio   = document.getElementById('music-audio');
+  const nameEl  = document.getElementById('music-track-name');
+  const countEl = document.getElementById('music-track-count');
+  if (audio) {
+    audio.src = track.url;
+    if (autoplay) audio.play().catch(()=>{});
+  }
+  if (nameEl)  nameEl.textContent  = track.name;
+  if (countEl) countEl.textContent = `Track ${idx + 1} / ${_musicPlaylist.length}`;
+  const prevBtn = document.getElementById('music-prev-btn');
+  const nextBtn = document.getElementById('music-next-btn');
+  if (prevBtn) prevBtn.disabled = _musicPlaylist.length < 2;
+  if (nextBtn) nextBtn.disabled = _musicPlaylist.length < 2;
+}
+
+function _musicNext() {
+  if (!_musicPlaylist.length) return;
+  _musicLoadTrack((_musicIdx + 1) % _musicPlaylist.length, true);
+}
+
+function _musicPrev() {
+  if (!_musicPlaylist.length) return;
+  _musicLoadTrack((_musicIdx - 1 + _musicPlaylist.length) % _musicPlaylist.length, true);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
