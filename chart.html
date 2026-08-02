@@ -19592,32 +19592,33 @@ function _arrowSetCount(view, count) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// SV2 MANUAL ARROW TOOL — NATIVE lightweight-charts v4.2 Series Primitive
+// SV2 MANUAL ARROW TOOL — canvas-based (TradingView-style), independent module
 // ────────────────────────────────────────────────────────────────────────────
-// REWRITE (was: raw <canvas> element manually appended/z-indexed/raised over
-// the chart — fragile, could end up hidden behind other layers after a cell
-// rebuild, so an arrow could "draw ho jaata tha lekin set/persist nahi hota
-// tha screen par"). Now uses series.attachPrimitive(): the arrow is painted
-// directly inside LightweightCharts' OWN render pipeline via requestUpdate(),
-// so it is always drawn in perfect sync with pan/zoom/data/rebuilds — no
-// manual canvas, no z-index, no raise-canvas timing hacks needed at all.
+// Same proven per-cell canvas pattern as the Automatic Reversal Arrow Marker
+// (_arrow2Draw / #sv2-arrow-btn, see above) — lazy-recreate canvas inside the
+// draw function itself (self-healing, never depends on registration timing),
+// hooked into the SAME _pdot2Draw/_pdot2ResizeCellCanvas wrap chain so the
+// manual-arrow canvas is rebuilt/resized on every trigger that already keeps
+// the automatic arrows and parent-dots in sync (date-select, asset-switch,
+// pan/zoom/resize). This is the same mechanism proven reliable for the
+// automatic markers — no separate registration-time-only canvas anymore.
 //
 // Isse Drawing Tools Engine (_DT, line ~7734) aur Automatic Reversal Arrow
-// Marker (_ARROW2_ON / #sv2-arrow-btn) — dono se BILKUL ALAG rakha gaya hai:
-//   • Apna khud ka primitive (per stack2 cell, series.attachPrimitive)
+// Marker — dono se BILKUL ALAG rakha gaya hai:
+//   • Apna khud ka canvas (per stack2 cell, c._maCanvas, z-index 51)
 //   • Apna khud ka state object (_MA) aur localStorage key (sv2ManArrows)
 //   • Koi shared function/array reuse nahi kiya
 //
-// GESTURE: single continuous drag (touchstart=tail, touchmove=preview,
-// touchend=head) — bound directly on the STABLE cell container `el` (reused
-// across rebuilds, never recreated) using capture-phase listeners: jab tool
-// armed hai ya koi arrow selected hai tab hi event ko consume (preventDefault
-// + stopPropagation) karte hain, warna chart ka normal pan/zoom untouched
-// rehta hai.
+// GESTURE (TradingView jaisa): single continuous drag.
+//   touchstart → tail set ho jaata hai (jahan finger rakha)
+//   touchmove  → live preview line finger follow karti hai
+//   touchend   → head set ho jaata hai (jahan finger uthaya)
+//   → poora arrow (tail+head, editable) EK HI attempt me ban jaata hai,
+//   koi dusra confirm-tap nahi chahiye.
 //
 // EDIT: baad me arrow par tap karo → select ho jaata hai (glow + endpoint
-// dots + ✕ delete button). Tail/head dot ko drag karke reposition kar sakte
-// ho, dono independent. Kahi aur tap karne se deselect ho jaata hai.
+// dots + ✕ delete button). Tail/head dot ko independently drag karke
+// reposition kar sakte ho. Kahi aur tap karne se deselect ho jaata hai.
 // ════════════════════════════════════════════════════════════════════════════
 const _MA_LSKEY = 'sv2ManArrows';
 const _MA = {
@@ -19626,7 +19627,6 @@ const _MA = {
   p1: null, tempP2: null, chartKey: null,
   drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color}]
   _nextId: 1,
-  _charts: {},           // chartKey -> {chartObj, seriesObj, el, primitive, _bound}
   _selectedId: null,     // edit-mode: kaunsa arrow select hua hai
 };
 
@@ -19648,7 +19648,7 @@ _maLoad();
 let _maMenuEl = null;
 function _maMenuToggle(btn) {
   if (_maMenuEl) { _maMenuClose(); return; }
-  _maDeselect(); // koi arrow select/edit-mode me hai to pehle usse clear karo
+  _maDeselect();
   const menu = document.createElement('div');
   menu.className = 'sv2-ma-menu';
   menu.innerHTML =
@@ -19658,8 +19658,8 @@ function _maMenuToggle(btn) {
   const mW = menu.offsetWidth || 92, mH = menu.offsetHeight || 46;
   const r  = btn.getBoundingClientRect();
   const vw = window.innerWidth, vh = window.innerHeight;
-  let left = r.left - mW - 6;          // FAB ke left side me khulta hai (FAB right edge par hoti hai)
-  if (left < 4) left = r.right + 6;    // jagah na ho to right side try karo
+  let left = r.left - mW - 6;
+  if (left < 4) left = r.right + 6;
   let top = r.top + (r.height - mH) / 2;
   if (top < 4) top = 4;
   if (top + mH > vh - 4) top = vh - mH - 4;
@@ -19673,13 +19673,14 @@ function _maMenuClose() {
 }
 function _maPick(color) {
   _maMenuClose();
-  _maDeselect(); // ek waqt me ya to draw ya edit — dono saath nahi
+  _maDeselect();
   _MA.pendingColor = color;
   const btn = document.getElementById('sv2-manarrow-btn');
   if (btn) {
     btn.classList.add(color === 'red' ? 'armed-red' : 'armed-green');
     btn.classList.remove(color === 'red' ? 'armed-green' : 'armed-red');
   }
+  _maRefreshAllPointerModes();
 }
 function _maSetDrawMode(on) {
   if (!on) {
@@ -19687,100 +19688,140 @@ function _maSetDrawMode(on) {
     const btn = document.getElementById('sv2-manarrow-btn');
     if (btn) btn.classList.remove('armed-green', 'armed-red');
   }
-  // Koi alag canvas attach/detach nahi karna — container listeners hamesha
-  // bound rehte hain aur har baar _MA.pendingColor / _MA._selectedId check
-  // karte hain, isliye yahan sirf state clear karna kaafi hai.
+  _maRefreshAllPointerModes();
 }
 
-// ── NATIVE PRIMITIVE — draws directly inside the chart's own render loop ────
-class _MAPaneRenderer {
-  constructor(chartKey) { this.chartKey = chartKey; }
-  draw(target) {
-    const key = this.chartKey;
-    target.useMediaCoordinateSpace(({ context }) => {
-      context.save();
-      context.lineCap = 'round'; context.lineJoin = 'round';
-      for (const d of _MA.drawings) {
-        if (d.chartKey !== key) continue;
-        _maDrawOne(context, d, key, d.id === _MA._selectedId);
-      }
-      // in-progress preview (drag chal raha hai)
-      if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
-        _maDrawOne(context, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, _preview:true }, key, false);
-      }
-      context.restore();
-    });
-  }
+// ── Per-cell canvas lifecycle — lazy/self-healing, same pattern as _arrow2 ──
+function _maCreateCellCanvas(idx) {
+  _maRemoveCellCanvas(idx);
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  const el = document.getElementById('stack2-chart-' + idx);
+  if (!el) return;
+  el.style.position = 'relative';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'sv2-ma-canvas';
+  canvas.style.cssText = 'position:absolute;top:0;left:0;background:transparent;pointer-events:none;z-index:51;';
+  el.appendChild(canvas);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = el.clientWidth  * dpr; canvas.height = el.clientHeight * dpr;
+  canvas.style.width = el.clientWidth + 'px'; canvas.style.height = el.clientHeight + 'px';
+  c._maCanvas = canvas; c._maCtx = canvas.getContext('2d');
+  c._maEl = el;
+  _maBindContainer(idx, el);   // idempotent (checks el._maBound internally)
 }
-class _MAPaneView {
-  constructor(chartKey) { this._renderer = new _MAPaneRenderer(chartKey); }
-  renderer() { return this._renderer; }
+function _maRemoveCellCanvas(idx) {
+  const c = STACK2_CELLS[idx]; if (!c) return;
+  if (c._maCanvas) { c._maCanvas.remove(); c._maCanvas = null; c._maCtx = null; }
 }
-class _MAPrimitive {
-  constructor(chartKey) {
-    this.chartKey = chartKey;
-    this._paneView = new _MAPaneView(chartKey);
-    this._requestUpdate = null;
-  }
-  attached(param) { this._requestUpdate = param && param.requestUpdate; }
-  detached() { this._requestUpdate = null; }
-  updateAllViews() {}
-  paneViews() { return [this._paneView]; }
-  requestUpdate() { if (this._requestUpdate) this._requestUpdate(); }
+function _maResizeCellCanvas(idx) {
+  const c = STACK2_CELLS[idx]; if (!c || !c._maCanvas) return;
+  const el = document.getElementById('stack2-chart-' + idx); if (!el) return;
+  const dpr = window.devicePixelRatio || 1;
+  c._maCanvas.width  = el.clientWidth  * dpr;
+  c._maCanvas.height = el.clientHeight * dpr;
+  c._maCanvas.style.width  = el.clientWidth  + 'px';
+  c._maCanvas.style.height = el.clientHeight + 'px';
+}
+function _maClearCell(idx) {
+  const c = STACK2_CELLS[idx]; if (!c || !c._maCtx || !c._maCanvas) return;
+  c._maCtx.setTransform(1, 0, 0, 1, 0, 0);
+  c._maCtx.clearRect(0, 0, c._maCanvas.width, c._maCanvas.height);
 }
 
-// ── Register a chart — called from buildStack2() (same call-site as _DT) ────
-// `el` (the cell container) is REUSED across rebuilds, so interaction
-// listeners are bound to it exactly once — never recreated, never buried.
-function _maRegisterChart(chartKey, chartObj, seriesObj, containerEl) {
-  let rec = _MA._charts[chartKey];
-  if (rec && rec.primitive && rec.seriesObj) {
-    try { rec.seriesObj.detachPrimitive(rec.primitive); } catch(_) {}
-  }
-  if (!rec) {
-    rec = _MA._charts[chartKey] = { chartObj, seriesObj, el: containerEl, primitive: null, _bound: false };
-  } else {
-    Object.assign(rec, { chartObj, seriesObj, el: containerEl });
-  }
-  const primitive = new _MAPrimitive(chartKey);
-  try { seriesObj.attachPrimitive(primitive); } catch(_) {}
-  rec.primitive = primitive;
+function _maChartKey(idx) { return 'stack2-' + idx; }
 
-  if (!rec._bound) {
-    _maBindContainer(chartKey, containerEl);
-    rec._bound = true;
+// ── Main draw — self-healing (recreates canvas if missing), called from the
+//    _pdot2Draw wrap chain so it's always in sync with every rebuild trigger
+//    that already keeps the automatic arrows/parent-dots correct. ──────────
+function _maDraw(idx) {
+  const c = STACK2_CELLS[idx];
+  if (!c || !c.chart || !c.series) return;
+  if (!c._maCanvas || !c._maCtx) _maCreateCellCanvas(idx);
+  if (!c._maCanvas || !c._maCtx) return;
+  try { _maAttachCell(idx); } catch(_e) {}
+
+  _maClearCell(idx);
+  const key = _maChartKey(idx);
+  const dpr = window.devicePixelRatio || 1;
+  c._maCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c._maCtx.lineCap = 'round'; c._maCtx.lineJoin = 'round';
+
+  for (const d of _MA.drawings) {
+    if (d.chartKey !== key) continue;
+    _maDrawOne(c._maCtx, d, idx, d.id === _MA._selectedId);
   }
-  primitive.requestUpdate();
+  if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
+    _maDrawOne(c._maCtx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, _preview:true }, idx, false);
+  }
+}
+function _maDrawAll() { STACK2_CELLS.forEach((_, i) => _maDraw(i)); }
+
+// ── Pan/zoom/crosshair sync — RAF-throttled, idempotent, same pattern as
+//    _arrow2AttachCell so manual arrows track the chart with zero lag. ─────
+function _maAttachCell(idx) {
+  const c = STACK2_CELLS[idx];
+  if (!c || !c.chart) return;
+  if (c._maRafAttached) return;
+  c._maRafAttached = true;
+  let _raf = null;
+  const _redraw = () => {
+    if (_raf) return;
+    _raf = requestAnimationFrame(() => { _raf = null; try { _maDraw(idx); } catch(_e) {} });
+  };
+  try { c.chart.subscribeCrosshairMove(_redraw); } catch(_e) {}
+  try { c.chart.timeScale().subscribeVisibleLogicalRangeChange(_redraw); } catch(_e) {}
 }
 
 // ── Coordinate helpers ────────────────────────────────────────────────────────
-function _maXYtoPt(key, x, y) {
-  const rec = _MA._charts[key];
-  if (!rec?.chartObj || !rec.seriesObj) return null;
+function _maXYtoPt(idx, x, y) {
+  const c = STACK2_CELLS[idx];
+  if (!c?.chart || !c.series) return null;
   try {
-    const time  = rec.chartObj.timeScale().coordinateToTime(x);
-    const price = rec.seriesObj.coordinateToPrice(y);
+    const time  = c.chart.timeScale().coordinateToTime(x);
+    const price = c.series.coordinateToPrice(y);
     if (time == null || price == null) return null;
     return { time, price };
   } catch(_) { return null; }
 }
-function _maPtToXY(key, pt) {
-  const rec = _MA._charts[key];
-  if (!rec?.chartObj || !rec.seriesObj || !pt) return null;
+function _maPtToXY(idx, pt) {
+  const c = STACK2_CELLS[idx];
+  if (!c?.chart || !c.series || !pt) return null;
   try {
-    const px = rec.chartObj.timeScale().timeToCoordinate(pt.time);
-    const py = rec.seriesObj.priceToCoordinate(pt.price);
+    const px = c.chart.timeScale().timeToCoordinate(pt.time);
+    const py = c.series.priceToCoordinate(pt.price);
     if (px == null || py == null) return null;
     return { x: px, y: py };
   } catch(_) { return null; }
 }
 
-// ── One unified input handler per chart — placement drag, handle-drag edit,
-//    aur idle tap-to-select — sab isi me, `el` par bound (stable, kabhi
-//    recreate nahi hota). Capture-phase, sirf jab actually consume karna ho
-//    tab hi preventDefault/stopPropagation karta hai; warna chart ka normal
-//    pan/zoom bilkul untouched rehta hai. ──────────────────────────────────
-function _maBindContainer(key, el) {
+// ── Registration — called from buildStack2() (same call-site as _DT). Kept
+//    for API compatibility; the canvas itself is created lazily inside
+//    _maDraw(), not here — registration just makes sure a first draw + the
+//    resize/redraw hooks happen for this cell right away. ──────────────────
+function _maRegisterChart(chartKey, chartObj, seriesObj, containerEl) {
+  const idx = parseInt(String(chartKey).replace('stack2-', ''), 10);
+  if (isNaN(idx)) return;
+  try { _maDraw(idx); } catch(_) {}
+}
+
+// ── Pointer-events toggle — canvas sirf tab touches leta hai jab tool armed
+//    ho ya koi arrow selected/edit-mode me ho, warna normal chart pan/zoom
+//    ke liye pointer-events:none rehta hai. ──────────────────────────────────
+function _maRefreshAllPointerModes() {
+  STACK2_CELLS.forEach((c, idx) => {
+    if (!c || !c._maCanvas) return;
+    const key = _maChartKey(idx);
+    const active = !!_MA.pendingColor || (_MA._selectedId != null && _MA.drawings.some(d => d.id === _MA._selectedId && d.chartKey === key));
+    c._maCanvas.style.pointerEvents = active ? 'all' : 'none';
+  });
+}
+
+// ── Unified input handler per cell container — placement drag, handle-drag
+//    edit, aur idle tap-to-select. Bound to the STABLE container `el`
+//    (reused across rebuilds) exactly once (idempotent via el._maBound). ───
+function _maBindContainer(idx, el) {
+  if (el._maBound) return;
+  el._maBound = true;
   let _tx = 0, _ty = 0, _tt = 0;
   let dragMode = null; // null | 'place' | 'p1' | 'p2'
 
@@ -19789,26 +19830,24 @@ function _maBindContainer(key, el) {
     const src = e.touches?.[0] || e.changedTouches?.[0] || e;
     return { x: src.clientX - r.left, y: src.clientY - r.top };
   };
+  const key = () => _maChartKey(idx);
 
   const onDown = (e) => {
-    const rec = _MA._charts[key]; if (!rec) return;
     const { x, y } = xyOf(e);
 
-    // Priority 1 — placing a NEW arrow (tool armed via green/red pick)
     if (_MA.pendingColor) {
-      const pt = _maXYtoPt(key, x, y);
+      const pt = _maXYtoPt(idx, x, y);
       if (!pt) return;
       e.preventDefault(); e.stopPropagation();
-      _MA.active = true; _MA.chartKey = key; _MA.p1 = pt; _MA.tempP2 = pt;
+      _MA.active = true; _MA.chartKey = key(); _MA.p1 = pt; _MA.tempP2 = pt;
       dragMode = 'place';
-      rec.primitive.requestUpdate();
+      _maDraw(idx);
       return;
     }
-    // Priority 2 — dragging a selected arrow's tail/head handle
     if (_MA._selectedId != null) {
       const d = _MA.drawings.find(dd => dd.id === _MA._selectedId);
-      if (d && d.chartKey === key) {
-        const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+      if (d && d.chartKey === key()) {
+        const xy1 = _maPtToXY(idx, d.p1), xy2 = _maPtToXY(idx, d.p2);
         if (xy1 && Math.hypot(x - xy1.x, y - xy1.y) < _MA_HIT_R) {
           dragMode = 'p1'; _maHideDelBtn(); e.preventDefault(); e.stopPropagation(); return;
         }
@@ -19817,8 +19856,6 @@ function _maBindContainer(key, el) {
         }
       }
     }
-    // Priority 3 — idle: just remember start point/time for tap-vs-pan check.
-    // No preventDefault here — normal chart pan/zoom stays fully working.
     dragMode = null;
     const src = e.touches ? e.touches[0] : e;
     _tx = src.clientX; _ty = src.clientY; _tt = Date.now();
@@ -19827,55 +19864,50 @@ function _maBindContainer(key, el) {
   const onMove = (e) => {
     if (!dragMode) return;
     e.preventDefault(); e.stopPropagation();
-    const rec = _MA._charts[key]; if (!rec) return;
     const { x, y } = xyOf(e);
-    const pt = _maXYtoPt(key, x, y);
+    const pt = _maXYtoPt(idx, x, y);
     if (!pt) return;
     if (dragMode === 'place') {
       _MA.tempP2 = pt;
     } else {
       const d = _MA.drawings.find(dd => dd.id === _MA._selectedId);
       if (d) d[dragMode] = pt;
-      if (_maDelBtnKey === key) _maRepositionDelBtn();
+      if (_maDelBtnIdx === idx) _maRepositionDelBtn();
     }
-    rec.primitive.requestUpdate();
+    _maDraw(idx);
   };
 
   const onUp = (e) => {
-    const rec = _MA._charts[key]; if (!rec) return;
-
     if (dragMode === 'place') {
       e.preventDefault(); e.stopPropagation();
       const { x, y } = xyOf(e);
-      const pt = _maXYtoPt(key, x, y);
+      const pt = _maXYtoPt(idx, x, y);
       if (pt) _MA.tempP2 = pt;
-      // Bahut chhota drag (galti se tap ho gaya) — arrow mat banao
-      const xy1 = _maPtToXY(key, _MA.p1), xy2 = _maPtToXY(key, _MA.tempP2);
+      const xy1 = _maPtToXY(idx, _MA.p1), xy2 = _maPtToXY(idx, _MA.tempP2);
       const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
       if (_MA.p1 && _MA.tempP2 && !tooSmall) {
-        _MA.drawings.push({ id: _MA._nextId++, chartKey: key, p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor });
+        _MA.drawings.push({ id: _MA._nextId++, chartKey: key(), p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor });
         _maSave();
       }
       _MA.active = false; _MA.p1 = null; _MA.tempP2 = null; _MA.chartKey = null;
       dragMode = null;
-      _maSetDrawMode(false);   // ek arrow ban gaya → draw-mode apne aap band
-      _maRedrawAll();
+      _maSetDrawMode(false);
+      _maDrawAll();
       return;
     }
     if (dragMode === 'p1' || dragMode === 'p2') {
       e.preventDefault(); e.stopPropagation();
       dragMode = null;
       _maSave();
-      if (_MA._selectedId != null) _maShowDelBtn(key, _MA._selectedId);
-      _maRedrawAll();
+      if (_MA._selectedId != null) _maShowDelBtn(idx, _MA._selectedId);
+      _maDrawAll();
       return;
     }
-    // Idle — tap-to-select check (must be a genuine tap, not a pan/scroll)
     if (Date.now() - _tt > 500) return;
     const src = e.changedTouches ? e.changedTouches[0] : e;
     if (Math.abs(src.clientX - _tx) > 12 || Math.abs(src.clientY - _ty) > 12) return;
     const { x, y } = xyOf(e);
-    const hit = _maHitTest(key, x, y);
+    const hit = _maHitTest(idx, x, y);
     if (hit) { e.preventDefault(); _maSelect(hit.id); } else { _maDeselect(); }
   };
 
@@ -19889,11 +19921,12 @@ function _maBindContainer(key, el) {
 
 // ── Hit test (tap-to-select an existing arrow) ───────────────────────────────
 const _MA_HIT_R = 22; // px — mobile finger-friendly
-function _maHitTest(key, x, y) {
+function _maHitTest(idx, x, y) {
+  const key = _maChartKey(idx);
   for (let i = _MA.drawings.length - 1; i >= 0; i--) {
     const d = _MA.drawings[i];
     if (d.chartKey !== key) continue;
-    const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+    const xy1 = _maPtToXY(idx, d.p1), xy2 = _maPtToXY(idx, d.p2);
     if (!xy1 || !xy2) continue;
     if (_maDistToSeg(x, y, xy1.x, xy1.y, xy2.x, xy2.y) < _MA_HIT_R) return d;
     if (Math.hypot(x - xy1.x, y - xy1.y) < _MA_HIT_R) return d;
@@ -19910,27 +19943,33 @@ function _maDistToSeg(px, py, ax, ay, bx, by) {
 }
 
 // ── Select / deselect (edit-mode) ────────────────────────────────────────────
+function _maIdxForChartKey(key) {
+  const m = /^stack2-(\d+)$/.exec(key || '');
+  return m ? parseInt(m[1], 10) : -1;
+}
 function _maSelect(id) {
   _MA._selectedId = id;
   const d = _MA.drawings.find(x => x.id === id);
-  if (d) _maShowDelBtn(d.chartKey, id);
-  _maRedrawAll();
+  if (d) _maShowDelBtn(_maIdxForChartKey(d.chartKey), id);
+  _maRefreshAllPointerModes();
+  _maDrawAll();
 }
 function _maDeselect() {
   if (_MA._selectedId == null && !_MA.active) return;
   _maHideDelBtn();
   _MA._selectedId = null;
-  _maRedrawAll();
+  _maRefreshAllPointerModes();
+  _maDrawAll();
 }
 
 // ── Delete (✕) button — selected arrow ke head ke paas floating dikhta hai ──
-let _maDelBtn = null, _maDelBtnKey = null, _maDelBtnId = null;
-function _maShowDelBtn(key, id) {
+let _maDelBtn = null, _maDelBtnIdx = null, _maDelBtnId = null;
+function _maShowDelBtn(idx, id) {
   _maHideDelBtn();
   const d = _MA.drawings.find(x => x.id === id);
-  const rec = _MA._charts[key];
-  if (!d || !rec?.el) return;
-  const xy2 = _maPtToXY(key, d.p2);
+  const c = STACK2_CELLS[idx];
+  if (!d || !c?._maEl) return;
+  const xy2 = _maPtToXY(idx, d.p2);
   if (!xy2) return;
   const btn = document.createElement('button');
   btn.className = 'sv2-ma-del-btn';
@@ -19938,21 +19977,21 @@ function _maShowDelBtn(key, id) {
   btn.style.left = (xy2.x + 8) + 'px';
   btn.style.top  = (xy2.y - 22) + 'px';
   btn.onclick = (e) => { e.stopPropagation(); _maDeleteSelected(); };
-  rec.el.appendChild(btn);
-  _maDelBtn = btn; _maDelBtnKey = key; _maDelBtnId = id;
+  c._maEl.appendChild(btn);
+  _maDelBtn = btn; _maDelBtnIdx = idx; _maDelBtnId = id;
 }
 function _maRepositionDelBtn() {
   if (!_maDelBtn || _maDelBtnId == null) return;
   const d = _MA.drawings.find(x => x.id === _maDelBtnId);
   if (!d) return;
-  const xy2 = _maPtToXY(_maDelBtnKey, d.p2);
+  const xy2 = _maPtToXY(_maDelBtnIdx, d.p2);
   if (!xy2) return;
   _maDelBtn.style.left = (xy2.x + 8) + 'px';
   _maDelBtn.style.top  = (xy2.y - 22) + 'px';
 }
 function _maHideDelBtn() {
   if (_maDelBtn) { _maDelBtn.remove(); _maDelBtn = null; }
-  _maDelBtnKey = null; _maDelBtnId = null;
+  _maDelBtnIdx = null; _maDelBtnId = null;
 }
 function _maDeleteSelected() {
   if (_MA._selectedId == null) return;
@@ -19961,17 +20000,8 @@ function _maDeleteSelected() {
   _maDeselect();
 }
 
-// ── Redraw — via the native primitive's requestUpdate(), never a manual
-//    canvas repaint, so it's always in sync with the chart's own paint loop ─
-function _maRedraw(key) {
-  const rec = _MA._charts[key];
-  if (rec && rec.primitive) rec.primitive.requestUpdate();
-  if (_MA._selectedId != null && _maDelBtnKey === key) _maRepositionDelBtn();
-}
-function _maRedrawAll() { Object.keys(_MA._charts).forEach(k => _maRedraw(k)); }
-
-function _maDrawOne(ctx, d, key, isSelected) {
-  const xy1 = _maPtToXY(key, d.p1), xy2 = _maPtToXY(key, d.p2);
+function _maDrawOne(ctx, d, idx, isSelected) {
+  const xy1 = _maPtToXY(idx, d.p1), xy2 = _maPtToXY(idx, d.p2);
   if (!xy1 || !xy2) return;
   const col = d.color === 'red' ? '#ef5350' : '#26a69a';
   const lw = 2;
@@ -20021,11 +20051,13 @@ function _maDot(ctx, pt, col) {
   _pdot2Draw = function(idx, cutoffTime) {
     _origPdot2Draw(idx, cutoffTime);
     try { _arrow2Draw(idx, cutoffTime); } catch(_) {}
+    try { _maDraw(idx); } catch(_) {}
   };
   const _origPdot2Resize = _pdot2ResizeCellCanvas;
   _pdot2ResizeCellCanvas = function(idx) {
     _origPdot2Resize(idx);
     try { _arrow2ResizeCellCanvas(idx); } catch(_) {}
+    try { _maResizeCellCanvas(idx); } catch(_) {}
   };
 })();
 
