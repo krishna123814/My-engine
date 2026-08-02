@@ -19833,6 +19833,12 @@ function _maBindContainer(idx, el) {
   const key = () => _maChartKey(idx);
 
   const onDown = (e) => {
+    // ✕ delete button ke upar tap ko bilkul chhoo mat — warna ye capture-phase
+    // handler usse pehle hi consume kar leta hai (kabhi head-drag samajh leta
+    // hai, kabhi deselect kar deta hai) aur button ka apna click kabhi fire
+    // hi nahi hota.
+    if (e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn')) return;
+
     const { x, y } = xyOf(e);
 
     if (_MA.pendingColor) {
@@ -19878,6 +19884,7 @@ function _maBindContainer(idx, el) {
   };
 
   const onUp = (e) => {
+    if (dragMode === null && e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn')) return;
     if (dragMode === 'place') {
       e.preventDefault(); e.stopPropagation();
       const { x, y } = xyOf(e);
