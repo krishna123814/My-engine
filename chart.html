@@ -16916,7 +16916,13 @@ function _ocApplyPushed(d) {
   if (loadEl) loadEl.style.display = 'none';
   if (d.error === 'not_authenticated') { _ocSetStatus('❌ Fyers login expired — dobara login karo'); return; }
   if (d.error) { _ocSetStatus('❌ ' + d.error); return; }
-  if (d.s !== 'ok') { _ocSetStatus('❌ Fyers error: ' + (d.message || JSON.stringify(d))); return; }
+  if (d.s !== 'ok') {
+    // DEBUG: poora raw Fyers response dikhao (code + message) taaki exact
+    // wajah pata chale — sirf message se pata nahi chalta kaunsa field galat hai.
+    _ocSetStatus('❌ Fyers error [code ' + (d.code != null ? d.code : '?') + ']: ' + (d.message || JSON.stringify(d)));
+    if (bodyEl) bodyEl.innerHTML = `<div style="padding:20px;text-align:center;color:#ef5350;font-size:11px;font-family:monospace;white-space:pre-wrap">${_escHtml(JSON.stringify(d, null, 2))}</div>`;
+    return;
+  }
   _ocData = d;
   _ocBuildExpiries(d);
   _ocSetStatus('Updated: ' + new Date().toLocaleTimeString('en-IN'));
