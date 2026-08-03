@@ -1442,6 +1442,25 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-ma-swatch.red{   background:#ef535022;border-color:#ef5350;color:#ef5350; }
 .sv2-ma-swatch:active{ opacity:.75; }
 
+/* Width picker row — same popup, neeche wali row, color pick se pehle width chunn sakte ho */
+.sv2-ma-menu{ flex-direction:column; align-items:stretch; }
+.sv2-ma-menu-row{ display:flex; gap:8px; }
+.sv2-ma-menu-sep{ height:1px; background:#363c4e; margin:2px 2px; }
+.sv2-ma-width-btn{
+  width:34px;height:28px;
+  border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  touch-action:manipulation;
+  -webkit-user-select:none;user-select:none;
+  border:1.5px solid #363c4e;
+  background:#161a25;
+}
+.sv2-ma-width-btn span{ display:block; background:#d1d4dc; border-radius:2px; }
+.sv2-ma-width-btn:active{ opacity:.75; }
+.sv2-ma-width-btn.active{ border-color:#2962ff; background:#2962ff22; }
+.sv2-ma-width-btn.active span{ background:#2962ff; }
+
 /* Selected arrow ka delete (✕) button — edit-mode me arrow ke head ke paas dikhta hai */
 .sv2-ma-del-btn{
   position:absolute;
@@ -19944,11 +19963,19 @@ function _arrowSetCount(view, count) {
 // reposition kar sakte ho. Kahi aur tap karne se deselect ho jaata hai.
 // ════════════════════════════════════════════════════════════════════════════
 const _MA_LSKEY = 'sv2ManArrows';
+const _MA_WIDTH_KEY = 'sv2ManArrowWidth';   // last-used width, persists across reloads
+const _MA_WIDTHS = [1, 2, 3, 4, 5];          // thin → thick, px (sabse kam = 1)
 const _MA = {
   pendingColor: null,   // 'green' | 'red' | null — draw-mode ON hai kis color ke liye
+  pendingWidth: (function(){
+    try {
+      const v = +_LS.getItem(_MA_WIDTH_KEY);
+      return _MA_WIDTHS.includes(v) ? v : 2;
+    } catch(_) { return 2; }
+  })(),                  // menu me abhi kaunsi width chuni hui hai — naye arrow isi se banenge
   active: false,        // abhi drag chal raha hai (tail rakh diya, head abhi tak nahi)
   p1: null, tempP2: null, chartKey: null,
-  drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color}]
+  drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color, lw}]
   _nextId: 1,
   _selectedId: null,     // edit-mode: kaunsa arrow select hua hai
 };
@@ -19969,16 +19996,29 @@ _maLoad();
 
 // ── FAB green/red picker menu ────────────────────────────────────────────────
 let _maMenuEl = null;
+function _maWidthRowHTML() {
+  return `<div class="sv2-ma-menu-row">` +
+    _MA_WIDTHS.map(w =>
+      `<button class="sv2-ma-width-btn${w === _MA.pendingWidth ? ' active' : ''}" data-w="${w}" ` +
+      `onclick="event.stopPropagation();_maPickWidth(${w})" title="Width ${w}px">` +
+      `<span style="width:16px;height:${w}px;"></span></button>`
+    ).join('') +
+    `</div>`;
+}
 function _maMenuToggle(btn) {
   if (_maMenuEl) { _maMenuClose(); return; }
   _maDeselect();
   const menu = document.createElement('div');
   menu.className = 'sv2-ma-menu';
   menu.innerHTML =
+    _maWidthRowHTML() +
+    `<div class="sv2-ma-menu-sep"></div>` +
+    `<div class="sv2-ma-menu-row">` +
     `<button class="sv2-ma-swatch green" onclick="event.stopPropagation();_maPick('green')" title="Green Arrow">↗</button>` +
-    `<button class="sv2-ma-swatch red"   onclick="event.stopPropagation();_maPick('red')"   title="Red Arrow">↗</button>`;
+    `<button class="sv2-ma-swatch red"   onclick="event.stopPropagation();_maPick('red')"   title="Red Arrow">↗</button>` +
+    `</div>`;
   document.body.appendChild(menu);
-  const mW = menu.offsetWidth || 92, mH = menu.offsetHeight || 46;
+  const mW = menu.offsetWidth || 92, mH = menu.offsetHeight || 96;
   const r  = btn.getBoundingClientRect();
   const vw = window.innerWidth, vh = window.innerHeight;
   let left = r.left - mW - 6;
@@ -19993,6 +20033,17 @@ function _maMenuToggle(btn) {
 }
 function _maMenuClose() {
   if (_maMenuEl) { _maMenuEl.remove(); _maMenuEl = null; }
+}
+function _maPickWidth(w) {
+  _MA.pendingWidth = w;
+  try { _LS.setItem(_MA_WIDTH_KEY, String(w)); } catch(_) {}
+  // Menu ko band kiye bina sirf active-highlight refresh karo, taaki color
+  // pick karne se pehle user width badal/ghata sake.
+  if (_maMenuEl) {
+    _maMenuEl.querySelectorAll('.sv2-ma-width-btn').forEach(b => {
+      b.classList.toggle('active', +b.dataset.w === w);
+    });
+  }
 }
 function _maPick(color) {
   _maMenuClose();
@@ -20074,7 +20125,7 @@ function _maDraw(idx) {
     _maDrawOne(c._maCtx, d, idx, d.id === _MA._selectedId);
   }
   if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
-    _maDrawOne(c._maCtx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, _preview:true }, idx, false);
+    _maDrawOne(c._maCtx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, lw:_MA.pendingWidth, _preview:true }, idx, false);
   }
 }
 function _maDrawAll() { STACK2_CELLS.forEach((_, i) => _maDraw(i)); }
@@ -20216,7 +20267,7 @@ function _maBindContainer(idx, el) {
       const xy1 = _maPtToXY(idx, _MA.p1), xy2 = _maPtToXY(idx, _MA.tempP2);
       const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
       if (_MA.p1 && _MA.tempP2 && !tooSmall) {
-        _MA.drawings.push({ id: _MA._nextId++, chartKey: key(), p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor });
+        _MA.drawings.push({ id: _MA._nextId++, chartKey: key(), p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor, lw: _MA.pendingWidth });
         _maSave();
       }
       _MA.active = false; _MA.p1 = null; _MA.tempP2 = null; _MA.chartKey = null;
@@ -20334,7 +20385,7 @@ function _maDrawOne(ctx, d, idx, isSelected) {
   const xy1 = _maPtToXY(idx, d.p1), xy2 = _maPtToXY(idx, d.p2);
   if (!xy1 || !xy2) return;
   const col = d.color === 'red' ? '#ef5350' : '#26a69a';
-  const lw = 2;
+  const lw = d.lw || 2;
   ctx.save();
   // Selection dots drawn FIRST (underneath) so the arrowhead tip stays sharp
   // and fully visible on top — drawing them after used to fully cover the
