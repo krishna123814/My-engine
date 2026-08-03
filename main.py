@@ -1365,6 +1365,65 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
+                # ── Option Chain endpoint ──────────────────────────────
+                if parsed.path == "/api/option_chain":
+                    creds = load_creds()
+                    if not creds.get("access_token"):
+                        body = b'{"error":"not_authenticated"}'
+                        self.send_response(401)
+                    else:
+                        try:
+                            qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
+                            def _q2(k, d=""): return qs2.get(k, [d])[0]
+                            symbol     = _q2("symbol", "NSE:NIFTYBANK-INDEX")
+                            strikecount = _q2("strikecount", "20")
+                            hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+                            resp = requests.get(
+                                "https://api-t1.fyers.in/data/options-chain",
+                                headers=hdrs,
+                                params={"symbol": symbol, "strikecount": strikecount},
+                                timeout=15,
+                            ).json()
+                            body = json.dumps(resp).encode()
+                            self.send_response(200)
+                        except Exception as ex:
+                            body = json.dumps({"error": str(ex)}).encode()
+                            self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                # ── Balance / Funds endpoint ────────────────────────────
+                if parsed.path == "/api/balance":
+                    creds = load_creds()
+                    if not creds.get("access_token"):
+                        body = b'{"error":"not_authenticated"}'
+                        self.send_response(401)
+                    else:
+                        try:
+                            hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+                            resp = requests.get(
+                                "https://api-t1.fyers.in/api/v3/funds",
+                                headers=hdrs,
+                                timeout=15,
+                            ).json()
+                            body = json.dumps(resp).encode()
+                            self.send_response(200)
+                        except Exception as ex:
+                            body = json.dumps({"error": str(ex)}).encode()
+                            self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()
