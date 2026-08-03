@@ -11,8 +11,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 import datetime
 
-# ─── Fast2SMS API key (hardcoded) ────────────────────────────────────────────
-FAST2SMS_KEY = "TnrcsN4L3xpA8RVeG5dq1KhtWOiSEo7YyPFmlCIQHfjgavMwbU9iH7wDM2yjE5hkrROt06eBboJVa8u1"
+# ─── Fast2SMS API key (Streamlit Cloud secrets: Settings → Secrets) ──────────
+try:
+    FAST2SMS_KEY = st.secrets.get("FAST2SMS_KEY", "")
+except Exception:
+    FAST2SMS_KEY = ""
 
 st.set_page_config(
     page_title="BankNifty Live Chart",
@@ -49,12 +52,18 @@ HIST_CACHE_TTL    = 300       # seconds for intraday cache (5 min — reduces AP
 
 IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
 
-# Default credentials (user can override in sidebar)
-DEFAULT_APP_ID    = "PPGUYSDHX7-100"
-DEFAULT_SECRET    = "RWKTJYZ2YI"
-DEFAULT_CLIENT_ID = "FAJ86844"
-DEFAULT_PASSWORD  = "2552"
-REDIRECT_URI      = "https://www.google.com"
+# Default credentials (user can override in sidebar).
+# Streamlit Cloud secrets (Settings → Secrets) se aate hain; agar wahan set
+# nahi hain (jaise local dev mein), khaali string fallback hoti hai — app
+# tab manual-login form dikha dega.
+try:
+    DEFAULT_APP_ID    = st.secrets.get("FYERS_APP_ID",    "")
+    DEFAULT_SECRET    = st.secrets.get("FYERS_SECRET",    "")
+    DEFAULT_CLIENT_ID = st.secrets.get("FYERS_CLIENT_ID", "")
+    DEFAULT_PASSWORD  = st.secrets.get("FYERS_PASSWORD",  "")
+except Exception:
+    DEFAULT_APP_ID = DEFAULT_SECRET = DEFAULT_CLIENT_ID = DEFAULT_PASSWORD = ""
+REDIRECT_URI = "https://www.google.com"   # generic, not sensitive — never changes
 
 # ─── Global live-tick store (updated by WebSocket thread) ─────────────────────
 _LIVE: dict = {
