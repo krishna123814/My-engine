@@ -17259,7 +17259,15 @@ function _advanceTradingSeconds(fromSec, deltaSec, tfMin, isNSE) {
     const sessEndAbs = dayStart + _SESS_END_SEC;
     const untilClose = sessEndAbs - istSec;
     if (untilClose <= 0) { t = _nextSessionOpen(t); continue; }
-    if (remaining <= untilClose) {
+    // FIX: exact-match boundary bug — jab remaining == untilClose (bucket
+    // exactly session-close, 15:30, par khatam hota), purana `<=` isko
+    // "isi din fit ho gaya" maan leta tha aur t ko exactly 15:30 par chhod
+    // deta tha — ek phantom bucket-start banata jisme koi real candle
+    // nahi (session already band ho chuka). Ab strict `<` use karke, exact
+    // match ko bhi "session over" treat karte hain, taaki seedha next
+    // trading day ke 9:15 open par jump ho (125m TF: 125*3=375=session
+    // length, isliye har din ka last bucket exactly yahi hit karta tha).
+    if (remaining < untilClose) {
       t += remaining; remaining = 0;
     } else {
       remaining -= untilClose;
@@ -17303,7 +17311,14 @@ function _advanceBars(fromSec, nBars, tfMin, isNSE, defaultPeriodSec) {
     const istSec        = t + _IST_OFF;
     const dayStart      = Math.floor(istSec / 86400) * 86400;
     const sessionEndUtc = (dayStart + _SESS_END_SEC) - _IST_OFF;
-    t = (naturalEnd <= sessionEndUtc) ? naturalEnd : _nextSessionOpen(t);
+    // FIX: same exact-match boundary bug as _advanceTradingSeconds — jab
+    // naturalEnd == sessionEndUtc (bucket exactly 15:30 par khatam, jaise
+    // 125m TF ka har din ka 3rd/last bucket: 125*3=375=session length),
+    // purana `<=` isko "same-day bucket" maan leta tha aur t ko exactly
+    // session-close par chhod deta — phantom bucket, koi candle nahi
+    // wahan. Strict `<` se exact match bhi "session over" ban jata hai,
+    // seedha next trading day 9:15 open par jump hota hai.
+    t = (naturalEnd < sessionEndUtc) ? naturalEnd : _nextSessionOpen(t);
   }
   return t;
 }
