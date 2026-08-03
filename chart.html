@@ -245,7 +245,7 @@
   Line 7050   BTC Swing Indicator (BTC ka alag copy — same algorithm)
   Line 7350   TradingView-Style Color Picker
   Line 7537   Color Picker Wiring (swing chips, indicator panel, settings)
-  Line 7649   Custom Chart Keyboard (numeric input overlay)
+  Line 7649   (Custom Chart Keyboard — removed; native device keyboard used instead)
   Line 7734   ★ Drawing Tools Engine v2
                 Tools: trendline, hline, vline, ray, extended, arrow, rect, text
                 _dtInit(), _dtPointerDown(), _dtPointerMove(), _dtRedraw()
@@ -1476,6 +1476,72 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   touch-action:manipulation;
   box-shadow:0 2px 8px #0007;
 }
+
+/* Selected arrow ka color button — ✕ ke saath, tail (p1) ke paas dikhta hai.
+   Tap karne par ek poori color-palette popup khulta hai — koi bhi color
+   chun sakte ho, sirf green/red tak simit nahi. Iska background inline
+   style se current arrow-color ke hisaab se set hota hai (_maResolveColor). */
+.sv2-ma-color-btn{
+  position:absolute;
+  z-index:52;
+  width:22px;height:22px;
+  border-radius:50%;
+  color:#fff;
+  border:1.5px solid #fff5;
+  font-size:11px;font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  touch-action:manipulation;
+  box-shadow:0 2px 8px #0007;
+}
+
+/* Drag guide — jab tail/tip point ko thumb se drag karte hain, asli point
+   thumb ke UPAR offset kar dete hain aur ye dashed line + dot dikhate hain
+   taaki pata chale ki abhi kis candle/price par snap ho raha hai. */
+.sv2-ma-drag-guide{
+  position:absolute;
+  z-index:51;
+  width:0;
+  border-left:1.5px dashed #2962ffcc;
+  pointer-events:none;
+}
+.sv2-ma-drag-dot{
+  position:absolute;
+  z-index:52;
+  width:12px;height:12px;
+  margin-left:-6px;margin-top:-6px;
+  border-radius:50%;
+  background:#2962ff;
+  border:2px solid #fff;
+  box-shadow:0 0 0 3px #2962ff55;
+  pointer-events:none;
+}
+
+/* Full color-picker popup — kisi bhi already-drawn arrow ko tap karke uska
+   color button (↗) dabane par khulta hai. Green/red tak simit nahi — poori
+   palette me se koi bhi color chun sakte ho. */
+.sv2-ma-colormenu{
+  position:fixed;
+  z-index:8650;
+  display:grid;
+  grid-template-columns:repeat(4, 1fr);
+  gap:8px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  padding:8px;
+  box-shadow:0 4px 16px #0009;
+}
+.sv2-ma-colormenu-swatch{
+  width:28px;height:28px;
+  border-radius:50%;
+  cursor:pointer;
+  touch-action:manipulation;
+  -webkit-user-select:none;user-select:none;
+  border:2px solid #ffffff33;
+}
+.sv2-ma-colormenu-swatch.active{ border-color:#fff; box-shadow:0 0 0 2px #2962ff; }
+.sv2-ma-colormenu-swatch:active{ opacity:.75; }
 
 /* ── Floating crosshair date/time badge — jab kisi Stack View (1 ya 2) ka
    bottom time-axis "Display" toggle se HIDE kiya gaya ho, tab bhi candle
@@ -2793,24 +2859,7 @@ select.s-select, input.s-select{
 .cell-settings-panel.open{display:block}
 .vl-num-inp{width:40px;background:#131722;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;text-align:center;padding:1px 3px;}
 .vl-sel{background:#131722;border:1px solid #363c4e;border-radius:3px;color:#d1d4dc;font-size:10px;padding:1px 3px;cursor:pointer;}
-/* ── Custom Chart Keyboard ──────────────────────────────────────────── */
-#chart-kb{position:fixed;bottom:0;left:0;right:0;background:#1a1d27;border-top:1.5px solid #2962ff;padding:8px 8px 12px;z-index:99999;display:none;user-select:none;-webkit-user-select:none;box-shadow:0 -4px 20px #000a;}
-#chart-kb.kb-open{display:block;}
-.kb-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:0 2px;}
-.kb-title{font-size:11px;font-weight:700;color:#9598a1;letter-spacing:.5px;}
-.kb-close{background:none;border:none;color:#9598a1;font-size:16px;cursor:pointer;padding:0 4px;line-height:1;}
-.kb-close:active{color:#d1d4dc;}
-.kb-letters{display:none;margin-bottom:6px;}
-#chart-kb.kb-text .kb-letters{display:block;}
-.kb-row{display:flex;gap:5px;margin-bottom:5px;justify-content:center;}
-.kb-key{background:#2a2e39;border:none;border-radius:7px;color:#d1d4dc;font-size:16px;font-weight:600;height:44px;min-width:44px;flex:1;max-width:72px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .08s;}
-.kb-key:active,.kb-key.kb-pressed{background:#363c4e;}
-.kb-key.kb-letter{font-size:14px;font-weight:700;color:#b0b3c0;max-width:56px;}
-.kb-key.kb-action{background:#363c4e;color:#d1d4dc;font-size:15px;}
-.kb-key.kb-action:active{background:#454a5a;}
-.kb-key.kb-done{background:#2962ff;color:#fff;max-width:200px;font-size:14px;letter-spacing:.3px;}
-.kb-key.kb-done:active{background:#1a4fd8;}
-.kb-key.kb-zero{max-width:200px;}
+/* ── Custom Chart Keyboard: removed — device's own keyboard is used instead ── */
 .csp-title{
   font-size:10px;font-weight:700;color:#d1d4dc;
   padding:6px 8px 5px;border-bottom:1px solid #2a2e39;
@@ -15163,6 +15212,10 @@ document.addEventListener('click', (e) => {
   if(typeof _maMenuEl!=='undefined' && _maMenuEl && !_maMenuEl.contains(e.target) &&
      e.target.id!=='sv2-manarrow-btn')
     { _maMenuClose(); }
+  // Manual Arrow Tool — full color-picker popup for an existing selected arrow
+  if(typeof _maColorMenuEl!=='undefined' && _maColorMenuEl && !_maColorMenuEl.contains(e.target) &&
+     !(e.target.closest && e.target.closest('.sv2-ma-color-btn')))
+    { _maColorMenuClose(); }
   // Main chart settings panel
   if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
      e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
@@ -20206,12 +20259,51 @@ function _maBindContainer(idx, el) {
   };
   const key = () => _maChartKey(idx);
 
+  // ── Thumb-offset drag guide ────────────────────────────────────────────
+  // Finger/thumb chhote screen par tip point ko khud hi dhak leta hai, isliye
+  // touch-drag ke dauran hum asli point ko thumb se _MA_TOUCH_Y_OFFSET px
+  // UPAR shift kar dete hain, aur ek dashed guide-line + dot dikhate hain jo
+  // batata hai ki abhi arrow kis candle/price par snap ho raha hai.
+  let _dragGuideEl = null, _dragDotEl = null;
+  const _showDragGuide = (xRaw, yRaw, xOff, yOff) => {
+    if (!_dragGuideEl) {
+      _dragGuideEl = document.createElement('div');
+      _dragGuideEl.className = 'sv2-ma-drag-guide';
+      el.appendChild(_dragGuideEl);
+    }
+    if (!_dragDotEl) {
+      _dragDotEl = document.createElement('div');
+      _dragDotEl.className = 'sv2-ma-drag-dot';
+      el.appendChild(_dragDotEl);
+    }
+    const top = Math.min(yRaw, yOff), h = Math.abs(yRaw - yOff);
+    _dragGuideEl.style.left   = xOff + 'px';
+    _dragGuideEl.style.top    = top + 'px';
+    _dragGuideEl.style.height = h + 'px';
+    _dragDotEl.style.left = xOff + 'px';
+    _dragDotEl.style.top  = yOff + 'px';
+  };
+  const _hideDragGuide = () => {
+    if (_dragGuideEl) { _dragGuideEl.remove(); _dragGuideEl = null; }
+    if (_dragDotEl)   { _dragDotEl.remove();   _dragDotEl = null; }
+  };
+  // Raw touch point ko drag-mode ke hisaab se offset karta hai (mouse pe
+  // offset nahi lagta, kyunki cursor khud finger jaisa cover nahi karta).
+  const _dragPoint = (e, x, y) => {
+    const isTouch = !!(e.touches && e.touches.length || e.changedTouches && e.changedTouches.length);
+    if (!isTouch || !dragMode) return { x, y };
+    const yOff = Math.max(4, y - _MA_TOUCH_Y_OFFSET);
+    _showDragGuide(x, y, x, yOff);
+    return { x, y: yOff };
+  };
+
   const onDown = (e) => {
+    _hideDragGuide();
     // ✕ delete button ke upar tap ko bilkul chhoo mat — warna ye capture-phase
     // handler usse pehle hi consume kar leta hai (kabhi head-drag samajh leta
     // hai, kabhi deselect kar deta hai) aur button ka apna click kabhi fire
     // hi nahi hota.
-    if (e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn')) return;
+    if (e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn,.sv2-ma-color-btn')) return;
 
     const { x, y } = xyOf(e);
 
@@ -20244,7 +20336,8 @@ function _maBindContainer(idx, el) {
   const onMove = (e) => {
     if (!dragMode) return;
     e.preventDefault(); e.stopPropagation();
-    const { x, y } = xyOf(e);
+    const raw = xyOf(e);
+    const { x, y } = _dragPoint(e, raw.x, raw.y);
     const pt = _maXYtoPt(idx, x, y);
     if (!pt) return;
     if (dragMode === 'place') {
@@ -20258,12 +20351,14 @@ function _maBindContainer(idx, el) {
   };
 
   const onUp = (e) => {
-    if (dragMode === null && e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn')) return;
+    if (dragMode === null && e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn,.sv2-ma-color-btn')) return;
     if (dragMode === 'place') {
       e.preventDefault(); e.stopPropagation();
-      const { x, y } = xyOf(e);
+      const raw = xyOf(e);
+      const { x, y } = _dragPoint(e, raw.x, raw.y);
       const pt = _maXYtoPt(idx, x, y);
       if (pt) _MA.tempP2 = pt;
+      _hideDragGuide();
       const xy1 = _maPtToXY(idx, _MA.p1), xy2 = _maPtToXY(idx, _MA.tempP2);
       const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
       if (_MA.p1 && _MA.tempP2 && !tooSmall) {
@@ -20279,6 +20374,7 @@ function _maBindContainer(idx, el) {
     if (dragMode === 'p1' || dragMode === 'p2') {
       e.preventDefault(); e.stopPropagation();
       dragMode = null;
+      _hideDragGuide();
       _maSave();
       if (_MA._selectedId != null) _maShowDelBtn(idx, _MA._selectedId);
       _maDrawAll();
@@ -20302,6 +20398,7 @@ function _maBindContainer(idx, el) {
 
 // ── Hit test (tap-to-select an existing arrow) ───────────────────────────────
 const _MA_HIT_R = 22; // px — mobile finger-friendly
+const _MA_TOUCH_Y_OFFSET = 60; // px — thumb se upar arrow tip dikhane ke liye
 function _maHitTest(idx, x, y) {
   const key = _maChartKey(idx);
   for (let i = _MA.drawings.length - 1; i >= 0; i--) {
@@ -20345,11 +20442,13 @@ function _maDeselect() {
 
 // ── Delete (✕) button — selected arrow ke head ke paas floating dikhta hai ──
 let _maDelBtn = null, _maDelBtnIdx = null, _maDelBtnId = null;
+let _maColorBtn = null;
 function _maShowDelBtn(idx, id) {
   _maHideDelBtn();
   const d = _MA.drawings.find(x => x.id === id);
   const c = STACK2_CELLS[idx];
   if (!d || !c?._maEl) return;
+  const xy1 = _maPtToXY(idx, d.p1);
   const xy2 = _maPtToXY(idx, d.p2);
   if (!xy2) return;
   const btn = document.createElement('button');
@@ -20360,19 +20459,101 @@ function _maShowDelBtn(idx, id) {
   btn.onclick = (e) => { e.stopPropagation(); _maDeleteSelected(); };
   c._maEl.appendChild(btn);
   _maDelBtn = btn; _maDelBtnIdx = idx; _maDelBtnId = id;
+
+  // Color button — tail (p1) ke paas, arrow ka current color dikhata hai.
+  // Tap karne par poori color-palette popup khulta hai (koi bhi color chun
+  // sakte ho — sirf green/red tak simit nahi).
+  if (xy1) {
+    const cbtn = document.createElement('button');
+    cbtn.className = 'sv2-ma-color-btn';
+    cbtn.style.background = _maResolveColor(d.color);
+    cbtn.textContent = '↗';
+    cbtn.title = 'Change Color';
+    cbtn.style.left = (xy1.x - 30) + 'px';
+    cbtn.style.top  = (xy1.y - 11) + 'px';
+    cbtn.onclick = (e) => { e.stopPropagation(); _maColorMenuToggle(cbtn); };
+    c._maEl.appendChild(cbtn);
+    _maColorBtn = cbtn;
+  }
 }
 function _maRepositionDelBtn() {
   if (!_maDelBtn || _maDelBtnId == null) return;
   const d = _MA.drawings.find(x => x.id === _maDelBtnId);
   if (!d) return;
   const xy2 = _maPtToXY(_maDelBtnIdx, d.p2);
-  if (!xy2) return;
-  _maDelBtn.style.left = (xy2.x + 8) + 'px';
-  _maDelBtn.style.top  = (xy2.y - 22) + 'px';
+  if (xy2) {
+    _maDelBtn.style.left = (xy2.x + 8) + 'px';
+    _maDelBtn.style.top  = (xy2.y - 22) + 'px';
+  }
+  if (_maColorBtn) {
+    const xy1 = _maPtToXY(_maDelBtnIdx, d.p1);
+    if (xy1) {
+      _maColorBtn.style.left = (xy1.x - 30) + 'px';
+      _maColorBtn.style.top  = (xy1.y - 11) + 'px';
+    }
+    _maColorBtn.style.background = _maResolveColor(d.color);
+  }
 }
 function _maHideDelBtn() {
   if (_maDelBtn) { _maDelBtn.remove(); _maDelBtn = null; }
+  if (_maColorBtn) { _maColorBtn.remove(); _maColorBtn = null; }
   _maDelBtnIdx = null; _maDelBtnId = null;
+  _maColorMenuClose();
+}
+
+// ── Full color-picker popup for an existing arrow ───────────────────────────
+// _MA_PALETTE — arrow ka color ab sirf 'green'/'red' string tak simit nahi;
+// koi bhi hex value ban sakta hai. Purane saved arrows jinka color abhi bhi
+// 'green'/'red' string hai, unhe _maResolveColor() sahi hex me convert karta
+// hai, taaki backward-compat bana rahe.
+const _MA_PALETTE = ['#26a69a', '#ef5350', '#2962ff', '#ff9800', '#ab47bc', '#00bcd4', '#ffeb3b', '#ffffff'];
+function _maResolveColor(c) {
+  if (c === 'green') return '#26a69a';
+  if (c === 'red')   return '#ef5350';
+  if (typeof c === 'string' && c.charAt(0) === '#') return c;
+  return '#26a69a';
+}
+let _maColorMenuEl = null;
+function _maColorMenuToggle(anchorBtn) {
+  if (_maColorMenuEl) { _maColorMenuClose(); return; }
+  if (_MA._selectedId == null) return;
+  const d = _MA.drawings.find(x => x.id === _MA._selectedId);
+  if (!d) return;
+  const current = _maResolveColor(d.color);
+  const menu = document.createElement('div');
+  menu.className = 'sv2-ma-colormenu';
+  menu.innerHTML = _MA_PALETTE.map(hex =>
+    `<button class="sv2-ma-colormenu-swatch${hex.toLowerCase() === current.toLowerCase() ? ' active' : ''}" ` +
+    `style="background:${hex}" data-hex="${hex}" ` +
+    `onclick="event.stopPropagation();_maPickColorFor('${hex}')" title="${hex}"></button>`
+  ).join('');
+  document.body.appendChild(menu);
+  const mW = menu.offsetWidth || 148, mH = menu.offsetHeight || 76;
+  const r  = anchorBtn.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = r.left - mW - 6;
+  if (left < 4) left = r.right + 6;
+  let top = r.top + (r.height - mH) / 2;
+  if (top < 4) top = 4;
+  if (top + mH > vh - 4) top = vh - mH - 4;
+  if (left + mW > vw - 4) left = vw - mW - 4;
+  menu.style.left = left + 'px';
+  menu.style.top  = top  + 'px';
+  _maColorMenuEl = menu;
+}
+function _maColorMenuClose() {
+  if (_maColorMenuEl) { _maColorMenuEl.remove(); _maColorMenuEl = null; }
+}
+function _maPickColorFor(hex) {
+  if (_MA._selectedId == null) { _maColorMenuClose(); return; }
+  const d = _MA.drawings.find(x => x.id === _MA._selectedId);
+  if (d) {
+    d.color = hex;
+    _maSave();
+    if (_maColorBtn) _maColorBtn.style.background = hex;
+    _maDrawAll();
+  }
+  _maColorMenuClose();
 }
 function _maDeleteSelected() {
   if (_MA._selectedId == null) return;
@@ -20384,7 +20565,7 @@ function _maDeleteSelected() {
 function _maDrawOne(ctx, d, idx, isSelected) {
   const xy1 = _maPtToXY(idx, d.p1), xy2 = _maPtToXY(idx, d.p2);
   if (!xy1 || !xy2) return;
-  const col = d.color === 'red' ? '#ef5350' : '#26a69a';
+  const col = _maResolveColor(d.color);
   const lw = d.lw || 2;
   ctx.save();
   // Selection dots drawn FIRST (underneath) so the arrowhead tip stays sharp
@@ -21159,130 +21340,13 @@ function _openSettingsColor(btn, onChangeCallback) {
     </div>
   </div>
 </div>
-<!-- ═══ CUSTOM CHART KEYBOARD ════════════════════════════════════════════ -->
-<div id="chart-kb">
-  <div class="kb-header">
-    <span class="kb-title">⌨ Chart Keyboard</span>
-    <button class="kb-close" onmousedown="event.preventDefault();_kbHide()">✕</button>
-  </div>
-  <!-- Letter row — visible only for text inputs -->
-  <div class="kb-letters">
-    <div class="kb-row">
-      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('m')">m</button>
-      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('H')">H</button>
-      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('D')">D</button>
-      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('W')">W</button>
-      <button class="kb-key kb-letter" onmousedown="event.preventDefault();_kbPress('M')">M</button>
-    </div>
-  </div>
-  <div class="kb-row">
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('1')">1</button>
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('2')">2</button>
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('3')">3</button>
-    <button class="kb-key kb-action" onmousedown="event.preventDefault();_kbBack()">⌫</button>
-  </div>
-  <div class="kb-row">
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('4')">4</button>
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('5')">5</button>
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('6')">6</button>
-    <button class="kb-key kb-action" onmousedown="event.preventDefault();_kbClear()">C</button>
-  </div>
-  <div class="kb-row">
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('7')">7</button>
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('8')">8</button>
-    <button class="kb-key" onmousedown="event.preventDefault();_kbPress('9')">9</button>
-    <button class="kb-key kb-action" onmousedown="event.preventDefault();_kbPress('0')">0</button>
-  </div>
-  <div class="kb-row">
-    <button class="kb-key kb-done" onmousedown="event.preventDefault();_kbDone()">✓ Done</button>
-  </div>
-</div>
+<!-- Custom Chart Keyboard removed — native device keyboard is used for all chart inputs now -->
 
 <script>
 // ════════════════════════════════════════════════════════════════════════════
-// CUSTOM CHART KEYBOARD
+// Custom Chart Keyboard — REMOVED. All chart text/number inputs now use the
+// device's own native keyboard (no custom on-screen keyboard overlay).
 // ════════════════════════════════════════════════════════════════════════════
-let _kbTarget = null;
-const _kbEl = () => document.getElementById('chart-kb');
-
-function _kbShow(inp) {
-  _kbTarget = inp;
-  const kb = _kbEl(); if (!kb) return;
-  kb.classList.add('kb-open');
-  // show letter row only for text inputs (TF labels)
-  kb.classList.toggle('kb-text', inp.type === 'text' || inp.type === '');
-}
-
-function _kbHide() {
-  const kb = _kbEl(); if (kb) kb.classList.remove('kb-open', 'kb-text');
-  _kbTarget = null;
-}
-
-function _kbPress(ch) {
-  if (!_kbTarget) return;
-  const t = _kbTarget;
-  if (t.type === 'number') {
-    t.value = String(t.value || '') + ch;
-    t.dispatchEvent(new Event('change', {bubbles:true}));
-  } else {
-    const s = t.selectionStart ?? t.value.length;
-    const e = t.selectionEnd ?? t.value.length;
-    t.value = t.value.slice(0, s) + ch + t.value.slice(e);
-    try { t.setSelectionRange(s+1, s+1); } catch(_) {}
-    t.dispatchEvent(new Event('input', {bubbles:true}));
-  }
-}
-
-function _kbBack() {
-  if (!_kbTarget) return;
-  const t = _kbTarget, v = t.value;
-  if (!v) return;
-  if (t.type === 'text' || t.type === '') {
-    const s = t.selectionStart ?? v.length;
-    if (s > 0) {
-      t.value = v.slice(0, s-1) + v.slice(s);
-      try { t.setSelectionRange(s-1, s-1); } catch(_) {}
-    }
-    t.dispatchEvent(new Event('input', {bubbles:true}));
-  } else {
-    t.value = String(t.value).slice(0, -1);
-    t.dispatchEvent(new Event('change', {bubbles:true}));
-  }
-}
-
-function _kbClear() {
-  if (!_kbTarget) return;
-  _kbTarget.value = '';
-  _kbTarget.dispatchEvent(new Event('input', {bubbles:true}));
-  _kbTarget.dispatchEvent(new Event('change', {bubbles:true}));
-}
-
-function _kbDone() {
-  if (_kbTarget) {
-    _kbTarget.dispatchEvent(new KeyboardEvent('keydown', {key:'Enter', bubbles:true}));
-    _kbTarget.blur();
-  }
-  _kbHide();
-}
-
-// Auto-attach: show keyboard when any chart input gains focus
-document.addEventListener('focusin', e => {
-  const t = e.target;
-  if (t.tagName !== 'INPUT') return;
-  if (t.type === 'checkbox' || t.type === 'color' || t.type === 'range') return;
-  _kbShow(t);
-});
-document.addEventListener('focusout', e => {
-  // Delay so mousedown on keyboard keys fires before blur hides keyboard
-  setTimeout(() => {
-    const kb = _kbEl();
-    if (!kb || !kb.classList.contains('kb-open')) return;
-    const active = document.activeElement;
-    if (!active || active === document.body || (!kb.contains(active) && active.tagName !== 'INPUT')) {
-      _kbHide();
-    }
-  }, 200);
-});
 
 // ════════════════════════════════════════════════════════════════════════════
 // DRAWING TOOLS ENGINE v2
