@@ -1461,6 +1461,55 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-ma-width-btn.active{ border-color:#2962ff; background:#2962ff22; }
 .sv2-ma-width-btn.active span{ background:#2962ff; }
 
+/* Line-style picker row (solid/dashed/dotted) — same popup, placement-time menu me
+   width row ke neeche dikhta hai */
+.sv2-ma-style-btn{
+  width:34px;height:28px;
+  border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  touch-action:manipulation;
+  -webkit-user-select:none;user-select:none;
+  border:1.5px solid #363c4e;
+  background:#161a25;
+}
+.sv2-ma-style-btn span{ display:block; width:18px; height:0; border-top-width:2px; border-top-color:#d1d4dc; }
+.sv2-ma-style-btn[data-style="solid"] span{ border-top-style:solid; }
+.sv2-ma-style-btn[data-style="dashed"] span{ border-top-style:dashed; }
+.sv2-ma-style-btn[data-style="dotted"] span{ border-top-style:dotted; }
+.sv2-ma-style-btn:active{ opacity:.75; }
+.sv2-ma-style-btn.active{ border-color:#2962ff; background:#2962ff22; }
+.sv2-ma-style-btn.active span{ border-top-color:#2962ff; }
+
+/* Selected arrow ka line-style button — color button ke saath dikhta hai.
+   Tap karne par ek chhota popup khulta hai jisme solid/dashed/dotted chun sakte ho. */
+.sv2-ma-linestyle-btn{
+  position:absolute;
+  z-index:52;
+  width:22px;height:22px;
+  border-radius:50%;
+  background:#1e222d;
+  color:#d1d4dc;
+  border:1.5px solid #fff5;
+  font-size:12px;font-weight:700;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  touch-action:manipulation;
+  box-shadow:0 2px 8px #0007;
+}
+.sv2-ma-stylemenu{
+  position:fixed;
+  z-index:8650;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  background:#1e222d;
+  border:1px solid #363c4e;
+  border-radius:10px;
+  padding:6px;
+  box-shadow:0 4px 16px #0009;
+}
+
 /* Selected arrow ka delete (✕) button — edit-mode me arrow ke head ke paas dikhta hai */
 .sv2-ma-del-btn{
   position:absolute;
@@ -14826,6 +14875,10 @@ document.addEventListener('click', (e) => {
   if(typeof _maColorMenuEl!=='undefined' && _maColorMenuEl && !_maColorMenuEl.contains(e.target) &&
      !(e.target.closest && e.target.closest('.sv2-ma-color-btn')))
     { _maColorMenuClose(); }
+  // Manual Arrow Tool — line-style (solid/dashed/dotted) popup for an existing selected arrow
+  if(typeof _maStyleMenuEl!=='undefined' && _maStyleMenuEl && !_maStyleMenuEl.contains(e.target) &&
+     !(e.target.closest && e.target.closest('.sv2-ma-linestyle-btn')))
+    { _maStyleMenuClose(); }
   // Main chart settings panel
   if(_mainSettingsPanel && !_mainSettingsPanel.contains(e.target) &&
      e.target.id!=='main-cset-btn' && !e.target.closest('#main-cset-btn'))
@@ -19628,6 +19681,9 @@ function _arrowSetCount(view, count) {
 const _MA_LSKEY = 'sv2ManArrows';
 const _MA_WIDTH_KEY = 'sv2ManArrowWidth';   // last-used width, persists across reloads
 const _MA_WIDTHS = [1, 2, 3, 4, 5];          // thin → thick, px (sabse kam = 1)
+const _MA_STYLE_KEY = 'sv2ManArrowStyle';    // last-used line style, persists across reloads
+const _MA_STYLES = ['solid', 'dashed', 'dotted'];
+const _MA_DASH = { solid: [], dashed: [8, 6], dotted: [1.5, 5] }; // ctx.setLineDash patterns (scaled by width below)
 const _MA = {
   pendingColor: null,   // 'green' | 'red' | null — draw-mode ON hai kis color ke liye
   pendingWidth: (function(){
@@ -19636,9 +19692,15 @@ const _MA = {
       return _MA_WIDTHS.includes(v) ? v : 2;
     } catch(_) { return 2; }
   })(),                  // menu me abhi kaunsi width chuni hui hai — naye arrow isi se banenge
+  pendingStyle: (function(){
+    try {
+      const v = _LS.getItem(_MA_STYLE_KEY);
+      return _MA_STYLES.includes(v) ? v : 'solid';
+    } catch(_) { return 'solid'; }
+  })(),                  // menu me abhi kaunsa line-style chuna hua hai — naye arrow isi se banenge
   active: false,        // abhi drag chal raha hai (tail rakh diya, head abhi tak nahi)
   p1: null, tempP2: null, chartKey: null,
-  drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color, lw}]
+  drawings: [],          // [{id, chartKey, p1:{time,price}, p2:{time,price}, color, lw, style}]
   _nextId: 1,
   _selectedId: null,     // edit-mode: kaunsa arrow select hua hai
 };
@@ -19668,6 +19730,15 @@ function _maWidthRowHTML() {
     ).join('') +
     `</div>`;
 }
+function _maStyleRowHTML() {
+  return `<div class="sv2-ma-menu-row">` +
+    _MA_STYLES.map(s =>
+      `<button class="sv2-ma-style-btn${s === _MA.pendingStyle ? ' active' : ''}" data-style="${s}" ` +
+      `onclick="event.stopPropagation();_maPickStyle('${s}')" title="${s.charAt(0).toUpperCase()+s.slice(1)} line">` +
+      `<span></span></button>`
+    ).join('') +
+    `</div>`;
+}
 function _maMenuToggle(btn) {
   if (_maMenuEl) { _maMenuClose(); return; }
   _maDeselect();
@@ -19675,6 +19746,7 @@ function _maMenuToggle(btn) {
   menu.className = 'sv2-ma-menu';
   menu.innerHTML =
     _maWidthRowHTML() +
+    _maStyleRowHTML() +
     `<div class="sv2-ma-menu-sep"></div>` +
     `<div class="sv2-ma-menu-row">` +
     `<button class="sv2-ma-swatch green" onclick="event.stopPropagation();_maPick('green')" title="Green Arrow">↗</button>` +
@@ -19705,6 +19777,17 @@ function _maPickWidth(w) {
   if (_maMenuEl) {
     _maMenuEl.querySelectorAll('.sv2-ma-width-btn').forEach(b => {
       b.classList.toggle('active', +b.dataset.w === w);
+    });
+  }
+}
+function _maPickStyle(s) {
+  _MA.pendingStyle = s;
+  try { _LS.setItem(_MA_STYLE_KEY, s); } catch(_) {}
+  // Menu ko band kiye bina sirf active-highlight refresh karo, taaki color
+  // pick karne se pehle user line-style badal/ghata sake.
+  if (_maMenuEl) {
+    _maMenuEl.querySelectorAll('.sv2-ma-style-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.style === s);
     });
   }
 }
@@ -19788,7 +19871,7 @@ function _maDraw(idx) {
     _maDrawOne(c._maCtx, d, idx, d.id === _MA._selectedId);
   }
   if (_MA.active && _MA.chartKey === key && _MA.p1 && _MA.tempP2) {
-    _maDrawOne(c._maCtx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, lw:_MA.pendingWidth, _preview:true }, idx, false);
+    _maDrawOne(c._maCtx, { chartKey:key, p1:_MA.p1, p2:_MA.tempP2, color:_MA.pendingColor, lw:_MA.pendingWidth, style:_MA.pendingStyle, _preview:true }, idx, false);
   }
 }
 function _maDrawAll() { STACK2_CELLS.forEach((_, i) => _maDraw(i)); }
@@ -19913,7 +19996,7 @@ function _maBindContainer(idx, el) {
     // handler usse pehle hi consume kar leta hai (kabhi head-drag samajh leta
     // hai, kabhi deselect kar deta hai) aur button ka apna click kabhi fire
     // hi nahi hota.
-    if (e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn,.sv2-ma-color-btn')) return;
+    if (e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn,.sv2-ma-color-btn,.sv2-ma-linestyle-btn')) return;
 
     const { x, y } = xyOf(e);
 
@@ -19961,7 +20044,7 @@ function _maBindContainer(idx, el) {
   };
 
   const onUp = (e) => {
-    if (dragMode === null && e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn,.sv2-ma-color-btn')) return;
+    if (dragMode === null && e.target && e.target.closest && e.target.closest('.sv2-ma-del-btn,.sv2-ma-color-btn,.sv2-ma-linestyle-btn')) return;
     if (dragMode === 'place') {
       e.preventDefault(); e.stopPropagation();
       const raw = xyOf(e);
@@ -19972,7 +20055,7 @@ function _maBindContainer(idx, el) {
       const xy1 = _maPtToXY(idx, _MA.p1), xy2 = _maPtToXY(idx, _MA.tempP2);
       const tooSmall = xy1 && xy2 && Math.hypot(xy2.x - xy1.x, xy2.y - xy1.y) < 10;
       if (_MA.p1 && _MA.tempP2 && !tooSmall) {
-        _MA.drawings.push({ id: _MA._nextId++, chartKey: key(), p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor, lw: _MA.pendingWidth });
+        _MA.drawings.push({ id: _MA._nextId++, chartKey: key(), p1: _MA.p1, p2: _MA.tempP2, color: _MA.pendingColor, lw: _MA.pendingWidth, style: _MA.pendingStyle });
         _maSave();
       }
       _MA.active = false; _MA.p1 = null; _MA.tempP2 = null; _MA.chartKey = null;
@@ -20053,6 +20136,7 @@ function _maDeselect() {
 // ── Delete (✕) button — selected arrow ke head ke paas floating dikhta hai ──
 let _maDelBtn = null, _maDelBtnIdx = null, _maDelBtnId = null;
 let _maColorBtn = null;
+let _maLineStyleBtn = null;
 function _maShowDelBtn(idx, id) {
   _maHideDelBtn();
   const d = _MA.drawings.find(x => x.id === id);
@@ -20084,6 +20168,18 @@ function _maShowDelBtn(idx, id) {
     cbtn.onclick = (e) => { e.stopPropagation(); _maColorMenuToggle(cbtn); };
     c._maEl.appendChild(cbtn);
     _maColorBtn = cbtn;
+
+    // Line-style button — color button ke bagal me, thoda upar. Tap karne par
+    // solid/dashed/dotted chunne ka chhota popup khulta hai.
+    const sbtn = document.createElement('button');
+    sbtn.className = 'sv2-ma-linestyle-btn';
+    sbtn.textContent = '┄';
+    sbtn.title = 'Line Style';
+    sbtn.style.left = (xy1.x - 30) + 'px';
+    sbtn.style.top  = (xy1.y - 36) + 'px';
+    sbtn.onclick = (e) => { e.stopPropagation(); _maStyleMenuToggle(sbtn); };
+    c._maEl.appendChild(sbtn);
+    _maLineStyleBtn = sbtn;
   }
 }
 function _maRepositionDelBtn() {
@@ -20103,12 +20199,21 @@ function _maRepositionDelBtn() {
     }
     _maColorBtn.style.background = _maResolveColor(d.color);
   }
+  if (_maLineStyleBtn) {
+    const xy1 = _maPtToXY(_maDelBtnIdx, d.p1);
+    if (xy1) {
+      _maLineStyleBtn.style.left = (xy1.x - 30) + 'px';
+      _maLineStyleBtn.style.top  = (xy1.y - 36) + 'px';
+    }
+  }
 }
 function _maHideDelBtn() {
   if (_maDelBtn) { _maDelBtn.remove(); _maDelBtn = null; }
   if (_maColorBtn) { _maColorBtn.remove(); _maColorBtn = null; }
+  if (_maLineStyleBtn) { _maLineStyleBtn.remove(); _maLineStyleBtn = null; }
   _maDelBtnIdx = null; _maDelBtnId = null;
   _maColorMenuClose();
+  _maStyleMenuClose();
 }
 
 // ── Full color-picker popup for an existing arrow ───────────────────────────
@@ -20165,6 +20270,48 @@ function _maPickColorFor(hex) {
   }
   _maColorMenuClose();
 }
+// ── Line-style popup for an existing arrow (solid/dashed/dotted) ───────────
+let _maStyleMenuEl = null;
+function _maStyleMenuToggle(anchorBtn) {
+  if (_maStyleMenuEl) { _maStyleMenuClose(); return; }
+  if (_MA._selectedId == null) return;
+  const d = _MA.drawings.find(x => x.id === _MA._selectedId);
+  if (!d) return;
+  const current = d.style || 'solid';
+  const menu = document.createElement('div');
+  menu.className = 'sv2-ma-stylemenu';
+  menu.innerHTML = _MA_STYLES.map(s =>
+    `<button class="sv2-ma-style-btn${s === current ? ' active' : ''}" data-style="${s}" ` +
+    `onclick="event.stopPropagation();_maPickStyleFor('${s}')" title="${s.charAt(0).toUpperCase()+s.slice(1)} line">` +
+    `<span></span></button>`
+  ).join('');
+  document.body.appendChild(menu);
+  const mW = menu.offsetWidth || 46, mH = menu.offsetHeight || 108;
+  const r  = anchorBtn.getBoundingClientRect();
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = r.left - mW - 6;
+  if (left < 4) left = r.right + 6;
+  let top = r.top + (r.height - mH) / 2;
+  if (top < 4) top = 4;
+  if (top + mH > vh - 4) top = vh - mH - 4;
+  if (left + mW > vw - 4) left = vw - mW - 4;
+  menu.style.left = left + 'px';
+  menu.style.top  = top  + 'px';
+  _maStyleMenuEl = menu;
+}
+function _maStyleMenuClose() {
+  if (_maStyleMenuEl) { _maStyleMenuEl.remove(); _maStyleMenuEl = null; }
+}
+function _maPickStyleFor(s) {
+  if (_MA._selectedId == null) { _maStyleMenuClose(); return; }
+  const d = _MA.drawings.find(x => x.id === _MA._selectedId);
+  if (d) {
+    d.style = s;
+    _maSave();
+    _maDrawAll();
+  }
+  _maStyleMenuClose();
+}
 function _maDeleteSelected() {
   if (_MA._selectedId == null) return;
   _MA.drawings = _MA.drawings.filter(d => d.id !== _MA._selectedId);
@@ -20189,7 +20336,14 @@ function _maDrawOne(ctx, d, idx, isSelected) {
   ctx.lineWidth = lw;
   ctx.globalAlpha = d._preview ? 0.65 : 1;
   if (isSelected && !d._preview) { ctx.shadowColor = col; ctx.shadowBlur = 6; }
+  // Line-style (solid/dashed/dotted) — sirf shaft par lagta hai, arrowhead
+  // hamesha solid/filled rehta hai isliye dash reset kar dete hain fill se pehle.
+  const dashPat = _MA_DASH[d.style] || _MA_DASH.solid;
+  ctx.setLineDash(dashPat.map(v => v * (lw / 2 || 1)));
+  if (d.style === 'dotted') ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(xy1.x, xy1.y); ctx.lineTo(xy2.x, xy2.y); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineCap = 'butt';
   const ang = Math.atan2(xy2.y - xy1.y, xy2.x - xy1.x), al = 9;
   ctx.beginPath(); ctx.moveTo(xy2.x, xy2.y);
   ctx.lineTo(xy2.x - al*Math.cos(ang-0.4), xy2.y - al*Math.sin(ang-0.4));
