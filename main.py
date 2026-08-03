@@ -510,16 +510,19 @@ _SESSION_START    = 33300   # 9:15 IST = 9*3600 + 15*60 seconds from midnight
 _SESSION_END      = 55800   # 15:30 IST = 15*3600 + 30*60 seconds from midnight
 
 def _sv2_fill_bn_gaps(rows: list) -> list:
-    """BN 1m raw data mein missing minutes (no-trade gaps) forward-fill karo.
+    """BN 5m raw data mein missing 5-min slots (no-trade gaps) forward-fill karo.
 
-    Vendor ka 1m data kai jagah beech mein minutes miss karta hai (illiquid /
-    no-trade moments). Agar poore 5m/15m/etc bucket ke saare minutes missing
+    Vendor ka 5m data kai jagah beech mein slots miss karta hai (illiquid /
+    no-trade moments). Agar poore 125m/etc bucket ke saare 5m-slots missing
     hon, to us bucket ka candle hi resample output se gayab ho jaata hai —
     chart mein genuine "candles ke beech gap" dikhta hai. Fix: har trading
-    session (9:15–15:29:XX IST, 375 minutes/day) ke liye poori minute sequence
-    banao — jo minute missing ho use pichle available close se flat candle
-    (o=h=l=c=prev_close) se bhar do. Isse koi bhi downstream resample bucket
-    kabhi khaali nahi rahega.
+    session (9:15–15:29:XX IST, 375 minutes/day = 75 slots of 5m) ke liye
+    poori 5-min sequence banao — jo slot missing ho use pichle available
+    close se flat candle (o=h=l=c=prev_close) se bhar do. Isse koi bhi
+    downstream resample bucket kabhi khaali nahi rahega.
+
+    NOTE: raw .gz ab 5m granularity hai (pehle 1m thi) — isliye step 300
+    seconds (5 min) hai, 60 seconds (1 min) nahi.
     """
     if not rows:
         return rows
@@ -536,7 +539,7 @@ def _sv2_fill_bn_gaps(rows: list) -> list:
     prev_close = None
     for day_start in sorted(by_day.keys()):
         day_rows = by_day[day_start]
-        for sec_off in range(_SESSION_START, _SESSION_END, 60):
+        for sec_off in range(_SESSION_START, _SESSION_END, 300):
             t = day_start + sec_off
             if t in day_rows:
                 r = day_rows[t]
@@ -545,25 +548,25 @@ def _sv2_fill_bn_gaps(rows: list) -> list:
             elif prev_close is not None:
                 out.append({"t": t, "o": prev_close, "h": prev_close,
                             "l": prev_close, "c": prev_close})
-            # agar dataset ke bilkul shuru mein hi pehla minute missing ho
+            # agar dataset ke bilkul shuru mein hi pehla slot missing ho
             # (prev_close abhi None hai), to use silently skip karo — us
             # point tak koi reference close available hi nahi hai.
     return out
 
 def _sv2_resample_bn_intraday(rows: list, tf_min: int) -> list:
-    """BN 1m data ko intraday TF mein resample karo.
+    """BN 5m data ko intraday TF mein resample karo.
 
     .gz timestamps IST-naive hain (9:15 IST stored as 09:15 UTC epoch).
     Per-day anchor: har din 9:15 IST se bucket 0 start hota hai.
     Output timestamps real UTC mein (LightweightCharts + IST timezone ke liye).
     Session filter: sirf 9:15–15:30 IST ke candles.
 
-    NOTE: raw .gz ab 1m granularity hai (pehle 5m thi). Isliye passthrough
-    (bina bucketing) sirf tf_min==1 par hota hai — 5m/15m/45m/135m sabko
-    ab yahin se actual bucket-resample hona zaroori hai.
+    NOTE: raw .gz ab 5m granularity hai (pehle 1m thi). Isliye passthrough
+    (bina bucketing) sirf tf_min<=5 par hota hai — 125m ab yahin se actual
+    bucket-resample hoke banta hai (375-min session / 125m = 3 buckets/din).
     """
     sec = tf_min * 60
-    if tf_min <= 1:
+    if tf_min <= 5:
         out = []
         for r in rows:
             mod = r["t"] % 86400
@@ -732,8 +735,7 @@ def _sv2_date_to_anchor_epoch(d) -> int:
 # _sv2_get_max() se aati hain, jo isme user ke saved overrides (bottom-bar
 # ke 📦 Chunk icon se set kiye gaye) merge karta hai.
 _SV2_MAX_BN_DEFAULT = {
-    "1m_raw": 30000, "5m": 6000, "15m": 3000, "45m": 2000, "135m": 2000,
-    "1D": 2000, "3D": 1500, "9D": 800, "27D": 400,
+    "5m_raw": 12000,
 }
 _SV2_MAX_BTC_DEFAULT = {
     # 160m removed (no longer used); 8H/1D/3D/9D/27D are now FULL-HISTORY
@@ -744,10 +746,7 @@ _SV2_MAX_BTC_DEFAULT = {
 # Safe min/max bounds per label — user chahe jitna bhi likhe, isi range mein
 # clamp ho jaayega (mobile hang / bahut kam data dono se bachne ke liye).
 _SV2_MAX_BOUNDS = {
-    "1m_raw": (500, 60000), "5m": (200, 20000), "15m": (200, 10000),
-    "45m": (100, 8000), "135m": (100, 8000),
     "5m_raw": (500, 120000),
-    "1D": (100, 6000), "3D": (50, 4000), "9D": (30, 2000), "27D": (20, 1000),
 }
 
 SV2_CHUNK_SETTINGS_FILE = "sv2_chunk_settings.json"
@@ -872,11 +871,8 @@ def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
         btc_raw = _sv2_load_btc_gz()
 
         _SV2_CACHE["bn_tfs_full"] = {
-            "1m_raw": _sv2_resample_bn_intraday(bn_raw, 1),
-            "5m":   _sv2_resample_bn_intraday(bn_raw,  5),
-            "15m":  _sv2_resample_bn_intraday(bn_raw,  15),
-            "45m":  _sv2_resample_bn_intraday(bn_raw,  45),
-            "135m": _sv2_resample_bn_intraday(bn_raw,  135),
+            "5m_raw": _sv2_resample_bn_intraday(bn_raw, 5),
+            "125m": _sv2_resample_bn_intraday(bn_raw,  125),
             "1D":   _sv2_resample_bn_daily   (bn_raw,  1),
             "3D":   _sv2_resample_bn_daily   (bn_raw,  3),
             "9D":   _sv2_resample_bn_daily   (bn_raw,  9),
@@ -893,12 +889,14 @@ def _build_sv2_data(bn_anchor: int = None, btc_anchor: int = None) -> dict:
 
     bn_tfs  = _SV2_CACHE["bn_tfs_full"]
     btc_tfs = _SV2_CACHE["btc_tfs_full"]
-    # BTC: 8H/1D/3D/9D/27D ab chunk/trim NAHI hote — poori history jaati hai
-    # as-is (bade TFs hain, candle-count kam hoti hai, phone hang nahi karta).
-    # Sirf "5m_raw" (forming-candle interpolation ke liye) trimmed rehta hai,
-    # kyunki wo bahut bada array hota (~1M candles) agar poora bheja jaaye.
+    # Ab BN aur BTC dono ke liye SAME pattern: sirf "5m_raw" (forming-candle
+    # interpolation ke liye) trimmed/chunked rehta hai; baaki saare TFs
+    # (125m/1D/3D/9D/27D for BN, 8H/1D/3D/9D/27D for BTC) ab FULL-HISTORY
+    # untrimmed jaate hain — koi bar-replay chunk-limit nahi (bade TFs hain,
+    # candle-count kam hoti hai, phone hang nahi karta).
     agg = {
-        "bn":  {k: _sv2_trim(v, k, bn_anchor, "bn") for k, v in bn_tfs.items()},
+        "bn":  {k: (_sv2_trim(v, k, bn_anchor, "bn") if k == "5m_raw" else v)
+                for k, v in bn_tfs.items()},
         "btc": {k: (_sv2_trim(v, k, btc_anchor, "btc") if k == "5m_raw" else v)
                 for k, v in btc_tfs.items()},
     }
@@ -1767,7 +1765,7 @@ def _build_chart_html(
     # (existing _SV2_MAX limits ke hisaab se) — poori history nahi.
     _sv2_data_requested = bool(st.session_state.get("_sv2_data_requested"))
     _sv2_all_placeholders = [
-        "__SV2_BN_1M_RAW__","__SV2_BN_5M__","__SV2_BN_15M__","__SV2_BN_45M__","__SV2_BN_135M__",
+        "__SV2_BN_5M_RAW__","__SV2_BN_125M__",
         "__SV2_BN_1D__","__SV2_BN_3D__","__SV2_BN_9D__","__SV2_BN_27D__",
         "__SV2_BTC_5M_RAW__","__SV2_BTC_8H__","__SV2_BTC_1D__",
         "__SV2_BTC_3D__","__SV2_BTC_9D__","__SV2_BTC_27D__",
@@ -1800,11 +1798,8 @@ def _build_chart_html(
                 "btc_counts": {k: len(v) for k, v in _btc.items()},
             }
             _sv2_err_msg = json.dumps(_sv2_debug_info)
-            html = html.replace("__SV2_BN_1M_RAW__", _sv2_to_js(_bn["1m_raw"]))
-            html = html.replace("__SV2_BN_5M__",   _sv2_to_js(_bn["5m"]))
-            html = html.replace("__SV2_BN_15M__",  _sv2_to_js(_bn["15m"]))
-            html = html.replace("__SV2_BN_45M__",  _sv2_to_js(_bn["45m"]))
-            html = html.replace("__SV2_BN_135M__", _sv2_to_js(_bn["135m"]))
+            html = html.replace("__SV2_BN_5M_RAW__", _sv2_to_js(_bn["5m_raw"]))
+            html = html.replace("__SV2_BN_125M__", _sv2_to_js(_bn["125m"]))
             html = html.replace("__SV2_BN_1D__",   _sv2_to_js(_bn["1D"]))
             html = html.replace("__SV2_BN_3D__",   _sv2_to_js(_bn["3D"]))
             html = html.replace("__SV2_BN_9D__",   _sv2_to_js(_bn["9D"]))
@@ -2195,39 +2190,6 @@ else:
         # broken full-page reload try karta hai jo poori app ko restart
         # jaisa dikhaata hai. Isliye yahin se hi data load kara do.
         st.session_state["_sv2_anchor_date_bn"]  = _sv2_default_date("bn")
-        st.session_state["_sv2_anchor_date_btc"] = None
-        st.session_state["_sv2_data_requested"]  = True
-        st.session_state["_btc_only_mode"] = True
-        st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── Stack View 2: chunk-date picker (sirf BankNifty ke liye) ───────────
-    # BTC ka chunk-date system hata diya gaya hai (BTC ab hamesha latest/
-    # full-history data leta hai, bina kisi date-anchor ke) — isliye yahan
-    # sirf BankNifty ke liye date chunayi jaati hai. Jab tak "Chart Kholo"
-    # na dabao, GitHub se koi data fetch hi nahi hota.
-    st.markdown("<hr style='border:none;border-top:1px solid #2a2e3e;margin:22px 0;'>", unsafe_allow_html=True)
-    st.markdown(
-        "<div style='max-width:620px;margin:0 auto;color:#d1d4dc;font-size:1rem;font-weight:700;'>"
-        "📅 Stack View 2 — Bar Replay Chunk Date (BankNifty)"
-        "</div>"
-        "<div style='max-width:620px;margin:2px auto 14px;color:#555;font-size:0.8rem;'>"
-        "Jis date se replay dekhna hai wo chuno — sirf usi date ke aas-paas ka data load hoga"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-    _sv2_bn_date_pick = st.date_input(
-        "BankNifty chunk date",
-        value=_sv2_default_date("bn"),
-        key="sv2_bn_date_inp",
-    )
-    # Jo bhi date yahan select ho, turant disk pe yaad rakh lo — agli baar
-    # (naya session/refresh) yahi date pehle se field mein fill milegi,
-    # bina "Chart Kholo" dabaye bhi. Load abhi bhi sirf button se hi hota hai.
-    _sv2_remember_dates(_sv2_bn_date_pick, None)
-    st.markdown("<div style='max-width:620px;margin:6px auto 0;'>", unsafe_allow_html=True)
-    if st.button("📊 Chart Kholo (Chunk Date Se)", use_container_width=True, type="primary", key="sv2_chunk_load_btn"):
-        st.session_state["_sv2_anchor_date_bn"]  = _sv2_bn_date_pick
         st.session_state["_sv2_anchor_date_btc"] = None
         st.session_state["_sv2_data_requested"]  = True
         st.session_state["_btc_only_mode"] = True

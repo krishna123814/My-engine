@@ -5007,16 +5007,13 @@ const BN_45M      = __BN_45M__;
 const BN_DAILY    = __BN_DAILY__;
 
 // ── Stack View 2: pre-resampled data from .gz files (injected by Python) ────
-// BN: 5m, 15m, 45m, 135m, 1D, 3D, 9D, 27D  |  BTC: 8H, 1D, 3D, 9D, 27D (160m removed)
+// BN: 125m, 1D, 3D, 9D, 27D  |  BTC: 8H, 1D, 3D, 9D, 27D (160m removed)
 // Each value is an array of {time,open,high,low,close} objects (LWC format).
 // BN TFs chunked (~last N candles) so mobile doesn't hang; BTC's 8H/1D/3D/9D/27D
 // are now sent FULL-HISTORY, untrimmed (bigger TFs = fewer candles, no hang risk).
 const SV2_BN = {
-  '1m_raw': __SV2_BN_1M_RAW__,
-  '5m':   __SV2_BN_5M__,
-  '15m':  __SV2_BN_15M__,
-  '45m':  __SV2_BN_45M__,
-  '135m': __SV2_BN_135M__,
+  '5m_raw': __SV2_BN_5M_RAW__,
+  '125m': __SV2_BN_125M__,
   '1D':   __SV2_BN_1D__,
   '3D':   __SV2_BN_3D__,
   '9D':   __SV2_BN_9D__,
@@ -5109,11 +5106,11 @@ const BN_ASSET    = '\ud83d\udcca BANKNIFTY';
 //         full-history data maujood hai (SV2_BTC['8H']/['1D']/['3D']/
 //         ['9D']/['27D']), bina kisi chunking/trim ke.
 const _SV2_BASE_TF_OPTIONS = {
-  bn:  ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
+  bn:  ['125m', '1D', '3D', '9D', '27D'],
   btc: ['8H', '1D', '3D', '9D', '27D'],
 };
 // Har TF (base ho ya na ho) ke minutes — close-watch list banane ke liye.
-const _TF_ALL_MIN_BN  = [5, 15, 45, 135, 1440, 4320, 12960, 38880];
+const _TF_ALL_MIN_BN  = [125, 1440, 4320, 12960, 38880];
 const _TF_ALL_MIN_BTC = [480, 1440, 4320, 12960, 38880];
 
 const _SV2_BASE_TF_KEY = 'sv2BaseTf1';
@@ -5125,13 +5122,13 @@ function _sv2LoadBaseTfCfg() {
       if (o && _SV2_BASE_TF_OPTIONS.bn.indexOf(o.bn) !== -1 && _SV2_BASE_TF_OPTIONS.btc.indexOf(o.btc) !== -1) return o;
     }
   } catch(_) {}
-  return { bn: '5m', btc: '8H' };   // defaults — 160m removed, 8H ab BTC ka smallest/base TF hai
+  return { bn: '125m', btc: '8H' };   // defaults — 160m removed, 8H ab BTC ka smallest/base TF hai
 }
 function _sv2SaveBaseTfCfg(o) { try { _LS.setItem(_SV2_BASE_TF_KEY, JSON.stringify(o)); } catch(_) {} }
 let _sv2BaseTfCfg = _sv2LoadBaseTfCfg();
 
-function _sv2GetBaseTF(isBN) { return isBN ? (_sv2BaseTfCfg.bn || '5m') : (_sv2BaseTfCfg.btc || '8H'); }
-function _sv2BaseTfMin(isBN) { return _parseTFMin(_sv2GetBaseTF(isBN)) || (isBN ? 5 : 480); }
+function _sv2GetBaseTF(isBN) { return isBN ? (_sv2BaseTfCfg.bn || '125m') : (_sv2BaseTfCfg.btc || '8H'); }
+function _sv2BaseTfMin(isBN) { return _parseTFMin(_sv2GetBaseTF(isBN)) || (isBN ? 125 : 480); }
 function _sv2BaseTfSec(isBN) { return _sv2BaseTfMin(isBN) * 60; }
 function _sv2SetBaseTF(isBN, label) {
   var opts = isBN ? _SV2_BASE_TF_OPTIONS.bn : _SV2_BASE_TF_OPTIONS.btc;
@@ -6503,7 +6500,7 @@ function _stackDefaults() {
       total:   8,
       visible: 4,
       step:    1,
-      tfs: ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
+      tfs: ['125m', '1D', '3D', '9D', '27D'],
     },
     third: {
       total:   0,        // no 3rd symbol configured yet
@@ -6759,7 +6756,7 @@ function _stack2DefaultCfg() {
       total:   8,
       visible: 4,
       step:    1,
-      tfs: ['5m', '15m', '45m', '135m', '1D', '3D', '9D', '27D'],
+      tfs: ['125m', '1D', '3D', '9D', '27D'],
     },
     third: {
       total:   0,
@@ -10080,7 +10077,7 @@ function ss2ApplyAndClose() {
       ? (live.baseBars[1].time - live.baseBars[0].time)
       : (live.baseTfMin ? live.baseTfMin * 60 : _sv2BaseTfSec(live.isBN));
     var subArr  = live.isBN
-      ? (typeof SV2_BN  !== 'undefined' ? SV2_BN['1m_raw']  : null)
+      ? (typeof SV2_BN  !== 'undefined' ? SV2_BN['5m_raw']  : null)
       : (typeof SV2_BTC !== 'undefined' ? SV2_BTC['5m_raw'] : null);
     var subBars = subArr ? _findSubBarsInWindow(subArr, nb.time, nb.time + baseSec) : [];
 
@@ -12449,7 +12446,7 @@ if (document.readyState === 'loading') {
 //                    jaata hai — baaki sab kabhi nahi dikhte. Har revealed
 //                    bar individually check hota hai, koi bhi transition
 //                    skip nahi hota — fast/auto replay mein bhi sahi rehta hai.
-const _TF_CLOSE_WATCH_BN   = [15, 45, 135, 1440, 4320, 12960, 38880]; // 15m,45m,135m,1D,3D,9D,27D (5m base excluded)
+const _TF_CLOSE_WATCH_BN   = [1440, 4320, 12960, 38880]; // 1D,3D,9D,27D (125m base excluded)
 const _TF_CLOSE_WATCH_BTC  = [480, 1440, 4320, 12960, 38880];         // 8H,1D,3D,9D,27D (default base=8H excluded)
 const _TF_CLOSE_DISPLAY_MS = 15000;  // close ke baad kitni real der tak dikhna hai
 const _TF_BASE_SEC_BN      = 300;    // BankNifty base candle = 5m
@@ -14625,14 +14622,11 @@ function closeOverlaySetting() {
 // document mein ek GET form banake submit karo → Streamlit query_params
 // se padh ke settings save karta hai aur naye data ke saath rerun hota hai.
 const _CS_LABELS = {
-  bn:  { "1m_raw":"1 Min",  "5m":"5 Min",  "15m":"15 Min", "45m":"45 Min", "135m":"135 Min",
-         "1D":"1 Day", "3D":"3 Day", "9D":"9 Day", "27D":"27 Day" },
+  bn:  { "5m_raw":"5 Min" },   // 125m/1D/3D/9D/27D ab full-history hain, chunk-settings mein nahi dikhte
   btc: { "5m_raw":"5 Min" },   // 8H/1D/3D/9D/27D ab full-history hain, chunk-settings mein nahi dikhte
 };
 const _CS_STEP = {
-  "1m_raw":1000, "5m":500, "15m":250, "45m":100, "135m":100,
   "5m_raw":2000,
-  "1D":100, "3D":50, "9D":25, "27D":10,
 };
 
 function _csData(){
