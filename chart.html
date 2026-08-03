@@ -1853,6 +1853,14 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-stepreset-hint{
   font-size:10px;color:#848da0;text-align:center;padding:0 4px 10px;
 }
+#sv2-mktclosepopup-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:4px 2px 8px;border-top:1px solid #2a2e39;
+}
+#sv2-mktclosepopup-label{font-size:12px;color:#d1d4dc;font-weight:600}
+#sv2-mktclosepopup-hint{
+  font-size:10px;color:#848da0;text-align:center;padding:0 4px 10px;
+}
 #sv2-speed-title{
   font-size:11px;color:#848da0;margin-bottom:8px;text-align:center;
 }
@@ -3758,6 +3766,11 @@ function _hdrRelayout(){
       <div id="sv2-basetf-title">🧱 Replay Base Timeframe</div>
       <div id="sv2-basetf-opts"></div>
       <div id="sv2-basetf-hint">Base se CHHOTI koi bhi TF replay mein disabled ho jaayegi (uska data load hi nahi hoga). Base badalte hi replay is date se fresh restart hota hai.</div>
+      <div id="sv2-mktclosepopup-row">
+        <span id="sv2-mktclosepopup-label">🔔 Market Closed Popup</span>
+        <button id="sv2-mktclosepopup-switch" class="gp-switch" onclick="_sv2MktClosePopupToggle()"></button>
+      </div>
+      <div id="sv2-mktclosepopup-hint">On (default) = 3:30 PM par Continue/Pause/Stop popup dikhega. Off = popup skip ho jayega, replay khud-ba-khud agle trading session mein continue karega (jaise Continue dabaya ho).</div>
       <div id="sv2-speed-title">⏱ Candle Speed (1 candle = X real seconds)</div>
       <div id="sv2-speed-opts">
         <button class="sv2-speed-opt" data-sec="5"   onclick="_sv2SpeedSet(5)">5s</button>
@@ -9842,6 +9855,7 @@ function ss2ApplyAndClose() {
     // Sync visibility immediately (in case SV2 already active on first load)
     _sv2DrngSyncFab();
     _renderStepResetSwitch();
+    _renderMktClosePopupSwitch();
   }
 
   if (document.readyState === 'loading') {
@@ -10480,6 +10494,33 @@ function ss2ApplyAndClose() {
   }
   window._sv2ContPlayToggle = _sv2ContPlayToggle;
 
+  // ── Market-Close Popup — on/off (persisted) ───────────────────────────────
+  // On (default) = jab BankNifty session 3:30 PM par khatam hoti hai, popup
+  // dikha ke user se Continue/Pause/Stop poochta hai (jaisa neeche define
+  // hai). Off = popup skip, replay silently "Continue" jaisa behave karta
+  // hai — agle trading session mein khud-ba-khud aage badh jaata hai, bina
+  // rukave/poochhe (dedupe-per-bar wali _mktCloseShownFor logic waisi hi
+  // rahegi, taaki flag baar-baar re-trigger na ho).
+  var _MKTCLOSEPOPUP_KEY = 'sv2MktClosePopup';
+  function _loadMktClosePopup() {
+    var v = _LS.getItem(_MKTCLOSEPOPUP_KEY);
+    return v === null ? true : v === '1';   // default ON
+  }
+  function _saveMktClosePopup(on) { _LS.setItem(_MKTCLOSEPOPUP_KEY, on ? '1' : '0'); }
+  var _mktClosePopupOn = _loadMktClosePopup();
+
+  function _renderMktClosePopupSwitch() {
+    var btn = document.getElementById('sv2-mktclosepopup-switch');
+    if (btn) btn.classList.toggle('on', _mktClosePopupOn);
+  }
+
+  function _sv2MktClosePopupToggle() {
+    _mktClosePopupOn = !_mktClosePopupOn;
+    _saveMktClosePopup(_mktClosePopupOn);
+    _renderMktClosePopupSwitch();
+  }
+  window._sv2MktClosePopupToggle = _sv2MktClosePopupToggle;
+
   // ── BankNifty-only Market-Close popup (Bar Replay) ────────────────────────
   // Jab replay ka revealed bar us trading-din ka AAKHRI base bar hota hai
   // (agla bar kisi doosre din ka hai, ya data hi khatam ho gaya) — user ko
@@ -10607,14 +10648,20 @@ function ss2ApplyAndClose() {
         var _sessionJustEnded = (live.revealIdx >= live.baseBars.length) ||
           (_utcDateStr(live.baseBars[live.revealIdx].time) !== _justDateStr);
         if (_sessionJustEnded && live._mktCloseShownFor !== _justBar.time) {
-          live._mktCloseShownFor = _justBar.time;
-          _running = false;
-          if (_timerId) { clearTimeout(_timerId); _timerId = null; }
-          _pausedAt = null;   // agla Play/Continue fresh candle se shuru ho
-          _stopRing();
-          _renderPlayIcon();
-          _sv2ShowMktClosePopup();
-          return;   // user ka Continue/Pause/Stop choice hi aage decide karega
+          live._mktCloseShownFor = _justBar.time;   // dedupe ab bhi lagu, popup on ho ya off
+          if (_mktClosePopupOn) {
+            _running = false;
+            if (_timerId) { clearTimeout(_timerId); _timerId = null; }
+            _pausedAt = null;   // agla Play/Continue fresh candle se shuru ho
+            _stopRing();
+            _renderPlayIcon();
+            _sv2ShowMktClosePopup();
+            return;   // user ka Continue/Pause/Stop choice hi aage decide karega
+          }
+          // Popup OFF — silently "Continue" jaisa behave karo: yahan return
+          // NAHI karte, seedha neeche wale moreLeft/_continuousPlay flow mein
+          // gir jaate hain jo agli candle/session ke liye normally schedule
+          // kar dega, bina rukave/poochhe.
         }
       }
     } catch(_) {}
@@ -10697,6 +10744,7 @@ function ss2ApplyAndClose() {
     if (show) {
       _syncSpeedBtns();
       _renderContPlaySwitch();
+      _renderMktClosePopupSwitch();
       if (typeof window._sv2RenderStepResetSwitch === 'function') try { window._sv2RenderStepResetSwitch(); } catch(_){}
       if (typeof window._sv2RenderBaseTfRow === 'function') try { window._sv2RenderBaseTfRow(); } catch(_){}
     }
