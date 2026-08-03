@@ -17253,14 +17253,23 @@ const _SESS_END_SEC   = 15 * 3600 + 30 * 60;  // 15:30 IST
 const _IST_OFF        = 5.5 * 3600;
 
 // Agle trading-session ka OPEN timestamp (real epoch seconds) do, jo
-// fromSec ke turant baad aata hai. Weekends (Sat/Sun) automatically skip.
+// fromSec ke turant baad aata hai. Weekends (Sat/Sun) aur NSE_HOLIDAYS
+// (Republic Day, Diwali, etc.) dono automatically skip.
+// FIX: pehle sirf Sat/Sun check hota tha, NSE_HOLIDAYS nahi — isliye jab
+// koi weekday holiday (jaise 26 Jan) session-boundary par aata, ye usko
+// "valid trading day" maan ke uska 9:15 AM open phantom bucket-start bana
+// deta tha (real data wahan hota nahi, session band hoti hai) — chart ke
+// time-axis par ek khaali "gap" candle-slot reserve ho jaata, phir agli
+// real candle uske baad (asal agle trading-din) se shuru hoti. Daily+ TFs
+// isse affected nahi the kyunki wo already _nextNseWorkingDay() use karte
+// hain jo NSE_HOLIDAYS bhi check karta hai — ab dono consistent hain.
 function _nextSessionOpen(fromSec) {
   const istSec = fromSec + _IST_OFF;
   let dayStart = Math.floor(istSec / 86400) * 86400;
   let openIst  = dayStart + _SESS_START_SEC;
   if (openIst <= istSec) { dayStart += 86400; openIst = dayStart + _SESS_START_SEC; }
   let dow = new Date(dayStart * 1000).getUTCDay();   // dayStart IST-shifted hai, isliye getUTCDay = IST weekday
-  while (dow === 0 || dow === 6) {                    // 0=Sun, 6=Sat
+  while (dow === 0 || dow === 6 || NSE_HOLIDAYS.has(_utcDateStr(dayStart))) {   // 0=Sun, 6=Sat, ya declared NSE holiday
     dayStart += 86400;
     openIst   = dayStart + _SESS_START_SEC;
     dow = new Date(dayStart * 1000).getUTCDay();
