@@ -130,7 +130,7 @@ def _fetch_option_chain_now() -> dict:
         return requests.get(
             "https://api-t1.fyers.in/data/options-chain",
             headers=hdrs,
-            params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25"},
+            params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
             timeout=15,
         ).json()
     except Exception as ex:
@@ -1453,7 +1453,7 @@ def _register_api_route():
                             resp = requests.get(
                                 "https://api-t1.fyers.in/data/options-chain",
                                 headers=hdrs,
-                                params={"symbol": symbol, "strikecount": strikecount},
+                                params={"symbol": symbol, "strikecount": strikecount, "timestamp": ""},
                                 timeout=15,
                             ).json()
                             body = json.dumps(resp).encode()
