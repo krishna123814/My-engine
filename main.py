@@ -77,6 +77,19 @@ _LIVE_LOCK = threading.Lock()
 _LAST_TICK_JS: dict = {"json": ""}
 _LAST_TICK_LOCK = threading.Lock()
 
+# ─── Option Chain / Balance — server-side cache ───────────────────────────────
+# Streamlit Cloud pe browser side-port (_API_PORT) tak nahi pahunch pata
+# (port public nahi hai + https page se http fetch mixed-content block ho
+# jaata hai). Isliye ab yeh data bhi LTP tick ki tarah hi Python background
+# thread se fetch hoke postMessage se iframe ko push kiya jaata hai —
+# browser ko koi seedha network call Fyers/side-port par nahi karna padta.
+_OC_CACHE:  dict = {"json": "", "ts": 0.0}
+_OC_LOCK    = threading.Lock()
+_BAL_CACHE: dict = {"json": "", "ts": 0.0}
+_BAL_LOCK   = threading.Lock()
+_OC_BAL_THREAD_STARTED = False
+_OC_BAL_REFRESH_SEC = 5   # dono option-chain + balance itne second mein refresh honge
+
 # ─── Per-minute candle tracker — resets at each new minute boundary ────────────
 _CANDLE: dict = {"minute": None, "open": None, "high": None, "low": None}
 _CANDLE_LOCK = threading.Lock()
@@ -106,6 +119,65 @@ def _set_candle_from_bar(minute_epoch: int, o: float, h: float, l: float, c: flo
 # ─── IST helper ───────────────────────────────────────────────────────────────
 def _ist_now():
     return datetime.datetime.now(IST)
+
+# ─── Option Chain / Balance — direct Fyers REST calls (server-side only) ──────
+def _fetch_option_chain_now() -> dict:
+    creds = load_creds()
+    if not creds.get("access_token"):
+        return {"error": "not_authenticated"}
+    try:
+        hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+        return requests.get(
+            "https://api-t1.fyers.in/data/options-chain",
+            headers=hdrs,
+            params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25"},
+            timeout=15,
+        ).json()
+    except Exception as ex:
+        return {"error": str(ex)}
+
+def _fetch_balance_now() -> dict:
+    creds = load_creds()
+    if not creds.get("access_token"):
+        return {"error": "not_authenticated"}
+    try:
+        hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
+        return requests.get(
+            "https://api-t1.fyers.in/api/v3/funds",
+            headers=hdrs,
+            timeout=15,
+        ).json()
+    except Exception as ex:
+        return {"error": str(ex)}
+
+def _oc_bal_background_loop():
+    """Har _OC_BAL_REFRESH_SEC second mein Fyers se option-chain + balance
+    fetch karke global cache mein daalta hai. Iske alawa koi network call
+    browser se seedha Fyers/side-port par nahi jaati — Streamlit Cloud pe
+    yehi cheez fail ho rahi thi."""
+    while True:
+        try:
+            oc = _fetch_option_chain_now()
+            with _OC_LOCK:
+                _OC_CACHE["json"] = json.dumps(oc)
+                _OC_CACHE["ts"]   = time.time()
+        except Exception:
+            pass
+        try:
+            bal = _fetch_balance_now()
+            with _BAL_LOCK:
+                _BAL_CACHE["json"] = json.dumps(bal)
+                _BAL_CACHE["ts"]   = time.time()
+        except Exception:
+            pass
+        time.sleep(_OC_BAL_REFRESH_SEC)
+
+def _ensure_oc_bal_thread():
+    global _OC_BAL_THREAD_STARTED
+    if _OC_BAL_THREAD_STARTED:
+        return
+    _OC_BAL_THREAD_STARTED = True
+    threading.Thread(target=_oc_bal_background_loop, daemon=True).start()
 
 # ─── Credential helpers ───────────────────────────────────────────────────────
 def load_creds() -> dict:
@@ -2079,6 +2151,59 @@ if sess_active or _btc_only:
             components.html(_script, height=0, scrolling=False)
 
         _bn_tick_pusher()
+
+        # ── Option Chain + Balance → postMessage pusher ──────────────────────
+        # Same pattern as LTP tick above: Python background thread Fyers se
+        # data fetch karta rehta hai (_oc_bal_background_loop), aur yeh
+        # fragment har _OC_BAL_REFRESH_SEC second mein latest cache ko
+        # postMessage se iframe ko bhej deta hai. Browser side se koi seedha
+        # fetch() Fyers ya kisi side-port par nahi jaata — isliye Streamlit
+        # Cloud (jahan side-port public expose nahi hota) pe bhi kaam karta hai.
+        _ensure_oc_bal_thread()
+
+        @st.fragment(run_every=_OC_BAL_REFRESH_SEC)
+        def _oc_bal_pusher():
+            with _OC_LOCK:
+                _oc_json = _OC_CACHE["json"]
+                _oc_ts   = _OC_CACHE["ts"]
+            with _BAL_LOCK:
+                _bal_json = _BAL_CACHE["json"]
+                _bal_ts   = _BAL_CACHE["ts"]
+
+            if not _oc_json and not _bal_json:
+                return  # background thread ne abhi tak kuch fetch nahi kiya
+
+            _oc_script = f"""
+<script>
+(function() {{
+  var ocData  = {_oc_json or 'null'};
+  var ocTs    = {_oc_ts};
+  var balData = {_bal_json or 'null'};
+  var balTs   = {_bal_ts};
+
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      if (ocData !== null && ocTs !== window._ocLastSentTs) {{
+        frames[i].contentWindow.postMessage(
+          JSON.stringify({{ type: 'oc_data', data: ocData, ts: ocTs }}), '*'
+        );
+      }}
+      if (balData !== null && balTs !== window._balLastSentTs) {{
+        frames[i].contentWindow.postMessage(
+          JSON.stringify({{ type: 'bal_data', data: balData, ts: balTs }}), '*'
+        );
+      }}
+    }} catch(e) {{}}
+  }}
+  if (ocData  !== null) window._ocLastSentTs  = ocTs;
+  if (balData !== null) window._balLastSentTs = balTs;
+}})();
+</script>
+"""
+            components.html(_oc_script, height=0, scrolling=False)
+
+        _oc_bal_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

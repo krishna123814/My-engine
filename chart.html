@@ -16886,9 +16886,50 @@ window.addEventListener('message', function(evt) {
       if (Date.now() - _bnLastAppliedWallTs < 1500) return;
       _applyBNLiveTick(msg.data);
     }
+    // ── Option Chain data pushed from Python background fetcher ───────────
+    // (replaces the old direct fetch() to the side-port, which failed on
+    // Streamlit Cloud since that port isn't publicly reachable)
+    if (msg && msg.type === 'oc_data' && msg.ts !== _ocLastPushedTs) {
+      _ocLastPushedTs = msg.ts;
+      _ocLastPushed   = msg.data;
+      _ocApplyPushed(msg.data);
+    }
+    // ── Balance data pushed from Python background fetcher ────────────────
+    if (msg && msg.type === 'bal_data' && msg.ts !== _balLastPushedTs) {
+      _balLastPushedTs = msg.ts;
+      _balLastPushed    = msg.data;
+      _balApplyPushed(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
+
+// Latest option-chain / balance data received from Python (server-side
+// fetch) — populated whenever a push arrives, and re-used instantly if the
+// user opens the tab before the next push lands.
+let _ocLastPushed = null, _ocLastPushedTs = 0;
+let _balLastPushed = null, _balLastPushedTs = 0;
+
+function _ocApplyPushed(d) {
+  const loadEl = document.getElementById('oc-loading');
+  const bodyEl = document.getElementById('oc-body');
+  if (loadEl) loadEl.style.display = 'none';
+  if (d.error === 'not_authenticated') { _ocSetStatus('❌ Fyers login expired — dobara login karo'); return; }
+  if (d.error) { _ocSetStatus('❌ ' + d.error); return; }
+  if (d.s !== 'ok') { _ocSetStatus('❌ Fyers error: ' + (d.message || JSON.stringify(d))); return; }
+  _ocData = d;
+  _ocBuildExpiries(d);
+  _ocSetStatus('Updated: ' + new Date().toLocaleTimeString('en-IN'));
+}
+
+function _balApplyPushed(d) {
+  const loadEl = document.getElementById('bal-loading');
+  if (loadEl) loadEl.style.display = 'none';
+  if (d.error === 'not_authenticated') { _balSetError('Fyers login expired — dobara login karo'); return; }
+  if (d.error) { _balSetError(d.error); return; }
+  if (d.s !== 'ok') { _balSetError(d.message || 'Fyers error'); return; }
+  _balRender(d);
+}
 
 // ── Fast direct tick poll — talks straight to the local side-port HTTP
 // server (the same one /api/bn_history already uses) instead of going
@@ -22305,45 +22346,23 @@ function _ocPanelRefresh() {
 }
 
 async function _ocFetch() {
-  if (!_resolvedApiPort) {
-    _ocSetStatus('⚠️ API server not ready. Thoda wait karo...');
-    return;
-  }
+  // NOTE: ab yahan koi seedha network fetch() nahi hota. Data Python
+  // background thread se Fyers se fetch hoke postMessage se push hota hai
+  // (_ocApplyPushed) — isse Streamlit Cloud pe bhi kaam karta hai, kyunki
+  // browser ko side-port ya Fyers ko seedha call nahi karna padta.
   const loadEl = document.getElementById('oc-loading');
   const bodyEl = document.getElementById('oc-body');
   const statEl = document.getElementById('oc-status');
-  if (loadEl) { loadEl.style.display = 'block'; loadEl.textContent = '⏳ Loading option chain...'; }
-  if (bodyEl) bodyEl.innerHTML = '';
-  if (statEl) statEl.textContent = 'Fetching from Fyers...';
 
-  try {
-    const host = window.location.hostname || 'localhost';
-    const url  = `http://${host}:${_resolvedApiPort}/api/option_chain?symbol=NSE:NIFTYBANK-INDEX&strikecount=25`;
-    const r    = await fetch(url, { signal: AbortSignal.timeout(20000) });
-    const d    = await r.json();
-
-    if (loadEl) loadEl.style.display = 'none';
-
-    if (d.error) {
-      _ocSetStatus('❌ ' + d.error);
-      if (bodyEl) bodyEl.innerHTML = `<div style="padding:20px;text-align:center;color:#ef5350;font-size:12px">Error: ${d.error}</div>`;
-      return;
-    }
-    if (d.s !== 'ok') {
-      _ocSetStatus('❌ Fyers error: ' + (d.message || JSON.stringify(d)));
-      if (bodyEl) bodyEl.innerHTML = `<div style="padding:20px;text-align:center;color:#ef5350;font-size:12px">${d.message || 'Unknown error'}</div>`;
-      return;
-    }
-
-    _ocData = d;
-    _ocBuildExpiries(d);
-    if (statEl) statEl.textContent = `Updated: ${new Date().toLocaleTimeString('en-IN')}`;
-  } catch(e) {
-    if (loadEl) loadEl.style.display = 'none';
-    _ocSetStatus('❌ Fetch failed: ' + e.message);
-    const bodyEl2 = document.getElementById('oc-body');
-    if (bodyEl2) bodyEl2.innerHTML = `<div style="padding:20px;text-align:center;color:#ef5350;font-size:12px">Fetch failed: ${e.message}</div>`;
+  if (_ocLastPushed) {
+    // Already have data from a previous push — render it immediately.
+    _ocApplyPushed(_ocLastPushed);
+    return;
   }
+
+  if (loadEl) { loadEl.style.display = 'block'; loadEl.textContent = '⏳ Server se data aane ka wait ho raha hai...'; }
+  if (bodyEl) bodyEl.innerHTML = '';
+  if (statEl) statEl.textContent = 'Waiting for data from server (updates every few seconds)...';
 }
 
 function _ocSetStatus(msg) {
@@ -22532,32 +22551,20 @@ function toggleBalance() { toggleOC('balance'); }
 function toggleVT()      { toggleOC('trades');  }
 
 async function _balFetch() {
-  if (!_resolvedApiPort) {
-    _balSetError('API server not ready');
-    return;
-  }
+  // NOTE: ab yahan koi seedha network fetch() nahi hota — same reasoning
+  // as _ocFetch() above. Data Python se postMessage push hokar aata hai.
   const loadEl = document.getElementById('bal-loading');
   const errEl  = document.getElementById('bal-error');
   const bodyEl = document.getElementById('bal-body');
-  if (loadEl) { loadEl.style.display = 'block'; loadEl.textContent = '⏳ Loading...'; }
-  if (errEl)  errEl.style.display = 'none';
-  if (bodyEl) bodyEl.innerHTML = '';
+  if (errEl) errEl.style.display = 'none';
 
-  try {
-    const host = window.location.hostname || 'localhost';
-    const url  = `http://${host}:${_resolvedApiPort}/api/balance`;
-    const r    = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const d    = await r.json();
-    if (loadEl) loadEl.style.display = 'none';
-
-    if (d.error) { _balSetError(d.error); return; }
-    if (d.s !== 'ok') { _balSetError(d.message || 'Fyers error'); return; }
-
-    _balRender(d);
-  } catch(e) {
-    if (loadEl) loadEl.style.display = 'none';
-    _balSetError('Fetch failed: ' + e.message);
+  if (_balLastPushed) {
+    _balApplyPushed(_balLastPushed);
+    return;
   }
+
+  if (loadEl) { loadEl.style.display = 'block'; loadEl.textContent = '⏳ Server se data aane ka wait ho raha hai...'; }
+  if (bodyEl) bodyEl.innerHTML = '';
 }
 
 function _balSetError(msg) {
