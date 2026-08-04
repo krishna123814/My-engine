@@ -2851,6 +2851,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .co-ohlc-grp .co-h{color:#26a69a}
 .co-ohlc-grp .co-l{color:#ef5350}
 .co-ohlc-grp .co-c{color:#d1d4dc;font-weight:600}
+
+/* ── SV2 Option Chain — top-left P&L badge (SIRF sabse pehle/top cell mein,
+   .cell-overlay row ke thoda neeche taaki overlap na ho). Transparent
+   background — sirf text, text-shadow se readability chart ke upar bhi. ── */
+.sv2-pnl-topleft{
+  position:absolute;top:20px;left:4px;z-index:11;pointer-events:none;
+  background:transparent;
+}
+.sv2-pnl-topleft-row{
+  font-size:11px;font-weight:700;line-height:1.5;white-space:nowrap;
+  text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 4px rgba(0,0,0,.6);
+}
+.sv2-pnl-topleft-row.pos{color:#26a69a}
+.sv2-pnl-topleft-row.neg{color:#ef5350}
 .grid-cell.cell-fs{
   position:fixed!important;inset:0!important;z-index:600!important;
   width:100vw!important;height:100vh!important;outline:none!important;
@@ -8303,20 +8317,139 @@ function _sv2OCBlackScholes(S, K, T, r, iv) {
   return { ce: Math.max(ce, 0.05), pe: Math.max(pe, 0.05) };
 }
 
-// ── IV assumption: thoda badhta hai jaise-jaise expiry paas aata hai,
-// aur ATM se dur strikes par halka "smile" add karte hain — sirf real
-// jaisa dikhne ke liye, ye koi live/actual IV data nahi hai. Ab TYPE-aware
-// SKEW bhi hai: real index options mein OTM PUTS ki IV, equidistant OTM
-// CALLS se zyada hoti hai (hedging demand ka asar) — isliye ab CE aur PE
-// ki IV alag-alag calculate hoti hai, sirf symmetric smile nahi. ─────────
+// ── IV assumption — ab 4 layers milke banate hain (pehle sirf expiry-bump +
+// smile + skew tha, baseIV hamesha fixed 14% flat rehta tha):
+//
+//   1) DYNAMIC BASE — underlying ki apni REAL historical daily candles (jo
+//      already load hain — SV2_BN['1D']/SV2_BTC['1D']) se rolling realized
+//      volatility nikal ke, usse ek chhota "vol risk premium" multiply
+//      karke base IV banayi jaati hai. Matlab jab market range-bound/quiet
+//      ho to IV khud kam dikhegi, jab bade moves chal rahe hon to IV khud
+//      badhegi — koi fixed number nahi.
+//   2) EVENT-CALENDAR BUMP — Union Budget (1 Feb) aur RBI Monetary Policy
+//      (bi-monthly, first-Friday-of-month approximation — asli RBI date
+//      thodi aage-peeche ho sakti hai, exact calendar hardcode nahi kiya)
+//      ke aas-paas: event se ~5 trading din pehle IV gradually badhna shuru
+//      hoti hai (anticipation), aur event ke turant baad "IV crush" — 2-3
+//      din mein sharp gir ke wapas normal par aa jaati hai. BTC ke liye
+//      abhi koi macro-event calendar nahi hai (isliye sirf dynamic base +
+//      expiry/smile/skew).
+//   3) EXPIRY BUMP — pehle jaisa hi (last 7 din mein thoda badhta hai).
+//   4) SMILE/SKEW — pehle jaisa hi (ATM se dur strikes, PE mein extra skew).
+//
+// NOTE: Ye sab abhi bhi ek SIMULATED model hai — asli broker/NSE ka live IV
+// feed nahi hai, bas ab candle-data aur calendar-events dono ka istemal
+// karke bahut zyada "real jaisa" feel deta hai. ──────────────────────────
+
+// (1) Rolling realized volatility — underlying ki apni daily candles se,
+// replay ke "current" time tak (future data leak nahi hota). N=20 trading
+// din ka log-return stdev, annualized (√252). ────────────────────────────
+function _sv2OCRealizedVol(nowSec) {
+  var isBtc = (SV2OC.currentAssetKey === 'btc');
+  var dailyArr = isBtc
+    ? (typeof SV2_BTC !== 'undefined' ? SV2_BTC['1D'] : null)
+    : (typeof SV2_BN  !== 'undefined' ? SV2_BN['1D']  : null);
+  if (!dailyArr || dailyArr.length < 6) return null;
+  // Binary search: aakhri bar jiska time <= nowSec (replay ke "aaj" tak)
+  var lo = 0, hi = dailyArr.length;
+  while (lo < hi) { var mid = (lo + hi) >> 1; if (dailyArr[mid].time <= nowSec) lo = mid + 1; else hi = mid; }
+  var endIdx = lo - 1;
+  if (endIdx < 5) return null;
+  var N = 20;
+  var startIdx = Math.max(0, endIdx - N);
+  var rets = [];
+  for (var i = startIdx + 1; i <= endIdx; i++) {
+    var c0 = dailyArr[i - 1].close, c1 = dailyArr[i].close;
+    if (c0 > 0 && c1 > 0) rets.push(Math.log(c1 / c0));
+  }
+  if (rets.length < 5) return null;
+  var mean = 0;
+  for (var j = 0; j < rets.length; j++) mean += rets[j];
+  mean /= rets.length;
+  var variance = 0;
+  for (var k = 0; k < rets.length; k++) variance += (rets[k] - mean) * (rets[k] - mean);
+  variance /= rets.length;
+  return Math.sqrt(variance) * Math.sqrt(252); // annualized realized vol
+}
+
+// Realized vol → option-market IV: options hamesha realized vol se thoda
+// upar trade karte hain ("volatility risk premium", sellers ka compensation
+// uncertainty ke liye) — ~1.15x ek reasonable simplification hai. Sane
+// bounds bhi laga di hain taaki thin/gappy data se IV crazy na chali jaaye.
+function _sv2OCDynamicBaseIV(nowSec) {
+  var rv = _sv2OCRealizedVol(nowSec);
+  if (rv == null) return SV2OC.baseIV; // fallback — purana fixed baseIV
+  var isBtc = (SV2OC.currentAssetKey === 'btc');
+  var iv = rv * 1.15;
+  var minIV = isBtc ? 0.35 : 0.09;
+  var maxIV = isBtc ? 1.20 : 0.35;
+  return Math.min(maxIV, Math.max(minIV, iv));
+}
+
+// (2) Event calendar — sirf BankNifty ke liye (BTC ke liye null). Rule-
+// based generate karte hain (kisi bhi replay-year ke liye kaam kare) —
+// exact-confirmed dates hardcode karne ke bajaye. _sv2OCAdjustForHolidays
+// (already existing, expiry-calc mein use hota hai) se weekend/holiday
+// shift bhi ho jaata hai. ──────────────────────────────────────────────
+function _sv2OCEventDatesNear(nowSec) {
+  if (SV2OC.currentAssetKey === 'btc') return null;
+  var d = new Date(nowSec * 1000);
+  var year = d.getUTCFullYear();
+  var events = [];
+  [year - 1, year, year + 1].forEach(function (y) {
+    // Union Budget — 1 Feb (weekend/holiday par pichhle trading din shift)
+    var budget = new Date(Date.UTC(y, 1, 1, 10, 0, 0));
+    events.push(_sv2OCAdjustForHolidays(budget).getTime() / 1000);
+    // RBI Monetary Policy — approx: Feb/Apr/Jun/Aug/Oct/Dec ke pehle Friday
+    [1, 3, 5, 7, 9, 11].forEach(function (m) {
+      var first = new Date(Date.UTC(y, m, 1, 10, 0, 0));
+      var diffToFri = (5 - first.getUTCDay() + 7) % 7;
+      var mpc = new Date(Date.UTC(y, m, 1 + diffToFri, 10, 0, 0));
+      events.push(_sv2OCAdjustForHolidays(mpc).getTime() / 1000);
+    });
+  });
+  var nearest = null, nearestDist = Infinity;
+  events.forEach(function (e) {
+    var dist = Math.abs(e - nowSec);
+    if (dist < nearestDist) { nearestDist = dist; nearest = e; }
+  });
+  return nearest;
+}
+
+// Event se ~5 trading din pehle IV gradually badhti hai (peak event-din),
+// event ke turant baad sharp IV-crush — 3 din mein wapas normal. ─────────
+function _sv2OCEventIVBump(nowSec) {
+  var evt = _sv2OCEventDatesNear(nowSec);
+  if (evt == null) return 0;
+  var daysDiff = (evt - nowSec) / 86400; // +ve = event aana baaki, -ve = ho chuka
+  if (daysDiff >= 0 && daysDiff <= 5) return 0.045 * (1 - daysDiff / 5);
+  if (daysDiff < 0 && daysDiff >= -3) return -0.05 * (1 - Math.abs(daysDiff) / 3);
+  return 0;
+}
+
+// Dynamic-base + event-bump ek render-pass ke andar ek hi baar compute ho
+// (chain mein 20+ strikes x 2 types ke liye baar-baar realized-vol nikalna
+// wasteful hai) — nowSec+asset ke hisaab se cache karte hain. ────────────
+function _sv2OCCurrentIVBase(nowSec) {
+  var key = SV2OC.currentAssetKey + '_' + nowSec;
+  if (SV2OC._ivBaseCache && SV2OC._ivBaseCache.key === key) return SV2OC._ivBaseCache.val;
+  var val = _sv2OCDynamicBaseIV(nowSec) + _sv2OCEventIVBump(nowSec);
+  SV2OC._ivBaseCache = { key: key, val: val };
+  return val;
+}
+
+// ── Per-strike final IV — dynamic base (1+2) par expiry-bump aur
+// smile/skew (3+4, pehle jaisa hi) add hota hai. ─────────────────────────
 function _sv2OCAssumedIV(daysToExpiry, strike, spot, type) {
+  var nowSec = _sv2OCCurrentTimeSec();
+  var base = _sv2OCCurrentIVBase(nowSec);
   var expiryBump = Math.max(0, (7 - daysToExpiry)) / 7 * 0.05;
   var moneyness = (strike - spot) / spot; // + ve = strike spot se upar
   var smile = Math.min(0.06, Math.abs(moneyness) * 0.6);
   var skewBias = 0;
   if (type === 'PE' && moneyness < 0) skewBias = Math.min(0.04, Math.abs(moneyness) * 0.9);       // OTM put: extra IV
   else if (type === 'CE' && moneyness > 0) skewBias = -Math.min(0.015, moneyness * 0.15);          // OTM call: thodi kam IV
-  return SV2OC.baseIV + expiryBump + smile + skewBias;
+  return Math.max(0.03, base + expiryBump + smile + skewBias);
 }
 
 // ── Deterministic pseudo-random hash (0..1) — same inputs => same output,
@@ -9819,35 +9952,49 @@ function _sv2OCClearPnlOverlay() {
 // hai). Green line = profit mein, red = loss mein — chart dekhte hue hi
 // P&L pata chal jaaye, Positions tab kholne ki zaroorat nahi. ────────────
 function _sv2OCUpdatePnlOverlay() {
+  // Purani per-cell dashed price-lines (jo har cell mein "BUY strike CE
+  // P&L ..." dikhati thi) ab bilkul nahi bantin — sirf hata di jaati hain
+  // (agar kahin se purani reference bachi ho) aur unki jagah SIRF sabse
+  // upar/pehle cell mein ek chhota, transparent top-left text badge
+  // dikhta hai (_sv2OCRenderPnlTopLeft). Koi horizontal line, koi axis
+  // label, koi "BUY"/"P&L" text ab kahin nahi hai.
   _sv2OCClearPnlOverlay();
-  if (!SV2OC.pnlOverlayOn) return;
-  if (!SV2OC.positions || !SV2OC.positions.length) return;
+  _sv2OCRenderPnlTopLeft();
+}
+
+// ── Top-left P&L badge — sirf Stack View 2 ke sabse PEHLE (top) cell mein.
+// Format: "<strike>  <cur><+/-pnl>" — bas itna hi (no BUY, no CE/PE, no
+// "P&L" word). Transparent background, chhota text, chart ke baaki hisse
+// ko bilkul touch nahi karta (pointer-events:none). ──────────────────────
+function _sv2OCRenderPnlTopLeft() {
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
+  var cell0 = STACK2_CELLS[0];
+  if (!cell0 || !cell0.el) return;
+  var box = cell0.el.querySelector('.sv2-pnl-topleft');
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'sv2-pnl-topleft';
+    cell0.el.appendChild(box);
+  }
+  if (!SV2OC.pnlOverlayOn || !SV2OC.positions || !SV2OC.positions.length) {
+    box.innerHTML = '';
+    box.style.display = 'none';
+    return;
+  }
   var spot = _sv2OCCurrentSpot();
   var nowSec = _sv2OCCurrentTimeSec();
+  var html = '';
   SV2OC.positions.forEach(function (p) {
     var markPrice = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
     var qty = p.lots * SV2OC.lotSize;
     var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
     var pnl = diff * qty;
     var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
-    var lineTitle = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type + '  P&L ' + SV2OC.cur + pnlStr;
-    var lineColor = pnl >= 0 ? '#26a69a' : '#ef5350';
-    STACK2_CELLS.forEach(function (cell) {
-      if (!cell || !cell.series) return;
-      try {
-        var line = cell.series.createPriceLine({
-          price: p.strike,
-          color: lineColor,
-          lineWidth: 1,
-          lineStyle: 2, // dashed
-          axisLabelVisible: true,
-          title: lineTitle
-        });
-        SV2OC._priceLines.push({ series: cell.series, line: line });
-      } catch (_) {}
-    });
+    var cls = pnl >= 0 ? 'pos' : 'neg';
+    html += '<div class="sv2-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV2OC.cur + pnlStr + '</div>';
   });
+  box.innerHTML = html;
+  box.style.display = '';
 }
 
 
