@@ -2854,14 +2854,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 
 /* ── SV2 Option Chain — top-left P&L badge (SIRF sabse pehle/top cell mein,
    .cell-overlay row ke thoda neeche taaki overlap na ho). Transparent
-   background — sirf text, text-shadow se readability chart ke upar bhi. ── */
+   background — sirf text, ek halka tight shadow (no blur-glow — wahi
+   blurry dikhne ki wajah thi) readability ke liye. ─────────────────────── */
 .sv2-pnl-topleft{
   position:absolute;top:20px;left:4px;z-index:11;pointer-events:none;
   background:transparent;
 }
 .sv2-pnl-topleft-row{
-  font-size:11px;font-weight:700;line-height:1.5;white-space:nowrap;
-  text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 4px rgba(0,0,0,.6);
+  font-size:12px;font-weight:800;line-height:1.5;white-space:nowrap;
+  text-shadow:0 1px 1px rgba(0,0,0,.9);
+  -webkit-font-smoothing:antialiased;
 }
 .sv2-pnl-topleft-row.pos{color:#26a69a}
 .sv2-pnl-topleft-row.neg{color:#ef5350}
@@ -9963,18 +9965,24 @@ function _sv2OCUpdatePnlOverlay() {
 }
 
 // ── Top-left P&L badge — sirf Stack View 2 ke sabse PEHLE (top) cell mein.
-// Format: "<strike>  <cur><+/-pnl>" — bas itna hi (no BUY, no CE/PE, no
-// "P&L" word). Transparent background, chhota text, chart ke baaki hisse
-// ko bilkul touch nahi karta (pointer-events:none). ──────────────────────
+// Format: "<strike> <type>  <cur><+/-pnl> (<+/-pct>%)" — pct = kitna % profit
+// hai us position mein LAGAYI hui capital par (BUY = premium paid; SELL =
+// margin blocked, kyunki wahan premium paid nahi hota, margin hi capital
+// hai). Transparent background, chhota text. Blurry lagne ki wajah pehle
+// ye chartDiv (jispe transform:translateZ(0) hai) ke ANDAR tha — GPU
+// compositing layer ke andar chhota text subpixel-blur ho jaata tha. Ab
+// isse bahar, seedha outer (non-transformed) cell wrapper mein daalte
+// hain — bilkul crisp, .cell-overlay (OHLC row) jaisa hi. ────────────────
 function _sv2OCRenderPnlTopLeft() {
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
   var cell0 = STACK2_CELLS[0];
   if (!cell0 || !cell0.el) return;
-  var box = cell0.el.querySelector('.sv2-pnl-topleft');
+  var host = cell0.el.parentElement || cell0.el;  // outer .grid-cell — no transform, crisp text
+  var box = host.querySelector('.sv2-pnl-topleft');
   if (!box) {
     box = document.createElement('div');
     box.className = 'sv2-pnl-topleft';
-    cell0.el.appendChild(box);
+    host.appendChild(box);
   }
   if (!SV2OC.pnlOverlayOn || !SV2OC.positions || !SV2OC.positions.length) {
     box.innerHTML = '';
@@ -9989,9 +9997,15 @@ function _sv2OCRenderPnlTopLeft() {
     var qty = p.lots * SV2OC.lotSize;
     var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
     var pnl = diff * qty;
+    // "Lagayi hui capital": BUY mein premium paid (entryPrice*qty), SELL
+    // mein margin blocked (premium receive hota hai, invest nahi) — SELL
+    // mein margin missing ho (edge case) to premium value hi fallback.
+    var invested = (p.side === 'buy') ? (p.entryPrice * qty) : (p.marginBlocked || (p.entryPrice * qty));
+    var pct = (invested > 0) ? (pnl / invested * 100) : 0;
     var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
+    var pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
     var cls = pnl >= 0 ? 'pos' : 'neg';
-    html += '<div class="sv2-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV2OC.cur + pnlStr + '</div>';
+    html += '<div class="sv2-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV2OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
   });
   box.innerHTML = html;
   box.style.display = '';
