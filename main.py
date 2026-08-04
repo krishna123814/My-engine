@@ -283,6 +283,7 @@ OC_FILE   = "fyers_optionchain.json"
 _OC_CACHE = {"data": None, "ts": 0.0}
 _OC_LOCK  = threading.Lock()
 _OC_TTL   = 5  # seconds — real-broker jaisa near-live feel, phir bhi rate-limit safe
+_OC_DEBUG = {"last_error": "", "last_status": None, "last_url": "", "ts": 0.0}
 
 BN_OC_SYMBOL = "NSE:NIFTYBANK-INDEX"
 
@@ -290,22 +291,41 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
                             strikecount: int = 10, timestamp: str = "") -> "dict | None":
     """Fyers Option Chain API se CE/PE strikes fetch karta hai.
     Primary domain fail ho to fallback domain try karta hai (Fyers docs mein
-    dono variants dikhte hain)."""
+    dono variants dikhte hain). Har attempt ki debug info _OC_DEBUG mein
+    save hoti hai taaki failure ka exact reason pata chal sake."""
     headers = {"Authorization": f"{app_id}:{access_token}"}
     params = {"symbol": symbol, "strikecount": strikecount, "timestamp": timestamp}
     urls = [
-        "https://api.fyers.in/v3/data/options-chain",
         "https://api-t1.fyers.in/data/options-chain",
+        "https://api.fyers.in/v3/data/options-chain",
+        "https://api-t1.fyers.in/data/options-chain-v3",
     ]
     raw = None
+    last_err = ""
+    last_status = None
+    last_url = ""
     for url in urls:
         try:
-            r = requests.get(url, headers=headers, params=params, timeout=8).json()
+            resp = requests.get(url, headers=headers, params=params, timeout=8)
+            last_status = resp.status_code
+            last_url = url
+            try:
+                r = resp.json()
+            except Exception:
+                last_err = f"Non-JSON response (HTTP {resp.status_code}): {resp.text[:200]}"
+                continue
             if r.get("s") == "ok":
                 raw = r
                 break
-        except Exception:
-            continue
+            else:
+                last_err = r.get("message", str(r))[:300]
+        except Exception as e:
+            last_err = str(e)
+            last_url = url
+
+    _OC_DEBUG.update({"last_error": last_err, "last_status": last_status,
+                       "last_url": last_url, "ts": time.time()})
+
     if not raw:
         return None
 
@@ -365,29 +385,39 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
         "ts": time.time(),
     }
 
-def refresh_option_chain_cache() -> "dict | None":
+def refresh_option_chain_cache() -> dict:
     """TTL ke andar cache use karta hai, warna Fyers se dobara fetch karta hai,
-    aur fyers_optionchain.json mein likh deta hai (chart iframe poll fallback ke liye)."""
+    aur fyers_optionchain.json mein likh deta hai (chart iframe poll fallback ke liye).
+    Failure hone par bhi ek 'error' field ke saath JSON likhta hai — silently
+    hang nahi hota."""
     now = time.time()
     with _OC_LOCK:
         stale = (now - _OC_CACHE["ts"]) >= _OC_TTL
     if stale:
         creds = load_creds()
-        data = None
-        if creds.get("access_token") and creds.get("app_id"):
+        if not creds.get("access_token") or not creds.get("app_id"):
+            payload = {"error": "Fyers login nahi mila — creds file mein access_token/app_id missing hai."}
+        else:
             data = fyers_get_option_chain(creds["app_id"], creds["access_token"])
-        if data:
-            with _OC_LOCK:
-                _OC_CACHE.update({"data": data, "ts": now})
-    with _OC_LOCK:
-        payload = _OC_CACHE["data"]
-    if payload:
+            if data:
+                with _OC_LOCK:
+                    _OC_CACHE.update({"data": data, "ts": now})
+                payload = data
+            else:
+                payload = {
+                    "error": f"Fyers Option Chain API fail ho gayi — {_OC_DEBUG.get('last_error','unknown error')} "
+                             f"(HTTP {_OC_DEBUG.get('last_status')}, URL: {_OC_DEBUG.get('last_url')})",
+                }
         try:
             with open(OC_FILE, "w") as f:
                 json.dump(payload, f)
         except Exception:
             pass
-    return payload
+        return payload
+
+    with _OC_LOCK:
+        cached = _OC_CACHE["data"]
+    return cached or {"error": "Cache khaali hai"}
 
 
 def _write_login_log(payload: dict, status_code: int, response: dict):
@@ -2226,7 +2256,7 @@ if sess_active or _btc_only:
         def _option_chain_pusher():
             oc = refresh_option_chain_cache()
             if not oc:
-                return
+                oc = {"error": "Kuch data nahi mila (unknown reason)"}
             _oc_json = json.dumps(oc)
             _script3 = f"""
 <script>

@@ -19305,11 +19305,16 @@ function _fmtNum(n) {
 }
 
 function _applyOptionChain(data) {
-  if (!data || !data.rows) return;
+  if (!data) return;
+  const body = document.getElementById('oc-body');
+  if (data.error) {
+    if (body) body.innerHTML = `<div id="oc-loading" style="color:#ef5350;padding:16px;">⚠️ ${data.error}</div>`;
+    return;
+  }
+  if (!data.rows) return;
   const spotEl = document.getElementById('oc-spot');
   const expEl  = document.getElementById('oc-expiry');
   const updEl  = document.getElementById('oc-updated');
-  const body   = document.getElementById('oc-body');
   if (spotEl) spotEl.textContent = 'Spot: ' + _fmtNum(data.spot);
   if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—');
   if (updEl) {
