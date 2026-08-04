@@ -8383,9 +8383,17 @@ function _sv2OCCircuitLimits(ltp, strike, spot) {
 // ── Current replay underlying spot (BankNifty ya BTC, jo bhi replay mein active hai) ──
 function _sv2OCCurrentSpot() {
   var live = window._SV2_LIVE;
-  if (live && (live.isBN || live.isBTC) && Array.isArray(live.baseBars) && live.revealIdx > 0) {
-    var bar = live.baseBars[live.revealIdx - 1];
-    if (bar && typeof bar.close === 'number') return bar.close;
+  if (live && (live.isBN || live.isBTC)) {
+    // Mid-candle forming price (set by _rebuildWithForming() while the
+    // replay is animating through a candle) — jab ye available ho, ye
+    // hamesha last-CLOSED candle se zyada fresh/accurate hai, kyunki ye
+    // asli 5m sub-bar path se aa raha hai. Isi ki wajah se Option Chain
+    // ab candle-complete hone ka wait nahi karti.
+    if (typeof live._formingSpot === 'number') return live._formingSpot;
+    if (Array.isArray(live.baseBars) && live.revealIdx > 0) {
+      var bar = live.baseBars[live.revealIdx - 1];
+      if (bar && typeof bar.close === 'number') return bar.close;
+    }
   }
   return null;
 }
@@ -9930,6 +9938,24 @@ function _sv2OCCheckSLTP() {
   } else if (changed) {
     _sv2OCSavePositions(); // SLL trigger flag set hua tha, save kar do
   }
+}
+
+// ── Hook: mid-candle animation ke dauraan (candle abhi complete NAHI hui,
+// bas forming ho rahi hai) — sirf DISPLAY refresh karta hai (chain premiums,
+// open positions ka P&L, bottom-bar badge). SL/TP trigger, expiry-settlement,
+// pending LIMIT orders, trailing-SL — ye sab jaan-boojh kar yahan NAHI chalte,
+// wo sirf poori candle complete hone par (_sv2OptionChainOnStep, niche) hi
+// chalte hain, taaki trade-execution behavior mein koi badlaav na ho — sirf
+// "kitna live dikhta hai" badalta hai. ─────────────────────────────────────
+function _sv2OCLiveRefresh() {
+  if (!_sv2OCSyncAssetContext()) return;
+  _sv2OCUpdatePnlOverlay();
+  _sv2OCUpdateBottomBarBadge();
+  if (!SV2OC.open) return;
+  if (SV2OC.activeTab === 'chain') _sv2OCRenderChain();
+  else if (SV2OC.activeTab === 'history') { /* history static hai, kuch nahi */ }
+  else if (SV2OC.activeTab === 'analytics') { /* static per closed trade */ }
+  else _sv2OCRenderPositions();
 }
 
 // ── Hook: har replay tick (naya bar reveal hone) ke baad expiry-settlement,
@@ -12243,6 +12269,15 @@ function ss2ApplyAndClose() {
 
     var o = nb.open;
     var formingBar;
+    // Naya base-bar form hona shuru hua (pichhle wale se different time) —
+    // Option Chain checkpoint-tracker reset karo, taaki naye bar ke andar
+    // segment 0 se dobara track ho (warna purani bar ka leftover segIdx
+    // compare hoke pehla checkpoint hi miss ho jaata). ────────────────────
+    if (live._ocFormBarTime !== nb.time) {
+      live._ocFormBarTime  = nb.time;
+      live._ocFormSegIdx   = -1;
+      live._ocFormPctStep  = -1;
+    }
     // Base-bar duration: baseBars ke apne consecutive timestamps se hi nikalo
     // (jo bhi TF ab base hai — dynamic, user-selectable), 300/9600 wala
     // hardcode ab sirf edge-case fallback hai jab baseBars me <2 bars hon.
@@ -12298,12 +12333,33 @@ function ss2ApplyAndClose() {
       // real subBars[segIdx] ke high/low/close se EXACT match karte hain —
       // isliye reveal abhi bhi asli data se kabhi bhatakta nahi.
       formingBar = { time: nb.time, open: o, high: h, low: l, close: c };
+
+      // ── Option Chain live feed ─────────────────────────────────────────
+      // Current mid-candle price hamesha update karo (sasta hai — sirf ek
+      // number), lekin poora chain re-render (premiums/greeks/positions)
+      // SIRF jab ek NAYA real 5m checkpoint cross ho tabhi karo — isse
+      // chain utni hi baar refresh hogi jitne asli 5m data-points hain,
+      // har animation-frame par nahi (perf-safe, aur "fake" granularity
+      // nahi dikhati jo data mein hai hi nahi).
+      live._formingSpot = c;
+      if (segIdx !== live._ocFormSegIdx) {
+        live._ocFormSegIdx = segIdx;
+        try { if (typeof _sv2OCLiveRefresh === 'function') _sv2OCLiveRefresh(); } catch(_) {}
+      }
     } else {
       // Fallback (no sub-resolution data for this window, e.g. very old
       // history outside the trimmed raw arrays) — same single-path logic,
-      // seedha poore base-bar (nb) par apply karke.
+      // seedha poore base-bar (nb) par apply karke. Real sub-bar checkpoints
+      // nahi hain yahan, isliye throttle: har 10% progress par ek refresh
+      // (10 steps poore bar mein) — cosmetic hi sahi, per-frame se saste.
       var ptFb = _pathThroughBar(o, nb, pct);
       formingBar = { time: nb.time, open: o, high: ptFb.h, low: ptFb.l, close: ptFb.c };
+      live._formingSpot = ptFb.c;
+      var _pctStep = Math.floor(pct * 10);
+      if (_pctStep !== live._ocFormPctStep) {
+        live._ocFormPctStep = _pctStep;
+        try { if (typeof _sv2OCLiveRefresh === 'function') _sv2OCLiveRefresh(); } catch(_) {}
+      }
     }
 
     // Proxy array: all revealed bars + one forming bar at the end
@@ -12735,6 +12791,13 @@ function ss2ApplyAndClose() {
     var live = window._SV2_LIVE;
     if (!live || !live.baseBars) { _pause(); return; }
     if (live.revealIdx >= live.baseBars.length) { _pause(); _renderPlayIcon(); return; }
+    // Candle ab poori reveal ho rahi hai — mid-candle forming-price tracker
+    // clear karo, taaki Option Chain agli candle ke liye turant last-CLOSED
+    // bar ke close par fallback kare (jo is candle ke exact final close ke
+    // barabar hi hoga), aur agli forming-animation fresh checkpoint-0 se
+    // shuru ho (koi stale segIdx carry na ho).
+    live._formingSpot   = null;
+    live._ocFormBarTime = null;
 
     // ── ⏮ Undo snapshot — pura pre-tick state capture karo taaki ⏮ Previous
     //    button se is candle ko poori tarah revert kiya jaa sake (Option
