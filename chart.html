@@ -16919,6 +16919,17 @@ window.addEventListener('message', function(evt) {
       _balLastPushed    = msg.data;
       _balApplyPushed(msg.data);
     }
+    // ── Advanced Debug result pushed from Python background thread ────────
+    // (no page reload involved for this — the trigger only starts the
+    // thread; the result arrives here whenever it's ready)
+    if (msg && msg.type === 'oc_diag_data') {
+      if (msg.running) {
+        _ocDiagRender(null, true);
+      } else if (msg.data && msg.data.ts && msg.data.ts !== _ocDiagLastAppliedTs) {
+        _ocDiagLastAppliedTs = msg.data.ts;
+        _ocDiagRender(msg.data, false);
+      }
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
@@ -22386,12 +22397,7 @@ function _ocDiagToggle() {
 }
 
 function _ocDiagRun() {
-  const resEl = document.getElementById('oc-diag-result');
-  const sumEl = document.getElementById('oc-diag-summary');
-  const btn   = document.getElementById('oc-diag-run-btn');
-  if (sumEl) sumEl.textContent = '';
-  if (resEl) resEl.innerHTML = '<div style="color:#9598a1;font-size:11px;padding:6px 0">⏳ Testing all combos in parallel... (max ~10-12s, page reload hoga)</div>';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Testing...'; }
+  _ocDiagShowRunning();
   try {
     const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
     const pdoc = window.parent.document;
@@ -22407,24 +22413,43 @@ function _ocDiagRun() {
     pdoc.body.appendChild(form);
     form.submit();
   } catch(err) {
+    const resEl = document.getElementById('oc-diag-result');
+    const btn   = document.getElementById('oc-diag-run-btn');
     if (resEl) resEl.innerHTML = '<div style="color:#ef5350;font-size:11px">❌ Error: ' + err.message + '</div>';
     if (btn) { btn.disabled = false; btn.textContent = '▶️ Fetch & Debug (test all combos)'; }
   }
 }
 
-// Page load ke baad (agar Python se koi diagnostic result inject hua ho)
-// drawer khol ke result turant dikha do. (Ye script body ke end ke paas
-// hai, isliye oc-diag-drawer/oc-panel elements already DOM mein maujood
-// hain — DOMContentLoaded ka wait karne ki zaroorat nahi.)
-(function() {
-  const d = (typeof window.__OC_DIAG_RESULT__ !== 'undefined') ? window.__OC_DIAG_RESULT__ : null;
-  if (!d || !d.ts) return;
+function _ocDiagShowRunning() {
+  const resEl = document.getElementById('oc-diag-result');
+  const sumEl = document.getElementById('oc-diag-summary');
+  const btn   = document.getElementById('oc-diag-run-btn');
+  if (sumEl) sumEl.textContent = '';
+  if (resEl) resEl.innerHTML = '<div style="color:#9598a1;font-size:11px;padding:6px 0">⏳ Server par background mein test chal raha hai (parallel, ~10-12s)... Page reload sirf ek baar, turant hota hai — result yahin apne aap aa jaayega, kahin aur click karne ki zaroorat nahi.</div>';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Testing...'; }
+}
+
+// Shared renderer — dono jagah se call hota hai: (1) page-load snapshot
+// (fast, non-blocking memory read — turant available), (2) postMessage se
+// jab background thread ka result aata hai (koi page reload nahi lagta).
+function _ocDiagRender(d, running) {
   const drawer = document.getElementById('oc-diag-drawer');
   const resEl  = document.getElementById('oc-diag-result');
   const sumEl  = document.getElementById('oc-diag-summary');
   const btn    = document.getElementById('oc-diag-run-btn');
+
+  if (running) {
+    _ocDiagShowRunning();
+    if (drawer) drawer.style.display = 'block';
+    const panel = document.getElementById('oc-panel');
+    if (panel) panel.classList.add('open');
+    _ocInnerTab('chain');
+    return;
+  }
+
+  if (!d || !d.ts) return;  // kuch bhi ready nahi hai abhi
+
   if (drawer) drawer.style.display = 'block';
-  // Chain tab ko bhi kholo taaki result seedha dikhe
   const panel = document.getElementById('oc-panel');
   if (panel) panel.classList.add('open');
   _ocInnerTab('chain');
@@ -22473,6 +22498,22 @@ function _ocDiagRun() {
         </div>
       </div>`;
     }).join('');
+  }
+}
+
+let _ocDiagLastAppliedTs = 0;
+
+// Page load ke baad: agar pehle se koi debug run chal raha ho ya result
+// pehle se ready ho, turant dikha do (yeh sirf ek cheap memory-snapshot
+// hai — koi network wait nahi). Naya result baad mein postMessage listener
+// (neeche, window.addEventListener('message', ...) ke andar) se aayega.
+(function() {
+  const snap = (typeof window.__OC_DIAG_SNAPSHOT__ !== 'undefined') ? window.__OC_DIAG_SNAPSHOT__ : null;
+  if (!snap) return;
+  if (snap.running) { _ocDiagRender(null, true); return; }
+  if (snap.result && snap.result.ts) {
+    _ocDiagLastAppliedTs = snap.result.ts;
+    _ocDiagRender(snap.result, false);
   }
 })();
 
