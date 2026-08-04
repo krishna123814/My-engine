@@ -3266,6 +3266,37 @@ select.s-select, input.s-select{
   color:#9598a1;font-size:12px;cursor:pointer;
 }
 
+/* ── In-app Web Embed overlay — full-screen iframe jisme site load hoti
+   hai (naya tab khole bina). Kuch sites (jaise Google) apni framing khud
+   block karti hain — us case mein iframe khaali rehti hai, isliye header
+   mein hamesha ek "Open in New Tab" fallback button rehta hai. ─────────── */
+#web-embed-overlay{
+  display:none; position:fixed; inset:0; z-index:9998;
+  background:#131722; flex-direction:column;
+}
+#web-embed-overlay.open{ display:flex; }
+#web-embed-hdr{
+  display:flex; align-items:center; gap:8px;
+  padding:8px 10px; background:#1e222d; border-bottom:1px solid #2a2e39;
+  flex-shrink:0;
+}
+#web-embed-url{
+  flex:1; font-size:11.5px; color:#9598a1; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+#web-embed-newtab, #web-embed-close{
+  height:28px; padding:0 10px; border-radius:6px; border:none;
+  background:#2a2e39; color:#d1d4dc; font-size:11.5px; font-weight:600;
+  cursor:pointer; flex-shrink:0; white-space:nowrap;
+}
+#web-embed-newtab:active, #web-embed-close:active{ background:#363c4e; }
+#web-embed-close{ background:#3a2323; color:#ff8a80; }
+#web-embed-hint{
+  font-size:10px; color:#5b606e; padding:5px 10px; background:#1a1e28;
+  border-bottom:1px solid #2a2e39; flex-shrink:0;
+}
+#web-embed-frame{ flex:1; width:100%; border:none; background:#fff; }
+
 /* ── Fix 7: Timer setting row ──────────────────────────────────── */
 /* (reuses existing toggle styles) */
 
@@ -4071,17 +4102,32 @@ function _hdrRelayout(){
 
 <!-- ═══ WEB / GOOGLE SEARCH PANEL ═══════════════════════════════════════
      Google URL pehle se bhara hua rehta hai — URL paste karo to wahi site
-     naye tab mein khulti hai, ya kuch bhi type karke Google par search ho
-     jaata hai (Enter ya Go dabao). Google apne aap ko iframe ke andar khulne
-     nahi deta (security policy), isliye naye tab mein khulta hai. -->
+     app ke andar (in-app overlay) load karne ki koshish hoti hai, ya kuch
+     bhi type karke Google par search ho jaata hai. Kuch sites (jaise
+     Google) khud ko iframe ke andar khulne se block karti hain — us case
+     mein overlay ka "New Tab" button use karo. -->
 <div id="web-panel">
   <label>🌐 Open Site / Google Search</label>
   <input type="text" id="web-panel-inp" value="https://www.google.com" placeholder="URL paste karo ya kuch bhi search karo" onkeydown="if(event.key==='Enter') execWebGo();">
-  <div id="web-panel-hint">URL ho to seedha khulega, warna Google par search hoga — naye tab mein.</div>
+  <div id="web-panel-hint">URL ho to seedha khulega (app ke andar), warna Google par search hoga.</div>
   <div class="web-panel-btns">
     <button class="web-panel-go" onclick="execWebGo()">Go</button>
     <button class="web-panel-cancel" onclick="toggleWebPanel()">Cancel</button>
   </div>
+</div>
+
+<!-- ═══ IN-APP WEB EMBED OVERLAY ════════════════════════════════════════
+     App ke andar hi site load karne ki koshish karta hai (naya tab khole
+     bina). Google jaisi sites jo iframe-embedding khud block karti hain,
+     unke liye ye khaali dikhegi — us case mein "Open in New Tab" use karo. -->
+<div id="web-embed-overlay">
+  <div id="web-embed-hdr">
+    <span id="web-embed-url">--</span>
+    <button id="web-embed-newtab" onclick="_webEmbedOpenNewTab()">↗ New Tab</button>
+    <button id="web-embed-close" onclick="closeWebEmbed()">✕ Close</button>
+  </div>
+  <div id="web-embed-hint">ℹ️ Agar page khaali/blank dikhe, to us site ne in-app embedding block ki hai — "↗ New Tab" use karo.</div>
+  <iframe id="web-embed-frame" src="about:blank"></iframe>
 </div>
 
 <!-- ═══ NOTEPAD PANEL ═══════════════════════════════════════════════ -->
@@ -17209,8 +17255,32 @@ function execWebGo() {
   } else {
     url = 'https://www.google.com/search?q=' + encodeURIComponent(v);
   }
-  window.open(url, '_blank', 'noopener');
-  toggleWebPanel();
+  toggleWebPanel();       // panel band karo
+  openWebEmbed(url);      // app ke andar hi (naya tab nahi) load karne ki koshish
+}
+// ── In-app overlay open/close — iframe mein site load karta hai. Agar site
+// (jaise Google) apni framing block karti hai, iframe khaali reh jaati hai —
+// isliye header mein hamesha "New Tab" fallback button rehta hai. ────────
+function openWebEmbed(url) {
+  const ov = document.getElementById('web-embed-overlay');
+  const fr = document.getElementById('web-embed-frame');
+  const ue = document.getElementById('web-embed-url');
+  if (!ov || !fr) return;
+  ov._currentUrl = url;
+  if (ue) ue.textContent = url;
+  fr.src = url;
+  ov.classList.add('open');
+}
+function closeWebEmbed() {
+  const ov = document.getElementById('web-embed-overlay');
+  const fr = document.getElementById('web-embed-frame');
+  if (ov) ov.classList.remove('open');
+  if (fr) fr.src = 'about:blank'; // background mein load/play chalta na rahe
+}
+function _webEmbedOpenNewTab() {
+  const ov = document.getElementById('web-embed-overlay');
+  const url = ov && ov._currentUrl;
+  if (url) window.open(url, '_blank', 'noopener');
 }
 
 // Fix 13: Overlay menu + panels
