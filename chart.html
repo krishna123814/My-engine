@@ -3235,6 +3235,37 @@ select.s-select, input.s-select{
   color:#9598a1;font-size:12px;cursor:pointer;
 }
 
+/* ── Web / Google Search panel (bottom-bar 🌐 icon) — same visual pattern
+   as goto-date-panel. Google (aur zyadatar sites) apne pages ko iframe ke
+   andar embed hone se X-Frame-Options se block karte hain, isliye ye seedha
+   naye browser tab mein khulta hai (URL ho to wahi site, warna Google
+   search result). ─────────────────────────────────────────────────────── */
+#web-panel{
+  display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
+  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
+  padding:12px 14px;z-index:9999;box-shadow:0 8px 32px #0009;
+  min-width:240px;max-width:88vw;
+}
+#web-panel.open{display:block}
+#web-panel label{font-size:11px;color:#787b86;display:block;margin-bottom:4px}
+#web-panel-hint{font-size:9.5px;color:#5b606e;margin:-2px 0 8px;line-height:1.4}
+#web-panel-inp{
+  background:#131722;border:1px solid #363c4e;border-radius:4px;
+  color:#d1d4dc;font-size:12px;padding:6px 8px;width:100%;
+  outline:none;margin-bottom:8px;box-sizing:border-box;
+}
+#web-panel-inp:focus{border-color:#2962ff}
+.web-panel-btns{display:flex;gap:6px}
+.web-panel-go{
+  flex:1;height:28px;background:#2962ff;border:none;border-radius:4px;
+  color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+}
+.web-panel-go:active{background:#1a53e0}
+.web-panel-cancel{
+  height:28px;padding:0 10px;background:#2a2e39;border:none;border-radius:4px;
+  color:#9598a1;font-size:12px;cursor:pointer;
+}
+
 /* ── Fix 7: Timer setting row ──────────────────────────────────── */
 /* (reuses existing toggle styles) */
 
@@ -4013,6 +4044,7 @@ function _hdrRelayout(){
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
+  <button id="web-btn" onclick="toggleWebPanel()" title="Open any site / Google Search">🌐</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
   <button id="music-btn" onclick="toggleMusic()" title="Music Player">🎵</button>
@@ -4034,6 +4066,21 @@ function _hdrRelayout(){
   <div class="goto-date-btns">
     <button class="goto-date-go" onclick="execGotoDate()">Go</button>
     <button class="goto-date-cancel" onclick="toggleGotoDate()">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ WEB / GOOGLE SEARCH PANEL ═══════════════════════════════════════
+     Google URL pehle se bhara hua rehta hai — URL paste karo to wahi site
+     naye tab mein khulti hai, ya kuch bhi type karke Google par search ho
+     jaata hai (Enter ya Go dabao). Google apne aap ko iframe ke andar khulne
+     nahi deta (security policy), isliye naye tab mein khulta hai. -->
+<div id="web-panel">
+  <label>🌐 Open Site / Google Search</label>
+  <input type="text" id="web-panel-inp" value="https://www.google.com" placeholder="URL paste karo ya kuch bhi search karo" onkeydown="if(event.key==='Enter') execWebGo();">
+  <div id="web-panel-hint">URL ho to seedha khulega, warna Google par search hoga — naye tab mein.</div>
+  <div class="web-panel-btns">
+    <button class="web-panel-go" onclick="execWebGo()">Go</button>
+    <button class="web-panel-cancel" onclick="toggleWebPanel()">Cancel</button>
   </div>
 </div>
 
@@ -5301,6 +5348,7 @@ function toggleNotepad() {
   const gd = document.getElementById('goto-date-panel'); if (gd) gd.classList.remove('open');
   const ovl = document.getElementById('overlay-dd'); if (ovl) ovl.classList.remove('open');
   const gp = document.getElementById('grid-picker'); if (gp) gp.classList.remove('open');
+  const wp = document.getElementById('web-panel'); if (wp) wp.classList.remove('open');
   p.classList.toggle('open', opening);
   if (btn) btn.classList.toggle('active', opening);
   if (opening) {
@@ -5467,6 +5515,7 @@ function toggleMusic() {
   const ovl = document.getElementById('overlay-dd'); if (ovl) ovl.classList.remove('open');
   const gp = document.getElementById('grid-picker'); if (gp) gp.classList.remove('open');
   const cs = document.getElementById('chunk-settings-panel'); if (cs) cs.style.display = 'none';
+  const wp = document.getElementById('web-panel'); if (wp) wp.classList.remove('open');
   p.classList.toggle('open', opening);
   if (btn) btn.classList.toggle('active', opening);
   if (opening) {
@@ -17109,6 +17158,7 @@ function toggleGotoDate() {
   const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
   const mp=document.getElementById('music-panel'); if(mp) mp.classList.remove('open');
   const mpb=document.getElementById('music-btn'); if(mpb) mpb.classList.remove('active');
+  const wp=document.getElementById('web-panel'); if(wp) wp.classList.remove('open');
 }
 function execGotoDate() {
   const inp=document.getElementById('goto-date-inp');
@@ -17119,6 +17169,48 @@ function execGotoDate() {
   if(S.layout==='1x1'){ if(chart) jump(chart); }
   else CELLS.forEach(c=>{ if(c.chart) jump(c.chart); });
   toggleGotoDate();
+}
+
+// ── Web / Google Search panel — bottom-bar 🌐 icon. Google search results
+// (aur zyadatar sites) X-Frame-Options / CSP se apne aap ko iframe ke andar
+// khulne se block karte hain, isliye ye app ke andar embed karne ke bajaye
+// naye browser tab mein khulta hai (window.open). Input mein agar koi
+// URL-jaisi cheez ho (http/https se shuru, ya "kuchh.kuchh" domain pattern,
+// bina space ke) to seedha wahi site khulti hai; warna Google search. ────
+function toggleWebPanel() {
+  const p=document.getElementById('web-panel');
+  if(!p) return;
+  p.classList.toggle('open');
+  const inp=document.getElementById('web-panel-inp');
+  if(inp && p.classList.contains('open')) { inp.focus(); inp.select(); }
+  // doosre bottom-bar panels band kardo taaki overlap na ho
+  const gp=document.getElementById('goto-date-panel'); if(gp) gp.classList.remove('open');
+  const dd=document.getElementById('overlay-dd'); if(dd) dd.classList.remove('open');
+  const np=document.getElementById('notepad-panel'); if(np) np.classList.remove('open');
+  const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
+  const mp=document.getElementById('music-panel'); if(mp) mp.classList.remove('open');
+  const mpb=document.getElementById('music-btn'); if(mpb) mpb.classList.remove('active');
+}
+function _isLikelyUrl(v) {
+  v = v.trim();
+  if (!v || /\s/.test(v)) return false;               // spaces = search query, not URL
+  if (/^https?:\/\//i.test(v)) return true;             // already has scheme
+  // bina scheme ke bhi "domain.tld/..." jaisa pattern ho to URL maano
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+([:\/?#].*)?$/i.test(v);
+}
+function execWebGo() {
+  const inp=document.getElementById('web-panel-inp');
+  if(!inp) return;
+  let v = (inp.value || '').trim();
+  if (!v) return;
+  let url;
+  if (_isLikelyUrl(v)) {
+    url = /^https?:\/\//i.test(v) ? v : ('https://' + v);
+  } else {
+    url = 'https://www.google.com/search?q=' + encodeURIComponent(v);
+  }
+  window.open(url, '_blank', 'noopener');
+  toggleWebPanel();
 }
 
 // Fix 13: Overlay menu + panels
@@ -17132,6 +17224,7 @@ function toggleOverlayMenu() {
   const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
   const mp=document.getElementById('music-panel'); if(mp) mp.classList.remove('open');
   const mpb=document.getElementById('music-btn'); if(mpb) mpb.classList.remove('active');
+  const wp=document.getElementById('web-panel'); if(wp) wp.classList.remove('open');
 }
 // Track which overlay panel is "active" (receives TF / indicator changes)
 let _activeOvlPanelIdx = 0;
