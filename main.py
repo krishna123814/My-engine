@@ -1693,44 +1693,6 @@ with st.sidebar:
             _sess_cache.update({"active": False, "ts": 0.0})
             st.rerun()
 
-        # ── Option Chain Diagnostic — 5 variants test ──────────────────────
-        # "-50 / Please provide valid inputs" ka exact reason confirm karne
-        # ke liye ek saath multiple hypotheses live test karo (symbol,
-        # timestamp, strikecount variations) — taaki guess-and-deploy cycle
-        # na karna pade.
-        with st.expander("🔧 Option Chain Diagnostic (5 variants)"):
-            if st.button("▶️ Run Diagnostic", use_container_width=True, key="oc_diag_btn"):
-                _diag_creds = load_creds()
-                if not _diag_creds.get("access_token"):
-                    st.error("Pehle login karo")
-                else:
-                    _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
-                    _variants = [
-                        ("A: BANKNIFTY, timestamp=' '", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}),
-                        ("B: BANKNIFTY, no timestamp",  {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25"}),
-                        ("C: BANKNIFTY, strikecount=1, timestamp=''", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "1", "timestamp": ""}),
-                        ("D: NIFTY50 (known-good ref symbol)", {"symbol": "NSE:NIFTY50-INDEX", "strikecount": "5", "timestamp": ""}),
-                        ("E: BANKNIFTY, strikecount int, no timestamp", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": 5}),
-                    ]
-                    for _label, _params in _variants:
-                        try:
-                            _r = requests.get(
-                                "https://api-t1.fyers.in/data/options-chain",
-                                headers=_diag_hdrs,
-                                params=_params,
-                                timeout=15,
-                            )
-                            _final_url = _r.request.url  # exact URL that was sent, incl. querystring
-                            try:
-                                _body = _r.json()
-                            except Exception:
-                                _body = {"_raw_text": _r.text[:500]}
-                            st.markdown(f"**{_label}**")
-                            st.code(f"URL: {_final_url}\nHTTP status: {_r.status_code}\nResponse: {json.dumps(_body, indent=2)}", language="text")
-                        except Exception as _ex:
-                            st.markdown(f"**{_label}**")
-                            st.code(f"Request exception: {_ex}", language="text")
-
     else:
         # Check if it's an expiry (creds exist but token dead) or fresh login
         has_old_creds = bool(creds.get("access_token"))
@@ -2110,6 +2072,42 @@ if sess_active or _btc_only:
             st.session_state["_sv2_anchor_date_btc"] = None
             st.session_state["_sv2_data_requested"]  = True
             st.rerun()
+
+    # ── Option Chain Diagnostic — 5 variants test (main body, kyunki
+    # sidebar is app mein CSS se hidden hai aur khulne ka koi button nahi
+    # bacha) ───────────────────────────────────────────────────────────────
+    with st.expander("🔧 Option Chain Diagnostic (5 variants) — yahan taplo"):
+        if st.button("▶️ Run Diagnostic", use_container_width=True, key="oc_diag_btn_main"):
+            _diag_creds = load_creds()
+            if not _diag_creds.get("access_token"):
+                st.error("Pehle login karo")
+            else:
+                _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
+                _variants = [
+                    ("A: BANKNIFTY, timestamp=' '", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}),
+                    ("B: BANKNIFTY, no timestamp",  {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25"}),
+                    ("C: BANKNIFTY, strikecount=1, timestamp=''", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "1", "timestamp": ""}),
+                    ("D: NIFTY50 (known-good ref symbol)", {"symbol": "NSE:NIFTY50-INDEX", "strikecount": "5", "timestamp": ""}),
+                    ("E: BANKNIFTY, strikecount int, no timestamp", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": 5}),
+                ]
+                for _label, _params in _variants:
+                    try:
+                        _r = requests.get(
+                            "https://api-t1.fyers.in/data/options-chain",
+                            headers=_diag_hdrs,
+                            params=_params,
+                            timeout=15,
+                        )
+                        _final_url = _r.request.url  # exact URL that was sent, incl. querystring
+                        try:
+                            _body = _r.json()
+                        except Exception:
+                            _body = {"_raw_text": _r.text[:500]}
+                        st.markdown(f"**{_label}**")
+                        st.code(f"URL: {_final_url}\nHTTP status: {_r.status_code}\nResponse: {json.dumps(_body, indent=2)}", language="text")
+                    except Exception as _ex:
+                        st.markdown(f"**{_label}**")
+                        st.code(f"Request exception: {_ex}", language="text")
 
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
