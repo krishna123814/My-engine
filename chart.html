@@ -10038,40 +10038,95 @@ function _sv2OCUpdatePnlOverlay() {
 // hain — bilkul crisp, .cell-overlay (OHLC row) jaisa hi. ────────────────
 function _sv2OCRenderPnlTopLeft() {
   if (typeof STACK2_CELLS === 'undefined' || !STACK2_CELLS.length) return;
-  var cell0 = STACK2_CELLS[0];
-  if (!cell0 || !cell0.el) return;
-  var host = cell0.el.parentElement || cell0.el;  // outer .grid-cell — no transform, crisp text
-  var box = host.querySelector('.sv2-pnl-topleft');
-  if (!box) {
-    box = document.createElement('div');
-    box.className = 'sv2-pnl-topleft';
-    host.appendChild(box);
+
+  // ── Helper: note se "cell show-XXX" tag parse karo ────────────────────
+  // Format: pehli line mein "cell show-9d" (case-insensitive) → "9D" return
+  // Koi tag nahi → null (pehle jaisa: cell0 mein dikhao)
+  function _parseCellShowTag(note) {
+    if (!note) return null;
+    var firstLine = note.split('\n')[0].trim().toLowerCase();
+    var m = firstLine.match(/^cell\s+show-(\S+)/);
+    if (!m) return null;
+    // normalizeLabel jaisa: uppercase (except 'm' = minutes)
+    var raw = m[1];
+    return raw.replace(/([a-zA-Z]+)$/, function(u){ return u === 'm' ? 'm' : u.toUpperCase(); });
   }
-  if (!SV2OC.pnlOverlayOn || !SV2OC.positions || !SV2OC.positions.length) {
-    box.innerHTML = '';
-    box.style.display = 'none';
-    return;
+
+  // ── Helper: STACK2_CELLS[i] ka TF label nikalo ─────────────────────────
+  function _cellLabel(c) {
+    if (!c) return '';
+    // c.tf minutes mein hai; tfMinToLabel se label milega
+    if (typeof tfMinToLabel === 'function' && c.tf) return tfMinToLabel(c.tf);
+    return '';
   }
+
+  // ── Sabse pehle: saari existing sv2-pnl-topleft boxes clear karo ─────
+  STACK2_CELLS.forEach(function(c) {
+    if (!c || !c.el) return;
+    var host = c.el.parentElement || c.el;
+    var box = host.querySelector('.sv2-pnl-topleft');
+    if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  });
+
+  if (!SV2OC.pnlOverlayOn || !SV2OC.positions || !SV2OC.positions.length) return;
+
   var spot = _sv2OCCurrentSpot();
   var nowSec = _sv2OCCurrentTimeSec();
-  var html = '';
-  SV2OC.positions.forEach(function (p) {
+
+  // ── Positions ko 2 buckets mein daalo:
+  // tagged   → note mein "cell show-TF" likha hai → us TF wali cell mein
+  // untagged → note nahi / koi cell show- nahi → cell0 mein (pehle jaisa)
+  // Phir har cell ke liye apna html banao aur us cell mein inject karo ────
+
+  // cellHtml[cellIdx] = accumulated html string
+  var cellHtml = {};
+
+  SV2OC.positions.forEach(function(p) {
     var markPrice = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
     var qty = p.lots * SV2OC.lotSize;
     var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
     var pnl = diff * qty;
-    // "Lagayi hui capital": BUY mein premium paid (entryPrice*qty), SELL
-    // mein margin blocked (premium receive hota hai, invest nahi) — SELL
-    // mein margin missing ho (edge case) to premium value hi fallback.
     var invested = (p.side === 'buy') ? (p.entryPrice * qty) : (p.marginBlocked || (p.entryPrice * qty));
     var pct = (invested > 0) ? (pnl / invested * 100) : 0;
     var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
     var pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
     var cls = pnl >= 0 ? 'pos' : 'neg';
-    html += '<div class="sv2-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV2OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
+    var row = '<div class="sv2-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV2OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
+
+    var tag = _parseCellShowTag(p.note || '');
+    if (!tag) {
+      // Untagged → cell0
+      cellHtml[0] = (cellHtml[0] || '') + row;
+    } else {
+      // Tagged → matching cell dhundo
+      var matched = false;
+      for (var ci = 0; ci < STACK2_CELLS.length; ci++) {
+        if (_cellLabel(STACK2_CELLS[ci]).toLowerCase() === tag.toLowerCase()) {
+          cellHtml[ci] = (cellHtml[ci] || '') + row;
+          matched = true;
+          break;
+        }
+      }
+      // Agar koi matching cell nahi mili → cell0 fallback
+      if (!matched) cellHtml[0] = (cellHtml[0] || '') + row;
+    }
   });
-  box.innerHTML = html;
-  box.style.display = '';
+
+  // ── Ab har target cell mein html inject karo ──────────────────────────
+  Object.keys(cellHtml).forEach(function(idxStr) {
+    var idx = parseInt(idxStr, 10);
+    var c = STACK2_CELLS[idx];
+    if (!c || !c.el) return;
+    var host = c.el.parentElement || c.el;
+    var box = host.querySelector('.sv2-pnl-topleft');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'sv2-pnl-topleft';
+      host.appendChild(box);
+    }
+    box.innerHTML = cellHtml[idxStr];
+    box.style.display = '';
+  });
 }
 
 
