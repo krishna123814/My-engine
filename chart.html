@@ -3211,6 +3211,11 @@ select.s-select, input.s-select{
   background:transparent;color:#9598a1;font-size:11px;cursor:pointer;flex-shrink:0;
 }
 #oc-refresh-btn:active{background:#2a2e39}
+#oc-diag-btn{
+  width:24px;height:24px;padding:0;border:1px solid #2a2e39;border-radius:4px;
+  background:transparent;color:#9598a1;font-size:12px;cursor:pointer;flex-shrink:0;
+}
+#oc-diag-btn:active{background:#2a2e39}
 #oc-close-btn{
   width:24px;height:24px;border:none;border-radius:4px;
   background:transparent;color:#787b86;font-size:15px;cursor:pointer;flex-shrink:0;
@@ -3926,6 +3931,7 @@ function _hdrRelayout(){
     <span id="oc-hdr-title">⛓ BankNifty</span>
     <span id="oc-ltp-badge">LTP: —</span>
     <button id="oc-refresh-btn" onclick="_ocPanelRefresh()">🔄 Refresh</button>
+    <button id="oc-diag-btn" onclick="_ocDiagToggle()" title="Option Chain Diagnostic">🔧</button>
     <button id="oc-close-btn" onclick="toggleOC()">✕</button>
   </div>
   <!-- Inner tabs: Chain | Balance | Trades -->
@@ -3937,6 +3943,22 @@ function _hdrRelayout(){
 
   <!-- ── Chain tab ─────────────────────────────────────── -->
   <div id="oc-inner-chain" class="oc-inner-body active">
+    <!-- ── Diagnostic drawer (hidden by default) ─────────────────────── -->
+    <div id="oc-diag-drawer" style="display:none;background:#1a1e29;border-bottom:1px solid #2a2e39;padding:10px 12px;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <span style="font-size:11px;font-weight:700;color:#d1d4dc;flex:1">🔧 Option Chain Diagnostic</span>
+        <button onclick="_ocDiagToggle()" style="width:20px;height:20px;border:none;background:transparent;color:#787b86;font-size:13px;cursor:pointer">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <select id="oc-diag-variant" style="flex:1;height:28px;background:#131722;color:#d1d4dc;border:1px solid #2a2e39;border-radius:4px;font-size:11px;padding:0 6px">
+          <option value="F">F: sahi URL (api.fyers.in/v3/...)</option>
+          <option value="A">A: purana URL (api-t1.fyers.in)</option>
+          <option value="D">D: sahi URL + NIFTY50 (ref symbol)</option>
+        </select>
+        <button id="oc-diag-run-btn" onclick="_ocDiagRun()" style="height:28px;padding:0 12px;border:1px solid #2962ff;border-radius:4px;background:#2962ff18;color:#2962ff;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">▶️ Test</button>
+      </div>
+      <pre id="oc-diag-result" style="margin:0;max-height:220px;overflow:auto;background:#0d1017;border:1px solid #2a2e39;border-radius:4px;padding:8px;font-size:10px;line-height:1.5;color:#9598a1;white-space:pre-wrap;word-break:break-all"></pre>
+    </div>
     <div id="oc-expiry-bar"></div>
     <div id="oc-col-hdr">
       <span class="oc-ch ce">OI</span>
@@ -22350,6 +22372,73 @@ function _ocPanelRefresh() {
   if (_ocActiveInnerTab === 'chain')   _ocFetch();
   if (_ocActiveInnerTab === 'balance') _balFetch();
 }
+
+// ── Option Chain Diagnostic (in-panel) ──────────────────────────────────────
+// "🔧" button toggles a small drawer with a variant picker + Test button.
+// Test karne par parent-document mein ek hidden GET form submit hota hai
+// (Streamlit iframe sandbox seedha window.parent.location badalne nahi deta —
+// yehi pattern login/TOTP flow mein bhi use hota hai). Ye poore page ko
+// reload karta hai, Python query-param handler ek single Fyers request
+// chalata hai (max ~12s — isliye Streamlit Cloud health-check trip nahi
+// hoti jaisa pehle 6-request-ek-saath wale version mein hota tha), result
+// ko chart.html mein wapas inject kar deta hai, aur neeche wala loader use
+// turant drawer mein dikha deta hai.
+function _ocDiagToggle() {
+  const d = document.getElementById('oc-diag-drawer');
+  if (d) d.style.display = (d.style.display === 'none' || !d.style.display) ? 'block' : 'none';
+}
+
+function _ocDiagRun() {
+  const variant = (document.getElementById('oc-diag-variant') || {value:'F'}).value;
+  const resEl = document.getElementById('oc-diag-result');
+  const btn   = document.getElementById('oc-diag-run-btn');
+  if (resEl) resEl.textContent = '⏳ Testing... (max ~12s, page reload hoga)';
+  if (btn) btn.disabled = true;
+  try {
+    const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
+    const pdoc = window.parent.document;
+    const form = pdoc.createElement('form');
+    form.method = 'GET';
+    form.action = parentUrl;
+    const h = (name, val) => {
+      const el = pdoc.createElement('input');
+      el.type = 'hidden'; el.name = name; el.value = val;
+      form.appendChild(el);
+    };
+    h('oc_diag_trigger', '1');
+    h('oc_diag_variant', variant);
+    pdoc.body.appendChild(form);
+    form.submit();
+  } catch(err) {
+    if (resEl) resEl.textContent = '❌ Error: ' + err.message;
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Page load ke baad (agar Python se koi diagnostic result inject hua ho)
+// drawer khol ke result turant dikha do. (Ye script body ke end ke paas
+// hai, isliye oc-diag-drawer/oc-panel elements already DOM mein maujood
+// hain — DOMContentLoaded ka wait karne ki zaroorat nahi.)
+(function() {
+  const d = (typeof window.__OC_DIAG_RESULT__ !== 'undefined') ? window.__OC_DIAG_RESULT__ : null;
+  if (!d || !d.ts) return;
+  const drawer = document.getElementById('oc-diag-drawer');
+  const resEl  = document.getElementById('oc-diag-result');
+  const sel    = document.getElementById('oc-diag-variant');
+  if (sel && d.variant) sel.value = d.variant;
+  if (drawer) drawer.style.display = 'block';
+  // Chain tab ko bhi kholo taaki result seedha dikhe
+  const panel = document.getElementById('oc-panel');
+  if (panel) panel.classList.add('open');
+  _ocInnerTab('chain');
+  if (resEl) {
+    if (d.error) {
+      resEl.textContent = '❌ ' + d.error;
+    } else {
+      resEl.textContent = 'URL: ' + d.url + '\nHTTP status: ' + d.status + '\nResponse:\n' + JSON.stringify(d.body, null, 2);
+    }
+  }
+})();
 
 async function _ocFetch() {
   // NOTE: ab yahan koi seedha network fetch() nahi hota. Data Python

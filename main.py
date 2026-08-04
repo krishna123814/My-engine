@@ -90,6 +90,12 @@ _BAL_LOCK   = threading.Lock()
 _OC_BAL_THREAD_STARTED = False
 _OC_BAL_REFRESH_SEC = 5   # dono option-chain + balance itne second mein refresh honge
 
+# Option Chain panel ke andar wale "🔧 Diagnostic" button ka result yahan
+# store hota hai — ek single request (blocking nahi karta, isliye Streamlit
+# Cloud health-check trip nahi karta jaisa pehle expander wale version mein
+# hota tha jab 6 requests ek saath chalti thi).
+_OC_DIAG_RESULT: dict = {}
+
 # ─── Per-minute candle tracker — resets at each new minute boundary ────────────
 _CANDLE: dict = {"minute": None, "open": None, "high": None, "low": None}
 _CANDLE_LOCK = threading.Lock()
@@ -1669,6 +1675,38 @@ if _qp.get("sv2_chunk_reset") == "1":
     st.session_state.pop("_sv2_max_eff_btc", None)
     st.rerun()
 
+# Handler 5: Option Chain panel ke andar wale "🔧" diagnostic button —
+# ek single, non-blocking request (max ~12s) taaki Streamlit Cloud health
+# check trip na ho jaisa pehle multi-request expander wale version mein
+# hota tha.
+if _qp.get("oc_diag_trigger") == "1":
+    _diag_variant = _qp.get("oc_diag_variant", "F")
+    st.query_params.clear()
+    _diag_creds = load_creds()
+    if not _diag_creds.get("access_token"):
+        _OC_DIAG_RESULT = {"variant": _diag_variant, "error": "not_authenticated", "ts": time.time()}
+    else:
+        _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
+        _diag_url_map = {
+            "F": ("https://api.fyers.in/v3/data/options-chain",   {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""}),
+            "A": ("https://api-t1.fyers.in/data/options-chain",   {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}),
+            "D": ("https://api.fyers.in/v3/data/options-chain",   {"symbol": "NSE:NIFTY50-INDEX",   "strikecount": "5",  "timestamp": ""}),
+        }
+        _durl, _dparams = _diag_url_map.get(_diag_variant, _diag_url_map["F"])
+        try:
+            _dr = requests.get(_durl, headers=_diag_hdrs, params=_dparams, timeout=12)
+            try:
+                _dbody = _dr.json()
+            except Exception:
+                _dbody = {"_raw_text": _dr.text[:1000]}
+            _OC_DIAG_RESULT = {
+                "variant": _diag_variant, "url": _dr.request.url,
+                "status": _dr.status_code, "body": _dbody, "ts": time.time(),
+            }
+        except Exception as _dex:
+            _OC_DIAG_RESULT = {"variant": _diag_variant, "error": str(_dex), "ts": time.time()}
+    st.rerun()
+
 creds      = load_creds()
 sess_active = is_session_active()
 
@@ -1971,7 +2009,9 @@ def _build_chart_html(
     html = html.replace("</body>",
         f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};"
         f"window.__SV2_DATA_LOADED={json.dumps(_sv2_data_loaded_ok)};"
-        f"window.__SV2_CHUNK_SETTINGS={json.dumps(_sv2_chunk_ui_info)};</script>\n</body>", 1)
+        f"window.__SV2_CHUNK_SETTINGS={json.dumps(_sv2_chunk_ui_info)};"
+        f"window.__OC_DIAG_RESULT__={json.dumps(_OC_DIAG_RESULT)};</script>\n</body>", 1)
+    _OC_DIAG_RESULT.clear()  # ek baar dikhane ke baad clear — future reruns mein stale data na dikhe
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
@@ -2073,61 +2113,10 @@ if sess_active or _btc_only:
             st.session_state["_sv2_data_requested"]  = True
             st.rerun()
 
-    # ── Option Chain Diagnostic — 5 variants test (main body, kyunki
-    # sidebar is app mein CSS se hidden hai aur khulne ka koi button nahi
-    # bacha) ───────────────────────────────────────────────────────────────
-    with st.expander("🔧 Option Chain Diagnostic (5 variants) — yahan taplo"):
-        if st.button("▶️ Run Diagnostic", use_container_width=True, key="oc_diag_btn_main"):
-            _diag_creds = load_creds()
-            if not _diag_creds.get("access_token"):
-                st.error("Pehle login karo")
-            else:
-                _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
-                _variants = [
-                    ("A: BANKNIFTY, timestamp=' '", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}),
-                    ("B: BANKNIFTY, no timestamp",  {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25"}),
-                    ("C: BANKNIFTY, strikecount=1, timestamp=''", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "1", "timestamp": ""}),
-                    ("D: NIFTY50 (known-good ref symbol)", {"symbol": "NSE:NIFTY50-INDEX", "strikecount": "5", "timestamp": ""}),
-                    ("E: BANKNIFTY, strikecount int, no timestamp", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": 5}),
-                ]
-                for _label, _params in _variants:
-                    try:
-                        _r = requests.get(
-                            "https://api-t1.fyers.in/data/options-chain",
-                            headers=_diag_hdrs,
-                            params=_params,
-                            timeout=15,
-                        )
-                        _final_url = _r.request.url  # exact URL that was sent, incl. querystring
-                        try:
-                            _body = _r.json()
-                        except Exception:
-                            _body = {"_raw_text": _r.text[:500]}
-                        st.markdown(f"**{_label}**")
-                        st.code(f"URL: {_final_url}\nHTTP status: {_r.status_code}\nResponse: {json.dumps(_body, indent=2)}", language="text")
-                    except Exception as _ex:
-                        st.markdown(f"**{_label}**")
-                        st.code(f"Request exception: {_ex}", language="text")
+    # (Purana expander-based Option Chain Diagnostic yahan se hata diya —
+    #  ab yeh Option Chain panel ke andar hi 🔧 button se available hai.)
 
-                # ── Variant F: correct host+path found from real working code sample ──
-                st.markdown("---")
-                try:
-                    _rf = requests.get(
-                        "https://api.fyers.in/v3/data/options-chain",
-                        headers=_diag_hdrs,
-                        params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
-                        timeout=15,
-                    )
-                    _final_url_f = _rf.request.url
-                    try:
-                        _body_f = _rf.json()
-                    except Exception:
-                        _body_f = {"_raw_text": _rf.text[:500]}
-                    st.markdown("**F: correct host api.fyers.in/v3/data/options-chain**")
-                    st.code(f"URL: {_final_url_f}\nHTTP status: {_rf.status_code}\nResponse: {json.dumps(_body_f, indent=2)}", language="text")
-                except Exception as _ex:
-                    st.markdown("**F: correct host api.fyers.in/v3/data/options-chain**")
-                    st.code(f"Request exception: {_ex}", language="text")
+
 
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
