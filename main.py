@@ -220,6 +220,64 @@ def fyers_get_access_token(app_id: str, secret_key: str, auth_code: str) -> tupl
         return False, str(e), err
 
 
+# ─── Funds (Available Balance) + Nearest Strike helpers ───────────────────────
+FYERS_META_FILE = "fyers_meta.json"
+_FYERS_META_CACHE = {"balance": None, "strike": None, "ts": 0.0}
+_FYERS_META_LOCK = threading.Lock()
+_FYERS_META_TTL = 20  # seconds — funds API ko itni jaldi baar-baar hit nahi karna
+
+BN_STRIKE_STEP = 100  # BankNifty option strikes 100 ke multiples mein hote hain
+
+def fyers_get_available_balance(app_id: str, access_token: str) -> tuple[bool, "float | str"]:
+    """Fyers /api/v3/funds se 'Available Balance' nikalta hai."""
+    try:
+        headers = {"Authorization": f"{app_id}:{access_token}"}
+        r = requests.get(
+            "https://api-t1.fyers.in/api/v3/funds",
+            headers=headers, timeout=6,
+        ).json()
+        if r.get("s") != "ok":
+            return False, r.get("message", str(r))
+        for item in r.get("fund_limit", []):
+            if item.get("title") == "Available Balance":
+                return True, float(item.get("equityAmount", 0))
+        return False, "Available Balance field not found"
+    except Exception as e:
+        return False, str(e)
+
+def get_nearest_bn_strike() -> "int | None":
+    """Current live BankNifty LTP se nazdiktareen strike (round to 100) nikalta hai."""
+    ltp = _LIVE.get("ltp")
+    if not ltp:
+        return None
+    return int(round(ltp / BN_STRIKE_STEP) * BN_STRIKE_STEP)
+
+def refresh_fyers_meta_cache() -> dict:
+    """Balance + nearest strike ko cache karta hai (TTL ke andar dobara fetch nahi karta),
+    aur fyers_meta.json mein likh deta hai taaki chart iframe use poll kar sake."""
+    now = time.time()
+    with _FYERS_META_LOCK:
+        stale = (now - _FYERS_META_CACHE["ts"]) >= _FYERS_META_TTL
+    if stale:
+        creds = load_creds()
+        balance = _FYERS_META_CACHE["balance"]
+        if creds.get("access_token") and creds.get("app_id"):
+            ok, val = fyers_get_available_balance(creds["app_id"], creds["access_token"])
+            if ok:
+                balance = val
+        strike = get_nearest_bn_strike()
+        with _FYERS_META_LOCK:
+            _FYERS_META_CACHE.update({"balance": balance, "strike": strike, "ts": now})
+    with _FYERS_META_LOCK:
+        payload = dict(_FYERS_META_CACHE)
+    try:
+        with open(FYERS_META_FILE, "w") as f:
+            json.dump(payload, f)
+    except Exception:
+        pass
+    return payload
+
+
 def _write_login_log(payload: dict, status_code: int, response: dict):
     """Write login attempt details to login_debug.json for inspection."""
     try:
@@ -2020,6 +2078,35 @@ if sess_active or _btc_only:
             components.html(_script, height=0, scrolling=False)
 
         _bn_tick_pusher()
+
+    # ── Fyers Balance + Nearest Strike → postMessage pusher ─────────────────
+    # Har ~5s pe refresh (funds cache khud har 20s pe hi actually API hit karta
+    # hai), phir 💰 Balance panel (Stack View 1 bottom-bar) ko postMessage se
+    # bhej deta hai. Iframe poll (fyers_meta.json) fallback ke roop mein bhi
+    # kaam karta hai agar postMessage miss ho jaye.
+    if sess_active:
+        @st.fragment(run_every=5)
+        def _fyers_meta_pusher():
+            meta = refresh_fyers_meta_cache()
+            _meta_json = json.dumps(meta)
+            _script2 = f"""
+<script>
+(function() {{
+  var meta = {_meta_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'fyers_meta', data: meta }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_script2, height=0, scrolling=False)
+
+        _fyers_meta_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

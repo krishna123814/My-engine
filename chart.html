@@ -3235,68 +3235,6 @@ select.s-select, input.s-select{
   color:#9598a1;font-size:12px;cursor:pointer;
 }
 
-/* ── Web / Google Search panel (bottom-bar 🌐 icon) — same visual pattern
-   as goto-date-panel. Google (aur zyadatar sites) apne pages ko iframe ke
-   andar embed hone se X-Frame-Options se block karte hain, isliye ye seedha
-   naye browser tab mein khulta hai (URL ho to wahi site, warna Google
-   search result). ─────────────────────────────────────────────────────── */
-#web-panel{
-  display:none;position:fixed;bottom:30px;left:50%;transform:translateX(-50%);
-  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
-  padding:12px 14px;z-index:9999;box-shadow:0 8px 32px #0009;
-  min-width:240px;max-width:88vw;
-}
-#web-panel.open{display:block}
-#web-panel label{font-size:11px;color:#787b86;display:block;margin-bottom:4px}
-#web-panel-hint{font-size:9.5px;color:#5b606e;margin:-2px 0 8px;line-height:1.4}
-#web-panel-inp{
-  background:#131722;border:1px solid #363c4e;border-radius:4px;
-  color:#d1d4dc;font-size:12px;padding:6px 8px;width:100%;
-  outline:none;margin-bottom:8px;box-sizing:border-box;
-}
-#web-panel-inp:focus{border-color:#2962ff}
-.web-panel-btns{display:flex;gap:6px}
-.web-panel-go{
-  flex:1;height:28px;background:#2962ff;border:none;border-radius:4px;
-  color:#fff;font-size:12px;font-weight:700;cursor:pointer;
-}
-.web-panel-go:active{background:#1a53e0}
-.web-panel-cancel{
-  height:28px;padding:0 10px;background:#2a2e39;border:none;border-radius:4px;
-  color:#9598a1;font-size:12px;cursor:pointer;
-}
-
-/* ── In-app Web Embed overlay — full-screen iframe jisme site load hoti
-   hai (naya tab khole bina). Kuch sites (jaise Google) apni framing khud
-   block karti hain — us case mein iframe khaali rehti hai, isliye header
-   mein hamesha ek "Open in New Tab" fallback button rehta hai. ─────────── */
-#web-embed-overlay{
-  display:none; position:fixed; inset:0; z-index:9998;
-  background:#131722; flex-direction:column;
-}
-#web-embed-overlay.open{ display:flex; }
-#web-embed-hdr{
-  display:flex; align-items:center; gap:8px;
-  padding:8px 10px; background:#1e222d; border-bottom:1px solid #2a2e39;
-  flex-shrink:0;
-}
-#web-embed-url{
-  flex:1; font-size:11.5px; color:#9598a1; white-space:nowrap;
-  overflow:hidden; text-overflow:ellipsis;
-}
-#web-embed-newtab, #web-embed-close{
-  height:28px; padding:0 10px; border-radius:6px; border:none;
-  background:#2a2e39; color:#d1d4dc; font-size:11.5px; font-weight:600;
-  cursor:pointer; flex-shrink:0; white-space:nowrap;
-}
-#web-embed-newtab:active, #web-embed-close:active{ background:#363c4e; }
-#web-embed-close{ background:#3a2323; color:#ff8a80; }
-#web-embed-hint{
-  font-size:10px; color:#5b606e; padding:5px 10px; background:#1a1e28;
-  border-bottom:1px solid #2a2e39; flex-shrink:0;
-}
-#web-embed-frame{ flex:1; width:100%; border:none; background:#fff; }
-
 /* ── Fix 7: Timer setting row ──────────────────────────────────── */
 /* (reuses existing toggle styles) */
 
@@ -3454,6 +3392,26 @@ select.s-select, input.s-select{
 #notepad-btn:active{background:#2a2e39}
 #notepad-btn.active{border-color:#2962ff;color:#2962ff}
 
+#fyers-meta-panel{
+  display:none;position:fixed;z-index:10002;
+  bottom:34px;left:8px;
+  width:min(280px,90vw);
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 8px 32px #000c;flex-direction:column;overflow:hidden;
+}
+#fyers-meta-panel.open{display:flex}
+#fyers-meta-hdr{
+  display:flex;align-items:center;gap:6px;padding:8px 10px;
+  border-bottom:1px solid #2a2e39;flex-shrink:0;
+}
+#fyers-meta-hdr span{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
+#fyers-meta-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
+#fyers-meta-close:active{color:#ef5350}
+#fyers-meta-body{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.fm-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.fm-label{font-size:11px;color:#848da0}
+.fm-value{font-size:14px;font-weight:700;color:#26a69a}
+#fm-updated{font-size:10px;color:#555;margin-top:2px}
 #notepad-panel{
   display:none;position:fixed;z-index:10002;
   top:0;left:0;
@@ -4072,10 +4030,10 @@ function _hdrRelayout(){
 <!-- ═══ BOTTOM BAR ══════════════════════════════════════════════════════ -->
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
+  <button id="fyers-meta-btn" onclick="toggleFyersMeta()" title="Fyers Balance + Nearest Strike">💰 Balance</button>
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
-  <button id="web-btn" onclick="toggleWebPanel()" title="Open any site / Google Search">🌐</button>
   <button id="overlay-btn" onclick="toggleOverlayMenu()" title="Overlay charts">⧉</button>
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
   <button id="music-btn" onclick="toggleMusic()" title="Music Player">🎵</button>
@@ -4088,6 +4046,7 @@ function _hdrRelayout(){
   <button id="stack2-up-btn" onclick="_stack2StepJump(-1)" title="Stack2: Scroll up" style="display:none">▲②</button>
   <button id="stack2-down-btn" onclick="_stack2StepJump(1)" title="Stack2: Scroll down" style="display:none">▼②</button>
   <button id="sv2-sr-btn" onclick="toggleIndPanel()" title="SV2 SR Indicator Settings" style="display:none;font-size:10px;padding:3px 7px;background:#1e3a5f;color:#90caf9;border:1px solid #2962ff;border-radius:5px;cursor:pointer;">SR②</button>
+  <button id="fyers-open-btn" onclick="window.open('https://trade.fyers.in/', '_blank')" title="Fyers website kholo">🔗 Fyers</button>
 </div>
 
 <!-- ═══ GO-TO-DATE PANEL ═════════════════════════════════════════════ -->
@@ -4100,34 +4059,23 @@ function _hdrRelayout(){
   </div>
 </div>
 
-<!-- ═══ WEB / GOOGLE SEARCH PANEL ═══════════════════════════════════════
-     Google URL pehle se bhara hua rehta hai — URL paste karo to wahi site
-     app ke andar (in-app overlay) load karne ki koshish hoti hai, ya kuch
-     bhi type karke Google par search ho jaata hai. Kuch sites (jaise
-     Google) khud ko iframe ke andar khulne se block karti hain — us case
-     mein overlay ka "New Tab" button use karo. -->
-<div id="web-panel">
-  <label>🌐 Open Site / Google Search</label>
-  <input type="text" id="web-panel-inp" value="https://www.google.com" placeholder="URL paste karo ya kuch bhi search karo" onkeydown="if(event.key==='Enter') execWebGo();">
-  <div id="web-panel-hint">URL ho to seedha khulega (app ke andar), warna Google par search hoga.</div>
-  <div class="web-panel-btns">
-    <button class="web-panel-go" onclick="execWebGo()">Go</button>
-    <button class="web-panel-cancel" onclick="toggleWebPanel()">Cancel</button>
+<!-- ═══ FYERS BALANCE / NEAREST-STRIKE PANEL ═══════════════════════════ -->
+<div id="fyers-meta-panel">
+  <div id="fyers-meta-hdr">
+    <span>💰 Fyers</span>
+    <button id="fyers-meta-close" onclick="toggleFyersMeta()">✕</button>
   </div>
-</div>
-
-<!-- ═══ IN-APP WEB EMBED OVERLAY ════════════════════════════════════════
-     App ke andar hi site load karne ki koshish karta hai (naya tab khole
-     bina). Google jaisi sites jo iframe-embedding khud block karti hain,
-     unke liye ye khaali dikhegi — us case mein "Open in New Tab" use karo. -->
-<div id="web-embed-overlay">
-  <div id="web-embed-hdr">
-    <span id="web-embed-url">--</span>
-    <button id="web-embed-newtab" onclick="_webEmbedOpenNewTab()">↗ New Tab</button>
-    <button id="web-embed-close" onclick="closeWebEmbed()">✕ Close</button>
+  <div id="fyers-meta-body">
+    <div class="fm-row">
+      <span class="fm-label">Available Balance</span>
+      <span class="fm-value" id="fm-balance">—</span>
+    </div>
+    <div class="fm-row">
+      <span class="fm-label">Nearest Strike (BANKNIFTY)</span>
+      <span class="fm-value" id="fm-strike">—</span>
+    </div>
+    <div id="fm-updated">Update ka wait ho raha hai…</div>
   </div>
-  <div id="web-embed-hint">ℹ️ Agar page khaali/blank dikhe, to us site ne in-app embedding block ki hai — "↗ New Tab" use karo.</div>
-  <iframe id="web-embed-frame" src="about:blank"></iframe>
 </div>
 
 <!-- ═══ NOTEPAD PANEL ═══════════════════════════════════════════════ -->
@@ -5394,7 +5342,6 @@ function toggleNotepad() {
   const gd = document.getElementById('goto-date-panel'); if (gd) gd.classList.remove('open');
   const ovl = document.getElementById('overlay-dd'); if (ovl) ovl.classList.remove('open');
   const gp = document.getElementById('grid-picker'); if (gp) gp.classList.remove('open');
-  const wp = document.getElementById('web-panel'); if (wp) wp.classList.remove('open');
   p.classList.toggle('open', opening);
   if (btn) btn.classList.toggle('active', opening);
   if (opening) {
@@ -5561,7 +5508,6 @@ function toggleMusic() {
   const ovl = document.getElementById('overlay-dd'); if (ovl) ovl.classList.remove('open');
   const gp = document.getElementById('grid-picker'); if (gp) gp.classList.remove('open');
   const cs = document.getElementById('chunk-settings-panel'); if (cs) cs.style.display = 'none';
-  const wp = document.getElementById('web-panel'); if (wp) wp.classList.remove('open');
   p.classList.toggle('open', opening);
   if (btn) btn.classList.toggle('active', opening);
   if (opening) {
@@ -11094,6 +11040,9 @@ function selectStack2View() {
   const _sv2prb = document.getElementById('sv2-practice-btn'); if (_sv2prb) _sv2prb.style.display = '';
   const _sv2ocb = document.getElementById('sv2-optionchain-btn'); if (_sv2ocb) _sv2ocb.style.display = '';
   const _sv2ocbB = document.getElementById('sv2-oc-bottombar-btn'); if (_sv2ocbB) _sv2ocbB.style.display = '';
+  const _fyersBtn2 = document.getElementById('fyers-open-btn'); if (_fyersBtn2) _fyersBtn2.style.display = 'none';
+  const _fyersMetaBtn2 = document.getElementById('fyers-meta-btn'); if (_fyersMetaBtn2) _fyersMetaBtn2.style.display = 'none';
+  const _fmp2 = document.getElementById('fyers-meta-panel'); if (_fmp2) _fmp2.classList.remove('open');
   try { _sv2IndSectionShow(true); } catch(_) {}
 
   buildStack2();
@@ -14089,6 +14038,8 @@ function selectStackView() {
   const _prb2 = document.getElementById('sv2-practice-btn'); if (_prb2) _prb2.style.display = 'none';
   const _ocb2 = document.getElementById('sv2-optionchain-btn'); if (_ocb2) _ocb2.style.display = 'none';
   const _ocb2b = document.getElementById('sv2-oc-bottombar-btn'); if (_ocb2b) _ocb2b.style.display = 'none';
+  const _fyersBtn1 = document.getElementById('fyers-open-btn'); if (_fyersBtn1) _fyersBtn1.style.display = '';
+  const _fyersMetaBtn1 = document.getElementById('fyers-meta-btn'); if (_fyersMetaBtn1) _fyersMetaBtn1.style.display = '';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 
@@ -17204,7 +17155,6 @@ function toggleGotoDate() {
   const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
   const mp=document.getElementById('music-panel'); if(mp) mp.classList.remove('open');
   const mpb=document.getElementById('music-btn'); if(mpb) mpb.classList.remove('active');
-  const wp=document.getElementById('web-panel'); if(wp) wp.classList.remove('open');
 }
 function execGotoDate() {
   const inp=document.getElementById('goto-date-inp');
@@ -17215,72 +17165,6 @@ function execGotoDate() {
   if(S.layout==='1x1'){ if(chart) jump(chart); }
   else CELLS.forEach(c=>{ if(c.chart) jump(c.chart); });
   toggleGotoDate();
-}
-
-// ── Web / Google Search panel — bottom-bar 🌐 icon. Google search results
-// (aur zyadatar sites) X-Frame-Options / CSP se apne aap ko iframe ke andar
-// khulne se block karte hain, isliye ye app ke andar embed karne ke bajaye
-// naye browser tab mein khulta hai (window.open). Input mein agar koi
-// URL-jaisi cheez ho (http/https se shuru, ya "kuchh.kuchh" domain pattern,
-// bina space ke) to seedha wahi site khulti hai; warna Google search. ────
-function toggleWebPanel() {
-  const p=document.getElementById('web-panel');
-  if(!p) return;
-  p.classList.toggle('open');
-  const inp=document.getElementById('web-panel-inp');
-  if(inp && p.classList.contains('open')) { inp.focus(); inp.select(); }
-  // doosre bottom-bar panels band kardo taaki overlap na ho
-  const gp=document.getElementById('goto-date-panel'); if(gp) gp.classList.remove('open');
-  const dd=document.getElementById('overlay-dd'); if(dd) dd.classList.remove('open');
-  const np=document.getElementById('notepad-panel'); if(np) np.classList.remove('open');
-  const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
-  const mp=document.getElementById('music-panel'); if(mp) mp.classList.remove('open');
-  const mpb=document.getElementById('music-btn'); if(mpb) mpb.classList.remove('active');
-}
-function _isLikelyUrl(v) {
-  v = v.trim();
-  if (!v || /\s/.test(v)) return false;               // spaces = search query, not URL
-  if (/^https?:\/\//i.test(v)) return true;             // already has scheme
-  // bina scheme ke bhi "domain.tld/..." jaisa pattern ho to URL maano
-  return /^[a-z0-9-]+(\.[a-z0-9-]+)+([:\/?#].*)?$/i.test(v);
-}
-function execWebGo() {
-  const inp=document.getElementById('web-panel-inp');
-  if(!inp) return;
-  let v = (inp.value || '').trim();
-  if (!v) return;
-  let url;
-  if (_isLikelyUrl(v)) {
-    url = /^https?:\/\//i.test(v) ? v : ('https://' + v);
-  } else {
-    url = 'https://www.google.com/search?q=' + encodeURIComponent(v);
-  }
-  toggleWebPanel();       // panel band karo
-  openWebEmbed(url);      // app ke andar hi (naya tab nahi) load karne ki koshish
-}
-// ── In-app overlay open/close — iframe mein site load karta hai. Agar site
-// (jaise Google) apni framing block karti hai, iframe khaali reh jaati hai —
-// isliye header mein hamesha "New Tab" fallback button rehta hai. ────────
-function openWebEmbed(url) {
-  const ov = document.getElementById('web-embed-overlay');
-  const fr = document.getElementById('web-embed-frame');
-  const ue = document.getElementById('web-embed-url');
-  if (!ov || !fr) return;
-  ov._currentUrl = url;
-  if (ue) ue.textContent = url;
-  fr.src = url;
-  ov.classList.add('open');
-}
-function closeWebEmbed() {
-  const ov = document.getElementById('web-embed-overlay');
-  const fr = document.getElementById('web-embed-frame');
-  if (ov) ov.classList.remove('open');
-  if (fr) fr.src = 'about:blank'; // background mein load/play chalta na rahe
-}
-function _webEmbedOpenNewTab() {
-  const ov = document.getElementById('web-embed-overlay');
-  const url = ov && ov._currentUrl;
-  if (url) window.open(url, '_blank', 'noopener');
 }
 
 // Fix 13: Overlay menu + panels
@@ -17294,7 +17178,6 @@ function toggleOverlayMenu() {
   const npb=document.getElementById('notepad-btn'); if(npb) npb.classList.remove('active');
   const mp=document.getElementById('music-panel'); if(mp) mp.classList.remove('open');
   const mpb=document.getElementById('music-btn'); if(mpb) mpb.classList.remove('active');
-  const wp=document.getElementById('web-panel'); if(wp) wp.classList.remove('open');
 }
 // Track which overlay panel is "active" (receives TF / indicator changes)
 let _activeOvlPanelIdx = 0;
@@ -19279,9 +19162,60 @@ window.addEventListener('message', function(evt) {
       if (Date.now() - _bnLastAppliedWallTs < 1500) return;
       _applyBNLiveTick(msg.data);
     }
+    if (msg && msg.type === 'fyers_meta') {
+      _applyFyersMeta(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
+
+// ── Fyers Balance + Nearest Strike panel ──────────────────────────────────
+function toggleFyersMeta() {
+  const p = document.getElementById('fyers-meta-panel');
+  if (!p) return;
+  p.classList.toggle('open');
+  if (p.classList.contains('open')) _pollFyersMeta();
+}
+
+function _applyFyersMeta(data) {
+  if (!data) return;
+  const bEl = document.getElementById('fm-balance');
+  const sEl = document.getElementById('fm-strike');
+  const uEl = document.getElementById('fm-updated');
+  if (bEl && data.balance != null) {
+    bEl.textContent = '₹' + Number(data.balance).toLocaleString('en-IN', {maximumFractionDigits: 2});
+  }
+  if (sEl && data.strike != null) {
+    sEl.textContent = Number(data.strike).toLocaleString('en-IN');
+  }
+  if (uEl) {
+    const t = data.ts ? new Date(data.ts * 1000) : new Date();
+    uEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  }
+}
+
+// Direct poll fallback — Streamlit ke static file server se fyers_meta.json
+// seedha read karta hai (postMessage push ke alawa, agar wo miss ho jaye).
+let _fyersMetaPollIv = null;
+async function _pollFyersMeta() {
+  const paths = ['./fyers_meta.json', '/fyers_meta.json', 'fyers_meta.json'];
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        _applyFyersMeta(d);
+        return;
+      }
+    } catch(_) {}
+  }
+}
+function _startFyersMetaPolling() {
+  if (_fyersMetaPollIv) return;
+  _pollFyersMeta();
+  _fyersMetaPollIv = setInterval(_pollFyersMeta, 15000);
+}
+_startFyersMetaPolling();
 
 // ── Fast direct tick poll — talks straight to the local side-port HTTP
 // server (the same one /api/bn_history already uses) instead of going
