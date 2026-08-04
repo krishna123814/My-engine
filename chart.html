@@ -3943,21 +3943,18 @@ function _hdrRelayout(){
 
   <!-- ── Chain tab ─────────────────────────────────────── -->
   <div id="oc-inner-chain" class="oc-inner-body active">
-    <!-- ── Diagnostic drawer (hidden by default) ─────────────────────── -->
-    <div id="oc-diag-drawer" style="display:none;background:#1a1e29;border-bottom:1px solid #2a2e39;padding:10px 12px;flex-shrink:0">
+    <!-- ── Advanced Debug drawer (hidden by default) ─────────────────── -->
+    <div id="oc-diag-drawer" style="display:none;background:#1a1e29;border-bottom:1px solid #2a2e39;padding:10px 12px;flex-shrink:0;max-height:60vh;overflow:auto">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <span style="font-size:11px;font-weight:700;color:#d1d4dc;flex:1">🔧 Option Chain Diagnostic</span>
+        <span style="font-size:11px;font-weight:700;color:#d1d4dc;flex:1">🐞 Advanced Debug — Option Chain Fetch</span>
         <button onclick="_ocDiagToggle()" style="width:20px;height:20px;border:none;background:transparent;color:#787b86;font-size:13px;cursor:pointer">✕</button>
       </div>
-      <div style="display:flex;gap:6px;margin-bottom:8px">
-        <select id="oc-diag-variant" style="flex:1;height:28px;background:#131722;color:#d1d4dc;border:1px solid #2a2e39;border-radius:4px;font-size:11px;padding:0 6px">
-          <option value="F">F: sahi URL (api.fyers.in/v3/...)</option>
-          <option value="A">A: purana URL (api-t1.fyers.in)</option>
-          <option value="D">D: sahi URL + NIFTY50 (ref symbol)</option>
-        </select>
-        <button id="oc-diag-run-btn" onclick="_ocDiagRun()" style="height:28px;padding:0 12px;border:1px solid #2962ff;border-radius:4px;background:#2962ff18;color:#2962ff;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0">▶️ Test</button>
+      <div style="font-size:10px;color:#787b86;margin-bottom:8px;line-height:1.5">
+        Ek click mein saare possible URL/method combinations (v3, legacy, GET, POST) test honge aur har ek ka pura request + response yahan dikhega — jo bhi green ✅ ho wahi sahi combo hai.
       </div>
-      <pre id="oc-diag-result" style="margin:0;max-height:220px;overflow:auto;background:#0d1017;border:1px solid #2a2e39;border-radius:4px;padding:8px;font-size:10px;line-height:1.5;color:#9598a1;white-space:pre-wrap;word-break:break-all"></pre>
+      <button id="oc-diag-run-btn" onclick="_ocDiagRun()" style="width:100%;height:32px;border:1px solid #2962ff;border-radius:4px;background:#2962ff18;color:#2962ff;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:10px">▶️ Fetch &amp; Debug (test all combos)</button>
+      <div id="oc-diag-summary" style="font-size:11px;font-weight:700;margin-bottom:8px"></div>
+      <div id="oc-diag-result"></div>
     </div>
     <div id="oc-expiry-bar"></div>
     <div id="oc-col-hdr">
@@ -22389,11 +22386,12 @@ function _ocDiagToggle() {
 }
 
 function _ocDiagRun() {
-  const variant = (document.getElementById('oc-diag-variant') || {value:'F'}).value;
   const resEl = document.getElementById('oc-diag-result');
+  const sumEl = document.getElementById('oc-diag-summary');
   const btn   = document.getElementById('oc-diag-run-btn');
-  if (resEl) resEl.textContent = '⏳ Testing... (max ~12s, page reload hoga)';
-  if (btn) btn.disabled = true;
+  if (sumEl) sumEl.textContent = '';
+  if (resEl) resEl.innerHTML = '<div style="color:#9598a1;font-size:11px;padding:6px 0">⏳ Testing all combos... (max ~40s, page reload hoga)</div>';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Testing...'; }
   try {
     const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];
     const pdoc = window.parent.document;
@@ -22406,12 +22404,11 @@ function _ocDiagRun() {
       form.appendChild(el);
     };
     h('oc_diag_trigger', '1');
-    h('oc_diag_variant', variant);
     pdoc.body.appendChild(form);
     form.submit();
   } catch(err) {
-    if (resEl) resEl.textContent = '❌ Error: ' + err.message;
-    if (btn) btn.disabled = false;
+    if (resEl) resEl.innerHTML = '<div style="color:#ef5350;font-size:11px">❌ Error: ' + err.message + '</div>';
+    if (btn) { btn.disabled = false; btn.textContent = '▶️ Fetch & Debug (test all combos)'; }
   }
 }
 
@@ -22424,19 +22421,58 @@ function _ocDiagRun() {
   if (!d || !d.ts) return;
   const drawer = document.getElementById('oc-diag-drawer');
   const resEl  = document.getElementById('oc-diag-result');
-  const sel    = document.getElementById('oc-diag-variant');
-  if (sel && d.variant) sel.value = d.variant;
+  const sumEl  = document.getElementById('oc-diag-summary');
+  const btn    = document.getElementById('oc-diag-run-btn');
   if (drawer) drawer.style.display = 'block';
   // Chain tab ko bhi kholo taaki result seedha dikhe
   const panel = document.getElementById('oc-panel');
   if (panel) panel.classList.add('open');
   _ocInnerTab('chain');
+  if (btn) { btn.disabled = false; btn.textContent = '▶️ Fetch & Debug (test all combos)'; }
+
+  if (d.error === 'not_authenticated') {
+    if (sumEl) { sumEl.textContent = '❌ Fyers login expired — pehle dobara login karo, phir test chalega'; sumEl.style.color = '#ef5350'; }
+    if (resEl) resEl.innerHTML = '';
+    return;
+  }
+  if (d.error) {
+    if (sumEl) { sumEl.textContent = '❌ ' + d.error; sumEl.style.color = '#ef5350'; }
+    if (resEl) resEl.innerHTML = '';
+    return;
+  }
+
+  const results = d.results || [];
+  const winner  = results.find(r => r.ok);
+
+  if (sumEl) {
+    sumEl.style.color = winner ? '#26a69a' : '#ef5350';
+    sumEl.textContent = winner
+      ? ('✅ Working combo mil gaya: "' + winner.name + '" — is combo se data aa raha hai.')
+      : ('❌ Koi bhi combo (' + results.length + ' tested) kaam nahi kar raha — neeche har ek ka exact error dekho.');
+    sumEl.innerHTML += '<div style="font-weight:400;font-size:10px;color:#787b86;margin-top:3px">App ID: ' + (d.app_id||'—') + ' &nbsp;|&nbsp; Token: ' + (d.token_masked||'—') + '</div>';
+  }
+
   if (resEl) {
-    if (d.error) {
-      resEl.textContent = '❌ ' + d.error;
-    } else {
-      resEl.textContent = 'URL: ' + d.url + '\nHTTP status: ' + d.status + '\nResponse:\n' + JSON.stringify(d.body, null, 2);
-    }
+    resEl.innerHTML = results.map((r, i) => {
+      const badge = r.ok
+        ? '<span style="color:#26a69a;font-weight:700">✅ OK</span>'
+        : '<span style="color:#ef5350;font-weight:700">❌ FAIL</span>';
+      const statusTxt = r.status_code != null ? ('HTTP ' + r.status_code) : (r.error ? 'Network error' : '—');
+      const bodyTxt = r.error
+        ? r.error
+        : JSON.stringify(r.body, null, 2);
+      return `<div style="border:1px solid ${r.ok ? '#26a69a55' : '#2a2e39'};border-radius:6px;margin-bottom:8px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:${r.ok ? '#1a2e2c' : '#1a1e29'};cursor:pointer" onclick="const b=this.nextElementSibling;b.style.display=(b.style.display==='none')?'block':'none'">
+          ${badge}
+          <span style="font-size:11px;color:#d1d4dc;font-weight:600;flex:1">${i+1}. ${_escHtml(r.name)}</span>
+          <span style="font-size:10px;color:#787b86">${statusTxt} · ${r.latency_ms}ms</span>
+        </div>
+        <div style="display:${r.ok ? 'block' : 'none'};padding:8px;font-size:10px;line-height:1.5">
+          <div style="color:#787b86;margin-bottom:4px"><b>${r.method}</b> ${_escHtml(r.full_url || r.url)}</div>
+          <pre style="margin:0;max-height:180px;overflow:auto;background:#0d1017;border:1px solid #2a2e39;border-radius:4px;padding:6px;color:#9598a1;white-space:pre-wrap;word-break:break-all">${_escHtml(bodyTxt)}</pre>
+        </div>
+      </div>`;
+    }).join('');
   }
 })();
 

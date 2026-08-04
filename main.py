@@ -1678,40 +1678,81 @@ if _qp.get("sv2_chunk_reset") == "1":
     st.session_state.pop("_sv2_max_eff_btc", None)
     st.rerun()
 
-# Handler 5: Option Chain panel ke andar wale "🔧" diagnostic button —
-# ek single, non-blocking request (max ~12s) taaki Streamlit Cloud health
-# check trip na ho jaisa pehle multi-request expander wale version mein
-# hota tha.
+# Handler 5: Option Chain panel ke andar wale "🔧" Advanced Debug button —
+# EK click mein saare plausible URL/method/param combinations test karta
+# hai (sequential, chhote timeout ke saath) aur sabka poora request+response
+# detail ek saath capture karta hai — taaki exact wajah turant pata chale,
+# baar baar dropdown badal ke "Test" na dabana pade.
 if _qp.get("oc_diag_trigger") == "1":
-    _diag_variant = _qp.get("oc_diag_variant", "F")
     st.query_params.clear()
     _diag_creds = load_creds()
     if not _diag_creds.get("access_token"):
-        _OC_DIAG_RESULT = {"variant": _diag_variant, "error": "not_authenticated", "ts": time.time()}
+        _OC_DIAG_RESULT = {"error": "not_authenticated", "ts": time.time()}
     else:
+        _tok_full = _diag_creds["access_token"]
+        _tok_mask = (_tok_full[:6] + "…" + _tok_full[-4:]) if len(_tok_full) > 12 else "…"
         _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
-        # method: "post" (correct, fixed) ya "get" (purana, reference ke liye)
-        _diag_url_map = {
-            "F": ("https://api.fyers.in/v3/data/options-chain", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""}, "post"),
-            "A": ("https://api-t1.fyers.in/data/options-chain", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}, "get"),
-            "D": ("https://api.fyers.in/v3/data/options-chain", {"symbol": "NSE:NIFTY50-INDEX",   "strikecount": "5",  "timestamp": ""}, "post"),
-        }
-        _durl, _dparams, _dmethod = _diag_url_map.get(_diag_variant, _diag_url_map["F"])
-        try:
-            if _dmethod == "post":
-                _dr = requests.post(_durl, headers=_diag_hdrs, json=_dparams, timeout=12)
-            else:
-                _dr = requests.get(_durl, headers=_diag_hdrs, params=_dparams, timeout=12)
-            try:
-                _dbody = _dr.json()
-            except Exception:
-                _dbody = {"_raw_text": _dr.text[:1000]}
-            _OC_DIAG_RESULT = {
-                "variant": _diag_variant, "url": _dr.request.url,
-                "status": _dr.status_code, "body": _dbody, "ts": time.time(),
+        _diag_hdrs_masked = {"Authorization": f"{_diag_creds['app_id']}:{_tok_mask}"}
+
+        # Har plausible combination — v3/legacy URL × GET/POST × params-vs-json-body.
+        # Fyers ne kai baar endpoint/method contract badla hai, isliye sab ek saath
+        # test karna sabse fast tareeka hai exact working combo dhoondhne ka.
+        _sym = "NSE:NIFTYBANK-INDEX"
+        _diag_variants = [
+            {"name": "V3 · POST json-body (current default)",
+             "url": "https://api.fyers.in/v3/data/options-chain", "method": "post",
+             "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
+            {"name": "V3 · GET query-params",
+             "url": "https://api.fyers.in/v3/data/options-chain", "method": "get",
+             "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
+            {"name": "Legacy (api-t1) · GET query-params",
+             "url": "https://api-t1.fyers.in/data/options-chain", "method": "get",
+             "params": {"symbol": _sym, "strikecount": "25", "timestamp": " "}},
+            {"name": "Legacy (api-t1) · POST json-body",
+             "url": "https://api-t1.fyers.in/data/options-chain", "method": "post",
+             "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
+            {"name": "V3 (no /v3 in data path) · GET query-params",
+             "url": "https://api.fyers.in/data/options-chain", "method": "get",
+             "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
+        ]
+
+        _results = []
+        for _v in _diag_variants:
+            _t0 = time.time()
+            _entry = {
+                "name": _v["name"], "method": _v["method"].upper(), "url": _v["url"],
+                "params": _v["params"], "auth_used": _diag_hdrs_masked["Authorization"],
             }
-        except Exception as _dex:
-            _OC_DIAG_RESULT = {"variant": _diag_variant, "error": str(_dex), "ts": time.time()}
+            try:
+                if _v["method"] == "post":
+                    _dr = requests.post(_v["url"], headers=_diag_hdrs, json=_v["params"], timeout=8)
+                else:
+                    _dr = requests.get(_v["url"], headers=_diag_hdrs, params=_v["params"], timeout=8)
+                try:
+                    _dbody = _dr.json()
+                except Exception:
+                    _dbody = {"_raw_text": _dr.text[:800]}
+                _entry.update({
+                    "full_url":    _dr.request.url,
+                    "status_code": _dr.status_code,
+                    "body":        _dbody,
+                    "ok":          (isinstance(_dbody, dict) and _dbody.get("s") == "ok"),
+                    "latency_ms":  round((time.time() - _t0) * 1000),
+                })
+            except Exception as _dex:
+                _entry.update({
+                    "full_url": _v["url"], "status_code": None, "body": None,
+                    "ok": False, "error": str(_dex),
+                    "latency_ms": round((time.time() - _t0) * 1000),
+                })
+            _results.append(_entry)
+
+        _OC_DIAG_RESULT = {
+            "ts": time.time(),
+            "app_id": _diag_creds.get("app_id", ""),
+            "token_masked": _tok_mask,
+            "results": _results,
+        }
     st.rerun()
 
 creds      = load_creds()
