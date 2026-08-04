@@ -77,30 +77,6 @@ _LIVE_LOCK = threading.Lock()
 _LAST_TICK_JS: dict = {"json": ""}
 _LAST_TICK_LOCK = threading.Lock()
 
-# ─── Option Chain / Balance — server-side cache ───────────────────────────────
-# Streamlit Cloud pe browser side-port (_API_PORT) tak nahi pahunch pata
-# (port public nahi hai + https page se http fetch mixed-content block ho
-# jaata hai). Isliye ab yeh data bhi LTP tick ki tarah hi Python background
-# thread se fetch hoke postMessage se iframe ko push kiya jaata hai —
-# browser ko koi seedha network call Fyers/side-port par nahi karna padta.
-_OC_CACHE:  dict = {"json": "", "ts": 0.0}
-_OC_LOCK    = threading.Lock()
-_BAL_CACHE: dict = {"json": "", "ts": 0.0}
-_BAL_LOCK   = threading.Lock()
-_OC_BAL_THREAD_STARTED = False
-_OC_BAL_REFRESH_SEC = 5   # dono option-chain + balance itne second mein refresh honge
-
-# Option Chain panel ke andar wale "🐞 Advanced Debug" button ka result yahan
-# store hota hai. IMPORTANT: yeh ab bilkul LTP tick / OC data wale pattern
-# se kaam karta hai — trigger sirf ek background thread start karta hai aur
-# turant return ho jaata hai (koi blocking nahi), result background thread
-# khatam hone par yahan store hota hai, aur phir postMessage se (jaisे
-# oc_data/bal_data) iframe ko push kiya jaata hai. Pehle version mein
-# trigger hi blocking tha (5 parallel requests ka wait inline) — usse poori
-# app "hung" lagti thi aur Streamlit Cloud session ko restart kar deta tha.
-_OC_DIAG_STATE: dict = {"running": False, "result": None, "result_ts": 0.0}
-_OC_DIAG_LOCK = threading.Lock()
-
 # ─── Per-minute candle tracker — resets at each new minute boundary ────────────
 _CANDLE: dict = {"minute": None, "open": None, "high": None, "low": None}
 _CANDLE_LOCK = threading.Lock()
@@ -130,68 +106,6 @@ def _set_candle_from_bar(minute_epoch: int, o: float, h: float, l: float, c: flo
 # ─── IST helper ───────────────────────────────────────────────────────────────
 def _ist_now():
     return datetime.datetime.now(IST)
-
-# ─── Option Chain / Balance — direct Fyers REST calls (server-side only) ──────
-def _fetch_option_chain_now() -> dict:
-    creds = load_creds()
-    if not creds.get("access_token"):
-        return {"error": "not_authenticated"}
-    try:
-        hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
-        # NOTE: Option Chain V3 endpoint POST maangta hai (JSON body), GET
-        # nahi — GET se "Invalid Request, please provide valid method" aata
-        # tha kyunki server hi galat HTTP method samajh raha tha.
-        return requests.post(
-            "https://api.fyers.in/v3/data/options-chain",
-            headers=hdrs,
-            json={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
-            timeout=15,
-        ).json()
-    except Exception as ex:
-        return {"error": str(ex)}
-
-def _fetch_balance_now() -> dict:
-    creds = load_creds()
-    if not creds.get("access_token"):
-        return {"error": "not_authenticated"}
-    try:
-        hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
-        return requests.get(
-            "https://api-t1.fyers.in/api/v3/funds",
-            headers=hdrs,
-            timeout=15,
-        ).json()
-    except Exception as ex:
-        return {"error": str(ex)}
-
-def _oc_bal_background_loop():
-    """Har _OC_BAL_REFRESH_SEC second mein Fyers se option-chain + balance
-    fetch karke global cache mein daalta hai. Iske alawa koi network call
-    browser se seedha Fyers/side-port par nahi jaati — Streamlit Cloud pe
-    yehi cheez fail ho rahi thi."""
-    while True:
-        try:
-            oc = _fetch_option_chain_now()
-            with _OC_LOCK:
-                _OC_CACHE["json"] = json.dumps(oc)
-                _OC_CACHE["ts"]   = time.time()
-        except Exception:
-            pass
-        try:
-            bal = _fetch_balance_now()
-            with _BAL_LOCK:
-                _BAL_CACHE["json"] = json.dumps(bal)
-                _BAL_CACHE["ts"]   = time.time()
-        except Exception:
-            pass
-        time.sleep(_OC_BAL_REFRESH_SEC)
-
-def _ensure_oc_bal_thread():
-    global _OC_BAL_THREAD_STARTED
-    if _OC_BAL_THREAD_STARTED:
-        return
-    _OC_BAL_THREAD_STARTED = True
-    threading.Thread(target=_oc_bal_background_loop, daemon=True).start()
 
 # ─── Credential helpers ───────────────────────────────────────────────────────
 def load_creds() -> dict:
@@ -1451,65 +1365,6 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
-                # ── Option Chain endpoint ──────────────────────────────
-                if parsed.path == "/api/option_chain":
-                    creds = load_creds()
-                    if not creds.get("access_token"):
-                        body = b'{"error":"not_authenticated"}'
-                        self.send_response(401)
-                    else:
-                        try:
-                            qs2 = _up.parse_qs(parsed.query, keep_blank_values=False)
-                            def _q2(k, d=""): return qs2.get(k, [d])[0]
-                            symbol     = _q2("symbol", "NSE:NIFTYBANK-INDEX")
-                            strikecount = _q2("strikecount", "20")
-                            hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
-                            resp = requests.post(
-                                "https://api.fyers.in/v3/data/options-chain",
-                                headers=hdrs,
-                                json={"symbol": symbol, "strikecount": strikecount, "timestamp": ""},
-                                timeout=15,
-                            ).json()
-                            body = json.dumps(resp).encode()
-                            self.send_response(200)
-                        except Exception as ex:
-                            body = json.dumps({"error": str(ex)}).encode()
-                            self.send_response(500)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
-                # ── Balance / Funds endpoint ────────────────────────────
-                if parsed.path == "/api/balance":
-                    creds = load_creds()
-                    if not creds.get("access_token"):
-                        body = b'{"error":"not_authenticated"}'
-                        self.send_response(401)
-                    else:
-                        try:
-                            hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
-                            resp = requests.get(
-                                "https://api-t1.fyers.in/api/v3/funds",
-                                headers=hdrs,
-                                timeout=15,
-                            ).json()
-                            body = json.dumps(resp).encode()
-                            self.send_response(200)
-                        except Exception as ex:
-                            body = json.dumps({"error": str(ex)}).encode()
-                            self.send_response(500)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Access-Control-Allow-Origin", "*")
-                    self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
-                    return
-
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()
@@ -1681,118 +1536,6 @@ if _qp.get("sv2_chunk_reset") == "1":
             pass
     st.session_state.pop("_sv2_max_eff_bn",  None)
     st.session_state.pop("_sv2_max_eff_btc", None)
-    st.rerun()
-
-# Function that runs in a background thread (called by the trigger handler
-# below) — does the actual network work, OUTSIDE the main script run, so it
-# never blocks a Streamlit rerun. Result lands in _OC_DIAG_STATE and gets
-# pushed to the iframe via postMessage by the existing _oc_bal_pusher
-# fragment (same mechanism as live OC/balance data).
-def _run_oc_diag_async(_diag_creds: dict):
-    _tok_full = _diag_creds["access_token"]
-    _tok_mask = (_tok_full[:6] + "…" + _tok_full[-4:]) if len(_tok_full) > 12 else "…"
-    _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
-    _diag_hdrs_masked = {"Authorization": f"{_diag_creds['app_id']}:{_tok_mask}"}
-
-    # Har plausible combination — v3/legacy URL × GET/POST × params-vs-json-body.
-    # Fyers ne kai baar endpoint/method contract badla hai, isliye sab ek saath
-    # test karna sabse fast tareeka hai exact working combo dhoondhne ka.
-    _sym = "NSE:NIFTYBANK-INDEX"
-    _diag_variants = [
-        {"name": "V3 · POST json-body (current default)",
-         "url": "https://api.fyers.in/v3/data/options-chain", "method": "post",
-         "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
-        {"name": "V3 · GET query-params",
-         "url": "https://api.fyers.in/v3/data/options-chain", "method": "get",
-         "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
-        {"name": "Legacy (api-t1) · GET query-params",
-         "url": "https://api-t1.fyers.in/data/options-chain", "method": "get",
-         "params": {"symbol": _sym, "strikecount": "25", "timestamp": " "}},
-        {"name": "Legacy (api-t1) · POST json-body",
-         "url": "https://api-t1.fyers.in/data/options-chain", "method": "post",
-         "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
-        {"name": "V3 (no /v3 in data path) · GET query-params",
-         "url": "https://api.fyers.in/data/options-chain", "method": "get",
-         "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
-    ]
-
-    def _run_one(_v):
-        _t0 = time.time()
-        _entry = {
-            "name": _v["name"], "method": _v["method"].upper(), "url": _v["url"],
-            "params": _v["params"], "auth_used": _diag_hdrs_masked["Authorization"],
-        }
-        try:
-            if _v["method"] == "post":
-                _dr = requests.post(_v["url"], headers=_diag_hdrs, json=_v["params"], timeout=8)
-            else:
-                _dr = requests.get(_v["url"], headers=_diag_hdrs, params=_v["params"], timeout=8)
-            try:
-                _dbody = _dr.json()
-            except Exception:
-                _dbody = {"_raw_text": _dr.text[:800]}
-            _entry.update({
-                "full_url":    _dr.request.url,
-                "status_code": _dr.status_code,
-                "body":        _dbody,
-                "ok":          (isinstance(_dbody, dict) and _dbody.get("s") == "ok"),
-                "latency_ms":  round((time.time() - _t0) * 1000),
-            })
-        except Exception as _dex:
-            _entry.update({
-                "full_url": _v["url"], "status_code": None, "body": None,
-                "ok": False, "error": str(_dex),
-                "latency_ms": round((time.time() - _t0) * 1000),
-            })
-        return _entry
-
-    try:
-        import concurrent.futures as _cf
-        with _cf.ThreadPoolExecutor(max_workers=len(_diag_variants)) as _pool:
-            _futures = {_pool.submit(_run_one, _v): _v for _v in _diag_variants}
-            _results_map = {}
-            for _fut in _cf.as_completed(_futures, timeout=15):
-                _v = _futures[_fut]
-                try:
-                    _results_map[_v["name"]] = _fut.result()
-                except Exception as _dex2:
-                    _results_map[_v["name"]] = {
-                        "name": _v["name"], "method": _v["method"].upper(), "url": _v["url"],
-                        "full_url": _v["url"], "status_code": None, "body": None,
-                        "ok": False, "error": str(_dex2), "latency_ms": None,
-                    }
-        _results = [_results_map[_v["name"]] for _v in _diag_variants]
-        _final = {
-            "ts": time.time(), "app_id": _diag_creds.get("app_id", ""),
-            "token_masked": _tok_mask, "results": _results,
-        }
-    except Exception as _outer_ex:
-        _final = {"ts": time.time(), "error": str(_outer_ex)}
-
-    with _OC_DIAG_LOCK:
-        _OC_DIAG_STATE["result"]    = _final
-        _OC_DIAG_STATE["result_ts"] = _final["ts"]
-        _OC_DIAG_STATE["running"]   = False
-
-# Handler 5: Option Chain panel ke andar wale "🐞 Advanced Debug" button —
-# yeh handler khud kuch network call NAHI karta — sirf background thread
-# start karke turant return karta hai (jaisa live-tick/OC-data threads
-# already karte hain). Isliye is trigger ke wajah se full-page reload
-# hamesha turant (<1s) khatam ho jaata hai, koi lambi blocking wait nahi —
-# purani app-restart wali problem yahi thi ki trigger khud hi 8-15s tak
-# rukta tha.
-if _qp.get("oc_diag_trigger") == "1":
-    st.query_params.clear()
-    _diag_creds = load_creds()
-    if not _diag_creds.get("access_token"):
-        with _OC_DIAG_LOCK:
-            _OC_DIAG_STATE["result"]    = {"error": "not_authenticated", "ts": time.time()}
-            _OC_DIAG_STATE["result_ts"] = time.time()
-            _OC_DIAG_STATE["running"]   = False
-    else:
-        with _OC_DIAG_LOCK:
-            _OC_DIAG_STATE["running"] = True
-        threading.Thread(target=_run_oc_diag_async, args=(_diag_creds,), daemon=True).start()
     st.rerun()
 
 creds      = load_creds()
@@ -2098,18 +1841,6 @@ def _build_chart_html(
         f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};"
         f"window.__SV2_DATA_LOADED={json.dumps(_sv2_data_loaded_ok)};"
         f"window.__SV2_CHUNK_SETTINGS={json.dumps(_sv2_chunk_ui_info)};</script>\n</body>", 1)
-    # Advanced Debug ka poora result background thread + postMessage se
-    # aata hai (koi blocking nahi) — yahan sirf ek CHEAP, non-blocking
-    # memory-snapshot inject karte hain taaki page-reload ke turant baad hi
-    # (agar drawer khula tha) "running" spinner ya already-ready result
-    # turant dikh jaaye, postMessage ke pehle cycle ka wait kiye bina.
-    with _OC_DIAG_LOCK:
-        _oc_diag_snapshot = {
-            "running": _OC_DIAG_STATE["running"],
-            "result":  _OC_DIAG_STATE["result"],
-        }
-    html = html.replace("</body>",
-        f"<script>window.__OC_DIAG_SNAPSHOT__={json.dumps(_oc_diag_snapshot)};</script>\n</body>", 1)
     html = html.replace("__FYERS_APP_ID__", app_id)
     html = html.replace("__FYERS_SECRET__",  secret)
 
@@ -2211,11 +1942,6 @@ if sess_active or _btc_only:
             st.session_state["_sv2_data_requested"]  = True
             st.rerun()
 
-    # (Purana expander-based Option Chain Diagnostic yahan se hata diya —
-    #  ab yeh Option Chain panel ke andar hi 🔧 button se available hai.)
-
-
-
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
         bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
@@ -2294,76 +2020,6 @@ if sess_active or _btc_only:
             components.html(_script, height=0, scrolling=False)
 
         _bn_tick_pusher()
-
-        # ── Option Chain + Balance → postMessage pusher ──────────────────────
-        # Same pattern as LTP tick above: Python background thread Fyers se
-        # data fetch karta rehta hai (_oc_bal_background_loop), aur yeh
-        # fragment har _OC_BAL_REFRESH_SEC second mein latest cache ko
-        # postMessage se iframe ko bhej deta hai. Browser side se koi seedha
-        # fetch() Fyers ya kisi side-port par nahi jaata — isliye Streamlit
-        # Cloud (jahan side-port public expose nahi hota) pe bhi kaam karta hai.
-        _ensure_oc_bal_thread()
-
-        @st.fragment(run_every=_OC_BAL_REFRESH_SEC)
-        def _oc_bal_pusher():
-            with _OC_LOCK:
-                _oc_json = _OC_CACHE["json"]
-                _oc_ts   = _OC_CACHE["ts"]
-            with _BAL_LOCK:
-                _bal_json = _BAL_CACHE["json"]
-                _bal_ts   = _BAL_CACHE["ts"]
-            with _OC_DIAG_LOCK:
-                _diag_running = _OC_DIAG_STATE["running"]
-                _diag_result  = _OC_DIAG_STATE["result"]
-                _diag_ts      = _OC_DIAG_STATE["result_ts"]
-            _diag_json = json.dumps(_diag_result) if _diag_result else "null"
-
-            if not _oc_json and not _bal_json and not _diag_running and not _diag_result:
-                return  # kuch bhi push karne ke liye nahi hai
-
-            _oc_script = f"""
-<script>
-(function() {{
-  var ocData     = {_oc_json or 'null'};
-  var ocTs       = {_oc_ts};
-  var balData    = {_bal_json or 'null'};
-  var balTs      = {_bal_ts};
-  var diagData   = {_diag_json};
-  var diagTs     = {_diag_ts};
-  var diagRunning = {json.dumps(_diag_running)};
-
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      if (ocData !== null && ocTs !== window._ocLastSentTs) {{
-        frames[i].contentWindow.postMessage(
-          JSON.stringify({{ type: 'oc_data', data: ocData, ts: ocTs }}), '*'
-        );
-      }}
-      if (balData !== null && balTs !== window._balLastSentTs) {{
-        frames[i].contentWindow.postMessage(
-          JSON.stringify({{ type: 'bal_data', data: balData, ts: balTs }}), '*'
-        );
-      }}
-      // Advanced Debug result — background thread se aata hai, kabhi bhi
-      // page reload ki zaroorat nahi. 'running' state bhi bhejte hain taaki
-      // drawer khula ho to "abhi test chal raha hai" dikha sake.
-      if (diagRunning || (diagData !== null && diagTs !== window._ocDiagLastSentTs)) {{
-        frames[i].contentWindow.postMessage(
-          JSON.stringify({{ type: 'oc_diag_data', data: diagData, running: diagRunning, ts: diagTs }}), '*'
-        );
-      }}
-    }} catch(e) {{}}
-  }}
-  if (ocData  !== null) window._ocLastSentTs  = ocTs;
-  if (balData !== null) window._balLastSentTs = balTs;
-  if (diagData !== null) window._ocDiagLastSentTs = diagTs;
-}})();
-</script>
-"""
-            components.html(_oc_script, height=0, scrolling=False)
-
-        _oc_bal_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
