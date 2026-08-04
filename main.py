@@ -128,9 +128,9 @@ def _fetch_option_chain_now() -> dict:
     try:
         hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
         return requests.get(
-            "https://api-t1.fyers.in/data/options-chain",
+            "https://api.fyers.in/v3/data/options-chain",
             headers=hdrs,
-            params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "},
+            params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
             timeout=15,
         ).json()
     except Exception as ex:
@@ -1451,7 +1451,7 @@ def _register_api_route():
                             strikecount = _q2("strikecount", "20")
                             hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
                             resp = requests.get(
-                                "https://api-t1.fyers.in/data/options-chain",
+                                "https://api.fyers.in/v3/data/options-chain",
                                 headers=hdrs,
                                 params={"symbol": symbol, "strikecount": strikecount, "timestamp": ""},
                                 timeout=15,
@@ -2108,6 +2108,26 @@ if sess_active or _btc_only:
                     except Exception as _ex:
                         st.markdown(f"**{_label}**")
                         st.code(f"Request exception: {_ex}", language="text")
+
+                # ── Variant F: correct host+path found from real working code sample ──
+                st.markdown("---")
+                try:
+                    _rf = requests.get(
+                        "https://api.fyers.in/v3/data/options-chain",
+                        headers=_diag_hdrs,
+                        params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
+                        timeout=15,
+                    )
+                    _final_url_f = _rf.request.url
+                    try:
+                        _body_f = _rf.json()
+                    except Exception:
+                        _body_f = {"_raw_text": _rf.text[:500]}
+                    st.markdown("**F: correct host api.fyers.in/v3/data/options-chain**")
+                    st.code(f"URL: {_final_url_f}\nHTTP status: {_rf.status_code}\nResponse: {json.dumps(_body_f, indent=2)}", language="text")
+                except Exception as _ex:
+                    st.markdown("**F: correct host api.fyers.in/v3/data/options-chain**")
+                    st.code(f"Request exception: {_ex}", language="text")
 
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
