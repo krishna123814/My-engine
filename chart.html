@@ -3392,6 +3392,45 @@ select.s-select, input.s-select{
 #notepad-btn:active{background:#2a2e39}
 #notepad-btn.active{border-color:#2962ff;color:#2962ff}
 
+#oc-panel{
+  display:none;position:fixed;z-index:10003;
+  top:6vh;left:2vw;right:2vw;bottom:8vh;
+  background:#1e222d;border:1px solid #363c4e;border-radius:12px;
+  box-shadow:0 12px 48px #000d;flex-direction:column;overflow:hidden;
+}
+#oc-panel.open{display:flex}
+#oc-hdr{
+  display:flex;align-items:center;gap:8px;padding:10px 12px;
+  border-bottom:1px solid #2a2e39;flex-shrink:0;
+}
+#oc-hdr-title{font-size:13px;font-weight:700;color:#d1d4dc;flex:1}
+#oc-close{background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;line-height:1}
+#oc-close:active{color:#ef5350}
+#oc-sub{
+  display:flex;justify-content:space-between;padding:6px 12px;
+  font-size:11px;color:#9598a1;border-bottom:1px solid #2a2e39;flex-shrink:0;
+}
+#oc-col-hdr{
+  display:flex;padding:6px 8px 0;flex-shrink:0;font-size:10px;font-weight:700;letter-spacing:.04em;
+}
+.oc-col-ce{flex:3;color:#26a69a;text-align:left}
+.oc-col-strike{flex:1.4;color:#d1d4dc;text-align:center}
+.oc-col-pe{flex:3;color:#ef5350;text-align:right}
+#oc-legend{
+  display:flex;padding:2px 8px 6px;border-bottom:1px solid #2a2e39;flex-shrink:0;
+  font-size:9px;color:#666;
+}
+#oc-legend span{flex:1;text-align:center}
+.oc-legend-strike{flex:1.4!important}
+#oc-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#oc-loading{padding:24px;text-align:center;color:#666;font-size:12px}
+.oc-row{display:flex;align-items:center;padding:5px 8px;border-bottom:1px solid #242832;font-size:11px}
+.oc-row.oc-atm{background:#1a2332;border-top:1px solid #2962ff;border-bottom:1px solid #2962ff}
+.oc-cell{flex:1;text-align:center;color:#d1d4dc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.oc-strike-cell{flex:1.4;text-align:center;font-weight:700;color:#e0e3eb;background:#181b23;border-radius:4px;margin:0 2px}
+.oc-up{color:#26a69a}
+.oc-dn{color:#ef5350}
+#oc-ftr{padding:6px 12px;border-top:1px solid #2a2e39;font-size:10px;color:#555;flex-shrink:0}
 #fyers-meta-panel{
   display:none;position:fixed;z-index:10002;
   bottom:34px;left:8px;
@@ -4031,6 +4070,7 @@ function _hdrRelayout(){
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
   <button id="fyers-meta-btn" onclick="toggleFyersMeta()" title="Fyers Balance + Nearest Strike">💰 Balance</button>
+  <button id="oc-real-btn" onclick="toggleOptionChain()" title="Real Option Chain (Fyers Live Data)">⛓ Chain</button>
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
@@ -4056,6 +4096,34 @@ function _hdrRelayout(){
   <div class="goto-date-btns">
     <button class="goto-date-go" onclick="execGotoDate()">Go</button>
     <button class="goto-date-cancel" onclick="toggleGotoDate()">Cancel</button>
+  </div>
+</div>
+
+<!-- ═══ REAL OPTION CHAIN PANEL (Fyers live data) ══════════════════════ -->
+<div id="oc-panel">
+  <div id="oc-hdr">
+    <span id="oc-hdr-title">⛓ Option Chain — BANKNIFTY</span>
+    <button id="oc-close" onclick="toggleOptionChain()">✕</button>
+  </div>
+  <div id="oc-sub">
+    <span id="oc-spot">Spot: —</span>
+    <span id="oc-expiry">Expiry: —</span>
+  </div>
+  <div id="oc-col-hdr">
+    <span class="oc-col-ce">CALLS (CE)</span>
+    <span class="oc-col-strike">STRIKE</span>
+    <span class="oc-col-pe">PUTS (PE)</span>
+  </div>
+  <div id="oc-legend">
+    <span>OI</span><span>Chg%</span><span>LTP</span>
+    <span class="oc-legend-strike"></span>
+    <span>LTP</span><span>Chg%</span><span>OI</span>
+  </div>
+  <div id="oc-body">
+    <div id="oc-loading">Data load ho raha hai…</div>
+  </div>
+  <div id="oc-ftr">
+    <span id="oc-updated">—</span>
   </div>
 </div>
 
@@ -11042,7 +11110,9 @@ function selectStack2View() {
   const _sv2ocbB = document.getElementById('sv2-oc-bottombar-btn'); if (_sv2ocbB) _sv2ocbB.style.display = '';
   const _fyersBtn2 = document.getElementById('fyers-open-btn'); if (_fyersBtn2) _fyersBtn2.style.display = 'none';
   const _fyersMetaBtn2 = document.getElementById('fyers-meta-btn'); if (_fyersMetaBtn2) _fyersMetaBtn2.style.display = 'none';
+  const _ocRealBtn2 = document.getElementById('oc-real-btn'); if (_ocRealBtn2) _ocRealBtn2.style.display = 'none';
   const _fmp2 = document.getElementById('fyers-meta-panel'); if (_fmp2) _fmp2.classList.remove('open');
+  const _ocp2 = document.getElementById('oc-panel'); if (_ocp2) _ocp2.classList.remove('open');
   try { _sv2IndSectionShow(true); } catch(_) {}
 
   buildStack2();
@@ -14040,6 +14110,7 @@ function selectStackView() {
   const _ocb2b = document.getElementById('sv2-oc-bottombar-btn'); if (_ocb2b) _ocb2b.style.display = 'none';
   const _fyersBtn1 = document.getElementById('fyers-open-btn'); if (_fyersBtn1) _fyersBtn1.style.display = '';
   const _fyersMetaBtn1 = document.getElementById('fyers-meta-btn'); if (_fyersMetaBtn1) _fyersMetaBtn1.style.display = '';
+  const _ocRealBtn1 = document.getElementById('oc-real-btn'); if (_ocRealBtn1) _ocRealBtn1.style.display = '';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 
@@ -19165,6 +19236,9 @@ window.addEventListener('message', function(evt) {
     if (msg && msg.type === 'fyers_meta') {
       _applyFyersMeta(msg.data);
     }
+    if (msg && msg.type === 'option_chain') {
+      _applyOptionChain(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
@@ -19216,6 +19290,77 @@ function _startFyersMetaPolling() {
   _fyersMetaPollIv = setInterval(_pollFyersMeta, 15000);
 }
 _startFyersMetaPolling();
+
+// ── Real Option Chain (Fyers live data) — panel toggle + render ───────────
+function toggleOptionChain() {
+  const p = document.getElementById('oc-panel');
+  if (!p) return;
+  p.classList.toggle('open');
+  if (p.classList.contains('open')) _pollOptionChain();
+}
+
+function _fmtNum(n) {
+  if (n == null || isNaN(n)) return '—';
+  return Number(n).toLocaleString('en-IN', {maximumFractionDigits: 1});
+}
+
+function _applyOptionChain(data) {
+  if (!data || !data.rows) return;
+  const spotEl = document.getElementById('oc-spot');
+  const expEl  = document.getElementById('oc-expiry');
+  const updEl  = document.getElementById('oc-updated');
+  const body   = document.getElementById('oc-body');
+  if (spotEl) spotEl.textContent = 'Spot: ' + _fmtNum(data.spot);
+  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—');
+  if (updEl) {
+    const t = data.ts ? new Date(data.ts * 1000) : new Date();
+    updEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  }
+  if (!body) return;
+
+  let html = '';
+  data.rows.forEach(row => {
+    const ce = row.ce || {};
+    const pe = row.pe || {};
+    const isAtm = data.atm != null && row.strike === data.atm;
+    const ceChgCls = (ce.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
+    const peChgCls = (pe.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
+    html += `<div class="oc-row${isAtm ? ' oc-atm' : ''}">`
+         +   `<span class="oc-cell">${_fmtNum(ce.oi)}</span>`
+         +   `<span class="oc-cell ${ceChgCls}">${_fmtNum(ce.chgp)}%</span>`
+         +   `<span class="oc-cell">${_fmtNum(ce.ltp)}</span>`
+         +   `<span class="oc-cell oc-strike-cell">${_fmtNum(row.strike)}</span>`
+         +   `<span class="oc-cell">${_fmtNum(pe.ltp)}</span>`
+         +   `<span class="oc-cell ${peChgCls}">${_fmtNum(pe.chgp)}%</span>`
+         +   `<span class="oc-cell">${_fmtNum(pe.oi)}</span>`
+         +  `</div>`;
+  });
+  body.innerHTML = html || '<div id="oc-loading">Data nahi mila</div>';
+}
+
+// Direct poll fallback — fyers_optionchain.json seedha read karta hai
+let _ocPollIv = null;
+async function _pollOptionChain() {
+  const paths = ['./fyers_optionchain.json', '/fyers_optionchain.json', 'fyers_optionchain.json'];
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        _applyOptionChain(d);
+        return;
+      }
+    } catch(_) {}
+  }
+}
+function _startOCPolling() {
+  if (_ocPollIv) return;
+  _ocPollIv = setInterval(() => {
+    const p = document.getElementById('oc-panel');
+    if (p && p.classList.contains('open')) _pollOptionChain();
+  }, 6000);
+}
+_startOCPolling();
 
 // ── Fast direct tick poll — talks straight to the local side-port HTTP
 // server (the same one /api/bn_history already uses) instead of going

@@ -278,6 +278,118 @@ def refresh_fyers_meta_cache() -> dict:
     return payload
 
 
+# ─── Real Option Chain (CE/PE, LTP, OI, Chg%) — jaisa broker app mein hota hai ──
+OC_FILE   = "fyers_optionchain.json"
+_OC_CACHE = {"data": None, "ts": 0.0}
+_OC_LOCK  = threading.Lock()
+_OC_TTL   = 5  # seconds — real-broker jaisa near-live feel, phir bhi rate-limit safe
+
+BN_OC_SYMBOL = "NSE:NIFTYBANK-INDEX"
+
+def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_SYMBOL,
+                            strikecount: int = 10, timestamp: str = "") -> "dict | None":
+    """Fyers Option Chain API se CE/PE strikes fetch karta hai.
+    Primary domain fail ho to fallback domain try karta hai (Fyers docs mein
+    dono variants dikhte hain)."""
+    headers = {"Authorization": f"{app_id}:{access_token}"}
+    params = {"symbol": symbol, "strikecount": strikecount, "timestamp": timestamp}
+    urls = [
+        "https://api.fyers.in/v3/data/options-chain",
+        "https://api-t1.fyers.in/data/options-chain",
+    ]
+    raw = None
+    for url in urls:
+        try:
+            r = requests.get(url, headers=headers, params=params, timeout=8).json()
+            if r.get("s") == "ok":
+                raw = r
+                break
+        except Exception:
+            continue
+    if not raw:
+        return None
+
+    d = raw.get("data", {})
+    chain = d.get("optionsChain", [])
+
+    # Underlying/spot entry pehchano (isme option_type nahi hota, 'fp' field hoti hai)
+    spot = None
+    for item in chain:
+        if not item.get("option_type"):
+            spot = item.get("ltp") or item.get("fp")
+            break
+    if spot is None:
+        spot = _LIVE.get("ltp")
+
+    # Strike-wise CE/PE group karo
+    rows_map: dict = {}
+    for item in chain:
+        ot = item.get("option_type")
+        if ot not in ("CE", "PE"):
+            continue
+        strike = item.get("strike_price")
+        if strike is None:
+            continue
+        row = rows_map.setdefault(strike, {"strike": strike, "ce": None, "pe": None})
+        leg = {
+            "ltp":   item.get("ltp", 0),
+            "chg":   item.get("ltpch", 0),
+            "chgp":  item.get("ltpchp", 0),
+            "oi":    item.get("oi", 0),
+            "oich":  item.get("oich", 0),
+            "oichp": item.get("oichp", 0),
+            "volume":item.get("volume", 0),
+            "bid":   item.get("bid", 0),
+            "ask":   item.get("ask", 0),
+            "symbol":item.get("symbol", ""),
+        }
+        if ot == "CE":
+            row["ce"] = leg
+        else:
+            row["pe"] = leg
+
+    rows = sorted(rows_map.values(), key=lambda x: x["strike"])
+    atm = get_nearest_bn_strike() if spot is None else int(round(spot / BN_STRIKE_STEP) * BN_STRIKE_STEP)
+
+    expiries = d.get("expiryData", [])
+    selected_expiry_label = expiries[0].get("date") if expiries else ""
+
+    return {
+        "spot": spot,
+        "atm": atm,
+        "rows": rows,
+        "call_oi": d.get("callOi", 0),
+        "put_oi": d.get("putOi", 0),
+        "expiries": expiries,
+        "expiry_label": selected_expiry_label,
+        "ts": time.time(),
+    }
+
+def refresh_option_chain_cache() -> "dict | None":
+    """TTL ke andar cache use karta hai, warna Fyers se dobara fetch karta hai,
+    aur fyers_optionchain.json mein likh deta hai (chart iframe poll fallback ke liye)."""
+    now = time.time()
+    with _OC_LOCK:
+        stale = (now - _OC_CACHE["ts"]) >= _OC_TTL
+    if stale:
+        creds = load_creds()
+        data = None
+        if creds.get("access_token") and creds.get("app_id"):
+            data = fyers_get_option_chain(creds["app_id"], creds["access_token"])
+        if data:
+            with _OC_LOCK:
+                _OC_CACHE.update({"data": data, "ts": now})
+    with _OC_LOCK:
+        payload = _OC_CACHE["data"]
+    if payload:
+        try:
+            with open(OC_FILE, "w") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+    return payload
+
+
 def _write_login_log(payload: dict, status_code: int, response: dict):
     """Write login attempt details to login_debug.json for inspection."""
     try:
@@ -2107,6 +2219,33 @@ if sess_active or _btc_only:
             components.html(_script2, height=0, scrolling=False)
 
         _fyers_meta_pusher()
+
+    # ── Option Chain → postMessage pusher ───────────────────────────────────
+    if sess_active:
+        @st.fragment(run_every=5)
+        def _option_chain_pusher():
+            oc = refresh_option_chain_cache()
+            if not oc:
+                return
+            _oc_json = json.dumps(oc)
+            _script3 = f"""
+<script>
+(function() {{
+  var oc = {_oc_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'option_chain', data: oc }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_script3, height=0, scrolling=False)
+
+        _option_chain_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
