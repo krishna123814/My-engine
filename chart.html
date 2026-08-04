@@ -2301,6 +2301,36 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:rgba(0,0,0,.5);
 }
 #sv2-oc-backdrop.open{ display:block; }
+/* ── Asset Picker — replay ke bina Option Chain khole to pehle BN/BTC
+   choose karwane wala chhota centered card (backdrop wahi z-index level,
+   thodi upar taaki sheet se pehle dikhe). ── */
+#sv2-oc-picker-backdrop{
+  display:none; position:fixed; inset:0; z-index:9410;
+  background:rgba(0,0,0,.55);
+}
+#sv2-oc-picker-backdrop.open{ display:block; }
+#sv2-oc-picker{
+  display:none; position:fixed; left:50%; top:50%; z-index:9411;
+  transform:translate(-50%,-50%);
+  width:min(340px, 88vw);
+  background:#131722; border:1px solid #2a2e39; border-radius:14px;
+  padding:20px 18px 16px; box-shadow:0 8px 32px rgba(0,0,0,.5);
+}
+#sv2-oc-picker.open{ display:block; }
+#sv2-oc-picker-title{ font-size:15px; font-weight:700; color:#d1d4dc; margin-bottom:6px; }
+#sv2-oc-picker-sub{ font-size:11.5px; color:#848da0; line-height:1.5; margin-bottom:16px; }
+#sv2-oc-picker-opts{ display:flex; gap:10px; margin-bottom:12px; }
+.sv2-oc-picker-btn{
+  flex:1; padding:14px 8px; border-radius:10px; border:1px solid #2a2e39;
+  background:#1e222d; color:#d1d4dc; font-size:13.5px; font-weight:600;
+  cursor:pointer;
+}
+.sv2-oc-picker-btn:active{ background:#2a2e39; border-color:#2962ff; }
+#sv2-oc-picker-cancel{
+  width:100%; padding:9px; border-radius:8px; border:none;
+  background:transparent; color:#787b86; font-size:12.5px; cursor:pointer;
+}
+#sv2-oc-picker-cancel:active{ color:#d1d4dc; }
 #sv2-oc-sheet{
   position:fixed; left:0; right:0; bottom:0; z-index:9401;
   background:#131722; border-radius:14px 14px 0 0;
@@ -2538,6 +2568,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   animation:sv2ocMarginPulse 1.4s ease-in-out infinite;
 }
 #sv2-oc-rollover-actions{ display:flex; gap:8px; margin-top:7px; }
+
+/* ── Read-Only banner — sheet manual asset-pick se (bina replay) khuli ho
+   to ye batata hai ki sirf balance/positions/history dekh sakte ho, naya
+   trade lene ke liye replay chalana padega (spot/live price hi nahi hai). */
+#sv2-oc-noreplay-banner{
+  margin:0 16px 10px; border-radius:9px; padding:9px 12px;
+  font-size:11px; font-weight:700; line-height:1.5;
+  background:#2962ff1c; border:1px solid #2962ff; color:#5b9bff;
+}
 .sv2-oc-rollover-btn{
   flex:1; height:26px; border-radius:6px; border:1px solid currentColor;
   background:transparent; color:inherit; font-size:10.5px; font-weight:700;
@@ -4399,6 +4438,20 @@ function _hdrRelayout(){
      (Black-Scholes, replay ke underlying spot par based) — koi volume nahi,
      bilkul real broker ki tarah sirf Strike + LTP dikhta hai. -->
 <div id="sv2-oc-backdrop" onclick="_sv2OCClose()"></div>
+<!-- ═══ SV2 OPTION CHAIN — Asset Picker (replay ke bina) ═══════════════════
+     Jab Bar Replay chal hi nahi raha (date select nahi hui), Option Chain
+     button dabane par ye chhota picker khulta hai — BankNifty ya BTC choose
+     karke bina replay ke bhi balance/positions/history dekhe ja sakte hain. -->
+<div id="sv2-oc-picker-backdrop" onclick="_sv2OCClosePicker()"></div>
+<div id="sv2-oc-picker">
+  <div id="sv2-oc-picker-title">⛓️ Option Chain kaunsa dekhna hai?</div>
+  <div id="sv2-oc-picker-sub">Replay chal nahi raha — sirf balance/positions/history dikhengi (read-only). Naya trade lene ke liye replay chalao.</div>
+  <div id="sv2-oc-picker-opts">
+    <button class="sv2-oc-picker-btn" onclick="_sv2OCPickAsset('bn')">🏦 BankNifty</button>
+    <button class="sv2-oc-picker-btn" onclick="_sv2OCPickAsset('btc')">₿ BTC</button>
+  </div>
+  <button id="sv2-oc-picker-cancel" onclick="_sv2OCClosePicker()">Cancel</button>
+</div>
 <div id="sv2-oc-sheet">
   <div id="sv2-oc-sheet-inner">
     <div id="sv2-oc-handle"></div>
@@ -4430,6 +4483,7 @@ function _hdrRelayout(){
       </div>
     </div>
 
+    <div id="sv2-oc-noreplay-banner" style="display:none">ℹ️ Replay nahi chal raha — sirf Balance/Positions/History browse mode. Naya trade lene ke liye pehle date select karke Bar Replay start karo.</div>
     <div id="sv2-oc-margincall-banner" style="display:none"></div>
     <div id="sv2-oc-eod-banner" style="display:none"></div>
     <div id="sv2-oc-rollover-banner" style="display:none"></div>
@@ -7520,6 +7574,15 @@ var SV2OC = {
   open: false,
   activeTab: 'chain',
   currentAssetKey: null, // 'bn' | 'btc' — set by _sv2OCSyncAssetContext()
+  // ── Manual asset override — jab Bar Replay chal hi nahi raha (date select
+  // nahi hui), _sv2OCAssetKeyFromLive() null deta hai. Us waqt user asset-
+  // picker se BN/BTC choose karta hai, wahi key yahan store hoti hai taaki
+  // balance/positions/history dekhe ja sakein (read-only — spot na hone ki
+  // wajah se naya trade nahi le sakte, chain khaali/spot-- dikhega). Replay
+  // chalu hote hi live-asset hamesha isse override kar deta hai. ──────────
+  _manualAssetKey: (function () {
+    try { return localStorage.getItem('sv2_oc_manual_asset_v1') || null; } catch (_) { return null; }
+  })(),
   strikeStep: 100,
   lotSize: 30,
   qtySingular: 'lot', qtyPlural: 'lots',
@@ -7592,16 +7655,22 @@ function _sv2OCAssetKeyFromLive() {
 // hai). Returns false agar abhi koi supported asset replay mein nahi hai
 // (Option Chain button ka gate isi par depend karta hai). ────────────────
 function _sv2OCSyncAssetContext() {
+  // Live replay hamesha priority leta hai — chal raha ho to usi asset ki
+  // truth maani jaati hai. Replay na chal raha ho to manually-picked asset
+  // (asset-picker se choose kiya gaya) fallback ki tarah use hota hai —
+  // isse balance/positions/history bina date-select kiye bhi dekhe ja
+  // sakte hain (spot na hone ki wajah se sirf naya trade lena disabled rehta hai).
   var liveKey = _sv2OCAssetKeyFromLive();
-  if (!liveKey) return false;
-  if (SV2OC.currentAssetKey === liveKey) return true; // already synced, kuch nahi karna
+  var effectiveKey = liveKey || SV2OC._manualAssetKey;
+  if (!effectiveKey) return false;
+  if (SV2OC.currentAssetKey === effectiveKey) return true; // already synced, kuch nahi karna
   if (SV2OC.currentAssetKey) { // pichhle asset ka state save kar lo switch karne se pehle
     _sv2OCSavePositions();
     _sv2OCSaveBalance();
     _sv2OCSavePendingOrders();
   }
-  var cfg = SV2OC_ASSET_CFG[liveKey] || SV2OC_ASSET_CFG.bn;
-  SV2OC.currentAssetKey = liveKey;
+  var cfg = SV2OC_ASSET_CFG[effectiveKey] || SV2OC_ASSET_CFG.bn;
+  SV2OC.currentAssetKey = effectiveKey;
   SV2OC.strikeStep = cfg.strikeStep;
   SV2OC.lotSize = cfg.lotSize;
   SV2OC.qtySingular = cfg.qtySingular;
@@ -7627,6 +7696,11 @@ function _sv2OCSyncAssetContext() {
   _sv2OCLoadWatchlist();
   return true;
 }
+// ── True jab Bar Replay actually chal raha ho (spot available). False jab
+// sheet manual asset-pick ke through, replay ke bina, khuli hai — is case
+// mein sirf balance/positions/history browse ho sakte hain (read-only),
+// naya trade lena disabled rehta hai kyunki koi live/replay spot hi nahi hai. ─
+function _sv2OCIsLiveReplay() { return !!_sv2OCAssetKeyFromLive(); }
 // ── Har asset ki apni alag positions/balance storage — BN aur BTC ki
 // virtual trading kabhi mix nahi hoti. ────────────────────────────────────
 function _sv2OCStorageKey() { return 'sv2_oc_positions_v1_' + (SV2OC.currentAssetKey || 'bn'); }
@@ -8670,6 +8744,14 @@ function _sv2OptionChainToggle() {
   var backdrop = document.getElementById('sv2-oc-backdrop');
   if (!sheet || !backdrop) return;
   if (sheet.classList.contains('open')) { _sv2OCClose(); return; }
+  // ── Replay chal nahi raha AUR kabhi manually koi asset pick bhi nahi
+  // kiya — pehle chhota BN/BTC picker dikhao (isse sync-context fail hone
+  // ka alert ab sirf tab aata hai jab dono hi missing hon aur user ne
+  // picker se bhi kuch choose na kiya ho, jo normally nahi hota). ────────
+  if (!_sv2OCAssetKeyFromLive() && !SV2OC._manualAssetKey) {
+    _sv2OCOpenPicker();
+    return;
+  }
   if (!_sv2OCSyncAssetContext()) {
     alert('Option Chain sirf Bar Replay ke andar available hai (BankNifty ya BTC).');
     return;
@@ -8710,6 +8792,15 @@ function _sv2OptionChainToggle() {
   _sv2OCUpdateMarginCallBanner();
   _sv2OCUpdateEodSquareOffWarning();
   _sv2OCUpdateRolloverWarning();
+  _sv2OCUpdateNoReplayBanner();
+}
+// ── Read-only banner — sirf tab dikhta hai jab sheet manual asset-pick se
+// (replay ke bina) khuli ho. Replay start hote hi (ya asset switch hote
+// hi) agli baar sheet open/refresh hone par khud hi hat jaata hai. ───────
+function _sv2OCUpdateNoReplayBanner() {
+  var banner = document.getElementById('sv2-oc-noreplay-banner');
+  if (!banner) return;
+  banner.style.display = _sv2OCIsLiveReplay() ? 'none' : 'block';
 }
 function _sv2OCClose() {
   var sheet = document.getElementById('sv2-oc-sheet');
@@ -8719,6 +8810,31 @@ function _sv2OCClose() {
   if (backdrop) backdrop.classList.remove('open');
   var barEl = document.getElementById('sv2-oc-builder-bar');
   if (barEl) barEl.classList.remove('show'); // legs draft preserved, bar bas hide ho jaati hai
+}
+// ── Asset Picker — replay ke bina Option Chain kholne par pehle BN/BTC
+// choose karwane wala chhota card. Selection localStorage mein persist
+// hoti hai (agli baar bhi bina dobara poochhe wahi asset khulega) — jab
+// bhi live replay actual mein chalu ho, wo hamesha isse override kar deta
+// hai (_sv2OCSyncAssetContext mein liveKey ki priority hai). ─────────────
+function _sv2OCOpenPicker() {
+  var p = document.getElementById('sv2-oc-picker');
+  var pb = document.getElementById('sv2-oc-picker-backdrop');
+  if (!p || !pb) return;
+  p.classList.add('open');
+  pb.classList.add('open');
+}
+function _sv2OCClosePicker() {
+  var p = document.getElementById('sv2-oc-picker');
+  var pb = document.getElementById('sv2-oc-picker-backdrop');
+  if (p) p.classList.remove('open');
+  if (pb) pb.classList.remove('open');
+}
+function _sv2OCPickAsset(key) {
+  if (key !== 'bn' && key !== 'btc') return;
+  SV2OC._manualAssetKey = key;
+  try { localStorage.setItem('sv2_oc_manual_asset_v1', key); } catch (_) {}
+  _sv2OCClosePicker();
+  _sv2OptionChainToggle(); // ab liveKey/manualKey mil chuki hai, sheet normally khul jaayegi
 }
 function _sv2OCSelectTab(tab) {
   SV2OC.activeTab = tab;
