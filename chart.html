@@ -22390,7 +22390,7 @@ function _ocDiagRun() {
   const sumEl = document.getElementById('oc-diag-summary');
   const btn   = document.getElementById('oc-diag-run-btn');
   if (sumEl) sumEl.textContent = '';
-  if (resEl) resEl.innerHTML = '<div style="color:#9598a1;font-size:11px;padding:6px 0">⏳ Testing all combos... (max ~40s, page reload hoga)</div>';
+  if (resEl) resEl.innerHTML = '<div style="color:#9598a1;font-size:11px;padding:6px 0">⏳ Testing all combos in parallel... (max ~10-12s, page reload hoga)</div>';
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Testing...'; }
   try {
     const parentUrl = window.parent.location.href.split('?')[0].split('#')[0];

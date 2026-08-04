@@ -1680,9 +1680,11 @@ if _qp.get("sv2_chunk_reset") == "1":
 
 # Handler 5: Option Chain panel ke andar wale "🔧" Advanced Debug button —
 # EK click mein saare plausible URL/method/param combinations test karta
-# hai (sequential, chhote timeout ke saath) aur sabka poora request+response
-# detail ek saath capture karta hai — taaki exact wajah turant pata chale,
-# baar baar dropdown badal ke "Test" na dabana pade.
+# hai — PARALLEL threads mein (sequential NAHI), taaki total blocking time
+# ek single request jitna hi rahe (~8-9s max). Sequential (ek ke baad ek)
+# chalane se pehle poori app restart ho jaati thi kyunki Streamlit Cloud
+# lambe (~40s) blocking script-run ko health-check fail samajh ke poore
+# session ko hi reconnect/restart kar deta tha — isliye ab concurrent.
 if _qp.get("oc_diag_trigger") == "1":
     st.query_params.clear()
     _diag_creds = load_creds()
@@ -1716,8 +1718,7 @@ if _qp.get("oc_diag_trigger") == "1":
              "params": {"symbol": _sym, "strikecount": "25", "timestamp": ""}},
         ]
 
-        _results = []
-        for _v in _diag_variants:
+        def _run_one(_v):
             _t0 = time.time()
             _entry = {
                 "name": _v["name"], "method": _v["method"].upper(), "url": _v["url"],
@@ -1745,7 +1746,26 @@ if _qp.get("oc_diag_trigger") == "1":
                     "ok": False, "error": str(_dex),
                     "latency_ms": round((time.time() - _t0) * 1000),
                 })
-            _results.append(_entry)
+            return _entry
+
+        # Sab requests EK SAATH (parallel) fire karo — total wait sabse
+        # dheere request jitna hi hoga (~8-9s), sequential 5x nahi.
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=len(_diag_variants)) as _pool:
+            _futures = {_pool.submit(_run_one, _v): _v for _v in _diag_variants}
+            _results_map = {}
+            for _fut in _cf.as_completed(_futures, timeout=15):
+                _v = _futures[_fut]
+                try:
+                    _results_map[_v["name"]] = _fut.result()
+                except Exception as _dex2:
+                    _results_map[_v["name"]] = {
+                        "name": _v["name"], "method": _v["method"].upper(), "url": _v["url"],
+                        "full_url": _v["url"], "status_code": None, "body": None,
+                        "ok": False, "error": str(_dex2), "latency_ms": None,
+                    }
+        # Original order preserve karo (as_completed order random hota hai)
+        _results = [_results_map[_v["name"]] for _v in _diag_variants]
 
         _OC_DIAG_RESULT = {
             "ts": time.time(),
