@@ -3430,7 +3430,24 @@ select.s-select, input.s-select{
 .oc-strike-cell{flex:1.4;text-align:center;font-weight:700;color:#e0e3eb;background:#181b23;border-radius:4px;margin:0 2px}
 .oc-up{color:#26a69a}
 .oc-dn{color:#ef5350}
+.oc-row.oc-selected{background:#132a44;outline:1px solid #2962ff}
 #oc-ftr{padding:6px 12px;border-top:1px solid #2a2e39;font-size:10px;color:#555;flex-shrink:0}
+
+/* ── SV1 Real Option Chain — tabs (Chain / Positions / Balance / History) ── */
+#oc-tabs{display:flex;gap:6px;padding:8px 12px;border-bottom:1px solid #2a2e39;flex-shrink:0}
+.oc-tab-btn{
+  flex:1;height:32px;border-radius:8px;border:1px solid #2a2e39;
+  background:#181b23;color:#787b86;font-size:11px;font-weight:700;cursor:pointer;
+}
+.oc-tab-btn.active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+.oc-tabpanel{display:none;flex:1;min-height:0;flex-direction:column;overflow:hidden}
+.oc-tabpanel.active{display:flex}
+.oc-empty-state{padding:32px 20px;text-align:center;color:#666;font-size:12px;line-height:1.6}
+#oc-balance-card{margin:16px 12px;padding:16px;background:#181b23;border:1px solid #2a2e39;border-radius:10px}
+#oc-balance-label{font-size:11px;color:#787b86;margin-bottom:6px}
+#oc-balance-value{font-size:22px;font-weight:700;color:#d1d4dc}
+#oc-balance-strike-row{display:flex;justify-content:space-between;margin-top:14px;padding-top:14px;border-top:1px solid #2a2e39;font-size:11px;color:#9598a1}
+#oc-balance-updated{padding:0 12px;font-size:10px;color:#555}
 #fyers-meta-panel{
   display:none;position:fixed;z-index:10002;
   bottom:34px;left:8px;
@@ -4109,21 +4126,51 @@ function _hdrRelayout(){
     <span id="oc-spot">Spot: —</span>
     <span id="oc-expiry">Expiry: —</span>
   </div>
-  <div id="oc-col-hdr">
-    <span class="oc-col-ce">CALLS (CE)</span>
-    <span class="oc-col-strike">STRIKE</span>
-    <span class="oc-col-pe">PUTS (PE)</span>
+
+  <div id="oc-tabs">
+    <button class="oc-tab-btn active" id="oc-tab-chain-btn" onclick="_ocSelectTab('chain')">Chain</button>
+    <button class="oc-tab-btn" id="oc-tab-pos-btn" onclick="_ocSelectTab('positions')">Positions</button>
+    <button class="oc-tab-btn" id="oc-tab-bal-btn" onclick="_ocSelectTab('balance')">Balance</button>
+    <button class="oc-tab-btn" id="oc-tab-hist-btn" onclick="_ocSelectTab('history')">History</button>
   </div>
-  <div id="oc-legend">
-    <span>OI</span><span>Chg%</span><span>LTP</span>
-    <span class="oc-legend-strike"></span>
-    <span>LTP</span><span>Chg%</span><span>OI</span>
+
+  <div class="oc-tabpanel active" id="oc-tab-chain">
+    <div id="oc-col-hdr">
+      <span class="oc-col-ce">CALLS (CE)</span>
+      <span class="oc-col-strike">STRIKE</span>
+      <span class="oc-col-pe">PUTS (PE)</span>
+    </div>
+    <div id="oc-legend">
+      <span>OI</span><span>Chg%</span><span>LTP</span>
+      <span class="oc-legend-strike"></span>
+      <span>LTP</span><span>Chg%</span><span>OI</span>
+    </div>
+    <div id="oc-body">
+      <div id="oc-loading">Data load ho raha hai…</div>
+    </div>
+    <div id="oc-ftr">
+      <span id="oc-updated">—</span>
+    </div>
   </div>
-  <div id="oc-body">
-    <div id="oc-loading">Data load ho raha hai…</div>
+
+  <div class="oc-tabpanel" id="oc-tab-positions">
+    <div class="oc-empty-state">📭 Abhi koi open position nahi.<br>Buy/Sell feature aane ke baad yahan live positions dikhenge.</div>
   </div>
-  <div id="oc-ftr">
-    <span id="oc-updated">—</span>
+
+  <div class="oc-tabpanel" id="oc-tab-balance">
+    <div id="oc-balance-card">
+      <div id="oc-balance-label">Fyers Available Balance</div>
+      <div id="oc-balance-value">—</div>
+      <div id="oc-balance-strike-row">
+        <span>Nearest Strike (BANKNIFTY)</span>
+        <span id="oc-balance-strike">—</span>
+      </div>
+    </div>
+    <div id="oc-balance-updated">Update ka wait ho raha hai…</div>
+  </div>
+
+  <div class="oc-tabpanel" id="oc-tab-history">
+    <div class="oc-empty-state">📭 Abhi koi trade history nahi.<br>Buy/Sell feature aane ke baad closed trades yahan dikhenge.</div>
   </div>
 </div>
 
@@ -19266,6 +19313,11 @@ function _applyFyersMeta(data) {
     const t = data.ts ? new Date(data.ts * 1000) : new Date();
     uEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
   }
+  // Keep the Option-Chain panel's Balance tab in sync too, if it's open
+  const ocPanel = document.getElementById('oc-panel');
+  if (ocPanel && ocPanel.classList.contains('open') && typeof _ocSyncBalanceTab === 'function') {
+    _ocSyncBalanceTab();
+  }
 }
 
 // Direct poll fallback — Streamlit ke static file server se fyers_meta.json
@@ -19296,7 +19348,50 @@ function toggleOptionChain() {
   const p = document.getElementById('oc-panel');
   if (!p) return;
   p.classList.toggle('open');
-  if (p.classList.contains('open')) _pollOptionChain();
+  if (p.classList.contains('open')) { _pollOptionChain(); _ocSyncBalanceTab(); }
+}
+
+// ── Tabs: Chain / Positions / Balance / History (independent from SV2) ────
+let _ocActiveTab = 'chain';
+function _ocSelectTab(tab) {
+  _ocActiveTab = tab;
+  ['chain','positions','balance','history'].forEach(t => {
+    const btn = document.getElementById('oc-tab-' + (t==='positions'?'pos':t==='history'?'hist':t) + '-btn');
+    const panel = document.getElementById('oc-tab-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+    if (panel) panel.classList.toggle('active', t === tab);
+  });
+  if (tab === 'balance') _ocSyncBalanceTab();
+}
+
+// ── Tap a strike row to select/highlight it (no order panel — Buy/Sell
+// abhi add nahi hai). Sirf ek row select rehti hai; dobara tap karne se
+// deselect ho jaati hai. ────────────────────────────────────────────────
+let _ocSelectedStrike = null;
+function _ocSelectStrike(el, strike) {
+  const prev = document.querySelector('.oc-row.oc-selected');
+  if (prev && prev !== el) prev.classList.remove('oc-selected');
+  if (_ocSelectedStrike === strike) {
+    el.classList.remove('oc-selected');
+    _ocSelectedStrike = null;
+  } else {
+    el.classList.add('oc-selected');
+    _ocSelectedStrike = strike;
+  }
+}
+
+// Balance tab reuses the same real Fyers balance data that already flows
+// via _applyFyersMeta (💰 Balance panel) — same live number, own display.
+function _ocSyncBalanceTab() {
+  const bEl = document.getElementById('fm-balance');
+  const sEl = document.getElementById('fm-strike');
+  const uEl = document.getElementById('fm-updated');
+  const obEl = document.getElementById('oc-balance-value');
+  const osEl = document.getElementById('oc-balance-strike');
+  const ouEl = document.getElementById('oc-balance-updated');
+  if (obEl && bEl) obEl.textContent = bEl.textContent;
+  if (osEl && sEl) osEl.textContent = sEl.textContent;
+  if (ouEl && uEl) ouEl.textContent = uEl.textContent;
 }
 
 function _fmtNum(n) {
@@ -19330,7 +19425,8 @@ function _applyOptionChain(data) {
     const isAtm = data.atm != null && row.strike === data.atm;
     const ceChgCls = (ce.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
     const peChgCls = (pe.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
-    html += `<div class="oc-row${isAtm ? ' oc-atm' : ''}">`
+    const selCls = (_ocSelectedStrike === row.strike) ? ' oc-selected' : '';
+    html += `<div class="oc-row${isAtm ? ' oc-atm' : ''}${selCls}" onclick="_ocSelectStrike(this, ${row.strike})">`
          +   `<span class="oc-cell">${_fmtNum(ce.oi)}</span>`
          +   `<span class="oc-cell ${ceChgCls}">${_fmtNum(ce.chgp)}%</span>`
          +   `<span class="oc-cell">${_fmtNum(ce.ltp)}</span>`
