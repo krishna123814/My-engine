@@ -1066,6 +1066,29 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #chunk-settings-btn:active{background:#2a2e39}
 #chunk-settings-btn.active{border-color:#26a69a;color:#26a69a}
 
+/* ── Fyers Option Chain icon (bottom-bar) — was unstyled (default browser
+   button); now matches the other bottom-bar icons + shows a live P&L badge
+   for open positions so the user can see profit/loss without opening the
+   sheet. Badge is purely additive text, so the 44px+ touch target of the
+   button itself is untouched. ────────────────────────────────────────── */
+#sv2-oc-bottombar-btn{
+  height:18px;padding:0 8px;
+  background:transparent;border:1px solid #2a2e39;border-radius:3px;
+  color:#9598a1;font-size:11px;line-height:18px;cursor:pointer;white-space:nowrap;flex-shrink:0;
+  display:flex;align-items:center;gap:5px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+}
+#sv2-oc-bottombar-btn:active{background:#2a2e39}
+#sv2-oc-bottombar-btn.active{border-color:#2962ff;color:#2962ff}
+#sv2-oc-bottombar-btn.has-pos{border-color:#f0b90b}
+#sv2-oc-bottombar-badge{
+  display:none;font-size:9.5px;font-weight:700;line-height:1;
+  padding:2px 5px;border-radius:8px;
+}
+#sv2-oc-bottombar-badge.show{display:inline-block}
+#sv2-oc-bottombar-badge.pos{background:#26a69a22;color:#26a69a}
+#sv2-oc-bottombar-badge.neg{background:#ef535022;color:#ef5350}
+
 /* ── SV2 Chunk / Candle-Count Settings Panel (bottom-bar 📦 icon) ────── */
 #chunk-settings-panel{
   display:none;position:fixed;z-index:10002;bottom:30px;left:50%;transform:translateX(-50%);
@@ -2340,7 +2363,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-oc-balance-reset:active{ background:#2a2e39; }
 
 /* Greeks show/hide toggle */
-#sv2-oc-greeks-row{
+#sv2-oc-greeks-row, .sv2-oc-toggle-row{
   display:flex; align-items:center; justify-content:space-between;
   font-size:11px; color:#787b86; padding:0 2px 10px;
 }
@@ -2354,12 +2377,29 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-oc-greeks-toggle.on{ background:#2962ff55; }
 #sv2-oc-greeks-toggle.on::after{ left:18px; background:#2962ff; }
+#sv2-oc-depth-toggle{
+  width:38px; height:22px; border-radius:11px; border:none; cursor:pointer;
+  background:#2a2e39; position:relative;
+}
+#sv2-oc-depth-toggle::after{
+  content:''; position:absolute; top:2px; left:2px; width:18px; height:18px;
+  border-radius:50%; background:#787b86; transition:left .15s, background .15s;
+}
+#sv2-oc-depth-toggle.on{ background:#2962ff55; }
+#sv2-oc-depth-toggle.on::after{ left:18px; background:#2962ff; }
 
 /* Greeks sub-line inside each CE/PE cell (only shown when toggle is ON) */
 .sv2-oc-greeks-sub{
   display:block; font-size:8.5px; font-weight:600; color:#787b86;
   margin-top:2px; line-height:1.3;
 }
+/* Depth sub-line (Bid/Ask, OI, OI-change, Volume) inside each CE/PE cell */
+.sv2-oc-depth-sub{
+  display:block; font-size:8.5px; font-weight:600; color:#9598a1;
+  margin-top:2px; line-height:1.55; text-align:left; padding-left:4px;
+}
+.sv2-oc-depth-sub .oi-up{ color:#26a69a; }
+.sv2-oc-depth-sub .oi-dn{ color:#ef5350; }
 
 #sv2-oc-trade-total{ font-size:12px; color:#787b86; margin:-8px 0 14px; }
 #sv2-oc-tabs{ display:flex; gap:6px; padding:0 16px 10px; }
@@ -2408,6 +2448,40 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-cell-ltp.ce{ color:#26a69a; background:#26a69a14; }
 .sv2-oc-cell-ltp.pe{ color:#ef5350; background:#ef535014; }
 .sv2-oc-cell-ltp:active{ opacity:.7; }
+#sv2-oc-positions-toolbar{ display:flex; justify-content:flex-end; padding:8px 0 0; }
+#sv2-oc-exitall-btn{
+  height:30px; padding:0 14px; border-radius:7px; border:1px solid #ef5350;
+  background:#ef535018; color:#ef5350; font-size:11px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-exitall-btn:active{ background:#ef535044; }
+
+/* ── Risk & Margin panel (Positions tab) ─────────────────────────────── */
+#sv2-oc-risk-panel{
+  border:1px solid #2a2e39; border-radius:10px; padding:10px 12px; margin:6px 0 4px;
+  background:#1a1d27;
+}
+#sv2-oc-risk-title{ font-size:11.5px; font-weight:700; color:#d1d4dc; margin-bottom:8px; }
+#sv2-oc-risk-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; }
+.sv2-oc-risk-cell{ display:flex; flex-direction:column; gap:2px; }
+.sv2-oc-risk-lbl{ font-size:9.5px; color:#787b86; }
+.sv2-oc-risk-val{ font-size:13px; font-weight:700; color:#d1d4dc; }
+.sv2-oc-risk-val.pos{ color:#26a69a; }
+.sv2-oc-risk-val.neg{ color:#ef5350; }
+.sv2-oc-risk-val.hedge{ color:#2962ff; }
+#sv2-oc-risk-note{ font-size:9px; color:#5b606e; margin-top:8px; line-height:1.4; }
+
+/* ── Margin call banner — critical, visible across all tabs ─────────── */
+#sv2-oc-margincall-banner{
+  margin:0 16px 10px; border-radius:9px; padding:9px 12px;
+  font-size:11px; font-weight:700; line-height:1.5;
+}
+#sv2-oc-margincall-banner.warn{ background:#f0b90b1c; border:1px solid #f0b90b; color:#f0b90b; }
+#sv2-oc-margincall-banner.danger{
+  background:#ef535022; border:1px solid #ef5350; color:#ef5350;
+  animation:sv2ocMarginPulse 1.4s ease-in-out infinite;
+}
+@keyframes sv2ocMarginPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.62; } }
+
 #sv2-oc-positions-empty{
   font-size:12px; color:#5b606e; text-align:center; padding:30px 0;
 }
@@ -2421,17 +2495,85 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-pos-pnl.pos{ color:#26a69a; }
 .sv2-oc-pos-pnl.neg{ color:#ef5350; }
 .sv2-oc-pos-meta{ font-size:9.5px; color:#5b606e; margin-top:4px; line-height:1.5; }
-.sv2-oc-pos-actions{ display:flex; gap:8px; margin-top:8px; }
+.sv2-oc-pos-actions{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
 .sv2-oc-pos-sltp-btn{
-  flex:1; height:32px; border-radius:7px; border:1px solid #2a2e39;
+  flex:1; min-width:80px; height:32px; border-radius:7px; border:1px solid #2a2e39;
   background:#1e222d; color:#787b86; font-size:11px; font-weight:700; cursor:pointer;
 }
 .sv2-oc-pos-sltp-btn:active{ background:#2a2e39; }
+.sv2-oc-pos-trail-btn{
+  flex:1; min-width:80px; height:32px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:11px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-pos-trail-btn:active{ background:#2a2e39; }
+.sv2-oc-pos-trail-btn.on{ background:#2962ff22; border-color:#2962ff; color:#2962ff; }
 .sv2-oc-pos-close-btn{
-  flex:1; height:32px; border-radius:7px; border:none;
+  flex:1; min-width:80px; height:32px; border-radius:7px; border:none;
   background:#ef535022; color:#ef5350; font-size:11px; font-weight:700; cursor:pointer;
 }
 .sv2-oc-pos-close-btn:active{ background:#ef535044; }
+.sv2-oc-pos-partial-btn{
+  flex:1; min-width:80px; height:32px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#f0b90b; font-size:11px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-pos-partial-btn:active{ background:#2a2e39; }
+
+/* Trade Record (History) tab */
+#sv2-oc-hist-summary-row{
+  display:flex; justify-content:space-between; gap:8px;
+  margin-bottom:12px; padding:10px 12px; border-radius:10px;
+  background:#1e222d; border:1px solid #2a2e39;
+}
+.sv2-oc-hist-sum-lbl{ font-size:9px; color:#787b86; font-weight:600; text-align:center; }
+.sv2-oc-hist-sum-val{ font-size:13px; color:#d1d4dc; font-weight:700; margin-top:2px; text-align:center; }
+.sv2-oc-hist-sum-val.pos{ color:#26a69a; }
+.sv2-oc-hist-sum-val.neg{ color:#ef5350; }
+.sv2-oc-hist-card{ opacity:.92; }
+.sv2-oc-hist-reason{
+  font-size:9px; font-weight:700; color:#787b86; background:#1e222d;
+  border:1px solid #2a2e39; border-radius:5px; padding:1px 5px; margin-left:4px;
+}
+
+/* ── P&L & Analytics tab (Option Chain sheet) — equity curve, win-rate,
+   day-vs-overall, best/worst trade. Reuses the same visual language as
+   the History tab summary row / cards. ──────────────────────────────── */
+#sv2-oc-an-empty{ font-size:12px; color:#5b606e; text-align:center; padding:30px 0; }
+#sv2-oc-an-scope-row{ display:flex; gap:6px; padding:0 0 10px; }
+.sv2-oc-an-scope-btn{
+  flex:1; height:28px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:10.5px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-an-scope-btn.active{ background:#2962ff22; border-color:#2962ff; color:#2962ff; }
+#sv2-oc-an-stats-grid{
+  display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;
+}
+.sv2-oc-an-stat-cell{
+  border:1px solid #2a2e39; border-radius:9px; padding:9px 10px; background:#1e222d;
+}
+.sv2-oc-an-stat-lbl{ font-size:9px; color:#787b86; font-weight:600; }
+.sv2-oc-an-stat-val{ font-size:15px; color:#d1d4dc; font-weight:700; margin-top:3px; }
+.sv2-oc-an-stat-val.pos{ color:#26a69a; }
+.sv2-oc-an-stat-val.neg{ color:#ef5350; }
+.sv2-oc-an-stat-sub{ font-size:9px; color:#5b606e; margin-top:2px; }
+#sv2-oc-an-equity-wrap{
+  border:1px solid #2a2e39; border-radius:10px; padding:10px 10px 6px; margin-bottom:12px;
+  background:#1a1d27;
+}
+#sv2-oc-an-equity-title{ font-size:11px; font-weight:700; color:#d1d4dc; margin-bottom:6px; display:flex; justify-content:space-between; }
+#sv2-oc-an-equity-title span:last-child{ font-weight:700; }
+#sv2-oc-an-equity-canvas{ width:100%; height:120px; display:block; }
+#sv2-oc-an-equity-empty{ font-size:10.5px; color:#5b606e; text-align:center; padding:20px 0; }
+#sv2-oc-an-bw-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.sv2-oc-an-bw-card{
+  border:1px solid #2a2e39; border-radius:9px; padding:9px 10px; background:#1e222d;
+}
+.sv2-oc-an-bw-card.best{ border-color:#26a69a55; }
+.sv2-oc-an-bw-card.worst{ border-color:#ef535055; }
+.sv2-oc-an-bw-lbl{ font-size:9px; color:#787b86; font-weight:600; }
+.sv2-oc-an-bw-pnl{ font-size:14px; font-weight:700; margin-top:3px; }
+.sv2-oc-an-bw-pnl.pos{ color:#26a69a; }
+.sv2-oc-an-bw-pnl.neg{ color:#ef5350; }
+.sv2-oc-an-bw-meta{ font-size:9.5px; color:#787b86; margin-top:3px; line-height:1.4; }
 
 /* Buy/Sell action mini-sheet (opens above the chain when a strike is tapped) */
 #sv2-oc-trade-backdrop{
@@ -2461,6 +2603,36 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-sltp-input::placeholder{ color:#5b606e; }
 .sv2-oc-sltp-input:focus{ outline:none; border-color:#2962ff; }
 #sv2-oc-trade-margin-note{ font-size:9.5px; color:#ff9800; margin:-8px 0 12px; line-height:1.4; }
+#sv2-oc-order-type-row{ display:flex; gap:8px; margin-bottom:10px; }
+.sv2-oc-ordertype-btn{
+  flex:1; height:32px; border-radius:8px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:11.5px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-ordertype-btn.active{ background:#2962ff22; border-color:#2962ff; color:#2962ff; }
+.sv2-oc-ordertype-btn.small{ flex:none; height:24px; padding:0 8px; font-size:10px; }
+#sv2-oc-limit-price-row{ margin-bottom:10px; }
+#sv2-oc-limit-price-row .sv2-oc-sltp-input{ width:100%; }
+#sv2-oc-slippage-note{ font-size:9.5px; color:#5b606e; margin:-6px 0 10px; line-height:1.4; }
+#sv2-oc-sltype-row{
+  display:flex; align-items:center; gap:6px; margin:-6px 0 10px;
+}
+#sv2-oc-sltype-label{ font-size:10px; color:#787b86; margin-right:2px; }
+#sv2-oc-sllimit-price-row{ margin-bottom:10px; }
+#sv2-oc-sllimit-price-row .sv2-oc-sltp-input{ width:100%; }
+#sv2-oc-pending-orders-hdr{
+  font-size:11px; font-weight:700; color:#787b86; padding:6px 0; margin-top:4px;
+}
+.sv2-oc-pending-card{
+  border:1px dashed #ff980066; border-radius:10px; padding:9px 12px; margin:6px 0;
+  background:#ff980010;
+}
+.sv2-oc-pending-top{ display:flex; justify-content:space-between; align-items:center; }
+.sv2-oc-pending-name{ font-size:12px; font-weight:700; color:#d1d4dc; }
+.sv2-oc-pending-meta{ font-size:10px; color:#787b86; margin-top:2px; }
+.sv2-oc-pending-cancel-btn{
+  height:26px; padding:0 10px; border-radius:7px; border:1px solid #ef535055;
+  background:#ef535018; color:#ef5350; font-size:10.5px; font-weight:700; cursor:pointer;
+}
 #sv2-oc-trade-btns{ display:flex; gap:10px; }
 .sv2-oc-trade-act{
   flex:1; height:44px; border-radius:9px; border:none; font-size:13px;
@@ -2471,6 +2643,101 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-oc-trade-cancel{
   margin-top:10px; width:100%; height:36px; border-radius:9px;
   background:none; border:none; color:#787b86; font-size:12px; cursor:pointer;
+}
+
+/* ── SV2 Option Chain — Multi-Leg Builder ────────────────────────────────
+   Toggle row (Chain tab) + floating "N legs" bar + a review bottom-sheet,
+   same visual language as the rest of the Option Chain UI. */
+#sv2-oc-builder-toggle-row{ padding:0 2px 10px; }
+#sv2-oc-builder-toggle-btn{
+  width:100%; height:32px; border-radius:8px; border:1px dashed #2a2e39;
+  background:#1e222d; color:#787b86; font-size:11px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-builder-toggle-btn.on{
+  background:#f0b90b1c; border:1px solid #f0b90b; border-style:solid; color:#f0b90b;
+}
+#sv2-oc-builder-bar{
+  display:none; position:fixed; left:50%; bottom:14px; transform:translateX(-50%);
+  z-index:9420; width:calc(100% - 24px); max-width:456px;
+  background:#181c27; border:1px solid #f0b90b55; border-radius:12px;
+  padding:9px 12px; align-items:center; gap:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,.4);
+}
+#sv2-oc-builder-bar.show{ display:flex; }
+#sv2-oc-builder-bar-count{ flex:1; font-size:12px; font-weight:700; color:#f0b90b; }
+#sv2-oc-builder-bar-review{
+  height:32px; padding:0 12px; border-radius:8px; border:none;
+  background:#f0b90b; color:#0c1017; font-size:11.5px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-builder-bar-clear{
+  height:32px; width:32px; border-radius:8px; border:1px solid #2a2e39;
+  background:#1e222d; color:#ef5350; font-size:13px; cursor:pointer;
+}
+#sv2-oc-builder-backdrop{
+  display:none; position:fixed; inset:0; z-index:9430; background:rgba(0,0,0,.55);
+}
+#sv2-oc-builder-backdrop.open{ display:block; }
+#sv2-oc-builder-card{
+  display:none; position:fixed; left:50%; bottom:0; transform:translateX(-50%);
+  width:100%; max-width:480px; max-height:82vh; overflow-y:auto;
+  -webkit-overflow-scrolling:touch; z-index:9431;
+  background:#181c27; border-radius:14px 14px 0 0; padding:16px;
+}
+#sv2-oc-builder-card.open{ display:block; }
+#sv2-oc-builder-hdr{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+#sv2-oc-builder-title{ font-size:14px; font-weight:700; color:#d1d4dc; }
+#sv2-oc-builder-close{
+  width:30px; height:30px; border-radius:8px; border:none;
+  background:#1e222d; color:#d1d4dc; font-size:15px; cursor:pointer;
+}
+#sv2-oc-builder-presets{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+#sv2-oc-builder-presets button{
+  height:28px; padding:0 10px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#2962ff; font-size:10.5px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-builder-presets button:active{ background:#2a2e39; }
+#sv2-oc-builder-legs-list{ min-height:20px; }
+#sv2-oc-builder-payoff-row{ display:flex; gap:10px; margin:4px 0 10px; }
+.sv2-oc-builder-payoff-cell{
+  flex:1; border:1px solid #2a2e39; border-radius:8px; padding:8px 10px;
+  display:flex; flex-direction:column; gap:2px;
+}
+.sv2-oc-builder-payoff-cell span{ font-size:9.5px; color:#787b86; }
+.sv2-oc-builder-payoff-cell b{ font-size:13px; }
+.sv2-oc-builder-payoff-cell b.pos{ color:#26a69a; }
+.sv2-oc-builder-payoff-cell b.neg{ color:#ef5350; }
+#sv2-oc-builder-legs-empty{ font-size:12px; color:#5b606e; text-align:center; padding:20px 0; }
+.sv2-oc-leg-card{
+  display:flex; align-items:center; gap:8px;
+  border:1px solid #2a2e39; border-radius:9px; padding:8px 10px; margin-bottom:8px;
+}
+.sv2-oc-leg-info{ flex:1; min-width:0; }
+.sv2-oc-leg-name{ font-size:12px; font-weight:700; color:#d1d4dc; }
+.sv2-oc-leg-meta{ font-size:10px; color:#787b86; margin-top:2px; }
+.sv2-oc-leg-side-btn{
+  height:26px; padding:0 10px; border-radius:6px; border:none; font-size:10.5px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-leg-side-btn.buy{ background:#26a69a22; color:#26a69a; }
+.sv2-oc-leg-side-btn.sell{ background:#ef535022; color:#ef5350; }
+.sv2-oc-leg-qty-btn{
+  width:22px; height:22px; border-radius:5px; border:1px solid #2a2e39;
+  background:#1e222d; color:#d1d4dc; font-size:12px; cursor:pointer;
+}
+.sv2-oc-leg-qty-val{ font-size:11px; color:#d1d4dc; min-width:16px; text-align:center; }
+.sv2-oc-leg-remove-btn{
+  width:24px; height:24px; border-radius:6px; border:none;
+  background:#2a2e39; color:#787b86; font-size:12px; cursor:pointer;
+}
+#sv2-oc-builder-note{ font-size:9.5px; color:#5b606e; line-height:1.5; margin:6px 0 10px; }
+#sv2-oc-builder-total{ font-size:12px; font-weight:700; color:#d1d4dc; margin-bottom:12px; }
+#sv2-oc-builder-btns{ display:flex; gap:10px; }
+#sv2-oc-builder-clear{
+  flex:1; height:40px; border-radius:9px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:12px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-builder-place{
+  flex:2; height:40px; border-radius:9px; border:none;
+  background:#2962ff; color:#fff; font-size:13px; font-weight:700; cursor:pointer;
 }
 
 /* Top strip — reuses the existing symbol/TF/letter overlay line.
@@ -3598,6 +3865,7 @@ function _hdrRelayout(){
   <button id="notepad-btn" onclick="toggleNotepad()" title="Notepad">📝</button>
   <button id="music-btn" onclick="toggleMusic()" title="Music Player">🎵</button>
   <button id="grid-btn" onclick="toggleGridPicker()">⊞ Layout</button>
+  <button id="sv2-oc-bottombar-btn" onclick="_sv2OptionChainToggle()" title="Option Chain (Virtual Trading)" style="display:none">⛓️ Options<span id="sv2-oc-bottombar-badge"></span></button>
   <button id="chunk-settings-btn" onclick="toggleChunkSettings()" title="Chunk / Candle-Count Settings">📦 Chunk</button>
   <div class="bot-sep"></div>
   <button id="stack-up-btn" onclick="_stackStepJump(document.getElementById('stack-container'), -1)" title="Scroll up (earlier charts)">▲</button>
@@ -4046,9 +4314,13 @@ function _hdrRelayout(){
       </div>
     </div>
 
+    <div id="sv2-oc-margincall-banner" style="display:none"></div>
+
     <div id="sv2-oc-tabs">
       <button class="sv2-oc-tab-btn active" id="sv2-oc-tab-chain-btn" onclick="_sv2OCSelectTab('chain')">Chain</button>
       <button class="sv2-oc-tab-btn" id="sv2-oc-tab-pos-btn" onclick="_sv2OCSelectTab('positions')">Positions <span id="sv2-oc-pos-count"></span></button>
+      <button class="sv2-oc-tab-btn" id="sv2-oc-tab-hist-btn" onclick="_sv2OCSelectTab('history')">History <span id="sv2-oc-hist-count"></span></button>
+      <button class="sv2-oc-tab-btn" id="sv2-oc-tab-analytics-btn" onclick="_sv2OCSelectTab('analytics')">📈 P&amp;L</button>
     </div>
 
     <div class="sv2-oc-panel active" id="sv2-oc-panel-chain">
@@ -4056,18 +4328,26 @@ function _hdrRelayout(){
         <button class="sv2-oc-expiry-mode-btn active" id="sv2-oc-expiry-mode-cur" onclick="_sv2OCSetExpiryMode('current')">This Month</button>
         <button class="sv2-oc-expiry-mode-btn" id="sv2-oc-expiry-mode-next" onclick="_sv2OCSetExpiryMode('next')">Next Month</button>
       </div>
+      <div id="sv2-oc-builder-toggle-row">
+        <button id="sv2-oc-builder-toggle-btn" onclick="_sv2OCBuilderToggleMode()">🧩 Multi-Leg Builder: OFF</button>
+      </div>
       <div id="sv2-oc-expiry-row">
         <span>Expiry (monthly)</span>
         <span id="sv2-oc-expiry-val">--</span>
       </div>
       <div id="sv2-oc-greeks-row">
-        <span id="sv2-oc-greeks-label">Show Greeks (Δ Γ Θ Vega)</span>
+        <span id="sv2-oc-greeks-label">Show Greeks (Δ Γ Θ Vega + IV)</span>
         <button id="sv2-oc-greeks-toggle" onclick="_sv2OCToggleGreeks()"></button>
+      </div>
+      <div id="sv2-oc-depth-row" class="sv2-oc-toggle-row">
+        <span id="sv2-oc-depth-label">Show Depth (Bid/Ask · OI · Vol)</span>
+        <button id="sv2-oc-depth-toggle" onclick="_sv2OCToggleDepth()"></button>
       </div>
       <div id="sv2-oc-note">
         ⚠️ Ye LTP real broker se nahi aa raha — Black-Scholes model se replay ke
-        underlying price par calculate ho raha hai (practice ke liye). Volume
-        is model mein zaroori nahi hota, isliye nahi dikhaya gaya.
+        underlying price par calculate ho raha hai (practice ke liye). Bid/Ask,
+        OI, OI-change aur Volume bhi SIMULATED hain (deterministic model se),
+        real exchange feed nahi hain — sirf real chain jaisa practice-feel dene ke liye.
       </div>
       <div id="sv2-oc-chain-hdr">
         <span>CE LTP</span><span>Strike</span><span>PE LTP</span>
@@ -4076,8 +4356,75 @@ function _hdrRelayout(){
     </div>
 
     <div class="sv2-oc-panel" id="sv2-oc-panel-positions">
+      <div id="sv2-oc-risk-panel" style="display:none">
+        <div id="sv2-oc-risk-title">📐 Risk &amp; Margin</div>
+        <div id="sv2-oc-risk-grid">
+          <div class="sv2-oc-risk-cell"><span class="sv2-oc-risk-lbl">Margin Used</span><span class="sv2-oc-risk-val" id="sv2-oc-risk-margin">--</span></div>
+          <div class="sv2-oc-risk-cell" id="sv2-oc-risk-hedge-cell" style="display:none"><span class="sv2-oc-risk-lbl">🛡️ Hedge Benefit</span><span class="sv2-oc-risk-val hedge" id="sv2-oc-risk-hedge">--</span></div>
+          <div class="sv2-oc-risk-cell"><span class="sv2-oc-risk-lbl">Max Profit</span><span class="sv2-oc-risk-val pos" id="sv2-oc-risk-maxprofit">--</span></div>
+          <div class="sv2-oc-risk-cell"><span class="sv2-oc-risk-lbl">Max Loss</span><span class="sv2-oc-risk-val neg" id="sv2-oc-risk-maxloss">--</span></div>
+        </div>
+        <div id="sv2-oc-risk-note">⚠️ Approx estimate (expiry payoff, current position-set par based) — asli broker margin/risk isse alag ho sakta hai.</div>
+      </div>
+      <div id="sv2-oc-positions-toolbar" style="display:none">
+        <button id="sv2-oc-exitall-btn" onclick="_sv2OCExitAllPositions()">⛔ Exit All</button>
+      </div>
       <div id="sv2-oc-positions-list"></div>
 
+    </div>
+
+    <div class="sv2-oc-panel" id="sv2-oc-panel-history">
+      <div id="sv2-oc-hist-summary"></div>
+      <div id="sv2-oc-hist-list"></div>
+    </div>
+
+    <div class="sv2-oc-panel" id="sv2-oc-panel-analytics">
+      <div id="sv2-oc-an-empty" style="display:none">Abhi koi closed trade nahi — kam-se-kam ek trade square-off/expire hone ke baad P&amp;L analytics yahan dikhega 👆</div>
+      <div id="sv2-oc-an-body" style="display:none">
+        <div id="sv2-oc-an-scope-row">
+          <button class="sv2-oc-an-scope-btn active" id="sv2-oc-an-scope-day" onclick="_sv2OCAnSetScope('day')">Latest Day</button>
+          <button class="sv2-oc-an-scope-btn" id="sv2-oc-an-scope-overall" onclick="_sv2OCAnSetScope('overall')">Overall</button>
+        </div>
+        <div id="sv2-oc-an-stats-grid">
+          <div class="sv2-oc-an-stat-cell">
+            <div class="sv2-oc-an-stat-lbl">Net P&amp;L</div>
+            <div class="sv2-oc-an-stat-val" id="sv2-oc-an-netpnl">--</div>
+            <div class="sv2-oc-an-stat-sub" id="sv2-oc-an-netpnl-sub"></div>
+          </div>
+          <div class="sv2-oc-an-stat-cell">
+            <div class="sv2-oc-an-stat-lbl">Win Rate</div>
+            <div class="sv2-oc-an-stat-val" id="sv2-oc-an-winrate">--</div>
+            <div class="sv2-oc-an-stat-sub" id="sv2-oc-an-winrate-sub"></div>
+          </div>
+          <div class="sv2-oc-an-stat-cell">
+            <div class="sv2-oc-an-stat-lbl">Trades</div>
+            <div class="sv2-oc-an-stat-val" id="sv2-oc-an-trades">--</div>
+            <div class="sv2-oc-an-stat-sub" id="sv2-oc-an-trades-sub"></div>
+          </div>
+          <div class="sv2-oc-an-stat-cell">
+            <div class="sv2-oc-an-stat-lbl">Avg P&amp;L / Trade</div>
+            <div class="sv2-oc-an-stat-val" id="sv2-oc-an-avgpnl">--</div>
+            <div class="sv2-oc-an-stat-sub" id="sv2-oc-an-avgpnl-sub"></div>
+          </div>
+        </div>
+        <div id="sv2-oc-an-equity-wrap">
+          <div id="sv2-oc-an-equity-title"><span>📈 Equity Curve</span><span id="sv2-oc-an-equity-final"></span></div>
+          <canvas id="sv2-oc-an-equity-canvas"></canvas>
+          <div id="sv2-oc-an-equity-empty" style="display:none">Is scope mein equity curve ke liye kaafi trades nahi hain.</div>
+        </div>
+        <div id="sv2-oc-an-bw-row">
+          <div class="sv2-oc-an-bw-card best">
+            <div class="sv2-oc-an-bw-lbl">🏆 Best Trade</div>
+            <div class="sv2-oc-an-bw-pnl" id="sv2-oc-an-best-pnl">--</div>
+            <div class="sv2-oc-an-bw-meta" id="sv2-oc-an-best-meta"></div>
+          </div>
+          <div class="sv2-oc-an-bw-card worst">
+            <div class="sv2-oc-an-bw-lbl">🥶 Worst Trade</div>
+            <div class="sv2-oc-an-bw-pnl" id="sv2-oc-an-worst-pnl">--</div>
+            <div class="sv2-oc-an-bw-meta" id="sv2-oc-an-worst-meta"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -4087,6 +4434,14 @@ function _hdrRelayout(){
 <div id="sv2-oc-trade-card">
   <div id="sv2-oc-trade-title">--</div>
   <div id="sv2-oc-trade-ltp">--</div>
+  <div id="sv2-oc-order-type-row">
+    <button class="sv2-oc-ordertype-btn active" id="sv2-oc-ordertype-market" onclick="_sv2OCSetOrderType('market')">Market</button>
+    <button class="sv2-oc-ordertype-btn" id="sv2-oc-ordertype-limit" onclick="_sv2OCSetOrderType('limit')">Limit</button>
+  </div>
+  <div id="sv2-oc-limit-price-row" style="display:none">
+    <input type="number" id="sv2-oc-trade-limit-price" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="Limit price">
+  </div>
+  <div id="sv2-oc-slippage-note"></div>
   <div id="sv2-oc-trade-qty-row">
     <button class="sv2-oc-qty-btn" onclick="_sv2OCQtyStep(-1)">−</button>
     <div id="sv2-oc-trade-qty-val">1 lot</div>
@@ -4097,12 +4452,63 @@ function _hdrRelayout(){
     <input type="number" id="sv2-oc-trade-sl" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="SL price (optional)">
     <input type="number" id="sv2-oc-trade-tp" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="Target price (optional)">
   </div>
+  <div id="sv2-oc-sltype-row">
+    <span id="sv2-oc-sltype-label">SL type:</span>
+    <button class="sv2-oc-ordertype-btn small active" id="sv2-oc-sltype-slm" onclick="_sv2OCSetSLType('SLM')">SL-Market</button>
+    <button class="sv2-oc-ordertype-btn small" id="sv2-oc-sltype-sll" onclick="_sv2OCSetSLType('SLL')">SL-Limit</button>
+  </div>
+  <div id="sv2-oc-sllimit-price-row" style="display:none">
+    <input type="number" id="sv2-oc-trade-sllimit" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="SL-Limit fill price">
+  </div>
   <div id="sv2-oc-trade-margin-note"></div>
   <div id="sv2-oc-trade-btns">
     <button class="sv2-oc-trade-act" id="sv2-oc-buy-btn" onclick="_sv2OCConfirmTrade('buy')">BUY</button>
     <button class="sv2-oc-trade-act" id="sv2-oc-sell-btn" onclick="_sv2OCConfirmTrade('sell')">SELL</button>
   </div>
   <button id="sv2-oc-trade-cancel" onclick="_sv2OCTradeCancel()">Cancel</button>
+</div>
+
+<!-- ═══ SV2 OPTION CHAIN — Multi-Leg Builder floating bar ═════════════════
+     Sirf Builder mode ON + kam-se-kam 1 leg add hone par dikhta hai — Chain
+     tab ke andar strike tap karne se yahin leg add hoti hai. ── -->
+<div id="sv2-oc-builder-bar" style="display:none">
+  <span id="sv2-oc-builder-bar-count">0 legs</span>
+  <button id="sv2-oc-builder-bar-review" onclick="_sv2OCBuilderOpen()">📋 Review &amp; Place</button>
+  <button id="sv2-oc-builder-bar-clear" onclick="_sv2OCBuilderClearAll()">🗑️</button>
+</div>
+
+<!-- ═══ SV2 OPTION CHAIN — Multi-Leg Builder review sheet ═════════════════
+     Legs list (side/lots editable per leg), quick strategy presets, aur
+     "Place All Legs" jo har leg ko market order ki tarah ek saath execute
+     karta hai (SAME _sv2OCExecuteFill engine — balance/margin/freeze-qty
+     sab per-leg check hota hai). ── -->
+<div id="sv2-oc-builder-backdrop" onclick="_sv2OCBuilderClose()"></div>
+<div id="sv2-oc-builder-card">
+  <div id="sv2-oc-builder-hdr">
+    <div id="sv2-oc-builder-title">🧩 Multi-Leg Builder</div>
+    <button id="sv2-oc-builder-close" onclick="_sv2OCBuilderClose()">✕</button>
+  </div>
+  <div id="sv2-oc-builder-presets">
+    <button onclick="_sv2OCBuilderPreset('straddle')">Straddle</button>
+    <button onclick="_sv2OCBuilderPreset('strangle')">Strangle</button>
+    <button onclick="_sv2OCBuilderPreset('bullcall')">Bull Call Spread</button>
+    <button onclick="_sv2OCBuilderPreset('bearput')">Bear Put Spread</button>
+    <button onclick="_sv2OCBuilderPreset('ironcondor')">Iron Condor</button>
+  </div>
+  <div id="sv2-oc-builder-legs-list"></div>
+  <div id="sv2-oc-builder-payoff-row">
+    <div class="sv2-oc-builder-payoff-cell"><span>Max Profit</span><b class="pos" id="sv2-oc-builder-maxprofit">--</b></div>
+    <div class="sv2-oc-builder-payoff-cell"><span>Max Loss</span><b class="neg" id="sv2-oc-builder-maxloss">--</b></div>
+  </div>
+  <div id="sv2-oc-builder-note">
+    ⚠️ Sab legs MARKET order ki tarah ek saath, bid/ask slippage ke saath fill hongi.
+    Har leg ka apna alag SL/Target/Trailing SL baad mein Positions tab se laga sakte ho.
+  </div>
+  <div id="sv2-oc-builder-total">Net Premium: --</div>
+  <div id="sv2-oc-builder-btns">
+    <button id="sv2-oc-builder-clear" onclick="_sv2OCBuilderClearAll()">Clear All</button>
+    <button id="sv2-oc-builder-place" onclick="_sv2OCBuilderPlaceAll()">🚀 Place All Legs</button>
+  </div>
 </div>
 
 <!-- ═══ FULLSCREEN RESTORE BANNER ═══════════════════════════════════════ -->
@@ -6841,6 +7247,7 @@ function _deactivateStack2() {
   const _srb = document.getElementById('sv2-sr-btn'); if (_srb) _srb.style.display = 'none';
   const _prb = document.getElementById('sv2-practice-btn'); if (_prb) _prb.style.display = 'none';
   const _ocb1 = document.getElementById('sv2-optionchain-btn'); if (_ocb1) _ocb1.style.display = 'none';
+  const _ocb1b = document.getElementById('sv2-oc-bottombar-btn'); if (_ocb1b) _ocb1b.style.display = 'none';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 }
@@ -6957,7 +7364,8 @@ var SV2OC_ASSET_CFG = {
     brokeragePerOrder: 20, // flat ₹ per executed leg (typical discount-broker charge)
     sttRate: 0.001,       // ~0.1% STT on SELL-side premium turnover only (real options rule)
     miscChargeRate: 0.0005, // exchange txn + SEBI + stamp + GST, rough bundle
-    startingBalance: 100000, // ₹1,00,000 virtual starting balance
+    startingBalance: 25000, // ₹25,000 virtual starting balance
+    freezeQtyLots: 60,     // NSE "market freeze quantity" approx — bade orders isse zyada qty mein ek saath execute nahi hote, multiple orders mein split hote hain (exact value NSE occasionally revises)
     cur: '₹', locale: 'en-IN', expiryLabel: 'monthly'
   },
   btc: {
@@ -6972,6 +7380,7 @@ var SV2OC_ASSET_CFG = {
     sttRate: 0,           // no STT-equivalent on crypto exchanges
     miscChargeRate: 0.0003, // rough taker-fee-style bundle
     startingBalance: 10000, // $10,000 virtual starting balance
+    freezeQtyLots: 50,      // approx large-order split threshold (contracts)
     cur: '$', locale: 'en-US', expiryLabel: 'weekly'
   }
 };
@@ -6990,14 +7399,28 @@ var SV2OC = {
   brokeragePerOrder: 20,
   sttRate: 0.001,
   miscChargeRate: 0.0005,
-  startingBalance: 100000,
+  startingBalance: 25000,
+  freezeQtyLots: 60,
   cur: '₹', locale: 'en-IN', label: 'BANKNIFTY', expiryLabel: 'monthly',
-  balance: 100000,
+  balance: 25000,
+  history: [],  // closed/settled trades: {id, strike, type, side, lots, entryPrice, exitPrice, entryTime, exitTime, grossPnl, charges:{brokerage,stt,exchange,sebi,stampDuty,gst,total}, netPnl, reason, balanceAfter}
   showGreeks: false,
+  showDepth: false,
   expiryMode: 'current', // 'current' = is cycle ki nearest expiry, 'next' = uske baad wali
   pendingTrade: null,  // { strike, type: 'CE'|'PE', ltp } jab trade-card khula ho
   pendingQtyLots: 1,
-  positions: [],       // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime}
+  pendingOrderType: 'market', // 'market' | 'limit' — trade-card mein select kiya order type
+  pendingLimitPrice: null,
+  pendingSLType: 'SLM',        // 'SLM' (SL-Market, trigger hote hi mark price par exit) | 'SLL' (SL-Limit)
+  pendingOrders: [],           // WORKING limit orders jo price aane tak fill hone ka wait kar rahe: {id, strike, type, side, lots, limitPrice, expirySec, placedTime, slType, slValue, slLimitPrice, tpValue}
+  positions: [],       // {id, strike, type, side:'buy'|'sell', lots, entryPrice, entryTime, sl, tp, trailPoints, trailBest}
+  // ── Multi-Leg Builder — Chain tab ke andar "Builder" mode ON hone par
+  // strike tap karne se trade-sheet ki jagah leg builder mein add hoti hai;
+  // sab legs ek saath "Place All Legs" se ek hi baar mein execute hoti hain
+  // (spreads/straddles/strangles/iron-condor jaisi multi-leg strategies ke liye). ─
+  builderMode: false,   // true = Chain tab strike-tap → add leg (instead of single trade sheet)
+  builderLegs: [],      // [{id, strike, type:'CE'|'PE', side:'buy'|'sell', lots}]
+  builderOpen: false,   // leg-list bottom sheet open/closed
   // ── Chart-overlay: chosen strike + live P&L, seedha candlestick chart par
   // (Stack View 2 ke sab cells par, jo bhi asset ka replay chal raha hai) —
   // ⓵ FAB strip ke "P&L" icon se show/hide hota hai, state persist hoti hai. ─
@@ -7030,6 +7453,7 @@ function _sv2OCSyncAssetContext() {
   if (SV2OC.currentAssetKey) { // pichhle asset ka state save kar lo switch karne se pehle
     _sv2OCSavePositions();
     _sv2OCSaveBalance();
+    _sv2OCSavePendingOrders();
   }
   var cfg = SV2OC_ASSET_CFG[liveKey] || SV2OC_ASSET_CFG.bn;
   SV2OC.currentAssetKey = liveKey;
@@ -7044,12 +7468,15 @@ function _sv2OCSyncAssetContext() {
   SV2OC.sttRate = cfg.sttRate;
   SV2OC.miscChargeRate = cfg.miscChargeRate;
   SV2OC.startingBalance = cfg.startingBalance;
+  SV2OC.freezeQtyLots = cfg.freezeQtyLots;
   SV2OC.cur = cfg.cur;
   SV2OC.locale = cfg.locale;
   SV2OC.label = cfg.label;
   SV2OC.expiryLabel = cfg.expiryLabel;
   _sv2OCLoadPositions();
   _sv2OCLoadBalance();
+  _sv2OCLoadHistory();
+  _sv2OCLoadPendingOrders();
   return true;
 }
 // ── Har asset ki apni alag positions/balance storage — BN aur BTC ki
@@ -7064,6 +7491,19 @@ function _sv2OCLoadPositions() {
 function _sv2OCSavePositions() {
   try { localStorage.setItem(_sv2OCStorageKey(), JSON.stringify(SV2OC.positions)); } catch (_) {}
 }
+// ── Pending (working) LIMIT entry orders — jab tak price limit tak nahi
+// aata, ye order fill nahi hota, "working" state mein pada rehta hai
+// (real broker order-book jaisa). Per-asset alag storage, positions jaisa. ─
+function _sv2OCPendingOrdersKey() { return 'sv2_oc_pending_v1_' + (SV2OC.currentAssetKey || 'bn'); }
+function _sv2OCLoadPendingOrders() {
+  try {
+    var raw = localStorage.getItem(_sv2OCPendingOrdersKey());
+    SV2OC.pendingOrders = raw ? JSON.parse(raw) : [];
+  } catch (_) { SV2OC.pendingOrders = []; }
+}
+function _sv2OCSavePendingOrders() {
+  try { localStorage.setItem(_sv2OCPendingOrdersKey(), JSON.stringify(SV2OC.pendingOrders)); } catch (_) {}
+}
 
 // ── Virtual Balance — trade lene par premium deduct/credit hota hai,
 // square-off par current mark price par reverse hota hai (net effect = PnL). ─
@@ -7077,6 +7517,18 @@ function _sv2OCLoadBalance() {
 }
 function _sv2OCSaveBalance() {
   try { localStorage.setItem(_sv2OCBalanceKey(), String(SV2OC.balance)); } catch (_) {}
+}
+// ── Virtual Trade Record — closed/settled trades log, per-asset, persists
+// across replay sessions until Reset (same pattern as positions/balance). ──
+function _sv2OCHistoryKey() { return 'sv2_oc_history_v1_' + (SV2OC.currentAssetKey || 'bn'); }
+function _sv2OCLoadHistory() {
+  try {
+    var raw = localStorage.getItem(_sv2OCHistoryKey());
+    SV2OC.history = raw ? JSON.parse(raw) : [];
+  } catch (_) { SV2OC.history = []; }
+}
+function _sv2OCSaveHistory() {
+  try { localStorage.setItem(_sv2OCHistoryKey(), JSON.stringify(SV2OC.history)); } catch (_) {}
 }
 // ── Money formatting — uses the CURRENTLY ACTIVE asset's currency symbol
 // + locale (₹/en-IN for BankNifty, $/en-US for BTC), never hardcoded. ────
@@ -7115,24 +7567,268 @@ function _sv2OCTotalBlockedMargin() {
 function _sv2OCAvailableBalance() {
   return SV2OC.balance - _sv2OCTotalBlockedMargin();
 }
-// ── Approx brokerage + STT + misc statutory charges per executed leg ─────
-// Practice/education ke liye rough bundle hai, exact broker slab nahi:
-//  • Flat brokerage per order  • STT ~0.1% sirf SELL-side premium par
-//  (real options STT rule — buy side par STT nahi lagta)
-//  • ~0.05% misc (exchange txn + SEBI fee + stamp duty + GST bundle)
-function _sv2OCCalcCharges(side, premiumAmt) {
+
+// ══════════════════════════════════════════════════════════════════════
+// SV2 OPTION CHAIN — RISK & MARGIN ENGINE
+// ──────────────────────────────────────────────────────────────────────
+// Teen cheezein: (1) Hedge Margin Benefit — agar SELL positions ke saath
+// koi opposite-side hedge (vertical spread) bana hua hai, to margin sirf
+// us spread ki max-loss jitni chahiye, naked-sell jitni nahi (real broker
+// bhi aisa hi karte hain). (2) Margin Call Warning — agar equity (cash +
+// unrealized MTM) blocked margin ke aas-paas/neeche chali jaaye. (3) Max
+// Profit/Loss preview — expiry ke din combined legs ka payoff kya hoga,
+// piecewise-linear payoff curve ke strikes + far-ends analyze karke.
+// Sab APPROX estimates hain (real broker SPAN/exposure margin nahi). ────
+// ══════════════════════════════════════════════════════════════════════
+
+// ── Expiry-day intrinsic value for one option leg at underlying price S ──
+function _sv2OCIntrinsicAt(S, strike, type) {
+  return (type === 'CE') ? Math.max(S - strike, 0) : Math.max(strike - S, 0);
+}
+// ── Combined P&L (at expiry) for a set of legs [{strike,type,side,lots,price}]
+// at underlying price S. 'price' = per-unit entry/estimate premium. ──────
+function _sv2OCPayoffPnlForLegs(legs, S) {
+  var total = 0;
+  legs.forEach(function (leg) {
+    var intrinsic = _sv2OCIntrinsicAt(S, leg.strike, leg.type);
+    var perUnit = (leg.side === 'buy') ? (intrinsic - leg.price) : (leg.price - intrinsic);
+    total += perUnit * leg.lots * SV2OC.lotSize;
+  });
+  return total;
+}
+// ── Analyze a leg-set's expiry payoff: max profit, max loss, aur kya wo
+// unlimited hain (payoff piecewise-LINEAR hota hai strikes ke beech, isliye
+// har strike + dono extreme ends check karna kaafi hai). ─────────────────
+function _sv2OCPayoffAnalyzeLegs(legs) {
+  if (!legs || !legs.length) return null;
+  var step = SV2OC.strikeStep;
+  var strikes = legs.map(function (l) { return l.strike; });
+  var lo = Math.max(step, Math.min.apply(null, strikes) - 6 * step);
+  var hi = Math.max.apply(null, strikes) + 6 * step;
+  var pts = strikes.slice();
+  pts.push(lo, hi);
+  pts = pts.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort(function (a, b) { return a - b; });
+  var maxP = -Infinity, minP = Infinity;
+  pts.forEach(function (S) {
+    var v = _sv2OCPayoffPnlForLegs(legs, S);
+    if (v > maxP) maxP = v;
+    if (v < minP) minP = v;
+  });
+  // Beyond the outermost strikes the payoff is exactly linear — sample one
+  // extra step further out on each side to read off the true asymptotic slope.
+  var vHiA = _sv2OCPayoffPnlForLegs(legs, hi), vHiB = _sv2OCPayoffPnlForLegs(legs, hi + step);
+  var vLoA = _sv2OCPayoffPnlForLegs(legs, lo), vLoB = _sv2OCPayoffPnlForLegs(legs, Math.max(1, lo - step));
+  var upSlope = vHiB - vHiA;
+  var downSlope = vLoB - vLoA; // moving further down (S decreasing) — change in pnl
+  var unlimitedProfit = (upSlope > 0.01) || (downSlope > 0.01);
+  var unlimitedLoss = (upSlope < -0.01) || (downSlope < -0.01);
+  return {
+    maxProfit: unlimitedProfit ? null : maxP,
+    maxLoss: unlimitedLoss ? null : minP,
+    unlimitedProfit: unlimitedProfit,
+    unlimitedLoss: unlimitedLoss
+  };
+}
+function _sv2OCFmtPnlOrUnlimited(v, unlimited) {
+  if (unlimited) return 'Unlimited ⚠️';
+  if (v == null) return '--';
+  return (v >= 0 ? '+' : '−') + SV2OC.cur + Math.abs(v).toFixed(0);
+}
+
+// ── Greedy hedge-pairing (per option TYPE, CE/PE separately) — matches
+// each SELL strike against the nearest opposite-side hedge BUY strike
+// (CE: buy strike > sell strike; PE: buy strike < sell strike), forming
+// a vertical-spread pair whose max-loss = strike-width × qty. Mutates the
+// passed-in {strike,lots} arrays (consumes matched lots). ────────────────
+function _sv2OCPairForHedge(sellArr, buyArr, type) {
+  var pairs = [];
+  var sells = sellArr.slice().sort(function (a, b) { return type === 'CE' ? a.strike - b.strike : b.strike - a.strike; });
+  sells.forEach(function (s) {
+    while (s.lots > 0) {
+      var candidates = buyArr.filter(function (b) {
+        return b.lots > 0 && (type === 'CE' ? b.strike > s.strike : b.strike < s.strike);
+      });
+      if (!candidates.length) break;
+      candidates.sort(function (a, b) { return type === 'CE' ? (a.strike - b.strike) : (b.strike - a.strike); });
+      var b = candidates[0];
+      var matchLots = Math.min(s.lots, b.lots);
+      pairs.push({ sellStrike: s.strike, buyStrike: b.strike, lots: matchLots, width: Math.abs(b.strike - s.strike) });
+      s.lots -= matchLots;
+      b.lots -= matchLots;
+    }
+  });
+  return pairs;
+}
+// ── Portfolio margin — current open SV2OC.positions par based. Compares
+// "naked sum" (agar koi hedge-pairing na ki jaaye, sab SELL lots individually
+// margined) vs "hedge-aware total" (matched spreads ko sirf unki max-loss
+// jitna margin) — difference hi Hedge Margin Benefit hai. NOTE: ye sirf ek
+// DISPLAY/analytics estimate hai — actual balance/margin-block abhi bhi
+// existing per-position marginBlocked engine (_sv2OCTotalBlockedMargin) se
+// hi control hota hai, isse badla nahi gaya (taaki trading/balance flow
+// stable rahe). ────────────────────────────────────────────────────────
+function _sv2OCComputePortfolioMargin() {
+  var spot = _sv2OCCurrentSpot();
+  if (!SV2OC.positions.length || spot == null) return { total: 0, nakedSum: 0, hedgeBenefit: 0 };
+  var byType = { CE: { sell: [], buy: [] }, PE: { sell: [], buy: [] } };
+  SV2OC.positions.forEach(function (p) {
+    var bucket = byType[p.type];
+    if (!bucket) return;
+    var arr = (p.side === 'sell') ? bucket.sell : bucket.buy;
+    var existing = arr.find(function (x) { return x.strike === p.strike; });
+    if (existing) existing.lots += p.lots; else arr.push({ strike: p.strike, lots: p.lots });
+  });
+  var nakedSum = 0;
+  SV2OC.positions.forEach(function (p) {
+    if (p.side !== 'sell') return;
+    var ltp = _sv2OCBuilderLegLtp(p.strike, p.type);
+    var qty = p.lots * SV2OC.lotSize;
+    nakedSum += _sv2OCApproxMargin(spot, ltp * qty, qty);
+  });
+  var hedgeAwareTotal = 0;
+  ['CE', 'PE'].forEach(function (type) {
+    var sellArr = byType[type].sell.map(function (x) { return { strike: x.strike, lots: x.lots }; });
+    var buyArr = byType[type].buy.map(function (x) { return { strike: x.strike, lots: x.lots }; });
+    var pairs = _sv2OCPairForHedge(sellArr, buyArr, type);
+    pairs.forEach(function (pr) {
+      hedgeAwareTotal += pr.width * pr.lots * SV2OC.lotSize; // spread ka max-loss hi margin
+    });
+    sellArr.forEach(function (s) { // jo lots hedge se match nahi hue — wo naked hain
+      if (s.lots > 0) {
+        var ltp = _sv2OCBuilderLegLtp(s.strike, type);
+        var qty = s.lots * SV2OC.lotSize;
+        hedgeAwareTotal += _sv2OCApproxMargin(spot, ltp * qty, qty);
+      }
+    });
+  });
+  return { total: hedgeAwareTotal, nakedSum: nakedSum, hedgeBenefit: Math.max(0, nakedSum - hedgeAwareTotal) };
+}
+// ── Current open positions ka total unrealized (mark-to-market) P&L ──────
+function _sv2OCPortfolioUnrealizedPnl() {
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null || !SV2OC.positions.length) return 0;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var total = 0;
+  SV2OC.positions.forEach(function (p) {
+    var mark = _sv2OCMarkPriceFor(p, spot, nowSec);
+    var qty = p.lots * SV2OC.lotSize;
+    var diff = (p.side === 'buy') ? (mark - p.entryPrice) : (p.entryPrice - mark);
+    total += diff * qty;
+  });
+  return total;
+}
+// ── Margin-call banner — refreshes on every render + every replay tick.
+// "Near" (equity within 20% buffer above blocked margin) = warning (yellow),
+// "Breach" (equity < blocked margin) = danger (red, pulsing) + a ONE-TIME
+// alert per breach (re-arms only after equity recovers above the buffer). ─
+function _sv2OCUpdateMarginCallBanner() {
+  var banner = document.getElementById('sv2-oc-margincall-banner');
+  if (!banner) return;
+  var blocked = _sv2OCTotalBlockedMargin();
+  if (blocked <= 0) {
+    banner.style.display = 'none';
+    SV2OC._marginCallAlerted = false;
+    return;
+  }
+  var equity = SV2OC.balance + _sv2OCPortfolioUnrealizedPnl();
+  var ratio = equity / blocked;
+  if (ratio < 1) {
+    banner.className = 'danger';
+    banner.style.display = 'block';
+    banner.textContent = '🚨 MARGIN CALL — Equity (' + _sv2OCFmtMoney(equity) + ') required margin (' + _sv2OCFmtMoney(blocked) + ') se kam hai! Positions square-off karo ya balance add karo.';
+    if (!SV2OC._marginCallAlerted) {
+      SV2OC._marginCallAlerted = true;
+      try { alert('🚨 MARGIN CALL!\n\nEquity ' + _sv2OCFmtMoney(equity) + ' required margin ' + _sv2OCFmtMoney(blocked) + ' se kam ho gaya hai.\nKuch positions square-off karo ya loss control karo.'); } catch (_) {}
+    }
+  } else if (ratio < 1.2) {
+    banner.className = 'warn';
+    banner.style.display = 'block';
+    banner.textContent = '⚠️ Margin Call ke paas — Equity ' + _sv2OCFmtMoney(equity) + ', required margin ' + _sv2OCFmtMoney(blocked) + '. Buffer kam hai, loss control mein rakho.';
+    SV2OC._marginCallAlerted = false; // buffer zone — re-arm karo taaki agar aage breach ho to phir alert mile
+  } else {
+    banner.style.display = 'none';
+    SV2OC._marginCallAlerted = false;
+  }
+}
+// ── Risk & Margin card (Positions tab) — margin used + hedge benefit +
+// max profit/loss (current open position-set ka expiry-day payoff). ─────
+function _sv2OCRenderRiskPanel() {
+  var panel = document.getElementById('sv2-oc-risk-panel');
+  if (!panel) return;
+  if (!SV2OC.positions.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  var pm = _sv2OCComputePortfolioMargin();
+  var marginEl = document.getElementById('sv2-oc-risk-margin');
+  var hedgeCellEl = document.getElementById('sv2-oc-risk-hedge-cell');
+  var hedgeEl = document.getElementById('sv2-oc-risk-hedge');
+  if (marginEl) marginEl.textContent = _sv2OCFmtMoney(pm.total);
+  if (hedgeCellEl) hedgeCellEl.style.display = pm.hedgeBenefit > 1 ? '' : 'none';
+  if (hedgeEl) hedgeEl.textContent = _sv2OCFmtMoney(pm.hedgeBenefit) + ' saved';
+  var legs = SV2OC.positions.map(function (p) {
+    return { strike: p.strike, type: p.type, side: p.side, lots: p.lots, price: p.entryPrice };
+  });
+  var analysis = _sv2OCPayoffAnalyzeLegs(legs);
+  var mpEl = document.getElementById('sv2-oc-risk-maxprofit');
+  var mlEl = document.getElementById('sv2-oc-risk-maxloss');
+  if (mpEl) mpEl.textContent = analysis ? _sv2OCFmtPnlOrUnlimited(analysis.maxProfit, analysis.unlimitedProfit) : '--';
+  if (mlEl) mlEl.textContent = analysis ? _sv2OCFmtPnlOrUnlimited(analysis.maxLoss, analysis.unlimitedLoss) : '--';
+  _sv2OCUpdateMarginCallBanner();
+}
+// ── Charges breakdown ──────────────────────────────────────────────────
+// BankNifty (NSE F&O options) — EXACT current NSE rate-card rates (not an
+// approximate bundle anymore):
+//   • Brokerage       : flat ₹ per executed leg (as configured)
+//   • STT             : 0.1% of premium, SELL side only (buy side = nil)
+//   • Exchange txn chg: ₹35.03 per crore of premium turnover, BOTH sides
+//   • SEBI turnover fee: ₹10 per crore of premium turnover, BOTH sides
+//   • Stamp duty      : 0.003% of premium, BUY side only (real NSE rule)
+//   • GST             : 18% on (brokerage + exchange txn charge + SEBI fee)
+//                       — GST does NOT apply on STT or stamp duty (real rule)
+// BTC (crypto) — no NSE-style statutory charges apply, isliye purani
+// simple taker-fee-style miscChargeRate bundle hi use hoti hai. ──────────
+function _sv2OCCalcChargesBreakdown(side, premiumAmt) {
+  var brokerage = SV2OC.brokeragePerOrder;
+  if (SV2OC.currentAssetKey === 'bn') {
+    var stt = (side === 'sell') ? premiumAmt * 0.001 : 0;              // 0.1% sell-side
+    var exchange = premiumAmt * (35.03 / 1e7);                          // ₹35.03 / crore
+    var sebi = premiumAmt * (10 / 1e7);                                 // ₹10 / crore
+    var stampDuty = (side === 'buy') ? premiumAmt * 0.00003 : 0;        // 0.003% buy-side
+    var gst = 0.18 * (brokerage + exchange + sebi);                     // GST only on these three
+    return {
+      brokerage: brokerage, stt: stt, exchange: exchange, sebi: sebi,
+      stampDuty: stampDuty, gst: gst,
+      total: brokerage + stt + exchange + sebi + stampDuty + gst
+    };
+  }
+  // BTC — approximate taker-fee-style bundle (no NSE-equivalent statutory structure)
   var stt = (side === 'sell') ? premiumAmt * SV2OC.sttRate : 0;
-  var misc = premiumAmt * SV2OC.miscChargeRate;
-  return SV2OC.brokeragePerOrder + stt + misc;
+  var miscTotal = premiumAmt * SV2OC.miscChargeRate;
+  var exchange = miscTotal * 0.55;
+  var sebi = miscTotal * 0.05;
+  var stampDuty = (side === 'buy') ? miscTotal * 0.10 : 0;
+  var gst = miscTotal - exchange - sebi - stampDuty;
+  return {
+    brokerage: brokerage, stt: stt, exchange: exchange, sebi: sebi,
+    stampDuty: stampDuty, gst: gst,
+    total: brokerage + stt + miscTotal
+  };
+}
+function _sv2OCCalcCharges(side, premiumAmt) {
+  return _sv2OCCalcChargesBreakdown(side, premiumAmt).total;
 }
 function _sv2OCResetBalance() {
-  if (!confirm('Balance ko ' + _sv2OCFmtMoney(SV2OC.startingBalance) + ' par reset karna hai? Saari open positions bhi clear ho jaayengi.')) return;
+  if (!confirm('Balance ko ' + _sv2OCFmtMoney(SV2OC.startingBalance) + ' par reset karna hai? Saari open positions, PENDING orders AUR Trade Record (history) bhi clear ho jaayenge.')) return;
   SV2OC.balance = SV2OC.startingBalance;
   SV2OC.positions = [];
+  SV2OC.history = [];
+  SV2OC.pendingOrders = [];
   _sv2OCSaveBalance();
   _sv2OCSavePositions();
+  _sv2OCSaveHistory();
+  _sv2OCSavePendingOrders();
   _sv2OCRenderBalance();
   _sv2OCRenderPositions();
+  _sv2OCRenderHistory();
 }
 
 // ── Replay session reset safety — jab replay date-range badle ya base
@@ -7149,8 +7845,10 @@ function _sv2OCWarnSessionReset() {
     var n = SV2OC.positions.length;
     if (confirm('⚠️ Naya replay session start ho raha hai — replay ka "time" reset ho jaayega.\n\nAapki ' + n + ' open option position(s) PICHHLE session ki hain aur ab invalid ho sakti hain (entry-time/expiry mismatch).\n\nInhe clear karna hai?')) {
       SV2OC.positions = [];
+      SV2OC.pendingOrders = [];
       SV2OC.pendingTrade = null;
       _sv2OCSavePositions();
+      _sv2OCSavePendingOrders();
       _sv2OCRenderBalance();
       _sv2OCRenderPositions();
     }
@@ -7195,6 +7893,18 @@ function _sv2OCToggleGreeks() {
   try { localStorage.setItem(_sv2OCGreeksKey(), SV2OC.showGreeks ? '1' : '0'); } catch (_) {}
   var btn = document.getElementById('sv2-oc-greeks-toggle');
   if (btn) btn.classList.toggle('on', SV2OC.showGreeks);
+  _sv2OCRenderChain();
+}
+// ── Depth (Bid/Ask + OI + OI-change + Volume) show/hide preference ───────
+function _sv2OCDepthKey() { return 'sv2_oc_show_depth_v1'; }
+function _sv2OCLoadDepthPref() {
+  try { SV2OC.showDepth = localStorage.getItem(_sv2OCDepthKey()) === '1'; } catch (_) { SV2OC.showDepth = false; }
+}
+function _sv2OCToggleDepth() {
+  SV2OC.showDepth = !SV2OC.showDepth;
+  try { localStorage.setItem(_sv2OCDepthKey(), SV2OC.showDepth ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('sv2-oc-depth-toggle');
+  if (btn) btn.classList.toggle('on', SV2OC.showDepth);
   _sv2OCRenderChain();
 }
 
@@ -7247,11 +7957,63 @@ function _sv2OCBlackScholes(S, K, T, r, iv) {
 
 // ── IV assumption: thoda badhta hai jaise-jaise expiry paas aata hai,
 // aur ATM se dur strikes par halka "smile" add karte hain — sirf real
-// jaisa dikhne ke liye, ye koi live/actual IV data nahi hai. ──────────────
-function _sv2OCAssumedIV(daysToExpiry, strike, spot) {
+// jaisa dikhne ke liye, ye koi live/actual IV data nahi hai. Ab TYPE-aware
+// SKEW bhi hai: real index options mein OTM PUTS ki IV, equidistant OTM
+// CALLS se zyada hoti hai (hedging demand ka asar) — isliye ab CE aur PE
+// ki IV alag-alag calculate hoti hai, sirf symmetric smile nahi. ─────────
+function _sv2OCAssumedIV(daysToExpiry, strike, spot, type) {
   var expiryBump = Math.max(0, (7 - daysToExpiry)) / 7 * 0.05;
-  var smile = Math.min(0.06, Math.abs(strike - spot) / spot * 0.6);
-  return SV2OC.baseIV + expiryBump + smile;
+  var moneyness = (strike - spot) / spot; // + ve = strike spot se upar
+  var smile = Math.min(0.06, Math.abs(moneyness) * 0.6);
+  var skewBias = 0;
+  if (type === 'PE' && moneyness < 0) skewBias = Math.min(0.04, Math.abs(moneyness) * 0.9);       // OTM put: extra IV
+  else if (type === 'CE' && moneyness > 0) skewBias = -Math.min(0.015, moneyness * 0.15);          // OTM call: thodi kam IV
+  return SV2OC.baseIV + expiryBump + smile + skewBias;
+}
+
+// ── Deterministic pseudo-random hash (0..1) — same inputs => same output,
+// isliye OI/Volume/Bid-Ask "random" nahi lagte har render par jump karte
+// hue, balki ek stable simulated market jaisa dikhta hai jo sirf time
+// bucket badalne par dheere-dheere evolve hota hai. ───────────────────────
+function _sv2OCHash01(str) {
+  var h = 0;
+  for (var i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
+  return (Math.abs(h) % 100000) / 100000;
+}
+// ── Simulated Open Interest — ATM ke aas-paas peak, dur strikes par
+// exponential decay (jaisa real option chain mein OI cluster hota hai). ──
+function _sv2OCSimOI(strike, type, atm, expirySec) {
+  var stepsAway = Math.abs(strike - atm) / SV2OC.strikeStep;
+  var seed = _sv2OCHash01(SV2OC.currentAssetKey + type + strike + 'oi' + expirySec);
+  var peakBase = (SV2OC.currentAssetKey === 'btc') ? 800 : 900000;
+  var peak = peakBase * (0.6 + seed * 0.8);
+  var decay = Math.exp(-0.16 * stepsAway);
+  var oi = Math.round(peak * decay / 100) * 100;
+  return Math.max(oi, (SV2OC.currentAssetKey === 'btc') ? 5 : 500);
+}
+// ── Simulated OI change (vs previous session) — sign/magnitude stable
+// per 5-min time-bucket, taaki replay ke dauraan OI build-up/unwind ka
+// ehsaas ho, bina har render par flicker kiye. ────────────────────────────
+function _sv2OCSimOIChange(strike, type, oi, nowSec) {
+  var bucket = Math.floor(nowSec / 300);
+  var h = _sv2OCHash01(SV2OC.currentAssetKey + type + strike + 'chg' + bucket);
+  var pct = (h - 0.5) * 0.5; // -25% .. +25%
+  return Math.round(oi * pct);
+}
+// ── Simulated traded Volume — OI ka ek fraction, per-minute bucket se
+// thoda badalta rahta hai. ─────────────────────────────────────────────────
+function _sv2OCSimVolume(strike, type, oi, nowSec) {
+  var bucket = Math.floor(nowSec / 60);
+  var h = _sv2OCHash01(SV2OC.currentAssetKey + type + strike + 'vol' + bucket);
+  return Math.round(oi * (0.04 + h * 0.3));
+}
+// ── Simulated Bid/Ask spread around theoretical LTP — ATM ke paas tight,
+// deep OTM/kam-price options mein wide (jaisa real liquidity pattern). ────
+function _sv2OCSimBidAsk(ltp, strike, spot) {
+  var moneyPct = Math.abs(strike - spot) / spot;
+  var spreadPct = Math.min(0.12, 0.006 + moneyPct * 0.035);
+  var half = Math.max(0.05, ltp * spreadPct / 2);
+  return { bid: Math.max(0.05, ltp - half), ask: ltp + half };
 }
 
 // ── Current replay underlying spot (BankNifty ya BTC, jo bhi replay mein active hai) ──
@@ -7373,11 +8135,14 @@ function _sv2OptionChainToggle() {
     return;
   }
   _sv2OCLoadGreeksPref();
+  _sv2OCLoadDepthPref();
   SV2OC.open = true;
   backdrop.classList.add('open');
   sheet.classList.add('open');
   var greeksBtn = document.getElementById('sv2-oc-greeks-toggle');
   if (greeksBtn) greeksBtn.classList.toggle('on', SV2OC.showGreeks);
+  var depthBtn = document.getElementById('sv2-oc-depth-toggle');
+  if (depthBtn) depthBtn.classList.toggle('on', SV2OC.showDepth);
   // ── Asset-aware sheet labels ─────────────────────────────────────────
   var titleEl = document.getElementById('sv2-oc-title');
   if (titleEl) titleEl.textContent = '⛓️ Option Chain · ' + SV2OC.label;
@@ -7389,9 +8154,16 @@ function _sv2OptionChainToggle() {
   var expiryRowLbl = document.querySelector('#sv2-oc-expiry-row span:first-child');
   if (expiryRowLbl) expiryRowLbl.textContent = 'Expiry (' + SV2OC.expiryLabel + ')';
   _sv2OCRenderBalance();
+  var builderBtn = document.getElementById('sv2-oc-builder-toggle-btn');
+  if (builderBtn) {
+    builderBtn.textContent = '🧩 Multi-Leg Builder: ' + (SV2OC.builderMode ? 'ON' : 'OFF');
+    builderBtn.classList.toggle('on', SV2OC.builderMode);
+  }
+  _sv2OCBuilderRenderBar();
   _sv2OCSelectTab('chain');
   _sv2OCRenderChain();
   _sv2OCRenderPositions();
+  _sv2OCUpdateMarginCallBanner();
 }
 function _sv2OCClose() {
   var sheet = document.getElementById('sv2-oc-sheet');
@@ -7399,18 +8171,30 @@ function _sv2OCClose() {
   SV2OC.open = false;
   if (sheet) sheet.classList.remove('open');
   if (backdrop) backdrop.classList.remove('open');
+  var barEl = document.getElementById('sv2-oc-builder-bar');
+  if (barEl) barEl.classList.remove('show'); // legs draft preserved, bar bas hide ho jaati hai
 }
 function _sv2OCSelectTab(tab) {
   SV2OC.activeTab = tab;
   var chainBtn = document.getElementById('sv2-oc-tab-chain-btn');
   var posBtn = document.getElementById('sv2-oc-tab-pos-btn');
+  var histBtn = document.getElementById('sv2-oc-tab-hist-btn');
+  var anBtn = document.getElementById('sv2-oc-tab-analytics-btn');
   var chainPanel = document.getElementById('sv2-oc-panel-chain');
   var posPanel = document.getElementById('sv2-oc-panel-positions');
+  var histPanel = document.getElementById('sv2-oc-panel-history');
+  var anPanel = document.getElementById('sv2-oc-panel-analytics');
   if (chainBtn) chainBtn.classList.toggle('active', tab === 'chain');
   if (posBtn) posBtn.classList.toggle('active', tab === 'positions');
+  if (histBtn) histBtn.classList.toggle('active', tab === 'history');
+  if (anBtn) anBtn.classList.toggle('active', tab === 'analytics');
   if (chainPanel) chainPanel.classList.toggle('active', tab === 'chain');
   if (posPanel) posPanel.classList.toggle('active', tab === 'positions');
+  if (histPanel) histPanel.classList.toggle('active', tab === 'history');
+  if (anPanel) anPanel.classList.toggle('active', tab === 'analytics');
   if (tab === 'positions') _sv2OCRenderPositions();
+  else if (tab === 'history') _sv2OCRenderHistory();
+  else if (tab === 'analytics') _sv2OCRenderAnalytics();
 }
 
 // ── Render the Chain table ────────────────────────────────────────────────
@@ -7440,22 +8224,254 @@ function _sv2OCRenderChain() {
   var rows = '';
   for (var i = SV2OC.strikesEachSide; i >= -SV2OC.strikesEachSide; i--) {
     var strike = atm + i * SV2OC.strikeStep;
-    var iv = _sv2OCAssumedIV(daysToExpiry, strike, spot);
-    var px = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, iv);
+    var ivCe = _sv2OCAssumedIV(daysToExpiry, strike, spot, 'CE');
+    var ivPe = _sv2OCAssumedIV(daysToExpiry, strike, spot, 'PE');
+    var pxCe = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, ivCe);
+    var pxPe = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, ivPe);
+    var px = { ce: pxCe.ce, pe: pxPe.pe };
     var isAtm = (strike === atm);
     var ceGreeksHtml = '', peGreeksHtml = '';
     if (SV2OC.showGreeks) {
-      var g = _sv2OCGreeks(spot, strike, T, SV2OC.riskFreeRate, iv);
-      ceGreeksHtml = '<span class="sv2-oc-greeks-sub">Δ' + g.ceDelta.toFixed(2) + ' Γ' + g.gamma.toFixed(4) + ' Θ' + g.ceTheta.toFixed(1) + ' V' + g.vega.toFixed(1) + '</span>';
-      peGreeksHtml = '<span class="sv2-oc-greeks-sub">Δ' + g.peDelta.toFixed(2) + ' Γ' + g.gamma.toFixed(4) + ' Θ' + g.peTheta.toFixed(1) + ' V' + g.vega.toFixed(1) + '</span>';
+      var gCe = _sv2OCGreeks(spot, strike, T, SV2OC.riskFreeRate, ivCe);
+      var gPe = _sv2OCGreeks(spot, strike, T, SV2OC.riskFreeRate, ivPe);
+      ceGreeksHtml = '<span class="sv2-oc-greeks-sub">Δ' + gCe.ceDelta.toFixed(2) + ' Γ' + gCe.gamma.toFixed(4) + ' Θ' + gCe.ceTheta.toFixed(1) + ' V' + gCe.vega.toFixed(1) + ' IV' + (ivCe*100).toFixed(1) + '%</span>';
+      peGreeksHtml = '<span class="sv2-oc-greeks-sub">Δ' + gPe.peDelta.toFixed(2) + ' Γ' + gPe.gamma.toFixed(4) + ' Θ' + gPe.peTheta.toFixed(1) + ' V' + gPe.vega.toFixed(1) + ' IV' + (ivPe*100).toFixed(1) + '%</span>';
+    }
+    var ceDepthHtml = '', peDepthHtml = '';
+    if (SV2OC.showDepth) {
+      var ceOi = _sv2OCSimOI(strike, 'CE', atm, expirySec);
+      var peOi = _sv2OCSimOI(strike, 'PE', atm, expirySec);
+      var ceOiChg = _sv2OCSimOIChange(strike, 'CE', ceOi, nowSec);
+      var peOiChg = _sv2OCSimOIChange(strike, 'PE', peOi, nowSec);
+      var ceVol = _sv2OCSimVolume(strike, 'CE', ceOi, nowSec);
+      var peVol = _sv2OCSimVolume(strike, 'PE', peOi, nowSec);
+      var ceBA = _sv2OCSimBidAsk(px.ce, strike, spot);
+      var peBA = _sv2OCSimBidAsk(px.pe, strike, spot);
+      ceDepthHtml = '<span class="sv2-oc-depth-sub">B ' + _sv2OCFmtPrice(ceBA.bid) + ' / A ' + _sv2OCFmtPrice(ceBA.ask) +
+        '<br>OI ' + _sv2OCFmtCompact(ceOi) + ' <span class="' + (ceOiChg >= 0 ? 'oi-up' : 'oi-dn') + '">' + (ceOiChg >= 0 ? '▲' : '▼') + _sv2OCFmtCompact(Math.abs(ceOiChg)) + '</span>' +
+        '<br>Vol ' + _sv2OCFmtCompact(ceVol) + '</span>';
+      peDepthHtml = '<span class="sv2-oc-depth-sub">B ' + _sv2OCFmtPrice(peBA.bid) + ' / A ' + _sv2OCFmtPrice(peBA.ask) +
+        '<br>OI ' + _sv2OCFmtCompact(peOi) + ' <span class="' + (peOiChg >= 0 ? 'oi-up' : 'oi-dn') + '">' + (peOiChg >= 0 ? '▲' : '▼') + _sv2OCFmtCompact(Math.abs(peOiChg)) + '</span>' +
+        '<br>Vol ' + _sv2OCFmtCompact(peVol) + '</span>';
     }
     rows += '<div class="sv2-oc-row' + (isAtm ? ' atm-row' : '') + '">' +
-      '<div class="sv2-oc-cell-ltp ce" onclick="_sv2OCOpenTrade(' + strike + ',\'CE\',' + px.ce.toFixed(2) + ')">' + _sv2OCFmtPrice(px.ce) + ceGreeksHtml + '</div>' +
+      '<div class="sv2-oc-cell-ltp ce" onclick="_sv2OCCellTap(' + strike + ',\'CE\',' + px.ce.toFixed(2) + ')">' + _sv2OCFmtPrice(px.ce) + ceGreeksHtml + ceDepthHtml + '</div>' +
       '<div class="sv2-oc-cell-strike">' + strike + '</div>' +
-      '<div class="sv2-oc-cell-ltp pe" onclick="_sv2OCOpenTrade(' + strike + ',\'PE\',' + px.pe.toFixed(2) + ')">' + _sv2OCFmtPrice(px.pe) + peGreeksHtml + '</div>' +
+      '<div class="sv2-oc-cell-ltp pe" onclick="_sv2OCCellTap(' + strike + ',\'PE\',' + px.pe.toFixed(2) + ')">' + _sv2OCFmtPrice(px.pe) + peGreeksHtml + peDepthHtml + '</div>' +
     '</div>';
   }
   listEl.innerHTML = rows;
+}
+// ── Compact number format for OI/Volume (e.g. 1.2L, 45.3K) — Indian-style
+// for BankNifty (lakh), plain K for BTC contracts. ────────────────────────
+function _sv2OCFmtCompact(v) {
+  v = v || 0;
+  if (SV2OC.currentAssetKey !== 'btc') {
+    if (v >= 100000) return (v / 100000).toFixed(1) + 'L';
+    if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
+    return String(v);
+  }
+  if (v >= 1000) return (v / 1000).toFixed(1) + 'K';
+  return String(v);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SV2 OPTION CHAIN — MULTI-LEG BUILDER
+// ──────────────────────────────────────────────────────────────────────
+// Builder mode ON hone par Chain tab strike-tap se ek "leg" (strike+type,
+// default BUY 1 lot) list mein add hoti hai, single trade-sheet ki jagah.
+// Legs edit (side/lots/remove) karke, ya seedhe ek quick-strategy preset
+// (Straddle/Strangle/spreads/Iron Condor) choose karke, "Place All Legs"
+// se sab legs ek saath, SAME market-execution engine (_sv2OCExecuteFill)
+// se, ek-ek karke fill hoti hain — balance/margin/freeze-qty sab per-leg
+// waisi hi check hoti hai jaisa single-leg trade mein hoti thi.
+// ══════════════════════════════════════════════════════════════════════
+function _sv2OCCellTap(strike, type, ltp) {
+  if (SV2OC.builderMode) { _sv2OCBuilderAddLeg(strike, type, ltp); return; }
+  _sv2OCOpenTrade(strike, type, ltp);
+}
+function _sv2OCBuilderToggleMode() {
+  SV2OC.builderMode = !SV2OC.builderMode;
+  var btn = document.getElementById('sv2-oc-builder-toggle-btn');
+  if (btn) {
+    btn.textContent = '🧩 Multi-Leg Builder: ' + (SV2OC.builderMode ? 'ON' : 'OFF');
+    btn.classList.toggle('on', SV2OC.builderMode);
+  }
+  if (SV2OC.builderMode) {
+    alert('🧩 Builder Mode ON — ab Chain tab mein strike tap karne se woh ek "leg" ki tarah add hogi (single-order trade-sheet ki jagah). Neeche floating bar se "Review & Place" karo.');
+  }
+  _sv2OCBuilderRenderBar();
+}
+function _sv2OCBuilderAddLeg(strike, type, ltp) {
+  SV2OC.builderLegs.push({
+    id: 'leg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    strike: strike, type: type, side: 'buy', lots: 1
+  });
+  _sv2OCBuilderRenderBar();
+  if (SV2OC.builderOpen) _sv2OCBuilderRenderLegs();
+}
+function _sv2OCBuilderRenderBar() {
+  var bar = document.getElementById('sv2-oc-builder-bar');
+  var countEl = document.getElementById('sv2-oc-builder-bar-count');
+  if (!bar) return;
+  var n = SV2OC.builderLegs.length;
+  if (countEl) countEl.textContent = n + (n === 1 ? ' leg' : ' legs') + ' added';
+  bar.classList.toggle('show', n > 0);
+}
+function _sv2OCBuilderOpen() {
+  if (!SV2OC.builderLegs.length) { alert('Pehle Chain tab se (Builder mode ON karke) kam-se-kam ek leg add karo, ya neeche ek quick strategy preset choose karo.'); }
+  SV2OC.builderOpen = true;
+  var card = document.getElementById('sv2-oc-builder-card');
+  var backdrop = document.getElementById('sv2-oc-builder-backdrop');
+  if (card) card.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+  _sv2OCBuilderRenderLegs();
+}
+function _sv2OCBuilderClose() {
+  SV2OC.builderOpen = false;
+  var card = document.getElementById('sv2-oc-builder-card');
+  var backdrop = document.getElementById('sv2-oc-builder-backdrop');
+  if (card) card.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+}
+function _sv2OCBuilderClearAll() {
+  SV2OC.builderLegs = [];
+  _sv2OCBuilderRenderBar();
+  if (SV2OC.builderOpen) _sv2OCBuilderRenderLegs();
+}
+function _sv2OCBuilderRemoveLeg(id) {
+  SV2OC.builderLegs = SV2OC.builderLegs.filter(function (l) { return l.id !== id; });
+  _sv2OCBuilderRenderBar();
+  _sv2OCBuilderRenderLegs();
+}
+function _sv2OCBuilderLegSideToggle(id) {
+  var leg = SV2OC.builderLegs.find(function (l) { return l.id === id; });
+  if (!leg) return;
+  leg.side = (leg.side === 'buy') ? 'sell' : 'buy';
+  _sv2OCBuilderRenderLegs();
+}
+function _sv2OCBuilderLegQtyStep(id, delta) {
+  var leg = SV2OC.builderLegs.find(function (l) { return l.id === id; });
+  if (!leg) return;
+  leg.lots = Math.max(1, leg.lots + delta);
+  _sv2OCBuilderRenderLegs();
+}
+// ── Theoretical LTP for a leg strike/type at "abhi" (replay ke current
+// spot par), sirf preview/estimate ke liye — actual fill Place All Legs
+// par bid/ask slippage ke saath dobara calculate hoti hai. ────────────────
+function _sv2OCBuilderLegLtp(strike, type) {
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) return 0;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var expirySec = _sv2OCNextExpirySec(nowSec);
+  var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
+  var T = daysToExpiry / 365;
+  var iv = _sv2OCAssumedIV(daysToExpiry, strike, spot, type);
+  var px = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, iv);
+  return (type === 'CE') ? px.ce : px.pe;
+}
+function _sv2OCBuilderRenderLegs() {
+  var listEl = document.getElementById('sv2-oc-builder-legs-list');
+  var totalEl = document.getElementById('sv2-oc-builder-total');
+  if (!listEl) return;
+  if (!SV2OC.builderLegs.length) {
+    listEl.innerHTML = '<div id="sv2-oc-builder-legs-empty">Koi leg add nahi hui — Chain tab se strike tap karo (Builder mode ON), ya upar ek preset choose karo 👆</div>';
+    if (totalEl) totalEl.textContent = 'Net Premium: --';
+    var mpEl0 = document.getElementById('sv2-oc-builder-maxprofit');
+    var mlEl0 = document.getElementById('sv2-oc-builder-maxloss');
+    if (mpEl0) mpEl0.textContent = '--';
+    if (mlEl0) mlEl0.textContent = '--';
+    return;
+  }
+  var netPremium = 0;
+  var html = '';
+  SV2OC.builderLegs.forEach(function (leg) {
+    var ltp = _sv2OCBuilderLegLtp(leg.strike, leg.type);
+    var qtyUnitLbl = leg.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+    netPremium += (leg.side === 'buy' ? -1 : 1) * ltp * leg.lots * SV2OC.lotSize;
+    html += '<div class="sv2-oc-leg-card">' +
+      '<div class="sv2-oc-leg-info">' +
+        '<div class="sv2-oc-leg-name">' + SV2OC.label + ' ' + leg.strike + ' ' + leg.type + '</div>' +
+        '<div class="sv2-oc-leg-meta">LTP ' + SV2OC.cur + _sv2OCFmtPrice(ltp) + '</div>' +
+      '</div>' +
+      '<button class="sv2-oc-leg-side-btn ' + leg.side + '" onclick="_sv2OCBuilderLegSideToggle(\'' + leg.id + '\')">' + leg.side.toUpperCase() + '</button>' +
+      '<button class="sv2-oc-leg-qty-btn" onclick="_sv2OCBuilderLegQtyStep(\'' + leg.id + '\',-1)">−</button>' +
+      '<span class="sv2-oc-leg-qty-val">' + leg.lots + '</span>' +
+      '<button class="sv2-oc-leg-qty-btn" onclick="_sv2OCBuilderLegQtyStep(\'' + leg.id + '\',1)">+</button>' +
+      '<button class="sv2-oc-leg-remove-btn" onclick="_sv2OCBuilderRemoveLeg(\'' + leg.id + '\')">✕</button>' +
+    '</div>';
+  });
+  listEl.innerHTML = html;
+  if (totalEl) {
+    var dir = netPremium >= 0 ? 'credit' : 'debit';
+    totalEl.textContent = 'Net Premium: ' + SV2OC.cur + Math.abs(netPremium).toFixed(0) + ' (' + dir + ', approx)';
+  }
+  var payoffLegs = SV2OC.builderLegs.map(function (leg) {
+    return { strike: leg.strike, type: leg.type, side: leg.side, lots: leg.lots, price: _sv2OCBuilderLegLtp(leg.strike, leg.type) };
+  });
+  var analysis = _sv2OCPayoffAnalyzeLegs(payoffLegs);
+  var mpEl = document.getElementById('sv2-oc-builder-maxprofit');
+  var mlEl = document.getElementById('sv2-oc-builder-maxloss');
+  if (mpEl) mpEl.textContent = analysis ? _sv2OCFmtPnlOrUnlimited(analysis.maxProfit, analysis.unlimitedProfit) : '--';
+  if (mlEl) mlEl.textContent = analysis ? _sv2OCFmtPnlOrUnlimited(analysis.maxLoss, analysis.unlimitedLoss) : '--';
+}
+// ── Quick strategy presets — ATM current spot ke around auto-build hote
+// hain (existing chain ka wahi strikeStep/strike-list use karke). Preset
+// choose karna existing legs REPLACE karta hai (fresh strategy shuru). ────
+function _sv2OCBuilderPreset(name) {
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) { alert('Replay ek bar chalao pehle — abhi spot price available nahi hai.'); return; }
+  var step = SV2OC.strikeStep;
+  var atm = Math.round(spot / step) * step;
+  var legs = [];
+  function leg(strike, type, side, lots) {
+    return { id: 'leg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), strike: strike, type: type, side: side, lots: lots || 1 };
+  }
+  if (name === 'straddle') {
+    legs = [leg(atm, 'CE', 'buy'), leg(atm, 'PE', 'buy')];
+  } else if (name === 'strangle') {
+    legs = [leg(atm + 2 * step, 'CE', 'buy'), leg(atm - 2 * step, 'PE', 'buy')];
+  } else if (name === 'bullcall') {
+    legs = [leg(atm, 'CE', 'buy'), leg(atm + 3 * step, 'CE', 'sell')];
+  } else if (name === 'bearput') {
+    legs = [leg(atm, 'PE', 'buy'), leg(atm - 3 * step, 'PE', 'sell')];
+  } else if (name === 'ironcondor') {
+    legs = [
+      leg(atm + 2 * step, 'CE', 'sell'), leg(atm + 4 * step, 'CE', 'buy'),
+      leg(atm - 2 * step, 'PE', 'sell'), leg(atm - 4 * step, 'PE', 'buy')
+    ];
+  } else { return; }
+  SV2OC.builderLegs = legs;
+  _sv2OCBuilderRenderBar();
+  _sv2OCBuilderRenderLegs();
+}
+// ── Place All Legs — har leg SAME _sv2OCExecuteFill engine se, market
+// price (bid/ask slippage ke saath) par, ek-ek karke fill hoti hai — koi
+// SL/Target set nahi hoti (leg place hone ke baad Positions tab se
+// SL/Target ya Trailing SL alag se laga sakte ho). Agar kisi leg ka
+// balance/margin insufficient ho to _sv2OCExecuteFill khud alert dega aur
+// wahi leg skip ho jaayegi — baaki legs try hoti rehti hain. ─────────────
+function _sv2OCBuilderPlaceAll() {
+  if (!SV2OC.builderLegs.length) { alert('Koi leg add nahi hui.'); return; }
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) { alert('Replay ek bar chalao pehle — abhi spot price available nahi hai.'); return; }
+  if (!confirm('🧩 ' + SV2OC.builderLegs.length + ' leg(s) ek saath MARKET order ki tarah place karein?')) return;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var expirySec = _sv2OCNextExpirySec(nowSec);
+  var placed = 0, failed = 0;
+  SV2OC.builderLegs.forEach(function (leg) {
+    var ltp = _sv2OCBuilderLegLtp(leg.strike, leg.type);
+    var ba = _sv2OCSimBidAsk(ltp, leg.strike, spot);
+    var fillPrice = (leg.side === 'buy') ? ba.ask : ba.bid;
+    var t = { strike: leg.strike, type: leg.type, expirySec: expirySec };
+    var ok = _sv2OCExecuteFill(t, leg.side, leg.lots, fillPrice, 'SLM', null, null, null);
+    if (ok) placed++; else failed++;
+  });
+  SV2OC.builderLegs = [];
+  _sv2OCBuilderRenderBar();
+  _sv2OCBuilderClose();
+  _sv2OCSelectTab('positions');
+  alert('🧩 Multi-Leg order done — ' + placed + ' leg(s) placed' + (failed ? ', ' + failed + ' leg(s) skipped (insufficient balance/margin)' : '') + '.');
 }
 
 // ── Position ka apna LOCKED expiry (jis expiry par trade liya tha, wahi
@@ -7469,7 +8485,7 @@ function _sv2OCMarkPriceFor(p, spot, nowSec) {
   var expirySec = _sv2OCPositionExpirySec(p);
   var daysToExpiry = Math.max(0.01, (expirySec - nowSec) / 86400);
   var T = daysToExpiry / 365;
-  var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot);
+  var iv = _sv2OCAssumedIV(daysToExpiry, p.strike, spot, p.type);
   var px = _sv2OCBlackScholes(spot, p.strike, T, SV2OC.riskFreeRate, iv);
   return p.type === 'CE' ? px.ce : px.pe;
 }
@@ -7482,29 +8498,64 @@ function _sv2OCOpenTrade(strike, type, ltp) {
   var nowSec = _sv2OCCurrentTimeSec();
   SV2OC.pendingTrade = { strike: strike, type: type, ltp: ltp, expirySec: _sv2OCNextExpirySec(nowSec) };
   SV2OC.pendingQtyLots = 1;
+  SV2OC.pendingOrderType = 'market';
+  SV2OC.pendingSLType = 'SLM';
   var titleEl = document.getElementById('sv2-oc-trade-title');
   var ltpEl = document.getElementById('sv2-oc-trade-ltp');
   var slEl = document.getElementById('sv2-oc-trade-sl');
   var tpEl = document.getElementById('sv2-oc-trade-tp');
+  var limitEl = document.getElementById('sv2-oc-trade-limit-price');
+  var sllimitEl = document.getElementById('sv2-oc-trade-sllimit');
   if (titleEl) titleEl.textContent = SV2OC.label + ' ' + strike + ' ' + type;
   if (ltpEl) ltpEl.textContent = SV2OC.cur + _sv2OCFmtPrice(ltp) + ' / qty';
   if (slEl) slEl.value = '';
   if (tpEl) tpEl.value = '';
+  if (limitEl) limitEl.value = _sv2OCFmtPrice(ltp);
+  if (sllimitEl) sllimitEl.value = '';
+  _sv2OCSetOrderType('market');
+  _sv2OCSetSLType('SLM');
   _sv2OCRenderTradeQtyAndTotal();
   var card = document.getElementById('sv2-oc-trade-card');
   var backdrop = document.getElementById('sv2-oc-trade-backdrop');
   if (card) card.classList.add('open');
   if (backdrop) backdrop.classList.add('open');
 }
+// ── Order type toggle — MARKET (fills immediately, with bid/ask slippage)
+// vs LIMIT (parks as a WORKING pending order, fills only jab theoretical
+// price limit ko touch kare — jaisa real order-book order). ──────────────
+function _sv2OCSetOrderType(mode) {
+  SV2OC.pendingOrderType = (mode === 'limit') ? 'limit' : 'market';
+  var mBtn = document.getElementById('sv2-oc-ordertype-market');
+  var lBtn = document.getElementById('sv2-oc-ordertype-limit');
+  var limitRow = document.getElementById('sv2-oc-limit-price-row');
+  if (mBtn) mBtn.classList.toggle('active', SV2OC.pendingOrderType === 'market');
+  if (lBtn) lBtn.classList.toggle('active', SV2OC.pendingOrderType === 'limit');
+  if (limitRow) limitRow.style.display = (SV2OC.pendingOrderType === 'limit') ? '' : 'none';
+  _sv2OCRenderTradeQtyAndTotal();
+}
+// ── SL type toggle — SL-M (trigger hote hi turant mark price/slippage par
+// exit) vs SL-L (trigger ke baad sirf SL-Limit price ya usse behtar par
+// hi exit — agar price gap ho jaaye to fill guarantee nahi, real risk). ──
+function _sv2OCSetSLType(mode) {
+  SV2OC.pendingSLType = (mode === 'SLL') ? 'SLL' : 'SLM';
+  var mBtn = document.getElementById('sv2-oc-sltype-slm');
+  var lBtn = document.getElementById('sv2-oc-sltype-sll');
+  var sllimitRow = document.getElementById('sv2-oc-sllimit-price-row');
+  if (mBtn) mBtn.classList.toggle('active', SV2OC.pendingSLType === 'SLM');
+  if (lBtn) lBtn.classList.toggle('active', SV2OC.pendingSLType === 'SLL');
+  if (sllimitRow) sllimitRow.style.display = (SV2OC.pendingSLType === 'SLL') ? '' : 'none';
+}
 // Qty label + Total amount, dono ek hi jagah se update hote hain taaki
 // lot badhane par total hamesha sahi refresh ho (pehle ye missing tha).
-// Approx SELL margin bhi yahin preview ho jaata hai (trade lene se pehle). ─
+// Approx SELL margin bhi yahin preview ho jaata hai (trade lene se pehle).
+// Freeze-qty se zyada lots par split-order warning bhi yahin dikhti hai. ──
 function _sv2OCRenderTradeQtyAndTotal() {
   var t = SV2OC.pendingTrade;
   if (!t) return;
   var qtyEl = document.getElementById('sv2-oc-trade-qty-val');
   var totalEl = document.getElementById('sv2-oc-trade-total');
   var marginNoteEl = document.getElementById('sv2-oc-trade-margin-note');
+  var slipNoteEl = document.getElementById('sv2-oc-slippage-note');
   var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
   var totalAmt = t.ltp * totalQty;
   var qtyUnit = SV2OC.pendingQtyLots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
@@ -7513,7 +8564,21 @@ function _sv2OCRenderTradeQtyAndTotal() {
   if (marginNoteEl) {
     var spot = _sv2OCCurrentSpot();
     var approxMargin = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
-    marginNoteEl.textContent = '⚠️ SELL karne par approx ' + _sv2OCFmtMoney(approxMargin) + ' margin block hoga (estimate, exact broker margin nahi). Charges (brokerage+STT+misc) alag se lagenge.';
+    var note = '⚠️ SELL karne par approx ' + _sv2OCFmtMoney(approxMargin) + ' margin block hoga (estimate, exact broker margin nahi). Charges (brokerage+STT+misc) alag se lagenge.';
+    if (SV2OC.pendingQtyLots > SV2OC.freezeQtyLots) {
+      var nSplits = Math.ceil(SV2OC.pendingQtyLots / SV2OC.freezeQtyLots);
+      note += '\n📦 Freeze-qty limit (' + SV2OC.freezeQtyLots + ' ' + SV2OC.qtyPlural + ') se zyada — order ' + nSplits + ' fills mein automatically split hoga (har fill par brokerage alag lagega).';
+    }
+    marginNoteEl.textContent = note;
+  }
+  if (slipNoteEl) {
+    if (SV2OC.pendingOrderType === 'market') {
+      var spotS = _sv2OCCurrentSpot();
+      var ba = _sv2OCSimBidAsk(t.ltp, t.strike, spotS != null ? spotS : t.strike);
+      slipNoteEl.textContent = 'ℹ️ Market order Bid/Ask par fill hoga — BUY≈' + SV2OC.cur + _sv2OCFmtPrice(ba.ask) + ', SELL≈' + SV2OC.cur + _sv2OCFmtPrice(ba.bid) + ' (slippage, exact LTP nahi).';
+    } else {
+      slipNoteEl.textContent = 'ℹ️ Limit order — price limit ko touch karne tak "Working" state mein rahega, guaranteed fill nahi.';
+    }
   }
 }
 function _sv2OCQtyStep(delta) {
@@ -7527,20 +8592,84 @@ function _sv2OCTradeCancel() {
   if (card) card.classList.remove('open');
   if (backdrop) backdrop.classList.remove('open');
 }
-// ── Confirm trade: BUY = premium + charges balance se katega. SELL = premium
-// balance mein credit hota hai LEKIN approx margin block ho jaata hai (jaisa
-// real option-writing mein hota hai) — naya trade lene ke liye "available"
-// balance hi check hoti hai (blocked margin usable nahi). SL/Target agar
-// diye ho to position ke saath lock ho jaate hain. ───────────────────────
+// ── Shared execution engine — jo bhi price par fill ho (market/slipped ya
+// limit), ye function balance/margin check, FREEZE-QTY split (bade orders
+// exchange mein ek saath execute nahi hote, multiple child fills mein
+// split hote hain — har fill ki apni brokerage lagti hai), position(s)
+// create, aur charges deduct/credit — sab ek jagah handle karta hai. ─────
+function _sv2OCExecuteFill(t, side, lots, fillPrice, slType, slValue, slLimitPrice, tpValue) {
+  var nowSec = _sv2OCCurrentTimeSec();
+  var spot = _sv2OCCurrentSpot();
+  var freeze = SV2OC.freezeQtyLots || lots;
+  var chunks = [];
+  var remaining = lots;
+  while (remaining > 0) {
+    var chunkLots = Math.min(freeze, remaining);
+    chunks.push(chunkLots);
+    remaining -= chunkLots;
+  }
+  // ── Pehle FULL order ka total balance/margin check (sabhi chunks milaake) ─
+  var totalQtyAll = lots * SV2OC.lotSize;
+  var totalAmtAll = fillPrice * totalQtyAll;
+  var chargesPerChunkEstimate = chunks.map(function (cl) {
+    var amt = fillPrice * cl * SV2OC.lotSize;
+    return _sv2OCCalcCharges(side, amt);
+  });
+  var totalChargesAll = chargesPerChunkEstimate.reduce(function (a, b) { return a + b; }, 0);
+  var available = _sv2OCAvailableBalance();
+  var marginBlockedAll = 0;
+  if (side === 'buy') {
+    if ((totalAmtAll + totalChargesAll) > available) {
+      alert('Insufficient available balance! ' + SV2OC.cur + (totalAmtAll + totalChargesAll).toFixed(0) + ' chahiye (premium + charges), available sirf ' + SV2OC.cur + available.toFixed(0) + ' hai.');
+      return false;
+    }
+  } else {
+    marginBlockedAll = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmtAll, totalQtyAll);
+    if ((marginBlockedAll + totalChargesAll) > available) {
+      alert('Insufficient margin! SELL (option writing) ke liye approx ' + SV2OC.cur + marginBlockedAll.toFixed(0) + ' margin + ' + SV2OC.cur + totalChargesAll.toFixed(0) + ' charges chahiye, available sirf ' + SV2OC.cur + available.toFixed(0) + ' hai.\n\n(Ye ek approx SPAN+exposure-style estimate hai, exact broker margin nahi.)');
+      return false;
+    }
+  }
+  // ── Ab actually chunks ko positions ki tarah push karo (freeze-qty split
+  // hua ho to har chunk apni alag position/brokerage ke saath) ─────────────
+  chunks.forEach(function (chunkLots) {
+    var chunkQty = chunkLots * SV2OC.lotSize;
+    var chunkAmt = fillPrice * chunkQty;
+    var charges = _sv2OCCalcCharges(side, chunkAmt);
+    var marginBlocked = (side === 'sell') ? _sv2OCApproxMargin(spot != null ? spot : t.strike, chunkAmt, chunkQty) : 0;
+    SV2OC.positions.push({
+      id: 'oc_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
+      strike: t.strike, type: t.type, side: side,
+      lots: chunkLots, entryPrice: fillPrice, entryTime: nowSec,
+      expirySec: t.expirySec || _sv2OCNextExpirySec(nowSec),
+      marginBlocked: marginBlocked,
+      sl: slValue, tp: tpValue,
+      slType: slType || 'SLM', slLimitPrice: slLimitPrice != null ? slLimitPrice : null,
+      slTriggered: false,
+      trailPoints: null, trailBest: null // Trailing SL — off by default, turned on via "🔄 Trail SL" button
+    });
+    SV2OC.balance += (side === 'buy') ? -(chunkAmt + charges) : (chunkAmt - charges);
+  });
+  _sv2OCSavePositions();
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
+  _sv2OCRenderPositions();
+  _sv2OCUpdatePnlOverlay();
+  if (chunks.length > 1) {
+    alert('📦 Order freeze-qty limit (' + freeze + ' ' + SV2OC.qtyPlural + ') se bada tha — ' + chunks.length + ' fills mein split ho gaya (' + chunks.join(', ') + ' ' + SV2OC.qtyPlural + ').');
+  }
+  return true;
+}
+// ── Confirm trade: MARKET order turant bid/ask par (slippage ke saath) fill
+// hota hai. LIMIT order — agar current price limit ko already satisfy karta
+// hai to turant fill, warna WORKING pending order ban jaata hai jo har
+// replay tick par check hota hai jab tak price limit tak na aa jaaye. ─────
 function _sv2OCConfirmTrade(side) {
   var t = SV2OC.pendingTrade;
   if (!t) return;
-  var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
-  var totalAmt = t.ltp * totalQty;
+  var lots = SV2OC.pendingQtyLots;
   var nowSec = _sv2OCCurrentTimeSec();
   var spot = _sv2OCCurrentSpot();
-  var charges = _sv2OCCalcCharges(side, totalAmt);
-  var available = _sv2OCAvailableBalance();
 
   var slEl = document.getElementById('sv2-oc-trade-sl');
   var tpEl = document.getElementById('sv2-oc-trade-tp');
@@ -7548,37 +8677,90 @@ function _sv2OCConfirmTrade(side) {
   var tpVal = tpEl && tpEl.value !== '' ? parseFloat(tpEl.value) : null;
   if (slVal != null && isNaN(slVal)) slVal = null;
   if (tpVal != null && isNaN(tpVal)) tpVal = null;
-
-  var marginBlocked = 0;
-  if (side === 'buy') {
-    if ((totalAmt + charges) > available) {
-      alert('Insufficient available balance! ' + SV2OC.cur + (totalAmt + charges).toFixed(0) + ' chahiye (premium + charges), available sirf ' + SV2OC.cur + available.toFixed(0) + ' hai.');
-      return;
-    }
-  } else {
-    marginBlocked = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
-    if ((marginBlocked + charges) > available) {
-      alert('Insufficient margin! SELL (option writing) ke liye approx ' + SV2OC.cur + marginBlocked.toFixed(0) + ' margin + ' + SV2OC.cur + charges.toFixed(0) + ' charges chahiye, available sirf ' + SV2OC.cur + available.toFixed(0) + ' hai.\n\n(Ye ek approx SPAN+exposure-style estimate hai, exact broker margin nahi.)');
+  var slType = SV2OC.pendingSLType || 'SLM';
+  var slLimitPrice = null;
+  if (slType === 'SLL') {
+    var sllEl = document.getElementById('sv2-oc-trade-sllimit');
+    slLimitPrice = sllEl && sllEl.value !== '' ? parseFloat(sllEl.value) : null;
+    if (slLimitPrice != null && isNaN(slLimitPrice)) slLimitPrice = null;
+    if (slVal != null && slLimitPrice == null) {
+      alert('SL-Limit select kiya hai to "SL-Limit fill price" bharna zaroori hai.');
       return;
     }
   }
 
-  SV2OC.positions.push({
-    id: 'oc_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
-    strike: t.strike, type: t.type, side: side,
-    lots: SV2OC.pendingQtyLots, entryPrice: t.ltp, entryTime: nowSec,
-    expirySec: t.expirySec || _sv2OCNextExpirySec(nowSec),
-    marginBlocked: marginBlocked,
-    sl: slVal, tp: tpVal
-  });
-  SV2OC.balance += (side === 'buy') ? -(totalAmt + charges) : (totalAmt - charges);
-  _sv2OCSavePositions();
-  _sv2OCSaveBalance();
-  _sv2OCRenderBalance();
+  if (SV2OC.pendingOrderType === 'limit') {
+    var limEl = document.getElementById('sv2-oc-trade-limit-price');
+    var limitPrice = limEl && limEl.value !== '' ? parseFloat(limEl.value) : NaN;
+    if (isNaN(limitPrice) || limitPrice <= 0) { alert('Sahi Limit price daalo.'); return; }
+    // BUY limit fillable agar current price limit se kam/barabar hai; SELL
+    // limit fillable agar current price limit se zyada/barabar hai.
+    var immediatelyFillable = (side === 'buy') ? (t.ltp <= limitPrice) : (t.ltp >= limitPrice);
+    if (immediatelyFillable) {
+      if (!_sv2OCExecuteFill(t, side, lots, limitPrice, slType, slVal, slLimitPrice, tpVal)) return;
+    } else {
+      SV2OC.pendingOrders.push({
+        id: 'ocp_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
+        strike: t.strike, type: t.type, side: side, lots: lots,
+        limitPrice: limitPrice, expirySec: t.expirySec || _sv2OCNextExpirySec(nowSec),
+        placedTime: nowSec,
+        slType: slType, slValue: slVal, slLimitPrice: slLimitPrice, tpValue: tpVal
+      });
+      _sv2OCSavePendingOrders();
+      _sv2OCRenderPositions();
+      alert('📝 Limit order "Working" state mein park ho gaya — jab price ' + SV2OC.cur + _sv2OCFmtPrice(limitPrice) + ' tak aayega tab fill hoga. Positions tab mein "Pending Orders" ke neeche dekho.');
+    }
+  } else {
+    // Market order — bid/ask slippage ke saath fill (buy = ask, sell = bid)
+    var ba = _sv2OCSimBidAsk(t.ltp, t.strike, spot != null ? spot : t.strike);
+    var fillPrice = (side === 'buy') ? ba.ask : ba.bid;
+    if (!_sv2OCExecuteFill(t, side, lots, fillPrice, slType, slVal, slLimitPrice, tpVal)) return;
+  }
   _sv2OCTradeCancel();
   _sv2OCSelectTab('positions');
+}
+// ── Har replay tick par WORKING limit orders check karo — jab theoretical
+// price limit ko touch/cross kare tab fill; agar order ki expiry cross ho
+// jaaye to auto-cancel (real contract ki tarah, ab wo strike expire ho
+// chuki). ──────────────────────────────────────────────────────────────
+function _sv2OCCheckPendingOrders() {
+  if (!SV2OC.pendingOrders || !SV2OC.pendingOrders.length) return;
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) return;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var changed = false;
+  for (var i = SV2OC.pendingOrders.length - 1; i >= 0; i--) {
+    var o = SV2OC.pendingOrders[i];
+    if (nowSec >= (o.expirySec || Infinity)) {
+      SV2OC.pendingOrders.splice(i, 1);
+      changed = true;
+      continue;
+    }
+    var daysToExpiry = Math.max(0.01, (o.expirySec - nowSec) / 86400);
+    var T = daysToExpiry / 365;
+    var iv = _sv2OCAssumedIV(daysToExpiry, o.strike, spot, o.type);
+    var px = _sv2OCBlackScholes(spot, o.strike, T, SV2OC.riskFreeRate, iv);
+    var curPrice = (o.type === 'CE') ? px.ce : px.pe;
+    var fillable = (o.side === 'buy') ? (curPrice <= o.limitPrice) : (curPrice >= o.limitPrice);
+    if (fillable) {
+      var t = { strike: o.strike, type: o.type, expirySec: o.expirySec };
+      var ok = _sv2OCExecuteFill(t, o.side, o.lots, o.limitPrice, o.slType, o.slValue, o.slLimitPrice, o.tpValue);
+      SV2OC.pendingOrders.splice(i, 1);
+      changed = true;
+      if (ok) {
+        try { alert('✅ Limit order fill: ' + o.side.toUpperCase() + ' ' + SV2OC.label + ' ' + o.strike + ' ' + o.type + ' @ ' + SV2OC.cur + _sv2OCFmtPrice(o.limitPrice)); } catch (_) {}
+      }
+    }
+  }
+  if (changed) _sv2OCSavePendingOrders();
+}
+// ── Cancel a working limit order before it fills ─────────────────────────
+function _sv2OCCancelPendingOrder(id) {
+  var idx = SV2OC.pendingOrders.findIndex(function (o) { return o.id === id; });
+  if (idx === -1) return;
+  SV2OC.pendingOrders.splice(idx, 1);
+  _sv2OCSavePendingOrders();
   _sv2OCRenderPositions();
-  _sv2OCUpdatePnlOverlay();
 }
 
 // ── Set / change SL & Target on an already-open position ─────────────────
@@ -7591,26 +8773,178 @@ function _sv2OCEditSLTP(id) {
   if (tpIn === null) return;
   p.sl = slIn.trim() === '' ? null : (isNaN(parseFloat(slIn)) ? p.sl : parseFloat(slIn));
   p.tp = tpIn.trim() === '' ? null : (isNaN(parseFloat(tpIn)) ? p.tp : parseFloat(tpIn));
+  if (p.sl == null) p.slTriggered = false;
+  // Manual fixed-price SL overrides any active Trailing SL on this position.
+  if (p.trailPoints != null) { p.trailPoints = null; p.trailBest = null; }
   _sv2OCSavePositions();
   _sv2OCRenderPositions();
+}
+
+// ── Trailing SL — SL automatically "chases" price in your favour by a fixed
+// point-distance, and only ever tightens (never loosens back). Har replay
+// tick par _sv2OCUpdateTrailingSL() best-price track karta hai aur SL ko
+// us best price se trailPoints door rakhta hai; jab price wapas SL tak aata
+// hai to normal SL logic (reason 'trailsl') se auto square-off ho jaata hai. ─
+function _sv2OCSetTrailSL(id) {
+  var p = SV2OC.positions.find(function (x) { return x.id === id; });
+  if (!p) return;
+  var msg = 'Trailing SL — kitne points/₹ door rakhni hai current price se?\n(Khaali chhodo ya 0 daalo Trailing SL band karne ke liye)';
+  var input = prompt(msg, p.trailPoints != null ? String(p.trailPoints) : '');
+  if (input === null) return; // cancelled
+  var trimmed = input.trim();
+  if (trimmed === '' || parseFloat(trimmed) <= 0 || isNaN(parseFloat(trimmed))) {
+    p.trailPoints = null;
+    p.trailBest = null;
+    _sv2OCSavePositions();
+    _sv2OCRenderPositions();
+    return;
+  }
+  var pts = parseFloat(trimmed);
+  var spot = _sv2OCCurrentSpot();
+  var nowSec = _sv2OCCurrentTimeSec();
+  var mark = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
+  p.trailPoints = pts;
+  p.trailBest = mark;
+  var isBuy = (p.side === 'buy');
+  var initSL = isBuy ? (mark - pts) : (mark + pts);
+  // Trailing SL kabhi bhi existing fixed SL se "loose" nahi hoga — sirf tighten karega.
+  if (p.sl == null || (isBuy ? initSL > p.sl : initSL < p.sl)) p.sl = initSL;
+  p.slTriggered = false;
+  _sv2OCSavePositions();
+  _sv2OCRenderPositions();
+  alert('🔄 Trailing SL ON — ' + pts + ' pts. Abhi SL ≈ ' + SV2OC.cur + _sv2OCFmtPrice(p.sl) + ', jaise-jaise price favour mein chalega SL bhi saath trail karega.');
+}
+// ── Runs every replay tick (before _sv2OCCheckSLTP) — best-favourable price
+// track karke SL ko tighten karta hai. Never loosens the SL. ─────────────
+function _sv2OCUpdateTrailingSL() {
+  if (!SV2OC.positions.length) return;
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) return;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var changed = false;
+  SV2OC.positions.forEach(function (p) {
+    if (p.trailPoints == null || p.slTriggered) return; // trailing off, ya already SL-L triggered & waiting fill
+    var mark = _sv2OCMarkPriceFor(p, spot, nowSec);
+    var isBuy = (p.side === 'buy');
+    if (p.trailBest == null) p.trailBest = mark;
+    if (isBuy ? (mark > p.trailBest) : (mark < p.trailBest)) {
+      p.trailBest = mark;
+      changed = true;
+    }
+    var candidateSL = isBuy ? (p.trailBest - p.trailPoints) : (p.trailBest + p.trailPoints);
+    if (p.sl == null || (isBuy ? candidateSL > p.sl : candidateSL < p.sl)) {
+      p.sl = candidateSL;
+      changed = true;
+    }
+  });
+  if (changed) _sv2OCSavePositions();
 }
 
 // ── Core square-off routine (manual / expiry-settlement / SL-TP trigger
 // sabke liye SAME logic) — mark price par close, charges deduct, margin
 // (agar SELL thi) release. Returns the realized PnL for this leg. ────────
-function _sv2OCSquareOffCore(idx, markPrice) {
+function _sv2OCSquareOffCore(idx, markPrice, reason) {
   var p = SV2OC.positions[idx];
   var totalQty = p.lots * SV2OC.lotSize;
   var totalAmt = markPrice * totalQty;
   // Exit action opposite hai entry se — BUY position ka exit ek SELL execution
   // hai (isliye STT lagta hai), SELL position ka exit ek BUY-back hai (STT nahi).
   var exitSide = (p.side === 'buy') ? 'sell' : 'buy';
-  var charges = _sv2OCCalcCharges(exitSide, totalAmt);
+  var chg = _sv2OCCalcChargesBreakdown(exitSide, totalAmt);
   var entryAmt = p.entryPrice * totalQty;
   var grossPnl = (p.side === 'buy') ? (totalAmt - entryAmt) : (entryAmt - totalAmt);
-  SV2OC.balance += (p.side === 'buy') ? (totalAmt - charges) : (-totalAmt - charges);
+  var netPnl = grossPnl - chg.total;
+  SV2OC.balance += (p.side === 'buy') ? (totalAmt - chg.total) : (-totalAmt - chg.total);
   SV2OC.positions.splice(idx, 1); // margin (agar thi) automatically release ho jaata hai
-  return grossPnl - charges;
+  // ── Trade Record entry — full broker-slip style breakdown, taaki History
+  // tab mein har trade ka entry/exit/P&L/charges dikhaya ja sake. ──────────
+  SV2OC.history.unshift({
+    id: 'ocx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    strike: p.strike, type: p.type, side: p.side, lots: p.lots,
+    entryPrice: p.entryPrice, exitPrice: markPrice,
+    entryTime: p.entryTime, exitTime: _sv2OCCurrentTimeSec(),
+    grossPnl: grossPnl, charges: chg, netPnl: netPnl,
+    reason: reason || 'manual', balanceAfter: SV2OC.balance
+  });
+  if (SV2OC.history.length > 500) SV2OC.history.length = 500; // sane cap
+  _sv2OCSaveHistory();
+  return netPnl;
+}
+// ── Partial square-off — SAME charge/PnL logic jaisa _sv2OCSquareOffCore,
+// lekin sirf 'exitLots' quantity par (poori position nahi). Exited hissa
+// history mein normal trade record ki tarah chala jaata hai (reason:
+// 'partial', + kitne lots abhi bhi open bache hain wo note ke saath),
+// aur position khud SPLICE nahi hoti — sirf uske lots + margin proportion
+// se kam ho jaate hain, entryPrice/entryTime same rehte hain (baaki bache
+// hue lots ka original cost-basis waisa hi hai). Returns realized PnL for
+// this exited leg. ─────────────────────────────────────────────────────
+function _sv2OCPartialSquareOffCore(idx, exitLots, markPrice, reason) {
+  var p = SV2OC.positions[idx];
+  var remainingLots = p.lots - exitLots;
+  var exitQty = exitLots * SV2OC.lotSize;
+  var totalAmt = markPrice * exitQty;
+  var exitSide = (p.side === 'buy') ? 'sell' : 'buy';
+  var chg = _sv2OCCalcChargesBreakdown(exitSide, totalAmt);
+  var entryAmt = p.entryPrice * exitQty;
+  var grossPnl = (p.side === 'buy') ? (totalAmt - entryAmt) : (entryAmt - totalAmt);
+  var netPnl = grossPnl - chg.total;
+  SV2OC.balance += (p.side === 'buy') ? (totalAmt - chg.total) : (-totalAmt - chg.total);
+  // ── Margin (agar SELL/writing position thi) us exited fraction ke
+  // hisaab se proportionally release ho jaata hai, baaki position ka
+  // margin waisa hi block rehta hai. ─────────────────────────────────
+  var marginReleaseFrac = exitLots / p.lots;
+  var marginReleased = (p.marginBlocked || 0) * marginReleaseFrac;
+  p.marginBlocked = Math.max(0, (p.marginBlocked || 0) - marginReleased);
+  p.lots = remainingLots;
+  SV2OC.history.unshift({
+    id: 'ocx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+    strike: p.strike, type: p.type, side: p.side, lots: exitLots,
+    entryPrice: p.entryPrice, exitPrice: markPrice,
+    entryTime: p.entryTime, exitTime: _sv2OCCurrentTimeSec(),
+    grossPnl: grossPnl, charges: chg, netPnl: netPnl,
+    reason: reason || 'partial', balanceAfter: SV2OC.balance,
+    partial: true, remainingLots: remainingLots
+  });
+  if (SV2OC.history.length > 500) SV2OC.history.length = 500;
+  _sv2OCSaveHistory();
+  return netPnl;
+}
+// ── Partial Exit button handler — kitne lots exit karne hain poochta hai
+// (prompt), baaki position khuli rehti hai apne original entry price par.
+// Agar user total lots (ya usse zyada) daale, to poori position hi
+// square-off ho jaati hai (_sv2OCClosePosition ki tarah). ─────────────────
+function _sv2OCPartialExitPosition(id) {
+  var idx = SV2OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  var p = SV2OC.positions[idx];
+  if (p.lots <= 1) { _sv2OCClosePosition(id); return; } // sirf 1 lot hai — partial ka matlab nahi
+  var qtyUnitLbl = p.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+  var suggested = Math.max(1, Math.floor(p.lots / 2));
+  var input = prompt('Kitne ' + qtyUnitLbl + ' exit karne hain? (Total open: ' + p.lots + ' ' + qtyUnitLbl + ')', String(suggested));
+  if (input === null) return; // cancelled
+  var exitLots = parseInt(input, 10);
+  if (isNaN(exitLots) || exitLots <= 0) { alert('Invalid quantity — ek positive number daalo.'); return; }
+  if (exitLots >= p.lots) { _sv2OCClosePosition(id); return; } // pura lots ya usse zyada → full square-off
+  var spot = _sv2OCCurrentSpot();
+  var nowSec = _sv2OCCurrentTimeSec();
+  var markPrice;
+  if (spot != null) {
+    var theo = _sv2OCMarkPriceFor(p, spot, nowSec);
+    // Partial exit bhi ek MARKET order hai — same bid/ask slippage logic
+    // jaisa full square-off mein (BUY position ka exit SELL par fill,
+    // SELL ka exit BUY par). ────────────────────────────────────────────
+    var ba = _sv2OCSimBidAsk(theo, p.strike, spot);
+    markPrice = (p.side === 'buy') ? ba.bid : ba.ask;
+  } else {
+    markPrice = p.entryPrice;
+  }
+  var netPnl = _sv2OCPartialSquareOffCore(idx, exitLots, markPrice, 'partial');
+  _sv2OCSavePositions();
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
+  _sv2OCRenderPositions();
+  _sv2OCRenderHistory();
+  _sv2OCUpdatePnlOverlay();
 }
 function _sv2OCClosePosition(id) {
   var idx = SV2OC.positions.findIndex(function (p) { return p.id === id; });
@@ -7618,23 +8952,94 @@ function _sv2OCClosePosition(id) {
   var p = SV2OC.positions[idx];
   var spot = _sv2OCCurrentSpot();
   var nowSec = _sv2OCCurrentTimeSec();
-  var markPrice = spot != null ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
-  _sv2OCSquareOffCore(idx, markPrice);
+  var markPrice;
+  if (spot != null) {
+    var theo = _sv2OCMarkPriceFor(p, spot, nowSec);
+    // Manual square-off ek MARKET order hai — bid/ask slippage lagti hai
+    // (BUY position ka exit ek SELL hai → bid par fill, SELL ka exit BUY → ask par).
+    var ba = _sv2OCSimBidAsk(theo, p.strike, spot);
+    markPrice = (p.side === 'buy') ? ba.bid : ba.ask;
+  } else {
+    markPrice = p.entryPrice;
+  }
+  _sv2OCSquareOffCore(idx, markPrice, 'manual');
   _sv2OCSavePositions();
   _sv2OCSaveBalance();
   _sv2OCRenderBalance();
   _sv2OCRenderPositions();
+  _sv2OCRenderHistory();
   _sv2OCUpdatePnlOverlay();
+}
+
+// ── Exit All — ek hi tap mein saari open positions market price par square
+// off, jaisa broker app ka "Exit All" panic-button hota hai. Sab positions
+// ke liye SAME market-exit slippage logic (_sv2OCClosePosition jaisa),
+// lekin ek confirm() ke baad ek hi baar mein sequentially chalta hai, aur
+// end mein ek combined summary alert dikhata hai. ────────────────────────
+function _sv2OCExitAllPositions() {
+  var n = SV2OC.positions.length;
+  if (!n) return;
+  if (!confirm('⛔ Exit All — saari ' + n + ' open position(s) abhi market price par square-off ho jaayengi. Confirm?')) return;
+  var spot = _sv2OCCurrentSpot();
+  var nowSec = _sv2OCCurrentTimeSec();
+  var totalPnl = 0;
+  var lines = [];
+  for (var i = SV2OC.positions.length - 1; i >= 0; i--) {
+    var p = SV2OC.positions[i];
+    var markPrice;
+    if (spot != null) {
+      var theo = _sv2OCMarkPriceFor(p, spot, nowSec);
+      var ba = _sv2OCSimBidAsk(theo, p.strike, spot);
+      markPrice = (p.side === 'buy') ? ba.bid : ba.ask;
+    } else {
+      markPrice = p.entryPrice;
+    }
+    var label = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type;
+    var netPnl = _sv2OCSquareOffCore(i, markPrice, 'exitall');
+    totalPnl += netPnl;
+    lines.push(label + ' → ' + SV2OC.cur + _sv2OCFmtPrice(markPrice) + ' (P&L ' + (netPnl >= 0 ? '+' : '') + netPnl.toFixed(0) + ')');
+  }
+  _sv2OCSavePositions();
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
+  _sv2OCRenderPositions();
+  _sv2OCRenderHistory();
+  _sv2OCUpdatePnlOverlay();
+  lines.reverse();
+  alert('⛔ Exit All done — ' + n + ' position(s) closed.\n\n' + lines.join('\n') + '\n\nTotal P&L: ' + (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(0));
 }
 
 // ── Render Positions tab — mark-to-market P&L, recalculated live ─────────
 function _sv2OCRenderPositions() {
   var listEl = document.getElementById('sv2-oc-positions-list');
   var countEl = document.getElementById('sv2-oc-pos-count');
+  try { _sv2OCUpdateBottomBarBadge(); } catch (_) {}
   if (!listEl) return;
-  if (countEl) countEl.textContent = SV2OC.positions.length ? '(' + SV2OC.positions.length + ')' : '';
-  if (!SV2OC.positions.length) {
-    listEl.innerHTML = '<div id="sv2-oc-positions-empty">Koi open position nahi — Chain tab se koi strike tap karo 👆</div>';
+  _sv2OCRenderRiskPanel();
+  var posCount = SV2OC.positions.length;
+  var pendCount = (SV2OC.pendingOrders || []).length;
+  if (countEl) countEl.textContent = posCount ? '(' + posCount + ')' : '';
+  var toolbarEl = document.getElementById('sv2-oc-positions-toolbar');
+  if (toolbarEl) toolbarEl.style.display = posCount ? '' : 'none';
+  // ── Pending (working) LIMIT orders — hamesha upar dikhte hain (agar hon) ──
+  var pendingHtml = '';
+  if (pendCount) {
+    pendingHtml += '<div id="sv2-oc-pending-orders-hdr">⏳ Working Orders (' + pendCount + ')</div>';
+    SV2OC.pendingOrders.forEach(function (o) {
+      var qtyUnitLbl2 = o.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+      pendingHtml += '<div class="sv2-oc-pending-card">' +
+        '<div class="sv2-oc-pending-top">' +
+          '<div>' +
+            '<div class="sv2-oc-pending-name">' + o.side.toUpperCase() + ' LIMIT ' + SV2OC.label + ' ' + o.strike + ' ' + o.type + '</div>' +
+            '<div class="sv2-oc-pending-meta">' + o.lots + ' ' + qtyUnitLbl2 + ' · Limit ' + SV2OC.cur + _sv2OCFmtPrice(o.limitPrice) + '</div>' +
+          '</div>' +
+          '<button class="sv2-oc-pending-cancel-btn" onclick="_sv2OCCancelPendingOrder(\'' + o.id + '\')">Cancel</button>' +
+        '</div>' +
+      '</div>';
+    });
+  }
+  if (!posCount) {
+    listEl.innerHTML = pendingHtml + '<div id="sv2-oc-positions-empty">Koi open position nahi — Chain tab se koi strike tap karo 👆</div>';
     return;
   }
   var spot = _sv2OCCurrentSpot();
@@ -7649,7 +9054,13 @@ function _sv2OCRenderPositions() {
     var expiryStr = new Date(_sv2OCPositionExpirySec(p) * 1000).toISOString().slice(0, 10);
     var metaBits = ['Expiry ' + expiryStr];
     if (p.marginBlocked) metaBits.push('Margin ' + _sv2OCFmtMoney(p.marginBlocked));
-    if (p.sl != null) metaBits.push('SL ' + SV2OC.cur + _sv2OCFmtPrice(p.sl));
+    if (p.sl != null) {
+      var slLbl = 'SL(' + (p.slType === 'SLL' ? 'L' : 'M') + ') ' + SV2OC.cur + _sv2OCFmtPrice(p.sl);
+      if (p.slType === 'SLL' && p.slLimitPrice != null) slLbl += ' → ' + SV2OC.cur + _sv2OCFmtPrice(p.slLimitPrice);
+      if (p.slTriggered) slLbl += ' (triggered, waiting fill)';
+      if (p.trailPoints != null) slLbl = '🔄 Trailing ' + slLbl + ' (±' + p.trailPoints + ' pts, best ' + SV2OC.cur + _sv2OCFmtPrice(p.trailBest) + ')';
+      metaBits.push(slLbl);
+    }
     if (p.tp != null) metaBits.push('Target ' + SV2OC.cur + _sv2OCFmtPrice(p.tp));
     var qtyUnitLbl = p.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
     html += '<div class="sv2-oc-pos-card">' +
@@ -7663,11 +9074,272 @@ function _sv2OCRenderPositions() {
       '</div>' +
       '<div class="sv2-oc-pos-actions">' +
         '<button class="sv2-oc-pos-sltp-btn" onclick="_sv2OCEditSLTP(\'' + p.id + '\')">🎯 SL/Target</button>' +
+        '<button class="sv2-oc-pos-trail-btn' + (p.trailPoints != null ? ' on' : '') + '" onclick="_sv2OCSetTrailSL(\'' + p.id + '\')">🔄 Trail SL</button>' +
+        (p.lots > 1 ? '<button class="sv2-oc-pos-partial-btn" onclick="_sv2OCPartialExitPosition(\'' + p.id + '\')">✂️ Partial Exit</button>' : '') +
         '<button class="sv2-oc-pos-close-btn" onclick="_sv2OCClosePosition(\'' + p.id + '\')">Square Off</button>' +
       '</div>' +
     '</div>';
   });
+  listEl.innerHTML = pendingHtml + html;
+}
+
+// ── Render History tab — Virtual Trade Record: closed/settled trades,
+// naye-se-purane order mein, entry/exit + gross/net P&L + itemized
+// brokerage/STT/exchange/SEBI/stamp/GST breakdown, plus running summary
+// (total realized P&L, total charges paid, trade count). ─────────────────
+var SV2OC_REASON_LABEL = { manual: 'Manual', expiry: 'Expiry', target: 'Target', sl: 'SL', partial: 'Partial Exit', trailsl: 'Trailing SL', exitall: 'Exit All' };
+function _sv2OCRenderHistory() {
+  var listEl = document.getElementById('sv2-oc-hist-list');
+  var summaryEl = document.getElementById('sv2-oc-hist-summary');
+  var countEl = document.getElementById('sv2-oc-hist-count');
+  if (!listEl) return;
+  var hist = SV2OC.history || [];
+  if (countEl) countEl.textContent = hist.length ? '(' + hist.length + ')' : '';
+  if (!hist.length) {
+    if (summaryEl) summaryEl.innerHTML = '';
+    listEl.innerHTML = '<div id="sv2-oc-positions-empty">Abhi koi closed trade nahi — jab koi position square-off/expire/SL-Target hit hogi, yahan record ho jaayegi 👆</div>';
+    return;
+  }
+  var totalNet = 0, totalCharges = 0;
+  hist.forEach(function (h) { totalNet += h.netPnl; totalCharges += h.charges.total; });
+  if (summaryEl) {
+    var sumClass = totalNet >= 0 ? 'pos' : 'neg';
+    summaryEl.innerHTML =
+      '<div id="sv2-oc-hist-summary-row">' +
+        '<div><div class="sv2-oc-hist-sum-lbl">Total Trades</div><div class="sv2-oc-hist-sum-val">' + hist.length + '</div></div>' +
+        '<div><div class="sv2-oc-hist-sum-lbl">Net Realized P&L</div><div class="sv2-oc-hist-sum-val ' + sumClass + '">' + (totalNet >= 0 ? '+' : '') + totalNet.toFixed(0) + '</div></div>' +
+        '<div><div class="sv2-oc-hist-sum-lbl">Total Charges Paid</div><div class="sv2-oc-hist-sum-val">' + SV2OC.cur + totalCharges.toFixed(0) + '</div></div>' +
+      '</div>';
+  }
+  var html = '';
+  hist.forEach(function (h) {
+    var pnlClass = h.netPnl >= 0 ? 'pos' : 'neg';
+    var qtyUnitLbl = h.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+    var entryStr = new Date(h.entryTime * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    var exitStr = new Date(h.exitTime * 1000).toISOString().slice(0, 16).replace('T', ' ');
+    var reasonLbl = SV2OC_REASON_LABEL[h.reason] || h.reason;
+    var c = h.charges;
+    var chargesLine = 'Brokerage ' + SV2OC.cur + c.brokerage.toFixed(0) +
+      ' · STT ' + SV2OC.cur + c.stt.toFixed(0) +
+      ' · Exch ' + SV2OC.cur + c.exchange.toFixed(1) +
+      ' · SEBI ' + SV2OC.cur + c.sebi.toFixed(2) +
+      (c.stampDuty ? (' · Stamp ' + SV2OC.cur + c.stampDuty.toFixed(1)) : '') +
+      ' · GST ' + SV2OC.cur + c.gst.toFixed(1) +
+      ' = ' + SV2OC.cur + c.total.toFixed(0) + ' total';
+    html += '<div class="sv2-oc-pos-card sv2-oc-hist-card">' +
+      '<div class="sv2-oc-pos-top">' +
+        '<div>' +
+          '<div class="sv2-oc-pos-name">' + h.side.toUpperCase() + ' ' + SV2OC.label + ' ' + h.strike + ' ' + h.type + ' <span class="sv2-oc-hist-reason">' + reasonLbl + '</span></div>' +
+          '<div class="sv2-oc-pos-qty">' + h.lots + ' ' + qtyUnitLbl + ' · Entry ' + SV2OC.cur + _sv2OCFmtPrice(h.entryPrice) + ' → Exit ' + SV2OC.cur + _sv2OCFmtPrice(h.exitPrice) +
+            (h.partial ? ' <span class="sv2-oc-hist-reason">(' + h.remainingLots + ' ' + (h.remainingLots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular) + ' abhi bhi open)</span>' : '') + '</div>' +
+          '<div class="sv2-oc-pos-meta">' + entryStr + ' → ' + exitStr + '</div>' +
+          '<div class="sv2-oc-pos-meta">' + chargesLine + '</div>' +
+        '</div>' +
+        '<div class="sv2-oc-pos-pnl ' + pnlClass + '">' + (h.netPnl >= 0 ? '+' : '') + h.netPnl.toFixed(0) + '</div>' +
+      '</div>' +
+    '</div>';
+  });
   listEl.innerHTML = html;
+  if (SV2OC.activeTab === 'analytics') _sv2OCRenderAnalytics();
+}
+
+// ── P&L & Analytics tab ────────────────────────────────────────────────
+// SV2OC.history record newest-first hai (unshift se). "Latest Day" scope
+// = us history mein sabse recent trade jis IST-date par close hui, wahi
+// din ke sab trades. "Overall" scope = poora history array. Dono scopes
+// se: net P&L, win-rate, trade count, avg P&L/trade, equity curve
+// (chronological cumulative net P&L), aur best/worst single trade. ───────
+var SV2OC_AN_SCOPE = 'day';
+function _sv2OCAnSetScope(scope) {
+  SV2OC_AN_SCOPE = scope;
+  var dayBtn = document.getElementById('sv2-oc-an-scope-day');
+  var ovBtn = document.getElementById('sv2-oc-an-scope-overall');
+  if (dayBtn) dayBtn.classList.toggle('active', scope === 'day');
+  if (ovBtn) ovBtn.classList.toggle('active', scope === 'overall');
+  _sv2OCRenderAnalytics();
+}
+// IST date-string (YYYY-MM-DD) for a given epoch-seconds — same convention
+// used elsewhere in the file (entryStr/exitStr rendering in History tab).
+function _sv2OCAnDateStr(epochSec) {
+  return new Date(epochSec * 1000).toISOString().slice(0, 10);
+}
+function _sv2OCRenderAnalytics() {
+  var emptyEl = document.getElementById('sv2-oc-an-empty');
+  var bodyEl = document.getElementById('sv2-oc-an-body');
+  var hist = SV2OC.history || [];
+  if (!hist.length) {
+    if (emptyEl) emptyEl.style.display = '';
+    if (bodyEl) bodyEl.style.display = 'none';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (bodyEl) bodyEl.style.display = '';
+
+  // hist[0] = most recent closed trade (unshift order)
+  var latestDay = _sv2OCAnDateStr(hist[0].exitTime);
+  var dayTrades = hist.filter(function (h) { return _sv2OCAnDateStr(h.exitTime) === latestDay; });
+  var scoped = (SV2OC_AN_SCOPE === 'day') ? dayTrades : hist;
+
+  var trades = scoped.length;
+  var wins = scoped.filter(function (h) { return h.netPnl > 0; }).length;
+  var winRate = trades ? (wins / trades * 100) : 0;
+  var netPnl = 0;
+  scoped.forEach(function (h) { netPnl += h.netPnl; });
+  var avgPnl = trades ? (netPnl / trades) : 0;
+
+  var netEl = document.getElementById('sv2-oc-an-netpnl');
+  var netSubEl = document.getElementById('sv2-oc-an-netpnl-sub');
+  if (netEl) { netEl.textContent = (netPnl >= 0 ? '+' : '') + netPnl.toFixed(0); netEl.className = 'sv2-oc-an-stat-val ' + (netPnl >= 0 ? 'pos' : 'neg'); }
+  if (netSubEl) netSubEl.textContent = SV2OC_AN_SCOPE === 'day' ? latestDay : 'all-time';
+
+  var wrEl = document.getElementById('sv2-oc-an-winrate');
+  var wrSubEl = document.getElementById('sv2-oc-an-winrate-sub');
+  if (wrEl) wrEl.textContent = winRate.toFixed(0) + '%';
+  if (wrSubEl) wrSubEl.textContent = wins + 'W / ' + (trades - wins) + 'L';
+
+  var trEl = document.getElementById('sv2-oc-an-trades');
+  var trSubEl = document.getElementById('sv2-oc-an-trades-sub');
+  if (trEl) trEl.textContent = String(trades);
+  if (trSubEl) trSubEl.textContent = SV2OC_AN_SCOPE === 'day' ? 'on latest day' : 'all-time';
+
+  var avgEl = document.getElementById('sv2-oc-an-avgpnl');
+  var avgSubEl = document.getElementById('sv2-oc-an-avgpnl-sub');
+  if (avgEl) { avgEl.textContent = (avgPnl >= 0 ? '+' : '') + avgPnl.toFixed(0); avgEl.className = 'sv2-oc-an-stat-val ' + (avgPnl >= 0 ? 'pos' : 'neg'); }
+  if (avgSubEl) avgSubEl.textContent = 'per trade';
+
+  // Best / worst single trade (within current scope)
+  var best = null, worst = null;
+  scoped.forEach(function (h) {
+    if (best === null || h.netPnl > best.netPnl) best = h;
+    if (worst === null || h.netPnl < worst.netPnl) worst = h;
+  });
+  var bestPnlEl = document.getElementById('sv2-oc-an-best-pnl');
+  var bestMetaEl = document.getElementById('sv2-oc-an-best-meta');
+  var worstPnlEl = document.getElementById('sv2-oc-an-worst-pnl');
+  var worstMetaEl = document.getElementById('sv2-oc-an-worst-meta');
+  if (best) {
+    if (bestPnlEl) { bestPnlEl.textContent = '+' + best.netPnl.toFixed(0); bestPnlEl.className = 'sv2-oc-an-bw-pnl pos'; }
+    if (bestMetaEl) bestMetaEl.textContent = best.side.toUpperCase() + ' ' + SV2OC.label + ' ' + best.strike + ' ' + best.type + ' · ' + _sv2OCAnDateStr(best.exitTime);
+  }
+  if (worst) {
+    var wCls = worst.netPnl >= 0 ? 'pos' : 'neg';
+    if (worstPnlEl) { worstPnlEl.textContent = (worst.netPnl >= 0 ? '+' : '') + worst.netPnl.toFixed(0); worstPnlEl.className = 'sv2-oc-an-bw-pnl ' + wCls; }
+    if (worstMetaEl) worstMetaEl.textContent = worst.side.toUpperCase() + ' ' + SV2OC.label + ' ' + worst.strike + ' ' + worst.type + ' · ' + _sv2OCAnDateStr(worst.exitTime);
+  }
+
+  // Equity curve — chronological (oldest→newest) cumulative net P&L
+  var chrono = scoped.slice().reverse();
+  var cum = 0;
+  var points = chrono.map(function (h) { cum += h.netPnl; return cum; });
+  var finalEl = document.getElementById('sv2-oc-an-equity-final');
+  if (finalEl) { finalEl.textContent = (cum >= 0 ? '+' : '') + cum.toFixed(0); finalEl.style.color = cum >= 0 ? '#26a69a' : '#ef5350'; }
+  _sv2OCDrawEquityCurve(points);
+}
+// Lightweight canvas line-chart — no external charting lib needed (keeps
+// this a single-file mobile app). Draws cumulative net P&L, green if the
+// scope ends net-positive, red if net-negative, with a light fill + a
+// zero baseline for context. ─────────────────────────────────────────────
+function _sv2OCDrawEquityCurve(points) {
+  var canvas = document.getElementById('sv2-oc-an-equity-canvas');
+  var emptyEl = document.getElementById('sv2-oc-an-equity-empty');
+  if (!canvas) return;
+  if (!points || points.length < 2) {
+    canvas.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = '';
+    return;
+  }
+  canvas.style.display = '';
+  if (emptyEl) emptyEl.style.display = 'none';
+  var dpr = window.devicePixelRatio || 1;
+  var cssW = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
+  var cssH = 120;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.height = cssH + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  var padL = 4, padR = 4, padT = 8, padB = 8;
+  var w = cssW - padL - padR, h = cssH - padT - padB;
+  var minV = Math.min(0, Math.min.apply(null, points));
+  var maxV = Math.max(0, Math.max.apply(null, points));
+  if (minV === maxV) { minV -= 1; maxV += 1; }
+  var xStep = points.length > 1 ? w / (points.length - 1) : w;
+  function xAt(i) { return padL + i * xStep; }
+  function yAt(v) { return padT + h - ((v - minV) / (maxV - minV)) * h; }
+
+  var finalPositive = points[points.length - 1] >= 0;
+  var lineColor = finalPositive ? '#26a69a' : '#ef5350';
+  var fillColor = finalPositive ? 'rgba(38,166,154,0.14)' : 'rgba(239,83,80,0.14)';
+
+  // zero baseline (dashed)
+  ctx.save();
+  ctx.strokeStyle = '#2a2e39';
+  ctx.setLineDash([3, 3]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, yAt(0));
+  ctx.lineTo(padL + w, yAt(0));
+  ctx.stroke();
+  ctx.restore();
+
+  // filled area under curve
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), yAt(points[0]));
+  points.forEach(function (v, i) { ctx.lineTo(xAt(i), yAt(v)); });
+  ctx.lineTo(xAt(points.length - 1), yAt(0));
+  ctx.lineTo(xAt(0), yAt(0));
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+
+  // curve line
+  ctx.beginPath();
+  points.forEach(function (v, i) {
+    var x = xAt(i), y = yAt(v);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // final point dot
+  var lastX = xAt(points.length - 1), lastY = yAt(points[points.length - 1]);
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+}
+
+// ── Bottom-bar icon live P&L badge — sum of unrealized P&L across all
+// open positions (agar koi open hai), taaki user ko sheet khole bina hi
+// pata chale ki abhi profit mein hai ya loss mein. Har replay tick +
+// har position open/close ke baad refresh hoti hai. ─────────────────────
+function _sv2OCUpdateBottomBarBadge() {
+  var btn = document.getElementById('sv2-oc-bottombar-btn');
+  var badge = document.getElementById('sv2-oc-bottombar-badge');
+  if (!btn || !badge) return;
+  if (!SV2OC.positions || !SV2OC.positions.length) {
+    badge.classList.remove('show', 'pos', 'neg');
+    btn.classList.remove('has-pos');
+    return;
+  }
+  var spot = _sv2OCCurrentSpot();
+  var nowSec = _sv2OCCurrentTimeSec();
+  var totalPnl = 0;
+  SV2OC.positions.forEach(function (p) {
+    var markPrice = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
+    var qty = p.lots * SV2OC.lotSize;
+    var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
+    totalPnl += diff * qty;
+  });
+  badge.textContent = (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(0);
+  badge.classList.add('show');
+  badge.classList.toggle('pos', totalPnl >= 0);
+  badge.classList.toggle('neg', totalPnl < 0);
+  btn.classList.add('has-pos');
 }
 
 // ── Chart-overlay: chosen strike price + live P&L, seedha candlestick
@@ -7744,7 +9416,7 @@ function _sv2OCCheckExpirySettlement() {
     var p = SV2OC.positions[i];
     if (nowSec >= _sv2OCPositionExpirySec(p)) {
       var settlePrice = _sv2OCIntrinsicFor(p, spot); // expiry par sirf intrinsic value bachti hai
-      var pnl = _sv2OCSquareOffCore(i, settlePrice);
+      var pnl = _sv2OCSquareOffCore(i, settlePrice, 'expiry');
       settled.push(p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type + ' → settled @ ' + SV2OC.cur + _sv2OCFmtPrice(settlePrice) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
     }
   }
@@ -7756,13 +9428,19 @@ function _sv2OCCheckExpirySettlement() {
 }
 
 // ── SL / Target auto-trigger — replay ke agle revealed bar ke price par
-// check hota hai (intrabar touch simulate nahi hota, sirf bar-close jaisa). ─
+// check hota hai (intrabar touch simulate nahi hota, sirf bar-close jaisa).
+// TARGET aur SL-MARKET dono turant fill hote hain (SL-M par bid/ask
+// slippage lagti hai, jaisa real emergency market-exit mein hota). SL-LIMIT
+// trigger hone ke baad sirf uske limit price (ya usse behtar) par hi fill
+// hota hai — agar price gap ho jaaye to us tick par fill nahi hota, agla
+// tick phir try karta hai (real SL-L order jaisa risk, guaranteed nahi). ──
 function _sv2OCCheckSLTP() {
   if (!SV2OC.positions.length) return;
   var spot = _sv2OCCurrentSpot();
   if (spot == null) return;
   var nowSec = _sv2OCCurrentTimeSec();
   var hits = [];
+  var changed = false;
   for (var i = SV2OC.positions.length - 1; i >= 0; i--) {
     var p = SV2OC.positions[i];
     if (p.sl == null && p.tp == null) continue;
@@ -7770,29 +9448,64 @@ function _sv2OCCheckSLTP() {
     var isBuy = (p.side === 'buy');
     var tpHit = (p.tp != null) && (isBuy ? mark >= p.tp : mark <= p.tp);
     var slHit = (p.sl != null) && (isBuy ? mark <= p.sl : mark >= p.sl);
-    if (tpHit || slHit) {
-      var label = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type;
-      var pnl = _sv2OCSquareOffCore(i, mark);
-      hits.push(label + ' → ' + (tpHit ? 'Target' : 'SL') + ' hit @ ' + SV2OC.cur + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')');
+    var label = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type;
+    if (tpHit) {
+      var pnlT = _sv2OCSquareOffCore(i, mark, 'target');
+      hits.push(label + ' → Target hit @ ' + SV2OC.cur + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnlT >= 0 ? '+' : '') + pnlT.toFixed(0) + ')');
+      changed = true;
+      continue;
+    }
+    if (slHit && (p.slType !== 'SLL')) {
+      // SL-Market: turant bid/ask slippage ke saath fill (jaisa real emergency exit)
+      var ba = _sv2OCSimBidAsk(mark, p.strike, spot);
+      var exitPx = isBuy ? ba.bid : ba.ask;
+      var slReason = p.trailPoints != null ? 'trailsl' : 'sl';
+      var pnlS = _sv2OCSquareOffCore(i, exitPx, slReason);
+      hits.push(label + (p.trailPoints != null ? ' → Trailing SL hit @ ' : ' → SL-Market hit @ ') + SV2OC.cur + _sv2OCFmtPrice(exitPx) + ' (P&L ' + (pnlS >= 0 ? '+' : '') + pnlS.toFixed(0) + ')');
+      changed = true;
+      continue;
+    }
+    if (slHit && p.slType === 'SLL') {
+      p.slTriggered = true; // trigger hua, ab limit price ka wait
+      changed = true;
+    }
+    if (p.slTriggered && p.slLimitPrice != null) {
+      // Fillable sirf tab jab price limit ke barabar ya usse behtar aa jaaye.
+      var slFillable = isBuy ? (mark >= p.slLimitPrice) : (mark <= p.slLimitPrice);
+      if (slFillable) {
+        var slReasonL = p.trailPoints != null ? 'trailsl' : 'sl';
+        var pnlL = _sv2OCSquareOffCore(i, mark, slReasonL);
+        hits.push(label + (p.trailPoints != null ? ' → Trailing SL(L) hit @ ' : ' → SL-Limit hit @ ') + SV2OC.cur + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnlL >= 0 ? '+' : '') + pnlL.toFixed(0) + ')');
+        changed = true;
+      }
     }
   }
   if (hits.length) {
     _sv2OCSavePositions();
     _sv2OCSaveBalance();
     alert('🎯 Auto Square-Off:\n\n' + hits.join('\n'));
+  } else if (changed) {
+    _sv2OCSavePositions(); // SLL trigger flag set hua tha, save kar do
   }
 }
 
-// ── Hook: har replay tick (naya bar reveal hone) ke baad expiry-settlement
-// aur SL/Target check hamesha chalta hai (sheet band ho tab bhi) — chain +
-// positions ka visual refresh sirf sheet khuli ho tab hota hai. ───────────
+// ── Hook: har replay tick (naya bar reveal hone) ke baad expiry-settlement,
+// pending LIMIT orders, aur SL/Target check hamesha chalta hai (sheet band
+// ho tab bhi) — chain + positions ka visual refresh sirf sheet khuli ho tab
+// hota hai. ─────────────────────────────────────────────────────────────
 function _sv2OptionChainOnStep() {
   if (!_sv2OCSyncAssetContext()) return; // abhi koi supported asset replay mein nahi
   _sv2OCCheckExpirySettlement();
+  _sv2OCCheckPendingOrders();
+  _sv2OCUpdateTrailingSL();
   _sv2OCCheckSLTP();
+  _sv2OCUpdateMarginCallBanner();
   _sv2OCUpdatePnlOverlay();
+  _sv2OCUpdateBottomBarBadge();
   if (!SV2OC.open) return;
   if (SV2OC.activeTab === 'chain') _sv2OCRenderChain();
+  else if (SV2OC.activeTab === 'history') _sv2OCRenderHistory();
+  else if (SV2OC.activeTab === 'analytics') { /* static per closed trade — no need to redraw every tick */ }
   else _sv2OCRenderPositions();
 }
 
@@ -8419,6 +10132,7 @@ function selectStack2View() {
   const _sv2srb = document.getElementById('sv2-sr-btn'); if (_sv2srb) _sv2srb.style.display = '';
   const _sv2prb = document.getElementById('sv2-practice-btn'); if (_sv2prb) _sv2prb.style.display = '';
   const _sv2ocb = document.getElementById('sv2-optionchain-btn'); if (_sv2ocb) _sv2ocb.style.display = '';
+  const _sv2ocbB = document.getElementById('sv2-oc-bottombar-btn'); if (_sv2ocbB) _sv2ocbB.style.display = '';
   try { _sv2IndSectionShow(true); } catch(_) {}
 
   buildStack2();
@@ -11376,6 +13090,7 @@ function selectStackView() {
   const _srb2 = document.getElementById('sv2-sr-btn'); if (_srb2) _srb2.style.display = 'none';
   const _prb2 = document.getElementById('sv2-practice-btn'); if (_prb2) _prb2.style.display = 'none';
   const _ocb2 = document.getElementById('sv2-optionchain-btn'); if (_ocb2) _ocb2.style.display = 'none';
+  const _ocb2b = document.getElementById('sv2-oc-bottombar-btn'); if (_ocb2b) _ocb2b.style.display = 'none';
   closeSv2SrPanel();
   try { _sv2IndSectionShow(false); } catch(_) {}
 
