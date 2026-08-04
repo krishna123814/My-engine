@@ -1081,6 +1081,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-oc-bottombar-btn:active{background:#2a2e39}
 #sv2-oc-bottombar-btn.active{border-color:#2962ff;color:#2962ff}
 #sv2-oc-bottombar-btn.has-pos{border-color:#f0b90b}
+/* Rollover-due — koi open position ki expiry rollover-window ke andar hai;
+   icon border red pulse karta hai taaki sheet kholay bina hi pata chale
+   ki expiry paas hai (has-pos ke amber border se priority mein upar). */
+#sv2-oc-bottombar-btn.rollover-due{border-color:#ef5350;animation:sv2ocMarginPulse 1.4s ease-in-out infinite}
 #sv2-oc-bottombar-badge{
   display:none;font-size:9.5px;font-weight:700;line-height:1;
   padding:2px 5px;border-radius:8px;
@@ -2317,6 +2321,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-oc-title{ font-size:15px; font-weight:700; color:#d1d4dc; }
 #sv2-oc-spot{ font-size:11px; font-weight:600; color:#787b86; margin-top:2px; }
+#sv2-oc-hdr-actions{ display:flex; align-items:center; gap:8px; }
+#sv2-oc-sound-toggle{
+  width:30px; height:30px; border-radius:8px; border:none;
+  background:#1e222d; color:#d1d4dc; font-size:14px; cursor:pointer;
+}
+#sv2-oc-sound-toggle.off{ color:#5b606e; }
+#sv2-oc-sound-toggle:active{ background:#2a2e39; }
 #sv2-oc-close{
   width:30px; height:30px; border-radius:8px; border:none;
   background:#1e222d; color:#d1d4dc; font-size:15px; cursor:pointer;
@@ -2387,6 +2398,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-oc-depth-toggle.on{ background:#2962ff55; }
 #sv2-oc-depth-toggle.on::after{ left:18px; background:#2962ff; }
+#sv2-oc-watchlist-toggle{
+  width:38px; height:22px; border-radius:11px; border:none; cursor:pointer;
+  background:#2a2e39; position:relative;
+}
+#sv2-oc-watchlist-toggle::after{
+  content:''; position:absolute; top:2px; left:2px; width:18px; height:18px;
+  border-radius:50%; background:#787b86; transition:left .15s, background .15s;
+}
+#sv2-oc-watchlist-toggle.on{ background:#f0b90b55; }
+#sv2-oc-watchlist-toggle.on::after{ left:18px; background:#f0b90b; }
+#sv2-oc-watchlist-empty{
+  font-size:11px; color:#5b606e; text-align:center; padding:24px 0; line-height:1.6;
+}
 
 /* Greeks sub-line inside each CE/PE cell (only shown when toggle is ON) */
 .sv2-oc-greeks-sub{
@@ -2440,7 +2464,13 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-row.atm-row{ background:#2962ff14; }
 .sv2-oc-cell-strike{
   font-size:12px; font-weight:700; color:#d1d4dc; padding:9px 0;
+  display:flex; align-items:center; justify-content:center; gap:4px;
 }
+.sv2-oc-star{
+  font-size:13px; line-height:1; cursor:pointer; color:#3a3f4d;
+  touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+}
+.sv2-oc-star.on{ color:#f0b90b; }
 .sv2-oc-cell-ltp{
   font-size:12px; font-weight:700; padding:9px 4px; cursor:pointer;
   border-radius:6px; margin:3px;
@@ -2481,6 +2511,39 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   animation:sv2ocMarginPulse 1.4s ease-in-out infinite;
 }
 @keyframes sv2ocMarginPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.62; } }
+
+/* ── Auto Square-Off warning banner — BankNifty EOD (MIS/intraday-style)
+   cutoff, same visual language as margin-call banner. ───────────────── */
+#sv2-oc-eod-banner{
+  margin:0 16px 10px; border-radius:9px; padding:9px 12px;
+  font-size:11px; font-weight:700; line-height:1.5;
+}
+#sv2-oc-eod-banner.warn{ background:#f0b90b1c; border:1px solid #f0b90b; color:#f0b90b; }
+#sv2-oc-eod-banner.danger{
+  background:#ef535022; border:1px solid #ef5350; color:#ef5350;
+  animation:sv2ocMarginPulse 1.4s ease-in-out infinite;
+}
+
+/* ── Rollover Reminder banner — expiry ke paas open position(s) ka alert,
+   taaki user time rehte ya to next expiry mein roll kar le ya square-off
+   kar de, warna auto cash-settlement intrinsic value par ho jaayegi.
+   Same visual language as margin-call/EOD banners. ────────────────────── */
+#sv2-oc-rollover-banner{
+  margin:0 16px 10px; border-radius:9px; padding:9px 12px;
+  font-size:11px; font-weight:700; line-height:1.5;
+}
+#sv2-oc-rollover-banner.warn{ background:#f0b90b1c; border:1px solid #f0b90b; color:#f0b90b; }
+#sv2-oc-rollover-banner.danger{
+  background:#ef535022; border:1px solid #ef5350; color:#ef5350;
+  animation:sv2ocMarginPulse 1.4s ease-in-out infinite;
+}
+#sv2-oc-rollover-actions{ display:flex; gap:8px; margin-top:7px; }
+.sv2-oc-rollover-btn{
+  flex:1; height:26px; border-radius:6px; border:1px solid currentColor;
+  background:transparent; color:inherit; font-size:10.5px; font-weight:700;
+  cursor:pointer;
+}
+.sv2-oc-rollover-btn:active{ background:#ffffff14; }
 
 #sv2-oc-positions-empty{
   font-size:12px; color:#5b606e; text-align:center; padding:30px 0;
@@ -2613,6 +2676,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-oc-limit-price-row{ margin-bottom:10px; }
 #sv2-oc-limit-price-row .sv2-oc-sltp-input{ width:100%; }
 #sv2-oc-slippage-note{ font-size:9.5px; color:#5b606e; margin:-6px 0 10px; line-height:1.4; }
+#sv2-oc-circuit-note{ font-size:9.5px; color:#5b606e; margin:-6px 0 10px; line-height:1.4; }
+#sv2-oc-circuit-note.locked{ color:#ef5350; font-weight:700; }
+#sv2-oc-freeze-note{ font-size:9.5px; color:#5b606e; margin:-6px 0 10px; line-height:1.4; }
 #sv2-oc-sltype-row{
   display:flex; align-items:center; gap:6px; margin:-6px 0 10px;
 }
@@ -2640,6 +2706,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv2-oc-buy-btn{ background:#26a69a; color:#0c1017; }
 #sv2-oc-sell-btn{ background:#ef5350; color:#0c1017; }
+.sv2-oc-trade-act.locked{ background:#2a2e39; color:#5b606e; cursor:not-allowed; }
 #sv2-oc-trade-cancel{
   margin-top:10px; width:100%; height:36px; border-radius:9px;
   background:none; border:none; color:#787b86; font-size:12px; cursor:pointer;
@@ -4294,7 +4361,10 @@ function _hdrRelayout(){
         <div id="sv2-oc-title">⛓️ Option Chain</div>
         <div id="sv2-oc-spot">Spot: --</div>
       </div>
-      <button id="sv2-oc-close" onclick="_sv2OCClose()">✕</button>
+      <div id="sv2-oc-hdr-actions">
+        <button id="sv2-oc-sound-toggle" onclick="_sv2OCToggleSound()" title="Sound Alerts">🔊</button>
+        <button id="sv2-oc-close" onclick="_sv2OCClose()">✕</button>
+      </div>
     </div>
 
     <div id="sv2-oc-balance-row">
@@ -4315,6 +4385,8 @@ function _hdrRelayout(){
     </div>
 
     <div id="sv2-oc-margincall-banner" style="display:none"></div>
+    <div id="sv2-oc-eod-banner" style="display:none"></div>
+    <div id="sv2-oc-rollover-banner" style="display:none"></div>
 
     <div id="sv2-oc-tabs">
       <button class="sv2-oc-tab-btn active" id="sv2-oc-tab-chain-btn" onclick="_sv2OCSelectTab('chain')">Chain</button>
@@ -4342,6 +4414,10 @@ function _hdrRelayout(){
       <div id="sv2-oc-depth-row" class="sv2-oc-toggle-row">
         <span id="sv2-oc-depth-label">Show Depth (Bid/Ask · OI · Vol)</span>
         <button id="sv2-oc-depth-toggle" onclick="_sv2OCToggleDepth()"></button>
+      </div>
+      <div id="sv2-oc-watchlist-row" class="sv2-oc-toggle-row">
+        <span id="sv2-oc-watchlist-label">⭐ Watchlist Only (favourite strikes)</span>
+        <button id="sv2-oc-watchlist-toggle" onclick="_sv2OCToggleWatchlistFilter()"></button>
       </div>
       <div id="sv2-oc-note">
         ⚠️ Ye LTP real broker se nahi aa raha — Black-Scholes model se replay ke
@@ -4442,6 +4518,8 @@ function _hdrRelayout(){
     <input type="number" id="sv2-oc-trade-limit-price" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="Limit price">
   </div>
   <div id="sv2-oc-slippage-note"></div>
+  <div id="sv2-oc-circuit-note"></div>
+  <div id="sv2-oc-freeze-note"></div>
   <div id="sv2-oc-trade-qty-row">
     <button class="sv2-oc-qty-btn" onclick="_sv2OCQtyStep(-1)">−</button>
     <div id="sv2-oc-trade-qty-val">1 lot</div>
@@ -7366,7 +7444,9 @@ var SV2OC_ASSET_CFG = {
     miscChargeRate: 0.0005, // exchange txn + SEBI + stamp + GST, rough bundle
     startingBalance: 25000, // ₹25,000 virtual starting balance
     freezeQtyLots: 60,     // NSE "market freeze quantity" approx — bade orders isse zyada qty mein ek saath execute nahi hote, multiple orders mein split hote hain (exact value NSE occasionally revises)
-    cur: '₹', locale: 'en-IN', expiryLabel: 'monthly'
+    cur: '₹', locale: 'en-IN', expiryLabel: 'monthly',
+    rolloverWarnDays: 1,     // monthly contract — last trading day se pehle warn karo
+    rolloverDangerDays: 0.25 // ~6 ghante bache hon to danger (red, pulsing)
   },
   btc: {
     label: 'BTC', shortLabel: 'BTC',
@@ -7381,7 +7461,9 @@ var SV2OC_ASSET_CFG = {
     miscChargeRate: 0.0003, // rough taker-fee-style bundle
     startingBalance: 10000, // $10,000 virtual starting balance
     freezeQtyLots: 50,      // approx large-order split threshold (contracts)
-    cur: '$', locale: 'en-US', expiryLabel: 'weekly'
+    cur: '$', locale: 'en-US', expiryLabel: 'weekly',
+    rolloverWarnDays: 0.5,   // weekly (Fri) contract — 12 ghante pehle warn karo
+    rolloverDangerDays: 0.08 // ~2 ghante bache hon to danger (red, pulsing)
   }
 };
 
@@ -7402,6 +7484,7 @@ var SV2OC = {
   startingBalance: 25000,
   freezeQtyLots: 60,
   cur: '₹', locale: 'en-IN', label: 'BANKNIFTY', expiryLabel: 'monthly',
+  rolloverWarnDays: 1, rolloverDangerDays: 0.25,
   balance: 25000,
   history: [],  // closed/settled trades: {id, strike, type, side, lots, entryPrice, exitPrice, entryTime, exitTime, grossPnl, charges:{brokerage,stt,exchange,sebi,stampDuty,gst,total}, netPnl, reason, balanceAfter}
   showGreeks: false,
@@ -7421,6 +7504,19 @@ var SV2OC = {
   builderMode: false,   // true = Chain tab strike-tap → add leg (instead of single trade sheet)
   builderLegs: [],      // [{id, strike, type:'CE'|'PE', side:'buy'|'sell', lots}]
   builderOpen: false,   // leg-list bottom sheet open/closed
+  // ── Watchlist — user ke favourite strikes (per-asset, localStorage
+  // persisted). Chain tab mein har row par ek ⭐ hoti hai (add/remove), aur
+  // ek "Watchlist Only" toggle se chain ko sirf in strikes tak filter kiya
+  // ja sakta hai — bade strike-range mein baar-baar scroll na karna pade. ─
+  watchlist: [],         // [strike, strike, ...] — numbers, current asset ke liye
+  watchlistFilterOn: false,
+  // ── Sound Alerts — trade fill / target / SL / expiry / rollover / margin
+  // call jaise events par short beep (Web Audio API se generate, koi audio
+  // file load nahi karni padti). ON by default, header ke 🔊 se mute/unmute
+  // hota hai, localStorage mein persist hota hai (sab assets ke liye common). ─
+  soundOn: (function () {
+    try { var v = localStorage.getItem('sv2_oc_sound_on_v1'); return v === null ? true : v === '1'; } catch (_) { return true; }
+  })(),
   // ── Chart-overlay: chosen strike + live P&L, seedha candlestick chart par
   // (Stack View 2 ke sab cells par, jo bhi asset ka replay chal raha hai) —
   // ⓵ FAB strip ke "P&L" icon se show/hide hota hai, state persist hoti hai. ─
@@ -7473,10 +7569,13 @@ function _sv2OCSyncAssetContext() {
   SV2OC.locale = cfg.locale;
   SV2OC.label = cfg.label;
   SV2OC.expiryLabel = cfg.expiryLabel;
+  SV2OC.rolloverWarnDays = cfg.rolloverWarnDays;
+  SV2OC.rolloverDangerDays = cfg.rolloverDangerDays;
   _sv2OCLoadPositions();
   _sv2OCLoadBalance();
   _sv2OCLoadHistory();
   _sv2OCLoadPendingOrders();
+  _sv2OCLoadWatchlist();
   return true;
 }
 // ── Har asset ki apni alag positions/balance storage — BN aur BTC ki
@@ -7490,6 +7589,17 @@ function _sv2OCLoadPositions() {
 }
 function _sv2OCSavePositions() {
   try { localStorage.setItem(_sv2OCStorageKey(), JSON.stringify(SV2OC.positions)); } catch (_) {}
+}
+// ── Watchlist — per-asset alag storage, positions jaisa. ──────────────────
+function _sv2OCWatchlistKey() { return 'sv2_oc_watchlist_v1_' + (SV2OC.currentAssetKey || 'bn'); }
+function _sv2OCLoadWatchlist() {
+  try {
+    var raw = localStorage.getItem(_sv2OCWatchlistKey());
+    SV2OC.watchlist = raw ? JSON.parse(raw) : [];
+  } catch (_) { SV2OC.watchlist = []; }
+}
+function _sv2OCSaveWatchlist() {
+  try { localStorage.setItem(_sv2OCWatchlistKey(), JSON.stringify(SV2OC.watchlist)); } catch (_) {}
 }
 // ── Pending (working) LIMIT entry orders — jab tak price limit tak nahi
 // aata, ye order fill nahi hota, "working" state mein pada rehta hai
@@ -7738,6 +7848,7 @@ function _sv2OCUpdateMarginCallBanner() {
     banner.textContent = '🚨 MARGIN CALL — Equity (' + _sv2OCFmtMoney(equity) + ') required margin (' + _sv2OCFmtMoney(blocked) + ') se kam hai! Positions square-off karo ya balance add karo.';
     if (!SV2OC._marginCallAlerted) {
       SV2OC._marginCallAlerted = true;
+      _sv2OCSoundDanger();
       try { alert('🚨 MARGIN CALL!\n\nEquity ' + _sv2OCFmtMoney(equity) + ' required margin ' + _sv2OCFmtMoney(blocked) + ' se kam ho gaya hai.\nKuch positions square-off karo ya loss control karo.'); } catch (_) {}
     }
   } else if (ratio < 1.2) {
@@ -7749,6 +7860,180 @@ function _sv2OCUpdateMarginCallBanner() {
     banner.style.display = 'none';
     SV2OC._marginCallAlerted = false;
   }
+}
+// ── Auto Square-Off Warning (BankNifty only) — real intraday/MIS brokers
+// automatically square-off open positions before market close (commonly
+// a ~3:15–3:20 PM IST window). Warn the user during that window, and if
+// they still haven't closed out by the cutoff, force a market-price
+// square-off automatically (same engine as "Exit All") — so P&L stays
+// realistic instead of silently carrying a position past the exchange's
+// forced-close time. BTC is 24/7, isliye ye sirf BankNifty par lagta hai. ─
+var SV2OC_EOD_WARN_MIN  = 15 * 60 + 15; // 3:15 PM IST — warning starts
+var SV2OC_EOD_FORCE_MIN = 15 * 60 + 20; // 3:20 PM IST — forced square-off
+function _sv2OCUpdateEodSquareOffWarning() {
+  var banner = document.getElementById('sv2-oc-eod-banner');
+  if (!banner) return;
+  if (SV2OC.currentAssetKey !== 'bn' || !SV2OC.positions || !SV2OC.positions.length) {
+    banner.style.display = 'none';
+    return;
+  }
+  var nowSec = _sv2OCCurrentTimeSec();
+  var IST = 5.5 * 3600;
+  var minOfDay = Math.floor(((nowSec + IST) % 86400) / 60);
+  if (minOfDay >= SV2OC_EOD_FORCE_MIN) {
+    var n = SV2OC.positions.length;
+    var spot = _sv2OCCurrentSpot();
+    var totalPnl = 0;
+    var lines = [];
+    for (var i = SV2OC.positions.length - 1; i >= 0; i--) {
+      var p = SV2OC.positions[i];
+      var markPrice;
+      if (spot != null) {
+        var theo = _sv2OCMarkPriceFor(p, spot, nowSec);
+        var ba = _sv2OCSimBidAsk(theo, p.strike, spot);
+        markPrice = (p.side === 'buy') ? ba.bid : ba.ask;
+      } else {
+        markPrice = p.entryPrice;
+      }
+      var label = p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type;
+      var netPnl = _sv2OCSquareOffCore(i, markPrice, 'auto_eod');
+      totalPnl += netPnl;
+      lines.push(label + ' → ' + SV2OC.cur + _sv2OCFmtPrice(markPrice) + ' (P&L ' + (netPnl >= 0 ? '+' : '') + netPnl.toFixed(0) + ')');
+    }
+    _sv2OCSavePositions();
+    _sv2OCSaveBalance();
+    _sv2OCRenderBalance();
+    _sv2OCRenderPositions();
+    _sv2OCRenderHistory();
+    _sv2OCUpdatePnlOverlay();
+    banner.style.display = 'none';
+    lines.reverse();
+    _sv2OCSoundDanger();
+    try {
+      alert('⏰ Auto Square-Off (3:20 PM IST) — ' + n + ' open position(s) automatically square-off ho gayi (MIS/intraday cutoff).\n\n' + lines.join('\n') + '\n\nTotal P&L: ' + (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(0));
+    } catch (_) {}
+    return;
+  }
+  if (minOfDay >= SV2OC_EOD_WARN_MIN) {
+    var minsLeft = Math.max(0, SV2OC_EOD_FORCE_MIN - minOfDay);
+    banner.className = 'danger';
+    banner.style.display = 'block';
+    banner.textContent = '⏰ Auto Square-Off in ~' + minsLeft + ' min — open position(s) 3:20 PM IST tak khud square-off na kiye to MARKET price par automatically band ho jaayengi (MIS/intraday rule jaisa).';
+    return;
+  }
+  banner.style.display = 'none';
+}
+// ── Rollover Reminder (BankNifty monthly + BTC weekly) — jaise-jaise koi
+// open position ki LOCKED expiry paas aati hai, user ko time rehte batao
+// taaki wo "Roll All" se automatically usi strike/side/lots par NEXT-cycle
+// expiry mein switch kar sake (current position square-off @ market +
+// naya position open @ theoretical price, dono ek hi click mein) — ya
+// khud manually square-off kar de. Alert() sirf EK BAAR per threshold-entry
+// aata hai (margin-call jaisa re-arm pattern: jab tak koi bhi position us
+// window ke andar rehti hai dobara alert nahi aata, sirf jab ratio behtar
+// ho — yahan jab koi bhi position window ke bahar chali jaaye — to re-arm). ─
+function _sv2OCExpiryAfter(expSec) {
+  if (SV2OC.currentAssetKey === 'btc') return _sv2OCNextFridayUTC(expSec + 1, 0);
+  var d = new Date(expSec * 1000);
+  var y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
+  if (m > 11) { m = 0; y += 1; }
+  return _sv2OCMonthlyExpirySec(y, m);
+}
+function _sv2OCSoonestExpiringPosition() {
+  if (!SV2OC.positions || !SV2OC.positions.length) return null;
+  var nowSec = _sv2OCCurrentTimeSec();
+  var best = null, bestDays = Infinity;
+  SV2OC.positions.forEach(function (p) {
+    var days = (_sv2OCPositionExpirySec(p) - nowSec) / 86400;
+    if (days < bestDays) { bestDays = days; best = p; }
+  });
+  return best ? { position: best, daysToExpiry: bestDays } : null;
+}
+function _sv2OCUpdateRolloverWarning() {
+  var banner = document.getElementById('sv2-oc-rollover-banner');
+  if (!banner) return;
+  var soonest = _sv2OCSoonestExpiringPosition();
+  var warnDays = SV2OC.rolloverWarnDays || 1;
+  var dangerDays = SV2OC.rolloverDangerDays || (warnDays * 0.25);
+  if (!soonest || soonest.daysToExpiry > warnDays) {
+    banner.style.display = 'none';
+    SV2OC._rolloverAlerted = false;
+    return;
+  }
+  var n = SV2OC.positions.length;
+  var days = soonest.daysToExpiry;
+  var timeLeftTxt = days >= 1 ? days.toFixed(1) + 'd' : Math.max(1, Math.round(days * 24)) + ' ghante';
+  var isDanger = days <= dangerDays;
+  banner.className = isDanger ? 'danger' : 'warn';
+  banner.style.display = 'block';
+  banner.innerHTML =
+    (isDanger ? '🔴 EXPIRY ' : '🔄 ') + 'Rollover Reminder — ' + n + ' open position' + (n > 1 ? 's' : '') +
+    ' ki nazdeeki expiry sirf ' + timeLeftTxt + ' door hai. Expiry ke baad intrinsic-value par auto-settle ho jaayegi.' +
+    '<div id="sv2-oc-rollover-actions">' +
+    '<button class="sv2-oc-rollover-btn" onclick="_sv2OCRolloverAllPositions()">🔄 Roll All → Next ' + (SV2OC.expiryLabel === 'weekly' ? 'Week' : 'Month') + '</button>' +
+    '<button class="sv2-oc-rollover-btn" onclick="_sv2OCExitAllPositions()">✕ Square Off All</button>' +
+    '</div>';
+  if (isDanger && !SV2OC._rolloverAlerted) {
+    SV2OC._rolloverAlerted = true;
+    _sv2OCSoundDanger();
+    try { alert('🔄 Rollover Reminder!\n\n' + n + ' open position(s) ki expiry sirf ' + timeLeftTxt + ' door hai.\nExpiry cross hote hi ye intrinsic value par auto-settle ho jaayengi.\n\nAbhi "Roll All" se next ' + (SV2OC.expiryLabel === 'weekly' ? 'week' : 'month') + ' mein shift karo, ya manually square-off karo.'); } catch (_) {}
+  } else if (!isDanger) {
+    SV2OC._rolloverAlerted = false; // warn-zone mein re-arm, taaki danger-zone mein dobara alert mil sake
+  }
+}
+// ── One-click rollover: har position jo abhi rollover-window mein hai, use
+// current mark price par square-off karke, USI strike/type/side/lots par
+// AGLI expiry-cycle mein theoretical price par turant re-open kar deta hai
+// (jaisa real broker "rollover" order — do legs, ek hi niyat). Positions
+// jo window se bahar hain unhe touch nahi karta. ─────────────────────────
+function _sv2OCRolloverAllPositions() {
+  if (!SV2OC.positions.length) return;
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) { alert('Live price abhi available nahi hai, thodi der baad try karo.'); return; }
+  var nowSec = _sv2OCCurrentTimeSec();
+  var warnDays = SV2OC.rolloverWarnDays || 1;
+  var idxList = [];
+  for (var i = 0; i < SV2OC.positions.length; i++) {
+    var days = (_sv2OCPositionExpirySec(SV2OC.positions[i]) - nowSec) / 86400;
+    if (days <= warnDays) idxList.push(i);
+  }
+  if (!idxList.length) { alert('Koi bhi open position abhi rollover-window mein nahi hai.'); return; }
+  idxList.sort(function (a, b) { return b - a; }); // high→low, splice-safe
+  var legs = [];
+  idxList.forEach(function (i) {
+    var p = SV2OC.positions[i];
+    var oldExpirySec = _sv2OCPositionExpirySec(p);
+    var mark = _sv2OCMarkPriceFor(p, spot, nowSec);
+    var ba = _sv2OCSimBidAsk(mark, p.strike, spot);
+    var exitPx = (p.side === 'buy') ? ba.bid : ba.ask; // exit slippage, jaisa SL-Market
+    var pnl = _sv2OCSquareOffCore(i, exitPx, 'rollover');
+    legs.push({
+      strike: p.strike, type: p.type, side: p.side, lots: p.lots,
+      newExpirySec: _sv2OCExpiryAfter(oldExpirySec), oldPnl: pnl,
+      label: p.side.toUpperCase() + ' ' + p.strike + ' ' + p.type
+    });
+  });
+  var lines = [];
+  legs.reverse().forEach(function (leg) {
+    var theoP = _sv2OCMarkPriceFor({ strike: leg.strike, type: leg.type, expirySec: leg.newExpirySec }, spot, nowSec);
+    var ba2 = _sv2OCSimBidAsk(theoP, leg.strike, spot);
+    var entryPx = (leg.side === 'buy') ? ba2.ask : ba2.bid; // entry slippage, jaisa market order
+    var ok = _sv2OCExecuteFill({ strike: leg.strike, type: leg.type, expirySec: leg.newExpirySec }, leg.side, leg.lots, entryPx, 'SLM', null, null, null);
+    var newExpiryStr = new Date(leg.newExpirySec * 1000).toISOString().slice(0, 10);
+    if (ok) {
+      lines.push(leg.label + ' → naye expiry (' + newExpiryStr + ') mein rolled @ ' + SV2OC.cur + _sv2OCFmtPrice(entryPx) + ' (purani leg P&L ' + (leg.oldPnl >= 0 ? '+' : '') + leg.oldPnl.toFixed(0) + ')');
+    } else {
+      lines.push(leg.label + ' → square-off (P&L ' + (leg.oldPnl >= 0 ? '+' : '') + leg.oldPnl.toFixed(0) + ') ho gayi, lekin balance/margin kam hone ki wajah se naya position open nahi ho paaya.');
+    }
+  });
+  SV2OC._rolloverAlerted = false;
+  _sv2OCUpdateRolloverWarning();
+  _sv2OCUpdateBottomBarBadge();
+  _sv2OCRenderPositions();
+  _sv2OCRenderHistory();
+  _sv2OCRenderBalance();
+  _sv2OCSoundRollover();
+  alert('🔄 Rollover complete:\n\n' + lines.join('\n'));
 }
 // ── Risk & Margin card (Positions tab) — margin used + hedge benefit +
 // max profit/loss (current open position-set ka expiry-day payoff). ─────
@@ -7773,6 +8058,8 @@ function _sv2OCRenderRiskPanel() {
   if (mpEl) mpEl.textContent = analysis ? _sv2OCFmtPnlOrUnlimited(analysis.maxProfit, analysis.unlimitedProfit) : '--';
   if (mlEl) mlEl.textContent = analysis ? _sv2OCFmtPnlOrUnlimited(analysis.maxLoss, analysis.unlimitedLoss) : '--';
   _sv2OCUpdateMarginCallBanner();
+  _sv2OCUpdateEodSquareOffWarning();
+  _sv2OCUpdateRolloverWarning();
 }
 // ── Charges breakdown ──────────────────────────────────────────────────
 // BankNifty (NSE F&O options) — EXACT current NSE rate-card rates (not an
@@ -7907,6 +8194,67 @@ function _sv2OCToggleDepth() {
   if (btn) btn.classList.toggle('on', SV2OC.showDepth);
   _sv2OCRenderChain();
 }
+// ── Watchlist — add/remove a strike (⭐ tap on chain row), + "Watchlist
+// Only" filter toggle that limits the chain view to just those strikes. ──
+function _sv2OCToggleWatchlist(strike) {
+  var idx = SV2OC.watchlist.indexOf(strike);
+  if (idx >= 0) SV2OC.watchlist.splice(idx, 1);
+  else SV2OC.watchlist.push(strike);
+  _sv2OCSaveWatchlist();
+  _sv2OCRenderChain();
+}
+function _sv2OCToggleWatchlistFilter() {
+  SV2OC.watchlistFilterOn = !SV2OC.watchlistFilterOn;
+  var btn = document.getElementById('sv2-oc-watchlist-toggle');
+  if (btn) btn.classList.toggle('on', SV2OC.watchlistFilterOn);
+  _sv2OCRenderChain();
+}
+// ── Sound Alerts — Web Audio API se short beeps generate karta hai (koi
+// audio file load nahi karni padti). Ek hi shared AudioContext reuse hoti
+// hai; browsers isse "user gesture ke baad hi allow" karte hain, isliye
+// koi bhi tap (toggle/trade/close) automatically use unlock kar deta hai. ─
+var _sv2OCAudioCtx = null;
+function _sv2OCGetAudioCtx() {
+  if (!SV2OC.soundOn) return null;
+  try {
+    if (!_sv2OCAudioCtx) _sv2OCAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_sv2OCAudioCtx.state === 'suspended') _sv2OCAudioCtx.resume();
+    return _sv2OCAudioCtx;
+  } catch (_) { return null; }
+}
+function _sv2OCBeep(freq, durMs, type, gainVal, delayMs) {
+  var ctx = _sv2OCGetAudioCtx();
+  if (!ctx) return;
+  try {
+    var startAt = ctx.currentTime + ((delayMs || 0) / 1000);
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, startAt);
+    var g = gainVal != null ? gainVal : 0.08;
+    gain.gain.setValueAtTime(g, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.001, startAt + durMs / 1000);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(startAt);
+    osc.stop(startAt + durMs / 1000 + 0.02);
+  } catch (_) {}
+}
+function _sv2OCToggleSound() {
+  SV2OC.soundOn = !SV2OC.soundOn;
+  try { localStorage.setItem('sv2_oc_sound_on_v1', SV2OC.soundOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('sv2-oc-sound-toggle');
+  if (btn) { btn.textContent = SV2OC.soundOn ? '🔊' : '🔇'; btn.classList.toggle('off', !SV2OC.soundOn); }
+  if (SV2OC.soundOn) _sv2OCBeep(880, 90, 'sine'); // ON karte hi ek chhota confirmation beep
+}
+// Named sound cues — har event ka apna distinct 2-3 note pattern, taaki
+// bina dekhe bhi pehchana ja sake ki kya hua (fill/target/SL/expiry/etc). ─
+function _sv2OCSoundBuyFill() { _sv2OCBeep(784, 80, 'sine'); _sv2OCBeep(1046, 100, 'sine', 0.08, 85); }
+function _sv2OCSoundSellFill() { _sv2OCBeep(659, 80, 'sine'); _sv2OCBeep(523, 110, 'sine', 0.08, 85); }
+function _sv2OCSoundTarget() { _sv2OCBeep(1046, 110, 'triangle'); _sv2OCBeep(1568, 160, 'triangle', 0.08, 100); }
+function _sv2OCSoundSL() { _sv2OCBeep(400, 150, 'sawtooth', 0.07); _sv2OCBeep(260, 220, 'sawtooth', 0.07, 130); }
+function _sv2OCSoundExpiry() { _sv2OCBeep(523, 100, 'square'); _sv2OCBeep(659, 100, 'square', 0.08, 110); _sv2OCBeep(784, 150, 'square', 0.08, 220); }
+function _sv2OCSoundRollover() { _sv2OCBeep(600, 80, 'sine'); _sv2OCBeep(800, 80, 'sine', 0.08, 90); _sv2OCBeep(1000, 130, 'sine', 0.08, 180); }
+function _sv2OCSoundDanger() { _sv2OCBeep(300, 150, 'square', 0.09); _sv2OCBeep(300, 150, 'square', 0.09, 220); }
 
 // ── Cumulative Normal Distribution (Abramowitz-Stegun approximation) ─────
 function _sv2OCNormCdf(x) {
@@ -8014,6 +8362,22 @@ function _sv2OCSimBidAsk(ltp, strike, spot) {
   var spreadPct = Math.min(0.12, 0.006 + moneyPct * 0.035);
   var half = Math.max(0.05, ltp * spreadPct / 2);
   return { bid: Math.max(0.05, ltp - half), ask: ltp + half };
+}
+// ── Circuit Limits (simulated) — NSE index-options ka daily price band
+// dynamic hota hai (fixed % nahi), exact exchange formula publicly fixed
+// nahi hai — ye ek PRACTICE-grade approximation hai: ATM/near-money
+// strikes ka band tighter (premium zyada stable), deep OTM/cheap-premium
+// strikes ka band wider (chhoti premium mein % swing zyada hota hai —
+// jaisa real chain mein bhi dikhta hai). Order placement isi band se
+// bound hoti hai (real exchange bhi band se bahar ka order reject karta
+// hai), aur agar LTP hi circuit ke bilkul paas ho to us taraf trade
+// "locked" maani jaati hai (koi counter-party nahi milta). ────────────────
+function _sv2OCCircuitLimits(ltp, strike, spot) {
+  var moneyPct = spot ? Math.abs(strike - spot) / spot : 0;
+  var bandPct = Math.min(0.65, 0.20 + moneyPct * 0.9); // ~20% (ATM) .. 65% (deep OTM)
+  var lower = Math.max(0.05, ltp * (1 - bandPct));
+  var upper = ltp * (1 + bandPct);
+  return { lower: lower, upper: upper, bandPct: bandPct };
 }
 
 // ── Current replay underlying spot (BankNifty ya BTC, jo bhi replay mein active hai) ──
@@ -8143,6 +8507,10 @@ function _sv2OptionChainToggle() {
   if (greeksBtn) greeksBtn.classList.toggle('on', SV2OC.showGreeks);
   var depthBtn = document.getElementById('sv2-oc-depth-toggle');
   if (depthBtn) depthBtn.classList.toggle('on', SV2OC.showDepth);
+  var watchlistBtn = document.getElementById('sv2-oc-watchlist-toggle');
+  if (watchlistBtn) watchlistBtn.classList.toggle('on', SV2OC.watchlistFilterOn);
+  var soundBtn = document.getElementById('sv2-oc-sound-toggle');
+  if (soundBtn) { soundBtn.textContent = SV2OC.soundOn ? '🔊' : '🔇'; soundBtn.classList.toggle('off', !SV2OC.soundOn); }
   // ── Asset-aware sheet labels ─────────────────────────────────────────
   var titleEl = document.getElementById('sv2-oc-title');
   if (titleEl) titleEl.textContent = '⛓️ Option Chain · ' + SV2OC.label;
@@ -8164,6 +8532,8 @@ function _sv2OptionChainToggle() {
   _sv2OCRenderChain();
   _sv2OCRenderPositions();
   _sv2OCUpdateMarginCallBanner();
+  _sv2OCUpdateEodSquareOffWarning();
+  _sv2OCUpdateRolloverWarning();
 }
 function _sv2OCClose() {
   var sheet = document.getElementById('sv2-oc-sheet');
@@ -8221,9 +8591,25 @@ function _sv2OCRenderChain() {
   }
 
   var atm = Math.round(spot / SV2OC.strikeStep) * SV2OC.strikeStep;
+  if (SV2OC.watchlistFilterOn && !SV2OC.watchlist.length) {
+    listEl.innerHTML = '<div id="sv2-oc-watchlist-empty">⭐ Watchlist khaali hai — kisi bhi strike ke ☆ par tap karke usse watchlist mein add karo.</div>';
+    return;
+  }
+  // ── "Watchlist Only" mode ke strikes ATM range se bahar bhi ho sakte hain
+  // (spot move ho chuka ho to bhi tracked strike dikhna chahiye) — isliye us
+  // mode mein poori ATM±N range ke bajaye SEEDHA watchlist ki strikes (sorted,
+  // high→low) iterate karte hain. ────────────────────────────────────────
+  var strikeList;
+  if (SV2OC.watchlistFilterOn) {
+    strikeList = SV2OC.watchlist.slice().sort(function (a, b) { return b - a; });
+  } else {
+    strikeList = [];
+    for (var i = SV2OC.strikesEachSide; i >= -SV2OC.strikesEachSide; i--) strikeList.push(atm + i * SV2OC.strikeStep);
+  }
   var rows = '';
-  for (var i = SV2OC.strikesEachSide; i >= -SV2OC.strikesEachSide; i--) {
-    var strike = atm + i * SV2OC.strikeStep;
+  for (var si = 0; si < strikeList.length; si++) {
+    var strike = strikeList[si];
+    var starred = SV2OC.watchlist.indexOf(strike) >= 0;
     var ivCe = _sv2OCAssumedIV(daysToExpiry, strike, spot, 'CE');
     var ivPe = _sv2OCAssumedIV(daysToExpiry, strike, spot, 'PE');
     var pxCe = _sv2OCBlackScholes(spot, strike, T, SV2OC.riskFreeRate, ivCe);
@@ -8247,18 +8633,25 @@ function _sv2OCRenderChain() {
       var peVol = _sv2OCSimVolume(strike, 'PE', peOi, nowSec);
       var ceBA = _sv2OCSimBidAsk(px.ce, strike, spot);
       var peBA = _sv2OCSimBidAsk(px.pe, strike, spot);
+      var ceCirc = _sv2OCCircuitLimits(px.ce, strike, spot);
+      var peCirc = _sv2OCCircuitLimits(px.pe, strike, spot);
       ceDepthHtml = '<span class="sv2-oc-depth-sub">B ' + _sv2OCFmtPrice(ceBA.bid) + ' / A ' + _sv2OCFmtPrice(ceBA.ask) +
         '<br>OI ' + _sv2OCFmtCompact(ceOi) + ' <span class="' + (ceOiChg >= 0 ? 'oi-up' : 'oi-dn') + '">' + (ceOiChg >= 0 ? '▲' : '▼') + _sv2OCFmtCompact(Math.abs(ceOiChg)) + '</span>' +
-        '<br>Vol ' + _sv2OCFmtCompact(ceVol) + '</span>';
+        '<br>Vol ' + _sv2OCFmtCompact(ceVol) +
+        '<br>CL ' + _sv2OCFmtPrice(ceCirc.lower) + '-' + _sv2OCFmtPrice(ceCirc.upper) + '</span>';
       peDepthHtml = '<span class="sv2-oc-depth-sub">B ' + _sv2OCFmtPrice(peBA.bid) + ' / A ' + _sv2OCFmtPrice(peBA.ask) +
         '<br>OI ' + _sv2OCFmtCompact(peOi) + ' <span class="' + (peOiChg >= 0 ? 'oi-up' : 'oi-dn') + '">' + (peOiChg >= 0 ? '▲' : '▼') + _sv2OCFmtCompact(Math.abs(peOiChg)) + '</span>' +
-        '<br>Vol ' + _sv2OCFmtCompact(peVol) + '</span>';
+        '<br>Vol ' + _sv2OCFmtCompact(peVol) +
+        '<br>CL ' + _sv2OCFmtPrice(peCirc.lower) + '-' + _sv2OCFmtPrice(peCirc.upper) + '</span>';
     }
     rows += '<div class="sv2-oc-row' + (isAtm ? ' atm-row' : '') + '">' +
       '<div class="sv2-oc-cell-ltp ce" onclick="_sv2OCCellTap(' + strike + ',\'CE\',' + px.ce.toFixed(2) + ')">' + _sv2OCFmtPrice(px.ce) + ceGreeksHtml + ceDepthHtml + '</div>' +
-      '<div class="sv2-oc-cell-strike">' + strike + '</div>' +
+      '<div class="sv2-oc-cell-strike"><span class="sv2-oc-star' + (starred ? ' on' : '') + '" onclick="_sv2OCToggleWatchlist(' + strike + ')">' + (starred ? '★' : '☆') + '</span>' + strike + '</div>' +
       '<div class="sv2-oc-cell-ltp pe" onclick="_sv2OCCellTap(' + strike + ',\'PE\',' + px.pe.toFixed(2) + ')">' + _sv2OCFmtPrice(px.pe) + peGreeksHtml + peDepthHtml + '</div>' +
     '</div>';
+  }
+  if (SV2OC.watchlistFilterOn && !rows) {
+    rows = '<div id="sv2-oc-watchlist-empty">⭐ Abhi visible strike-range mein koi watchlisted strike nahi hai.</div>';
   }
   listEl.innerHTML = rows;
 }
@@ -8496,7 +8889,8 @@ function _sv2OCIntrinsicFor(p, spot) {
 // ── Buy/Sell mini action-sheet ─────────────────────────────────────────────
 function _sv2OCOpenTrade(strike, type, ltp) {
   var nowSec = _sv2OCCurrentTimeSec();
-  SV2OC.pendingTrade = { strike: strike, type: type, ltp: ltp, expirySec: _sv2OCNextExpirySec(nowSec) };
+  var spotNow = _sv2OCCurrentSpot();
+  SV2OC.pendingTrade = { strike: strike, type: type, ltp: ltp, expirySec: _sv2OCNextExpirySec(nowSec), circuit: _sv2OCCircuitLimits(ltp, strike, spotNow != null ? spotNow : strike) };
   SV2OC.pendingQtyLots = 1;
   SV2OC.pendingOrderType = 'market';
   SV2OC.pendingSLType = 'SLM';
@@ -8556,6 +8950,10 @@ function _sv2OCRenderTradeQtyAndTotal() {
   var totalEl = document.getElementById('sv2-oc-trade-total');
   var marginNoteEl = document.getElementById('sv2-oc-trade-margin-note');
   var slipNoteEl = document.getElementById('sv2-oc-slippage-note');
+  var circNoteEl = document.getElementById('sv2-oc-circuit-note');
+  var freezeNoteEl = document.getElementById('sv2-oc-freeze-note');
+  var buyBtn = document.getElementById('sv2-oc-buy-btn');
+  var sellBtn = document.getElementById('sv2-oc-sell-btn');
   var totalQty = SV2OC.pendingQtyLots * SV2OC.lotSize;
   var totalAmt = t.ltp * totalQty;
   var qtyUnit = SV2OC.pendingQtyLots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
@@ -8565,10 +8963,6 @@ function _sv2OCRenderTradeQtyAndTotal() {
     var spot = _sv2OCCurrentSpot();
     var approxMargin = _sv2OCApproxMargin(spot != null ? spot : t.strike, totalAmt, totalQty);
     var note = '⚠️ SELL karne par approx ' + _sv2OCFmtMoney(approxMargin) + ' margin block hoga (estimate, exact broker margin nahi). Charges (brokerage+STT+misc) alag se lagenge.';
-    if (SV2OC.pendingQtyLots > SV2OC.freezeQtyLots) {
-      var nSplits = Math.ceil(SV2OC.pendingQtyLots / SV2OC.freezeQtyLots);
-      note += '\n📦 Freeze-qty limit (' + SV2OC.freezeQtyLots + ' ' + SV2OC.qtyPlural + ') se zyada — order ' + nSplits + ' fills mein automatically split hoga (har fill par brokerage alag lagega).';
-    }
     marginNoteEl.textContent = note;
   }
   if (slipNoteEl) {
@@ -8579,6 +8973,32 @@ function _sv2OCRenderTradeQtyAndTotal() {
     } else {
       slipNoteEl.textContent = 'ℹ️ Limit order — price limit ko touch karne tak "Working" state mein rahega, guaranteed fill nahi.';
     }
+  }
+  // ── Circuit limit note + BUY/SELL lock (LTP band ke bilkul extreme par
+  // ho to us taraf koi counter-party nahi milta — real exchange jaisa). ──
+  var circLockedBuy = false, circLockedSell = false;
+  if (circNoteEl && t.circuit) {
+    var c = t.circuit;
+    circLockedBuy = t.ltp >= c.upper * 0.985;   // upper circuit ke bilkul paas — BUY ke liye seller nahi milega
+    circLockedSell = t.ltp <= c.lower * 1.015;  // lower circuit ke bilkul paas — SELL ke liye buyer nahi milega
+    var circTxt = '🚧 Circuit Limit: ' + SV2OC.cur + _sv2OCFmtPrice(c.lower) + ' – ' + SV2OC.cur + _sv2OCFmtPrice(c.upper) + ' (simulated band — is range ke bahar order exchange accept nahi karega).';
+    if (circLockedBuy) circTxt += '\n🔒 Upper circuit ke paas — BUY side locked (seller nahi mil raha).';
+    if (circLockedSell) circTxt += '\n🔒 Lower circuit ke paas — SELL side locked (buyer nahi mil raha).';
+    circNoteEl.textContent = circTxt;
+    circNoteEl.classList.toggle('locked', circLockedBuy || circLockedSell);
+  }
+  if (buyBtn) { buyBtn.classList.toggle('locked', circLockedBuy); buyBtn.disabled = circLockedBuy; }
+  if (sellBtn) { sellBtn.classList.toggle('locked', circLockedSell); sellBtn.disabled = circLockedSell; }
+  // ── Freeze-qty — hamesha visible info (pehle sirf tab dikhta tha jab
+  // limit cross ho chuki ho); ab qty select karte hi limit pata chal jaati
+  // hai, aur cross hone par split-fill warning bhi yahin add ho jaati hai. ──
+  if (freezeNoteEl) {
+    var fq = '📦 Freeze Qty: ' + SV2OC.freezeQtyLots + ' ' + SV2OC.qtyPlural + ' / order (isse zyada exchange ek saath execute nahi karta).';
+    if (SV2OC.pendingQtyLots > SV2OC.freezeQtyLots) {
+      var nSplits = Math.ceil(SV2OC.pendingQtyLots / SV2OC.freezeQtyLots);
+      fq += '\n⚠️ Tumhari qty isse zyada hai — order ' + nSplits + ' fills mein automatically split hoga (har fill par brokerage alag lagega).';
+    }
+    freezeNoteEl.textContent = fq;
   }
 }
 function _sv2OCQtyStep(delta) {
@@ -8655,6 +9075,7 @@ function _sv2OCExecuteFill(t, side, lots, fillPrice, slType, slValue, slLimitPri
   _sv2OCRenderBalance();
   _sv2OCRenderPositions();
   _sv2OCUpdatePnlOverlay();
+  if (side === 'buy') _sv2OCSoundBuyFill(); else _sv2OCSoundSellFill();
   if (chunks.length > 1) {
     alert('📦 Order freeze-qty limit (' + freeze + ' ' + SV2OC.qtyPlural + ') se bada tha — ' + chunks.length + ' fills mein split ho gaya (' + chunks.join(', ') + ' ' + SV2OC.qtyPlural + ').');
   }
@@ -8670,6 +9091,16 @@ function _sv2OCConfirmTrade(side) {
   var lots = SV2OC.pendingQtyLots;
   var nowSec = _sv2OCCurrentTimeSec();
   var spot = _sv2OCCurrentSpot();
+
+  // ── Circuit-limit gate — agar LTP hi upar/neeche circuit ke bilkul paas
+  // hai to us side koi counter-party nahi milta (real exchange jaisa). ────
+  if (t.circuit) {
+    var lockedNow = (side === 'buy') ? (t.ltp >= t.circuit.upper * 0.985) : (t.ltp <= t.circuit.lower * 1.015);
+    if (lockedNow) {
+      alert('🔒 Circuit Locked — is strike ka LTP circuit limit ke bilkul paas hai, ' + side.toUpperCase() + ' side koi counter-party nahi mil rahi. Trade abhi possible nahi.');
+      return;
+    }
+  }
 
   var slEl = document.getElementById('sv2-oc-trade-sl');
   var tpEl = document.getElementById('sv2-oc-trade-tp');
@@ -8693,6 +9124,10 @@ function _sv2OCConfirmTrade(side) {
     var limEl = document.getElementById('sv2-oc-trade-limit-price');
     var limitPrice = limEl && limEl.value !== '' ? parseFloat(limEl.value) : NaN;
     if (isNaN(limitPrice) || limitPrice <= 0) { alert('Sahi Limit price daalo.'); return; }
+    if (t.circuit && (limitPrice < t.circuit.lower || limitPrice > t.circuit.upper)) {
+      alert('🚧 Limit price circuit band (' + SV2OC.cur + _sv2OCFmtPrice(t.circuit.lower) + ' – ' + SV2OC.cur + _sv2OCFmtPrice(t.circuit.upper) + ') ke bahar hai — exchange isse reject kar dega. Band ke andar price daalo.');
+      return;
+    }
     // BUY limit fillable agar current price limit se kam/barabar hai; SELL
     // limit fillable agar current price limit se zyada/barabar hai.
     var immediatelyFillable = (side === 'buy') ? (t.ltp <= limitPrice) : (t.ltp >= limitPrice);
@@ -9087,7 +9522,7 @@ function _sv2OCRenderPositions() {
 // naye-se-purane order mein, entry/exit + gross/net P&L + itemized
 // brokerage/STT/exchange/SEBI/stamp/GST breakdown, plus running summary
 // (total realized P&L, total charges paid, trade count). ─────────────────
-var SV2OC_REASON_LABEL = { manual: 'Manual', expiry: 'Expiry', target: 'Target', sl: 'SL', partial: 'Partial Exit', trailsl: 'Trailing SL', exitall: 'Exit All' };
+var SV2OC_REASON_LABEL = { manual: 'Manual', expiry: 'Expiry', target: 'Target', sl: 'SL', partial: 'Partial Exit', trailsl: 'Trailing SL', exitall: 'Exit All', auto_eod: 'Auto Square-Off (EOD)', rollover: 'Rollover' };
 function _sv2OCRenderHistory() {
   var listEl = document.getElementById('sv2-oc-hist-list');
   var summaryEl = document.getElementById('sv2-oc-hist-summary');
@@ -9323,23 +9758,27 @@ function _sv2OCUpdateBottomBarBadge() {
   if (!btn || !badge) return;
   if (!SV2OC.positions || !SV2OC.positions.length) {
     badge.classList.remove('show', 'pos', 'neg');
-    btn.classList.remove('has-pos');
+    btn.classList.remove('has-pos', 'rollover-due');
     return;
   }
   var spot = _sv2OCCurrentSpot();
   var nowSec = _sv2OCCurrentTimeSec();
   var totalPnl = 0;
+  var warnDays = SV2OC.rolloverWarnDays || 1;
+  var rolloverDue = false;
   SV2OC.positions.forEach(function (p) {
     var markPrice = (spot != null) ? _sv2OCMarkPriceFor(p, spot, nowSec) : p.entryPrice;
     var qty = p.lots * SV2OC.lotSize;
     var diff = (p.side === 'buy') ? (markPrice - p.entryPrice) : (p.entryPrice - markPrice);
     totalPnl += diff * qty;
+    if ((_sv2OCPositionExpirySec(p) - nowSec) / 86400 <= warnDays) rolloverDue = true;
   });
   badge.textContent = (totalPnl >= 0 ? '+' : '') + totalPnl.toFixed(0);
   badge.classList.add('show');
   badge.classList.toggle('pos', totalPnl >= 0);
   badge.classList.toggle('neg', totalPnl < 0);
   btn.classList.add('has-pos');
+  btn.classList.toggle('rollover-due', rolloverDue);
 }
 
 // ── Chart-overlay: chosen strike price + live P&L, seedha candlestick
@@ -9423,6 +9862,7 @@ function _sv2OCCheckExpirySettlement() {
   if (settled.length) {
     _sv2OCSavePositions();
     _sv2OCSaveBalance();
+    _sv2OCSoundExpiry();
     alert('📅 Expiry Settlement:\n\n' + settled.join('\n'));
   }
 }
@@ -9453,6 +9893,7 @@ function _sv2OCCheckSLTP() {
       var pnlT = _sv2OCSquareOffCore(i, mark, 'target');
       hits.push(label + ' → Target hit @ ' + SV2OC.cur + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnlT >= 0 ? '+' : '') + pnlT.toFixed(0) + ')');
       changed = true;
+      _sv2OCSoundTarget();
       continue;
     }
     if (slHit && (p.slType !== 'SLL')) {
@@ -9463,6 +9904,7 @@ function _sv2OCCheckSLTP() {
       var pnlS = _sv2OCSquareOffCore(i, exitPx, slReason);
       hits.push(label + (p.trailPoints != null ? ' → Trailing SL hit @ ' : ' → SL-Market hit @ ') + SV2OC.cur + _sv2OCFmtPrice(exitPx) + ' (P&L ' + (pnlS >= 0 ? '+' : '') + pnlS.toFixed(0) + ')');
       changed = true;
+      _sv2OCSoundSL();
       continue;
     }
     if (slHit && p.slType === 'SLL') {
@@ -9477,6 +9919,7 @@ function _sv2OCCheckSLTP() {
         var pnlL = _sv2OCSquareOffCore(i, mark, slReasonL);
         hits.push(label + (p.trailPoints != null ? ' → Trailing SL(L) hit @ ' : ' → SL-Limit hit @ ') + SV2OC.cur + _sv2OCFmtPrice(mark) + ' (P&L ' + (pnlL >= 0 ? '+' : '') + pnlL.toFixed(0) + ')');
         changed = true;
+        _sv2OCSoundSL();
       }
     }
   }
@@ -9500,6 +9943,8 @@ function _sv2OptionChainOnStep() {
   _sv2OCUpdateTrailingSL();
   _sv2OCCheckSLTP();
   _sv2OCUpdateMarginCallBanner();
+  _sv2OCUpdateEodSquareOffWarning();
+  _sv2OCUpdateRolloverWarning();
   _sv2OCUpdatePnlOverlay();
   _sv2OCUpdateBottomBarBadge();
   if (!SV2OC.open) return;
