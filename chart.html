@@ -2666,6 +2666,36 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-sltp-input::placeholder{ color:#5b606e; }
 .sv2-oc-sltp-input:focus{ outline:none; border-color:#2962ff; }
 #sv2-oc-trade-margin-note{ font-size:9.5px; color:#ff9800; margin:-8px 0 12px; line-height:1.4; }
+/* ── Trade Note/Reason field (trade card + position card + history card) ── */
+#sv2-oc-trade-note-row{ margin-bottom:10px; }
+#sv2-oc-trade-note{
+  width:100%; box-sizing:border-box;
+  background:#1e222d; border:1px solid #2a2e39; border-radius:8px;
+  color:#d1d4dc; font-size:11.5px; padding:7px 10px;
+  resize:none; line-height:1.4;
+  font-family:inherit;
+}
+#sv2-oc-trade-note::placeholder{ color:#5b606e; }
+#sv2-oc-trade-note:focus{ outline:none; border-color:#2962ff; }
+.sv2-oc-pos-note{
+  font-size:10px; color:#a0a4b0; background:#1a1e2a;
+  border-left:2px solid #2962ff; border-radius:0 4px 4px 0;
+  padding:3px 7px; margin-top:5px; line-height:1.4;
+  display:flex; align-items:flex-start; gap:5px;
+}
+.sv2-oc-pos-note-icon{ flex-shrink:0; font-size:10px; margin-top:1px; }
+.sv2-oc-pos-note-text{ flex:1; word-break:break-word; }
+.sv2-oc-pos-note-edit{
+  background:none; border:none; color:#5b606e; font-size:11px;
+  cursor:pointer; padding:0 2px; flex-shrink:0; line-height:1;
+}
+.sv2-oc-pos-note-edit:active{ color:#2962ff; }
+.sv2-oc-hist-note{
+  font-size:10px; color:#a0a4b0; background:#1a1e2a;
+  border-left:2px solid #f0b90b44; border-radius:0 4px 4px 0;
+  padding:3px 7px; margin-top:5px; line-height:1.4;
+  display:flex; align-items:flex-start; gap:5px;
+}
 #sv2-oc-order-type-row{ display:flex; gap:8px; margin-bottom:10px; }
 .sv2-oc-ordertype-btn{
   flex:1; height:32px; border-radius:8px; border:1px solid #2a2e39;
@@ -4555,6 +4585,9 @@ function _hdrRelayout(){
     <input type="number" id="sv2-oc-trade-sllimit" class="sv2-oc-sltp-input" inputmode="decimal" placeholder="SL-Limit fill price">
   </div>
   <div id="sv2-oc-trade-margin-note"></div>
+  <div id="sv2-oc-trade-note-row">
+    <textarea id="sv2-oc-trade-note" rows="2" placeholder="📝 Trade note / reason (optional) — kyu le rahe ho ye trade?"></textarea>
+  </div>
   <div id="sv2-oc-trade-btns">
     <button class="sv2-oc-trade-act" id="sv2-oc-buy-btn" onclick="_sv2OCConfirmTrade('buy')">BUY</button>
     <button class="sv2-oc-trade-act" id="sv2-oc-sell-btn" onclick="_sv2OCConfirmTrade('sell')">SELL</button>
@@ -9154,13 +9187,27 @@ function _sv2OCTradeCancel() {
   var backdrop = document.getElementById('sv2-oc-trade-backdrop');
   if (card) card.classList.remove('open');
   if (backdrop) backdrop.classList.remove('open');
+  // Note field clear karo for next trade
+  var noteEl = document.getElementById('sv2-oc-trade-note');
+  if (noteEl) noteEl.value = '';
+}
+// ── Edit note on an already-open position (prompt-based, mobile-friendly) ──
+function _sv2OCEditPositionNote(id) {
+  var idx = SV2OC.positions.findIndex(function(p){ return p.id === id; });
+  if (idx === -1) return;
+  var currentNote = SV2OC.positions[idx].note || '';
+  var newNote = prompt('📝 Trade note / reason edit karo:\n(Khaali chhodne par note hata jaayega)', currentNote);
+  if (newNote === null) return; // cancelled
+  SV2OC.positions[idx].note = newNote.trim();
+  _sv2OCSavePositions();
+  _sv2OCRenderPositions();
 }
 // ── Shared execution engine — jo bhi price par fill ho (market/slipped ya
 // limit), ye function balance/margin check, FREEZE-QTY split (bade orders
 // exchange mein ek saath execute nahi hote, multiple child fills mein
 // split hote hain — har fill ki apni brokerage lagti hai), position(s)
 // create, aur charges deduct/credit — sab ek jagah handle karta hai. ─────
-function _sv2OCExecuteFill(t, side, lots, fillPrice, slType, slValue, slLimitPrice, tpValue) {
+function _sv2OCExecuteFill(t, side, lots, fillPrice, slType, slValue, slLimitPrice, tpValue, tradeNote) {
   var nowSec = _sv2OCCurrentTimeSec();
   var spot = _sv2OCCurrentSpot();
   var freeze = SV2OC.freezeQtyLots || lots;
@@ -9200,6 +9247,8 @@ function _sv2OCExecuteFill(t, side, lots, fillPrice, slType, slValue, slLimitPri
     var chunkAmt = fillPrice * chunkQty;
     var charges = _sv2OCCalcCharges(side, chunkAmt);
     var marginBlocked = (side === 'sell') ? _sv2OCApproxMargin(spot != null ? spot : t.strike, chunkAmt, chunkQty) : 0;
+    // Note: tradeNote param se (pending order fill) ya DOM se (market order) — jo bhi available ho
+    var _resolvedNote = tradeNote != null ? tradeNote : (function(){ var el = document.getElementById('sv2-oc-trade-note'); return el ? el.value.trim() : ''; })();
     SV2OC.positions.push({
       id: 'oc_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
       strike: t.strike, type: t.type, side: side,
@@ -9209,7 +9258,8 @@ function _sv2OCExecuteFill(t, side, lots, fillPrice, slType, slValue, slLimitPri
       sl: slValue, tp: tpValue,
       slType: slType || 'SLM', slLimitPrice: slLimitPrice != null ? slLimitPrice : null,
       slTriggered: false,
-      trailPoints: null, trailBest: null // Trailing SL — off by default, turned on via "🔄 Trail SL" button
+      trailPoints: null, trailBest: null, // Trailing SL — off by default, turned on via "🔄 Trail SL" button
+      note: _resolvedNote  // user-written trade reason/note
     });
     SV2OC.balance += (side === 'buy') ? -(chunkAmt + charges) : (chunkAmt - charges);
   });
@@ -9277,12 +9327,15 @@ function _sv2OCConfirmTrade(side) {
     if (immediatelyFillable) {
       if (!_sv2OCExecuteFill(t, side, lots, limitPrice, slType, slVal, slLimitPrice, tpVal)) return;
     } else {
+      var _pendingNoteEl = document.getElementById('sv2-oc-trade-note');
+      var _pendingNote = _pendingNoteEl ? _pendingNoteEl.value.trim() : '';
       SV2OC.pendingOrders.push({
         id: 'ocp_' + nowSec + '_' + Math.random().toString(36).slice(2, 7),
         strike: t.strike, type: t.type, side: side, lots: lots,
         limitPrice: limitPrice, expirySec: t.expirySec || _sv2OCNextExpirySec(nowSec),
         placedTime: nowSec,
-        slType: slType, slValue: slVal, slLimitPrice: slLimitPrice, tpValue: tpVal
+        slType: slType, slValue: slVal, slLimitPrice: slLimitPrice, tpValue: tpVal,
+        note: _pendingNote  // trade reason — fill hone par position mein carry hoga
       });
       _sv2OCSavePendingOrders();
       _sv2OCRenderPositions();
@@ -9322,7 +9375,7 @@ function _sv2OCCheckPendingOrders() {
     var fillable = (o.side === 'buy') ? (curPrice <= o.limitPrice) : (curPrice >= o.limitPrice);
     if (fillable) {
       var t = { strike: o.strike, type: o.type, expirySec: o.expirySec };
-      var ok = _sv2OCExecuteFill(t, o.side, o.lots, o.limitPrice, o.slType, o.slValue, o.slLimitPrice, o.tpValue);
+      var ok = _sv2OCExecuteFill(t, o.side, o.lots, o.limitPrice, o.slType, o.slValue, o.slLimitPrice, o.tpValue, o.note || '');
       SV2OC.pendingOrders.splice(i, 1);
       changed = true;
       if (ok) {
@@ -9442,7 +9495,8 @@ function _sv2OCSquareOffCore(idx, markPrice, reason) {
     entryPrice: p.entryPrice, exitPrice: markPrice,
     entryTime: p.entryTime, exitTime: _sv2OCCurrentTimeSec(),
     grossPnl: grossPnl, charges: chg, netPnl: netPnl,
-    reason: reason || 'manual', balanceAfter: SV2OC.balance
+    reason: reason || 'manual', balanceAfter: SV2OC.balance,
+    note: p.note || ''  // carry entry-note to closed trade record
   });
   if (SV2OC.history.length > 500) SV2OC.history.length = 500; // sane cap
   _sv2OCSaveHistory();
@@ -9481,7 +9535,8 @@ function _sv2OCPartialSquareOffCore(idx, exitLots, markPrice, reason) {
     entryTime: p.entryTime, exitTime: _sv2OCCurrentTimeSec(),
     grossPnl: grossPnl, charges: chg, netPnl: netPnl,
     reason: reason || 'partial', balanceAfter: SV2OC.balance,
-    partial: true, remainingLots: remainingLots
+    partial: true, remainingLots: remainingLots,
+    note: p.note || ''  // carry entry-note to partial exit record
   });
   if (SV2OC.history.length > 500) SV2OC.history.length = 500;
   _sv2OCSaveHistory();
@@ -9641,12 +9696,16 @@ function _sv2OCRenderPositions() {
     }
     if (p.tp != null) metaBits.push('Target ' + SV2OC.cur + _sv2OCFmtPrice(p.tp));
     var qtyUnitLbl = p.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+    var noteHtml = p.note
+      ? '<div class="sv2-oc-pos-note"><span class="sv2-oc-pos-note-icon">📝</span><span class="sv2-oc-pos-note-text">' + p.note.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span><button class="sv2-oc-pos-note-edit" onclick="_sv2OCEditPositionNote(\'' + p.id + '\')" title="Note edit karo">✏️</button></div>'
+      : '<div class="sv2-oc-pos-note" style="border-color:#2a2e39;color:#5b606e"><span class="sv2-oc-pos-note-icon">📝</span><span class="sv2-oc-pos-note-text" style="font-style:italic">Note add karo...</span><button class="sv2-oc-pos-note-edit" onclick="_sv2OCEditPositionNote(\'' + p.id + '\')" title="Note likhو">✏️</button></div>';
     html += '<div class="sv2-oc-pos-card">' +
       '<div class="sv2-oc-pos-top">' +
         '<div>' +
           '<div class="sv2-oc-pos-name">' + p.side.toUpperCase() + ' ' + SV2OC.label + ' ' + p.strike + ' ' + p.type + '</div>' +
           '<div class="sv2-oc-pos-qty">' + p.lots + ' ' + qtyUnitLbl + ' · Entry ' + SV2OC.cur + _sv2OCFmtPrice(p.entryPrice) + ' · LTP ' + SV2OC.cur + _sv2OCFmtPrice(markPrice) + '</div>' +
           '<div class="sv2-oc-pos-meta">' + metaBits.join(' · ') + '</div>' +
+          noteHtml +
         '</div>' +
         '<div class="sv2-oc-pos-pnl ' + pnlClass + '">' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + '</div>' +
       '</div>' +
@@ -9704,6 +9763,9 @@ function _sv2OCRenderHistory() {
       (c.stampDuty ? (' · Stamp ' + SV2OC.cur + c.stampDuty.toFixed(1)) : '') +
       ' · GST ' + SV2OC.cur + c.gst.toFixed(1) +
       ' = ' + SV2OC.cur + c.total.toFixed(0) + ' total';
+    var histNoteHtml = h.note
+      ? '<div class="sv2-oc-hist-note"><span style="flex-shrink:0">📝</span><span style="flex:1;word-break:break-word">' + h.note.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span></div>'
+      : '';
     html += '<div class="sv2-oc-pos-card sv2-oc-hist-card">' +
       '<div class="sv2-oc-pos-top">' +
         '<div>' +
@@ -9712,6 +9774,7 @@ function _sv2OCRenderHistory() {
             (h.partial ? ' <span class="sv2-oc-hist-reason">(' + h.remainingLots + ' ' + (h.remainingLots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular) + ' abhi bhi open)</span>' : '') + '</div>' +
           '<div class="sv2-oc-pos-meta">' + entryStr + ' → ' + exitStr + '</div>' +
           '<div class="sv2-oc-pos-meta">' + chargesLine + '</div>' +
+          histNoteHtml +
         '</div>' +
         '<div class="sv2-oc-pos-pnl ' + pnlClass + '">' + (h.netPnl >= 0 ? '+' : '') + h.netPnl.toFixed(0) + '</div>' +
       '</div>' +
