@@ -133,10 +133,13 @@ def _fetch_option_chain_now() -> dict:
         return {"error": "not_authenticated"}
     try:
         hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
-        return requests.get(
+        # NOTE: Option Chain V3 endpoint POST maangta hai (JSON body), GET
+        # nahi — GET se "Invalid Request, please provide valid method" aata
+        # tha kyunki server hi galat HTTP method samajh raha tha.
+        return requests.post(
             "https://api.fyers.in/v3/data/options-chain",
             headers=hdrs,
-            params={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
+            json={"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""},
             timeout=15,
         ).json()
     except Exception as ex:
@@ -1456,10 +1459,10 @@ def _register_api_route():
                             symbol     = _q2("symbol", "NSE:NIFTYBANK-INDEX")
                             strikecount = _q2("strikecount", "20")
                             hdrs = {"Authorization": f"{creds['app_id']}:{creds['access_token']}"}
-                            resp = requests.get(
+                            resp = requests.post(
                                 "https://api.fyers.in/v3/data/options-chain",
                                 headers=hdrs,
-                                params={"symbol": symbol, "strikecount": strikecount, "timestamp": ""},
+                                json={"symbol": symbol, "strikecount": strikecount, "timestamp": ""},
                                 timeout=15,
                             ).json()
                             body = json.dumps(resp).encode()
@@ -1687,14 +1690,18 @@ if _qp.get("oc_diag_trigger") == "1":
         _OC_DIAG_RESULT = {"variant": _diag_variant, "error": "not_authenticated", "ts": time.time()}
     else:
         _diag_hdrs = {"Authorization": f"{_diag_creds['app_id']}:{_diag_creds['access_token']}"}
+        # method: "post" (correct, fixed) ya "get" (purana, reference ke liye)
         _diag_url_map = {
-            "F": ("https://api.fyers.in/v3/data/options-chain",   {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""}),
-            "A": ("https://api-t1.fyers.in/data/options-chain",   {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}),
-            "D": ("https://api.fyers.in/v3/data/options-chain",   {"symbol": "NSE:NIFTY50-INDEX",   "strikecount": "5",  "timestamp": ""}),
+            "F": ("https://api.fyers.in/v3/data/options-chain", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": ""}, "post"),
+            "A": ("https://api-t1.fyers.in/data/options-chain", {"symbol": "NSE:NIFTYBANK-INDEX", "strikecount": "25", "timestamp": " "}, "get"),
+            "D": ("https://api.fyers.in/v3/data/options-chain", {"symbol": "NSE:NIFTY50-INDEX",   "strikecount": "5",  "timestamp": ""}, "post"),
         }
-        _durl, _dparams = _diag_url_map.get(_diag_variant, _diag_url_map["F"])
+        _durl, _dparams, _dmethod = _diag_url_map.get(_diag_variant, _diag_url_map["F"])
         try:
-            _dr = requests.get(_durl, headers=_diag_hdrs, params=_dparams, timeout=12)
+            if _dmethod == "post":
+                _dr = requests.post(_durl, headers=_diag_hdrs, json=_dparams, timeout=12)
+            else:
+                _dr = requests.get(_durl, headers=_diag_hdrs, params=_dparams, timeout=12)
             try:
                 _dbody = _dr.json()
             except Exception:
