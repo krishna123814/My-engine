@@ -1322,10 +1322,21 @@ _BTC_OC_DEBUG = {"last_error": "", "ts": 0.0}
 def binance_get_spot(symbol: str = "BTCUSDT") -> "float | None":
     """Public spot price — koi auth nahi chahiye."""
     try:
-        r = requests.get(
+        resp = requests.get(
             "https://api.binance.com/api/v3/ticker/price",
             params={"symbol": symbol}, timeout=8,
-        ).json()
+        )
+        r = resp.json()
+        if "price" not in r:
+            # 'price' missing matlab Binance ne kuch aur hi bheja hai —
+            # jaise geo-block (HTTP 451) ya rate-limit error object.
+            # Poora status+body debug mein daal do taaki exact wajah pata chale.
+            _BTC_OC_DEBUG.update({
+                "last_error": f"spot fetch fail: 'price' missing "
+                              f"(HTTP {resp.status_code}, body: {str(r)[:300]})",
+                "ts": time.time(),
+            })
+            return None
         return float(r["price"])
     except Exception as e:
         _BTC_OC_DEBUG.update({"last_error": f"spot fetch fail: {e}", "ts": time.time()})
@@ -1340,7 +1351,7 @@ def binance_get_atm_option(underlying: str = "BTCUSDT") -> "dict | None":
     strike-by-strike puri manual chain banayi jaa sakti hai."""
     spot = binance_get_spot(underlying)
     if spot is None:
-        return {"error": "Binance spot price nahi mila."}
+        return {"error": f"Binance spot price nahi mila — {_BTC_OC_DEBUG.get('last_error', 'unknown')}"}
 
     try:
         info = requests.get(
