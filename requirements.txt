@@ -5,3 +5,5 @@ plotly>=5.20
 requests>=2.31
 pyotp>=2.9
 websocket-client>=1.7
+streamlit
+starlette<0.39.0
