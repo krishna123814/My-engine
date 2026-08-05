@@ -1322,21 +1322,10 @@ _BTC_OC_DEBUG = {"last_error": "", "ts": 0.0}
 def binance_get_spot(symbol: str = "BTCUSDT") -> "float | None":
     """Public spot price — koi auth nahi chahiye."""
     try:
-        resp = requests.get(
+        r = requests.get(
             "https://api.binance.com/api/v3/ticker/price",
             params={"symbol": symbol}, timeout=8,
-        )
-        r = resp.json()
-        if "price" not in r:
-            # 'price' missing matlab Binance ne kuch aur hi bheja hai —
-            # jaise geo-block (HTTP 451) ya rate-limit error object.
-            # Poora status+body debug mein daal do taaki exact wajah pata chale.
-            _BTC_OC_DEBUG.update({
-                "last_error": f"spot fetch fail: 'price' missing "
-                              f"(HTTP {resp.status_code}, body: {str(r)[:300]})",
-                "ts": time.time(),
-            })
-            return None
+        ).json()
         return float(r["price"])
     except Exception as e:
         _BTC_OC_DEBUG.update({"last_error": f"spot fetch fail: {e}", "ts": time.time()})
@@ -1351,7 +1340,7 @@ def binance_get_atm_option(underlying: str = "BTCUSDT") -> "dict | None":
     strike-by-strike puri manual chain banayi jaa sakti hai."""
     spot = binance_get_spot(underlying)
     if spot is None:
-        return {"error": f"Binance spot price nahi mila — {_BTC_OC_DEBUG.get('last_error', 'unknown')}"}
+        return {"error": "Binance spot price nahi mila."}
 
     try:
         info = requests.get(
@@ -2252,45 +2241,6 @@ if (sess_active or _btc_only) and not st.session_state.get("_sv2_data_requested"
     st.session_state["_sv2_anchor_date_btc"] = None
     st.session_state["_sv2_data_requested"]  = True
 
-# ── BTC Option Chain (Binance public API) → postMessage pusher ─────────────
-# Jaan-boojh kar `if sess_active or _btc_only:` ke BAHAR rakha hai — Binance
-# Options endpoints public hain, Fyers login ki koi zaroorat nahi. Isliye
-# yeh Fyers connected ho ya na ho, dono cases mein chalta hai.
-with st.expander("🔧 BTC Option Chain Debug (Binance public API test)"):
-    if st.button("Ab test karo", key="btc_oc_debug_btn"):
-        _dbg_data = binance_get_atm_option()
-        st.json(_dbg_data)
-        st.write("Last internal error/debug:", _BTC_OC_DEBUG)
-    else:
-        st.caption("Button dabao to seedha Binance API call karke result yahin dikhayega — "
-                   "isse pata chalega ki fetch fail kyu ho raha hai (network block / timeout / "
-                   "field mismatch), chart iframe ke bina.")
-
-@st.fragment(run_every=10)
-def _btc_option_chain_pusher():
-    btc_oc = refresh_btc_option_chain_cache()
-    if not btc_oc:
-        btc_oc = {"error": "Kuch data nahi mila (unknown reason)"}
-    _btc_oc_json = json.dumps(btc_oc)
-    _script3b = f"""
-<script>
-(function() {{
-  var btcOc = {_btc_oc_json};
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: 'btc_option_chain', data: btcOc }}), '*'
-      );
-    }} catch(e) {{}}
-  }}
-}})();
-</script>
-"""
-    components.html(_script3b, height=0, scrolling=False)
-
-_btc_option_chain_pusher()
-
 if sess_active or _btc_only:
     if sess_active:
         st.success("✅ Fyers connected — live data active")
@@ -2446,8 +2396,37 @@ if sess_active or _btc_only:
 """
             components.html(_script3, height=0, scrolling=False)
 
-    _option_chain_pusher()
+        _option_chain_pusher()
 
+    # ── BTC Option Chain (Binance public API) → postMessage pusher ──────────
+    # Fyers login (sess_active) ki zaroorat nahi — Binance Options endpoints
+    # public hain. Abhi sirf 1 ATM strike (CE+PE premium) bhejta hai; iski
+    # window.parent listener chart.html mein baad mein add karni hogi
+    # (type: 'btc_option_chain'), jaise 'option_chain' ke liye already hai.
+    @st.fragment(run_every=10)
+    def _btc_option_chain_pusher():
+        btc_oc = refresh_btc_option_chain_cache()
+        if not btc_oc:
+            btc_oc = {"error": "Kuch data nahi mila (unknown reason)"}
+        _btc_oc_json = json.dumps(btc_oc)
+        _script3b = f"""
+<script>
+(function() {{
+  var btcOc = {_btc_oc_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'btc_option_chain', data: btcOc }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+        components.html(_script3b, height=0, scrolling=False)
+
+    _btc_option_chain_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

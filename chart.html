@@ -3447,7 +3447,67 @@ select.s-select, input.s-select{
 #oc-balance-label{font-size:11px;color:#787b86;margin-bottom:6px}
 #oc-balance-value{font-size:22px;font-weight:700;color:#d1d4dc}
 #oc-balance-strike-row{display:flex;justify-content:space-between;margin-top:14px;padding-top:14px;border-top:1px solid #2a2e39;font-size:11px;color:#9598a1}
+#oc-balance-sub{padding:0 12px 4px;font-size:10.5px;color:#787b86}
+#oc-balance-sub .margin-amt{color:#ff9800;font-weight:700}
+#oc-balance-actions{padding:0 12px;margin-bottom:6px}
+#oc-balance-reset-btn{
+  width:100%;height:32px;border-radius:8px;border:1px solid #363c4e;
+  background:#181b23;color:#9598a1;font-size:11px;font-weight:700;cursor:pointer;
+}
+#oc-balance-reset-btn:active{background:#2a2e39;color:#ef5350;border-color:#ef5350}
 #oc-balance-updated{padding:0 12px;font-size:10px;color:#555}
+
+/* ── Virtual Trade Bar (SV1 Option Chain — live data, virtual money) ─────── */
+#oc-trade-bar{
+  display:none;flex-direction:column;gap:6px;flex-shrink:0;
+  padding:8px 10px;border-top:1px solid #2a2e39;background:#181b23;
+}
+#oc-trade-bar.open{display:flex}
+#oc-trade-bar-hdr{display:flex;align-items:center;justify-content:space-between}
+#oc-trade-bar-strike{font-size:12px;font-weight:700;color:#e0e3eb}
+#oc-trade-bar-close{background:none;border:none;color:#787b86;font-size:13px;cursor:pointer;padding:0 4px}
+#oc-trade-bar-close:active{color:#ef5350}
+#oc-trade-bar-qty-row{display:flex;align-items:center;gap:8px}
+.oc-trade-bar-qty-label{font-size:10.5px;color:#787b86;margin-right:2px}
+.oc-qty-btn{
+  width:26px;height:26px;border-radius:6px;border:1px solid #363c4e;
+  background:#131722;color:#d1d4dc;font-size:14px;font-weight:700;cursor:pointer;line-height:1;
+}
+.oc-qty-btn:active{background:#2a2e39}
+#oc-trade-bar-qty{font-size:13px;font-weight:700;color:#e0e3eb;min-width:18px;text-align:center}
+.oc-trade-bar-qty-unit{font-size:10.5px;color:#787b86}
+#oc-trade-bar-actions{display:flex;gap:8px}
+.oc-trade-bar-col{flex:1;display:flex;flex-direction:column;gap:4px}
+.oc-trade-bar-col-lbl{font-size:10.5px;font-weight:700}
+.oc-trade-bar-col-lbl span{color:#d1d4dc;font-weight:700;margin-left:3px}
+.oc-trade-bar-btns{display:flex;gap:6px}
+.oc-trade-btn{
+  flex:1;height:30px;border-radius:6px;border:none;color:#fff;
+  font-size:11px;font-weight:700;cursor:pointer;
+}
+.oc-trade-btn.oc-buy{background:#26a69a}
+.oc-trade-btn.oc-sell{background:#ef5350}
+.oc-trade-btn:active{filter:brightness(1.15)}
+
+/* ── Virtual Positions / History cards (SV1 Option Chain) ───────────────── */
+#oc-positions-list, #oc-history-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.oc-pos-card, .oc-hist-card{
+  background:#181b23;border:1px solid #2a2e39;border-radius:10px;padding:10px 12px;
+}
+.oc-pos-hdr, .oc-hist-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.oc-pos-title, .oc-hist-title{font-size:12px;font-weight:700;color:#e0e3eb}
+.oc-pos-side-tag, .oc-hist-side-tag{
+  font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:6px;
+}
+.oc-pos-side-tag.buy, .oc-hist-side-tag.buy{background:#26a69a22;color:#26a69a}
+.oc-pos-side-tag.sell, .oc-hist-side-tag.sell{background:#ef535022;color:#ef5350}
+.oc-pos-row, .oc-hist-row{display:flex;justify-content:space-between;font-size:11px;color:#9598a1;margin-top:2px}
+.oc-pos-pnl{font-size:13px;font-weight:700}
+.oc-pos-exit-btn{
+  margin-top:8px;width:100%;height:28px;border-radius:6px;border:1px solid #363c4e;
+  background:#131722;color:#d1d4dc;font-size:11px;font-weight:700;cursor:pointer;
+}
+.oc-pos-exit-btn:active{background:#2a2e39}
 #fyers-meta-panel{
   display:none;position:fixed;z-index:10002;
   bottom:34px;left:8px;
@@ -4112,7 +4172,7 @@ function _hdrRelayout(){
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
   <button id="fyers-meta-btn" onclick="toggleFyersMeta()" title="Fyers Balance + Nearest Strike">💰 Balance</button>
-  <button id="oc-real-btn" onclick="toggleOptionChain()" title="Real Option Chain (Fyers Live Data)">⛓ Chain</button>
+  <button id="oc-real-btn" onclick="toggleOptionChain()" title="Option Chain — Live Data, Virtual Trading">⛓ Chain</button>
   <button id="btc-oc-btn" onclick="toggleBtcOptionChain()" title="BTC Option Chain (Binance Public API)">₿ Chain</button>
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
@@ -4177,26 +4237,63 @@ function _hdrRelayout(){
     <div id="oc-ftr">
       <span id="oc-updated">—</span>
     </div>
+    <!-- ── Virtual Trade Bar — strike select karne par yahan CE/PE Buy/Sell
+         dikhte hain. Order LIVE LTP par hi place hota hai, lekin paisa
+         SIRF virtual account (SV1OC) se katta/aata hai — Fyers real
+         balance ko haath tak nahi lagaya jaata. ── -->
+    <div id="oc-trade-bar">
+      <div id="oc-trade-bar-hdr">
+        <span id="oc-trade-bar-strike">Strike —</span>
+        <button id="oc-trade-bar-close" onclick="_ocCloseTradeBar()">✕</button>
+      </div>
+      <div id="oc-trade-bar-qty-row">
+        <span class="oc-trade-bar-qty-label">Qty</span>
+        <button class="oc-qty-btn" onclick="_sv1OCQtyStep(-1)">−</button>
+        <span id="oc-trade-bar-qty">1</span>
+        <span class="oc-trade-bar-qty-unit">lot</span>
+        <button class="oc-qty-btn" onclick="_sv1OCQtyStep(1)">+</button>
+      </div>
+      <div id="oc-trade-bar-actions">
+        <div class="oc-trade-bar-col">
+          <div class="oc-trade-bar-col-lbl oc-up">CE <span id="oc-trade-bar-ce-ltp">—</span></div>
+          <div class="oc-trade-bar-btns">
+            <button class="oc-trade-btn oc-buy" onclick="_sv1OCPlaceOrder('CE','buy')">Buy</button>
+            <button class="oc-trade-btn oc-sell" onclick="_sv1OCPlaceOrder('CE','sell')">Sell</button>
+          </div>
+        </div>
+        <div class="oc-trade-bar-col">
+          <div class="oc-trade-bar-col-lbl oc-dn">PE <span id="oc-trade-bar-pe-ltp">—</span></div>
+          <div class="oc-trade-bar-btns">
+            <button class="oc-trade-btn oc-buy" onclick="_sv1OCPlaceOrder('PE','buy')">Buy</button>
+            <button class="oc-trade-btn oc-sell" onclick="_sv1OCPlaceOrder('PE','sell')">Sell</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-positions">
-    <div class="oc-empty-state">📭 Abhi koi open position nahi.<br>Buy/Sell feature aane ke baad yahan live positions dikhenge.</div>
+    <div id="oc-positions-list"></div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-balance">
     <div id="oc-balance-card">
-      <div id="oc-balance-label">Fyers Available Balance</div>
+      <div id="oc-balance-label">💰 Virtual Balance</div>
       <div id="oc-balance-value">—</div>
+      <div id="oc-balance-sub"></div>
       <div id="oc-balance-strike-row">
         <span>Nearest Strike (BANKNIFTY)</span>
         <span id="oc-balance-strike">—</span>
       </div>
     </div>
-    <div id="oc-balance-updated">Update ka wait ho raha hai…</div>
+    <div id="oc-balance-actions">
+      <button id="oc-balance-reset-btn" onclick="_sv1OCResetBalance()">↺ Reset Virtual Balance</button>
+    </div>
+    <div id="oc-balance-updated">Live data ka wait ho raha hai…</div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-history">
-    <div class="oc-empty-state">📭 Abhi koi trade history nahi.<br>Buy/Sell feature aane ke baad closed trades yahan dikhenge.</div>
+    <div id="oc-history-list"></div>
   </div>
 </div>
 
@@ -19403,12 +19500,283 @@ function _startFyersMetaPolling() {
 }
 _startFyersMetaPolling();
 
+// ══════════════════════════════════════════════════════════════════════
+// SV1 OPTION CHAIN — Virtual Trading on LIVE data
+// ──────────────────────────────────────────────────────────────────────
+// Chain ka data (spot/LTP/OI) hamesha REAL Fyers live feed se aata hai —
+// isme koi change nahi. Lekin Buy/Sell yahan se hamesha is ALAG virtual
+// account (SV1OC) par jaata hai — Fyers ke real fund/order kabhi touch
+// nahi hote. Ye SV2 (Bar Replay) ke virtual account se bhi bilkul
+// independent hai (alag storage keys) — dono kabhi mix nahi hote.
+// Charges/margin formula wahi hai jo SV2OC BankNifty ke liye use karta hai
+// (reuse of SV2OC_ASSET_CFG.bn), taaki dono jagah realistic/consistent rahe.
+// ══════════════════════════════════════════════════════════════════════
+var SV1OC = {
+  cur: '₹', locale: 'en-IN',
+  lotSize: 30, qtySingular: 'lot', qtyPlural: 'lots',
+  marginPct: 0.12, brokeragePerOrder: 20, sttRate: 0.001, miscChargeRate: 0.0005,
+  startingBalance: 25000,
+  balance: 25000,
+  qtyLots: 1,
+  positions: [], // {id, strike, type:'CE'|'PE', side:'buy'|'sell', lots, entryPrice, entryTime, marginBlocked}
+  history: []    // {id, strike, type, side, lots, entryPrice, exitPrice, entryTime, exitTime, grossPnl, charges, netPnl, balanceAfter}
+};
+(function () {
+  var bn = (typeof SV2OC_ASSET_CFG !== 'undefined' && SV2OC_ASSET_CFG.bn) ? SV2OC_ASSET_CFG.bn : null;
+  if (bn) {
+    SV1OC.lotSize = bn.lotSize; SV1OC.marginPct = bn.marginPct;
+    SV1OC.brokeragePerOrder = bn.brokeragePerOrder; SV1OC.sttRate = bn.sttRate;
+    SV1OC.miscChargeRate = bn.miscChargeRate; SV1OC.startingBalance = bn.startingBalance;
+    SV1OC.balance = bn.startingBalance;
+  }
+})();
+
+function _sv1OCFmtMoney(v) { return SV1OC.cur + (v || 0).toLocaleString(SV1OC.locale, { maximumFractionDigits: 0 }); }
+
+function _sv1OCLoadBalance() {
+  try {
+    var raw = localStorage.getItem('sv1_oc_balance_v1');
+    SV1OC.balance = (raw != null && raw !== '') ? parseFloat(raw) : SV1OC.startingBalance;
+    if (isNaN(SV1OC.balance)) SV1OC.balance = SV1OC.startingBalance;
+  } catch (_) { SV1OC.balance = SV1OC.startingBalance; }
+}
+function _sv1OCSaveBalance() { try { localStorage.setItem('sv1_oc_balance_v1', String(SV1OC.balance)); } catch (_) {} }
+function _sv1OCLoadPositions() {
+  try { var raw = localStorage.getItem('sv1_oc_positions_v1'); SV1OC.positions = raw ? JSON.parse(raw) : []; }
+  catch (_) { SV1OC.positions = []; }
+}
+function _sv1OCSavePositions() { try { localStorage.setItem('sv1_oc_positions_v1', JSON.stringify(SV1OC.positions)); } catch (_) {} }
+function _sv1OCLoadHistory() {
+  try { var raw = localStorage.getItem('sv1_oc_history_v1'); SV1OC.history = raw ? JSON.parse(raw) : []; }
+  catch (_) { SV1OC.history = []; }
+}
+function _sv1OCSaveHistory() { try { localStorage.setItem('sv1_oc_history_v1', JSON.stringify(SV1OC.history)); } catch (_) {} }
+_sv1OCLoadBalance(); _sv1OCLoadPositions(); _sv1OCLoadHistory();
+
+// Open SELL positions ka total blocked margin (BUY positions margin block nahi karti)
+function _sv1OCTotalBlockedMargin() {
+  var total = 0;
+  SV1OC.positions.forEach(function (p) { total += (p.marginBlocked || 0); });
+  return total;
+}
+function _sv1OCAvailableBalance() { return SV1OC.balance - _sv1OCTotalBlockedMargin(); }
+// Approx SPAN+exposure-style margin ESTIMATE for writing (selling) an option
+function _sv1OCApproxMargin(spot, premiumAmt, qty) {
+  var notional = (spot || 0) * qty;
+  return notional * SV1OC.marginPct + premiumAmt;
+}
+// Charges: flat brokerage/leg + STT (sell-side premium turnover only) + misc bundle
+function _sv1OCCharges(premiumAmt, side) {
+  var brokerage = SV1OC.brokeragePerOrder;
+  var stt = (side === 'sell') ? premiumAmt * SV1OC.sttRate : 0;
+  var misc = premiumAmt * SV1OC.miscChargeRate;
+  var total = brokerage + stt + misc;
+  return { brokerage: brokerage, stt: stt, misc: misc, total: total };
+}
+
+// Latest live chain snapshot (rows + spot) — set by _applyOptionChain(),
+// used here to fetch current LTP for the selected strike/type at order time
+// and to mark-to-market open positions' live P&L.
+var _ocLastChainData = null;
+
+function _sv1OCFindLtp(strike, type) {
+  if (!_ocLastChainData || !_ocLastChainData.rows) return null;
+  for (var i = 0; i < _ocLastChainData.rows.length; i++) {
+    var row = _ocLastChainData.rows[i];
+    if (row.strike === strike) {
+      var side = (type === 'CE') ? row.ce : row.pe;
+      return side && side.ltp != null ? side.ltp : null;
+    }
+  }
+  return null;
+}
+
+function _sv1OCQtyStep(delta) {
+  SV1OC.qtyLots = Math.max(1, (SV1OC.qtyLots || 1) + delta);
+  var el = document.getElementById('oc-trade-bar-qty');
+  if (el) el.textContent = SV1OC.qtyLots;
+}
+
+// ── Market order — LIVE LTP par fill hota hai, paisa sirf virtual account
+// (SV1OC) se katta/aata hai. ────────────────────────────────────────────
+function _sv1OCPlaceOrder(type, side) {
+  if (_ocSelectedStrike == null) { alert('Pehle ek strike select karo.'); return; }
+  var ltp = _sv1OCFindLtp(_ocSelectedStrike, type);
+  if (ltp == null) { alert('Live price abhi available nahi hai, thodi der mein try karo.'); return; }
+  var lots = SV1OC.qtyLots || 1;
+  var qty = lots * SV1OC.lotSize;
+  var premiumAmt = ltp * qty;
+  var spot = (_ocLastChainData && _ocLastChainData.spot) || 0;
+  var chg = _sv1OCCharges(premiumAmt, side);
+  var marginBlocked = 0;
+
+  if (side === 'sell') {
+    marginBlocked = _sv1OCApproxMargin(spot, premiumAmt, qty);
+    if (marginBlocked + chg.total > _sv1OCAvailableBalance()) {
+      alert('Insufficient available balance! ' + SV1OC.cur + (marginBlocked + chg.total).toFixed(0) + ' margin chahiye, available sirf ' + _sv1OCFmtMoney(_sv1OCAvailableBalance()) + ' hai.');
+      return;
+    }
+  } else {
+    if (premiumAmt + chg.total > _sv1OCAvailableBalance()) {
+      alert('Insufficient available balance! ' + SV1OC.cur + (premiumAmt + chg.total).toFixed(0) + ' chahiye (premium + charges), available sirf ' + _sv1OCFmtMoney(_sv1OCAvailableBalance()) + ' hai.');
+      return;
+    }
+  }
+
+  var pos = {
+    id: 'sv1p_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+    strike: _ocSelectedStrike, type: type, side: side, lots: lots,
+    entryPrice: ltp, entryTime: Date.now(), marginBlocked: marginBlocked
+  };
+  SV1OC.positions.push(pos);
+
+  // BUY: premium debit. SELL: premium credit (margin already blocked separately).
+  SV1OC.balance += (side === 'buy') ? -(premiumAmt + chg.total) : (premiumAmt - chg.total);
+
+  _sv1OCSavePositions(); _sv1OCSaveBalance();
+  _sv1OCRenderBalance(); _sv1OCRenderPositions();
+  alert('✅ ' + side.toUpperCase() + ' ' + type + ' ' + _ocSelectedStrike + ' — ' + lots + ' ' + (lots === 1 ? SV1OC.qtySingular : SV1OC.qtyPlural) + ' @ ' + _sv1OCFmtMoney(ltp) + ' (Virtual)');
+}
+
+// ── Square-off an open position at current live LTP ────────────────────
+function _sv1OCSquareOff(posId) {
+  var idx = SV1OC.positions.findIndex(function (p) { return p.id === posId; });
+  if (idx === -1) return;
+  var p = SV1OC.positions[idx];
+  var exitLtp = _sv1OCFindLtp(p.strike, p.type);
+  if (exitLtp == null) { alert('Live price abhi available nahi hai, thodi der mein try karo.'); return; }
+  var qty = p.lots * SV1OC.lotSize;
+  var entryAmt = p.entryPrice * qty;
+  var exitAmt = exitLtp * qty;
+  var exitSide = (p.side === 'buy') ? 'sell' : 'buy'; // reverse leg to close
+  var chg = _sv1OCCharges(exitAmt, exitSide);
+  var grossPnl = (p.side === 'buy') ? (exitAmt - entryAmt) : (entryAmt - exitAmt);
+  var netPnl = grossPnl - chg.total;
+
+  // Release margin (if any) + settle P&L into balance
+  SV1OC.balance += netPnl;
+  SV1OC.positions.splice(idx, 1);
+  SV1OC.history.unshift({
+    id: p.id, strike: p.strike, type: p.type, side: p.side, lots: p.lots,
+    entryPrice: p.entryPrice, exitPrice: exitLtp,
+    entryTime: p.entryTime, exitTime: Date.now(),
+    grossPnl: grossPnl, charges: chg.total, netPnl: netPnl, balanceAfter: SV1OC.balance
+  });
+
+  _sv1OCSavePositions(); _sv1OCSaveHistory(); _sv1OCSaveBalance();
+  _sv1OCRenderBalance(); _sv1OCRenderPositions(); _sv1OCRenderHistory();
+}
+
+function _sv1OCResetBalance() {
+  if (!confirm('Virtual balance ko ' + _sv1OCFmtMoney(SV1OC.startingBalance) + ' par reset karna hai? Saari open positions aur Trade History bhi clear ho jaayengi.')) return;
+  SV1OC.balance = SV1OC.startingBalance;
+  SV1OC.positions = [];
+  SV1OC.history = [];
+  _sv1OCSaveBalance(); _sv1OCSavePositions(); _sv1OCSaveHistory();
+  _sv1OCRenderBalance(); _sv1OCRenderPositions(); _sv1OCRenderHistory();
+}
+
+function _sv1OCRenderBalance() {
+  var el = document.getElementById('oc-balance-value');
+  var subEl = document.getElementById('oc-balance-sub');
+  if (el) el.textContent = _sv1OCFmtMoney(SV1OC.balance);
+  if (subEl) {
+    var blocked = _sv1OCTotalBlockedMargin();
+    if (blocked > 0) {
+      var avail = SV1OC.balance - blocked;
+      subEl.innerHTML = 'Available ' + _sv1OCFmtMoney(avail) + ' · <span class="margin-amt">' + _sv1OCFmtMoney(blocked) + ' margin blocked</span>';
+    } else { subEl.textContent = ''; }
+  }
+}
+
+function _sv1OCRenderPositions() {
+  var box = document.getElementById('oc-positions-list');
+  if (!box) return;
+  if (!SV1OC.positions.length) {
+    box.innerHTML = '<div class="oc-empty-state">📭 Abhi koi open virtual position nahi.<br>Chain tab mein strike select karke Buy/Sell karo.</div>';
+    return;
+  }
+  var html = '';
+  SV1OC.positions.forEach(function (p) {
+    var ltp = _sv1OCFindLtp(p.strike, p.type);
+    var qty = p.lots * SV1OC.lotSize;
+    var pnl = null;
+    if (ltp != null) {
+      pnl = (p.side === 'buy') ? (ltp - p.entryPrice) * qty : (p.entryPrice - ltp) * qty;
+    }
+    var pnlCls = (pnl == null) ? '' : (pnl >= 0 ? 'oc-up' : 'oc-dn');
+    var pnlTxt = (pnl == null) ? '—' : (pnl >= 0 ? '+' : '') + _sv1OCFmtMoney(pnl);
+    html += '<div class="oc-pos-card">'
+      + '<div class="oc-pos-hdr"><span class="oc-pos-title">' + p.strike + ' ' + p.type
+      + '<span class="oc-pos-side-tag ' + p.side + '">' + p.side.toUpperCase() + '</span></span>'
+      + '<span class="oc-pos-pnl ' + pnlCls + '">' + pnlTxt + '</span></div>'
+      + '<div class="oc-pos-row"><span>Qty</span><span>' + p.lots + ' ' + (p.lots === 1 ? SV1OC.qtySingular : SV1OC.qtyPlural) + '</span></div>'
+      + '<div class="oc-pos-row"><span>Entry</span><span>' + _sv1OCFmtMoney(p.entryPrice) + '</span></div>'
+      + '<div class="oc-pos-row"><span>LTP</span><span>' + (ltp != null ? _sv1OCFmtMoney(ltp) : '—') + '</span></div>'
+      + (p.marginBlocked ? '<div class="oc-pos-row"><span>Margin blocked</span><span>' + _sv1OCFmtMoney(p.marginBlocked) + '</span></div>' : '')
+      + '<button class="oc-pos-exit-btn" onclick="_sv1OCSquareOff(\'' + p.id + '\')">Square Off</button>'
+      + '</div>';
+  });
+  box.innerHTML = html;
+}
+
+function _sv1OCRenderHistory() {
+  var box = document.getElementById('oc-history-list');
+  if (!box) return;
+  if (!SV1OC.history.length) {
+    box.innerHTML = '<div class="oc-empty-state">📭 Abhi koi trade history nahi.<br>Position square-off karne ke baad yahan dikhegi.</div>';
+    return;
+  }
+  var html = '';
+  SV1OC.history.forEach(function (h) {
+    var pnlCls = h.netPnl >= 0 ? 'oc-up' : 'oc-dn';
+    var pnlTxt = (h.netPnl >= 0 ? '+' : '') + _sv1OCFmtMoney(h.netPnl);
+    var t = new Date(h.exitTime);
+    html += '<div class="oc-hist-card">'
+      + '<div class="oc-hist-hdr"><span class="oc-hist-title">' + h.strike + ' ' + h.type
+      + '<span class="oc-hist-side-tag ' + h.side + '">' + h.side.toUpperCase() + '</span></span>'
+      + '<span class="oc-pos-pnl ' + pnlCls + '">' + pnlTxt + '</span></div>'
+      + '<div class="oc-hist-row"><span>Qty</span><span>' + h.lots + ' ' + (h.lots === 1 ? SV1OC.qtySingular : SV1OC.qtyPlural) + '</span></div>'
+      + '<div class="oc-hist-row"><span>Entry → Exit</span><span>' + _sv1OCFmtMoney(h.entryPrice) + ' → ' + _sv1OCFmtMoney(h.exitPrice) + '</span></div>'
+      + '<div class="oc-hist-row"><span>Charges</span><span>' + _sv1OCFmtMoney(h.charges) + '</span></div>'
+      + '<div class="oc-hist-row"><span>Closed</span><span>' + t.toLocaleString('en-IN', {hour:'2-digit',minute:'2-digit',day:'2-digit',month:'short'}) + '</span></div>'
+      + '</div>';
+  });
+  box.innerHTML = html;
+}
+
+function _ocCloseTradeBar() {
+  var bar = document.getElementById('oc-trade-bar');
+  if (bar) bar.classList.remove('open');
+  var prev = document.querySelector('.oc-row.oc-selected');
+  if (prev) prev.classList.remove('oc-selected');
+  _ocSelectedStrike = null;
+}
+
+function _ocUpdateTradeBar() {
+  var bar = document.getElementById('oc-trade-bar');
+  if (!bar) return;
+  if (_ocSelectedStrike == null) { bar.classList.remove('open'); return; }
+  bar.classList.add('open');
+  var strikeEl = document.getElementById('oc-trade-bar-strike');
+  var ceEl = document.getElementById('oc-trade-bar-ce-ltp');
+  var peEl = document.getElementById('oc-trade-bar-pe-ltp');
+  if (strikeEl) strikeEl.textContent = 'Strike ' + _fmtNum(_ocSelectedStrike);
+  var ceLtp = _sv1OCFindLtp(_ocSelectedStrike, 'CE');
+  var peLtp = _sv1OCFindLtp(_ocSelectedStrike, 'PE');
+  if (ceEl) ceEl.textContent = ceLtp != null ? _sv1OCFmtMoney(ceLtp) : '—';
+  if (peEl) peEl.textContent = peLtp != null ? _sv1OCFmtMoney(peLtp) : '—';
+}
+
 // ── Real Option Chain (Fyers live data) — panel toggle + render ───────────
 function toggleOptionChain() {
   const p = document.getElementById('oc-panel');
   if (!p) return;
   p.classList.toggle('open');
-  if (p.classList.contains('open')) { _pollOptionChain(); _ocSyncBalanceTab(); }
+  if (p.classList.contains('open')) {
+    _pollOptionChain(); _ocSyncBalanceTab();
+    _sv1OCRenderBalance(); _sv1OCRenderPositions(); _sv1OCRenderHistory();
+  }
 }
 
 // ── Tabs: Chain / Positions / Balance / History (independent from SV2) ────
@@ -19421,12 +19789,13 @@ function _ocSelectTab(tab) {
     if (btn) btn.classList.toggle('active', t === tab);
     if (panel) panel.classList.toggle('active', t === tab);
   });
-  if (tab === 'balance') _ocSyncBalanceTab();
+  if (tab === 'balance') { _ocSyncBalanceTab(); _sv1OCRenderBalance(); }
+  if (tab === 'positions') _sv1OCRenderPositions();
+  if (tab === 'history') _sv1OCRenderHistory();
 }
 
-// ── Tap a strike row to select/highlight it (no order panel — Buy/Sell
-// abhi add nahi hai). Sirf ek row select rehti hai; dobara tap karne se
-// deselect ho jaati hai. ────────────────────────────────────────────────
+// ── Tap a strike row to select/highlight it — Virtual Trade Bar khulta hai
+// (CE/PE Buy/Sell yahin se hota hai, live LTP par, virtual account mein). ──
 let _ocSelectedStrike = null;
 function _ocSelectStrike(el, strike) {
   const prev = document.querySelector('.oc-row.oc-selected');
@@ -19438,20 +19807,20 @@ function _ocSelectStrike(el, strike) {
     el.classList.add('oc-selected');
     _ocSelectedStrike = strike;
   }
+  _ocUpdateTradeBar();
 }
 
-// Balance tab reuses the same real Fyers balance data that already flows
-// via _applyFyersMeta (💰 Balance panel) — same live number, own display.
+// Balance tab ab Virtual Balance dikhata hai (SV1OC) — Fyers ka real fund
+// isse touch nahi hota. Nearest-strike info (informational only, koi paisa
+// involve nahi) real Fyers feed se hi aata rehta hai.
 function _ocSyncBalanceTab() {
-  const bEl = document.getElementById('fm-balance');
   const sEl = document.getElementById('fm-strike');
   const uEl = document.getElementById('fm-updated');
-  const obEl = document.getElementById('oc-balance-value');
   const osEl = document.getElementById('oc-balance-strike');
   const ouEl = document.getElementById('oc-balance-updated');
-  if (obEl && bEl) obEl.textContent = bEl.textContent;
   if (osEl && sEl) osEl.textContent = sEl.textContent;
   if (ouEl && uEl) ouEl.textContent = uEl.textContent;
+  _sv1OCRenderBalance();
 }
 
 function _fmtNum(n) {
@@ -19467,6 +19836,11 @@ function _applyOptionChain(data) {
     return;
   }
   if (!data.rows) return;
+  // Latest live snapshot — SV1 virtual trading engine isi se LTP uthata hai
+  // (order placement + open positions ka mark-to-market P&L).
+  _ocLastChainData = data;
+  _ocUpdateTradeBar();
+  if (_ocActiveTab === 'positions') _sv1OCRenderPositions();
   const spotEl = document.getElementById('oc-spot');
   const expEl  = document.getElementById('oc-expiry');
   const updEl  = document.getElementById('oc-updated');
