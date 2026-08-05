@@ -2241,6 +2241,45 @@ if (sess_active or _btc_only) and not st.session_state.get("_sv2_data_requested"
     st.session_state["_sv2_anchor_date_btc"] = None
     st.session_state["_sv2_data_requested"]  = True
 
+# ── BTC Option Chain (Binance public API) → postMessage pusher ─────────────
+# Jaan-boojh kar `if sess_active or _btc_only:` ke BAHAR rakha hai — Binance
+# Options endpoints public hain, Fyers login ki koi zaroorat nahi. Isliye
+# yeh Fyers connected ho ya na ho, dono cases mein chalta hai.
+with st.expander("🔧 BTC Option Chain Debug (Binance public API test)"):
+    if st.button("Ab test karo", key="btc_oc_debug_btn"):
+        _dbg_data = binance_get_atm_option()
+        st.json(_dbg_data)
+        st.write("Last internal error/debug:", _BTC_OC_DEBUG)
+    else:
+        st.caption("Button dabao to seedha Binance API call karke result yahin dikhayega — "
+                   "isse pata chalega ki fetch fail kyu ho raha hai (network block / timeout / "
+                   "field mismatch), chart iframe ke bina.")
+
+@st.fragment(run_every=10)
+def _btc_option_chain_pusher():
+    btc_oc = refresh_btc_option_chain_cache()
+    if not btc_oc:
+        btc_oc = {"error": "Kuch data nahi mila (unknown reason)"}
+    _btc_oc_json = json.dumps(btc_oc)
+    _script3b = f"""
+<script>
+(function() {{
+  var btcOc = {_btc_oc_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'btc_option_chain', data: btcOc }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+    components.html(_script3b, height=0, scrolling=False)
+
+_btc_option_chain_pusher()
+
 if sess_active or _btc_only:
     if sess_active:
         st.success("✅ Fyers connected — live data active")
@@ -2396,37 +2435,8 @@ if sess_active or _btc_only:
 """
             components.html(_script3, height=0, scrolling=False)
 
-        _option_chain_pusher()
+    _option_chain_pusher()
 
-    # ── BTC Option Chain (Binance public API) → postMessage pusher ──────────
-    # Fyers login (sess_active) ki zaroorat nahi — Binance Options endpoints
-    # public hain. Abhi sirf 1 ATM strike (CE+PE premium) bhejta hai; iski
-    # window.parent listener chart.html mein baad mein add karni hogi
-    # (type: 'btc_option_chain'), jaise 'option_chain' ke liye already hai.
-    @st.fragment(run_every=10)
-    def _btc_option_chain_pusher():
-        btc_oc = refresh_btc_option_chain_cache()
-        if not btc_oc:
-            btc_oc = {"error": "Kuch data nahi mila (unknown reason)"}
-        _btc_oc_json = json.dumps(btc_oc)
-        _script3b = f"""
-<script>
-(function() {{
-  var btcOc = {_btc_oc_json};
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: 'btc_option_chain', data: btcOc }}), '*'
-      );
-    }} catch(e) {{}}
-  }}
-}})();
-</script>
-"""
-        components.html(_script3b, height=0, scrolling=False)
-
-    _btc_option_chain_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
