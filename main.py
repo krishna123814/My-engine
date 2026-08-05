@@ -392,6 +392,73 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
         "ts": time.time(),
     }
 
+# ─── Market Depth (5-level Bid/Ask order book) — jaisa Fyers app ka
+# "Market Depth" bottom-sheet dikhata hai (Qty(Orders) | Bid | Ask | (Orders)Qty,
+# total buy/sell %, aur Price Stats: Open/High/Low/PrevClose/AvgPrice/Circuits/
+# Volume/LTQ). Ye Option Chain API se ALAG endpoint hai — option chain sirf
+# best bid/ask (1 level) deta hai, depth API 5 levels + totalbuyqty/totalsellqty
+# deta hai. Har symbol ka apna chhota TTL cache — jab tak koi ek strike ka depth
+# modal khula ho, sirf usi symbol ke liye poll hota hai (saare strikes ka depth
+# fetch karne ki zaroorat nahi, rate-limit safe). ──────────────────────────────
+_DEPTH_CACHE: dict = {}
+_DEPTH_LOCK = threading.Lock()
+_DEPTH_TTL  = 1.5  # seconds — depth apna alag chhota TTL, sirf active symbol ke liye
+
+def fyers_get_market_depth(app_id: str, access_token: str, symbol: str) -> "dict | None":
+    """Fyers Market Depth API se 5-level bid/ask order book + price stats fetch karta hai.
+    Response shape match karta hai Fyers app ke 'Market Depth' screen se:
+    bids/asks (5 levels each, price+volume+orders), totalbuyqty/totalsellqty,
+    o/h/l/c, ltp/ltq/volume, upper_ckt/lower_ckt, atp (avg price)."""
+    headers = {"Authorization": f"{app_id}:{access_token}"}
+    params = {"symbol": symbol, "ohlcv_flag": "1"}
+    try:
+        resp = requests.get("https://api-t1.fyers.in/data/depth", headers=headers, params=params, timeout=6)
+        r = resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+    if r.get("s") != "ok":
+        return {"error": r.get("message", str(r))[:300]}
+    d = (r.get("d") or {}).get(symbol, {})
+    if not d:
+        return {"error": "Symbol data not found in depth response"}
+    return {
+        "symbol": symbol,
+        "ltp": d.get("ltp", 0),
+        "ch": d.get("ch", 0),
+        "chp": d.get("chp", 0),
+        "bids": d.get("bids", []),
+        "asks": d.get("ask", []),
+        "total_buy_qty":  d.get("totalbuyqty", 0),
+        "total_sell_qty": d.get("totalsellqty", 0),
+        "open": d.get("o", 0),
+        "high": d.get("h", 0),
+        "low": d.get("l", 0),
+        "prev_close": d.get("c", 0),
+        "atp": d.get("atp", 0),
+        "upper_ckt": d.get("upper_ckt", 0),
+        "lower_ckt": d.get("lower_ckt", 0),
+        "volume": d.get("v", 0),
+        "ltq": d.get("ltq", 0),
+        "ts": time.time(),
+    }
+
+def refresh_market_depth_cache(symbol: str) -> dict:
+    """TTL-cached depth fetch — ek hi symbol baar-baar poll hone par bhi
+    Fyers ko sirf har _DEPTH_TTL second mein ek baar hit karta hai."""
+    now = time.time()
+    with _DEPTH_LOCK:
+        entry = _DEPTH_CACHE.get(symbol)
+        if entry and (now - entry["ts"]) < _DEPTH_TTL:
+            return entry["data"]
+    creds = load_creds()
+    if not creds.get("access_token") or not creds.get("app_id"):
+        payload = {"error": "Fyers login nahi mila"}
+    else:
+        payload = fyers_get_market_depth(creds["app_id"], creds["access_token"], symbol) or {"error": "unknown error"}
+    with _DEPTH_LOCK:
+        _DEPTH_CACHE[symbol] = {"data": payload, "ts": now}
+    return payload
+
 # ─── Next-month expiry chain — apna alag TTL cache (SV1's "This Month /
 # Next Month" toggle ke liye). Current-month jitni baar refresh karne ki
 # zaroorat nahi (next month kam frequently move karta hai) — isliye lamba
@@ -1609,6 +1676,28 @@ def _register_api_route():
                     payload = _get_live_payload()
                     body = json.dumps(payload if payload is not None else {}).encode()
                     self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                # ── Market Depth (5-level order book) — chart.html isi endpoint ko
+                # poll karta hai jab koi strike ka depth-icon tap hota hai. Sirf
+                # active/open symbol ke liye poll hota hai (background mein nahi),
+                # isliye TTL-cache ke bawajood rate-limit par extra load nahi padta. ──
+                if parsed.path == "/api/market_depth":
+                    dqs = _up.parse_qs(parsed.query, keep_blank_values=False)
+                    dsymbol = dqs.get("symbol", [""])[0]
+                    if not dsymbol:
+                        body = b'{"error":"symbol missing"}'
+                        self.send_response(400)
+                    else:
+                        dpayload = refresh_market_depth_cache(dsymbol)
+                        body = json.dumps(dpayload).encode()
+                        self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Cache-Control", "no-cache")

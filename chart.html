@@ -3527,6 +3527,59 @@ select.s-select, input.s-select{
 #oc-real-btn-badge.pos{background:#26a69a22;color:#26a69a}
 #oc-real-btn-badge.neg{background:#ef535022;color:#ef5350}
 
+/* ═══ Market Depth (5-level order book) modal — jaisa Fyers app ka
+   "Market Depth" bottom-sheet dikhata hai. Strike select hone par CE/PE
+   trade row me chhota 📊 icon dikhta hai — usse ye modal khulta hai. ══════ */
+.oc-depth-btn{
+  width:26px;height:26px;flex-shrink:0;border-radius:6px;border:1px solid #2a2e39;
+  background:#131722;color:#787b86;font-size:12px;cursor:pointer;line-height:1;
+}
+.oc-depth-btn:active{background:#1a1e29}
+#oc-depth-backdrop{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9500;
+}
+#oc-depth-backdrop.open{display:block}
+#oc-depth-sheet{
+  display:none;position:fixed;left:0;right:0;bottom:0;z-index:9501;
+  background:#131722;border-radius:14px 14px 0 0;max-height:82vh;overflow-y:auto;
+  padding:14px 14px 22px;box-shadow:0 -4px 24px rgba(0,0,0,.4);
+}
+#oc-depth-sheet.open{display:block}
+#oc-depth-handle{width:36px;height:4px;border-radius:2px;background:#2a2e39;margin:0 auto 12px}
+#oc-depth-title{font-size:16px;font-weight:700;color:#e0e3eb;margin-bottom:2px}
+#oc-depth-close{position:absolute;top:14px;right:14px;color:#787b86;font-size:18px;background:none;border:none;cursor:pointer}
+#oc-depth-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #2a2e39;padding-bottom:12px;margin-bottom:12px}
+#oc-depth-symbol{font-size:14px;font-weight:700;color:#e0e3eb}
+#oc-depth-meta{font-size:11px;color:#787b86;margin-top:3px}
+#oc-depth-ltp{font-size:20px;font-weight:700;color:#e0e3eb;text-align:right}
+#oc-depth-chg{font-size:12px;font-weight:600;text-align:right;margin-top:2px}
+#oc-depth-chg.pos{color:#26a69a}
+#oc-depth-chg.neg{color:#ef5350}
+#oc-depth-table{border:1px solid #2a2e39;border-radius:10px;overflow:hidden;margin-bottom:10px}
+#oc-depth-thead{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;background:#181b23;
+  font-size:10.5px;font-weight:700;color:#9598a1;padding:8px 10px}
+#oc-depth-thead span:nth-child(2){text-align:right}
+#oc-depth-thead span:nth-child(3){text-align:left}
+#oc-depth-thead span:nth-child(4){text-align:right}
+.oc-depth-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;font-size:13px;font-weight:600;
+  padding:7px 10px;position:relative}
+.oc-depth-row .dqb{color:#26a69a;text-align:left}
+.oc-depth-row .dpb{color:#e0e3eb;text-align:right;padding-right:8px}
+.oc-depth-row .dpa{color:#e0e3eb;text-align:left;padding-left:8px}
+.oc-depth-row .dqa{color:#ef5350;text-align:right}
+#oc-depth-totalbar{height:6px;border-radius:3px;overflow:hidden;display:flex;margin:10px 0 4px}
+#oc-depth-totalbar-buy{background:#26a69a}
+#oc-depth-totalbar-sell{background:#ef5350}
+#oc-depth-totalrow{display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin-bottom:8px}
+#oc-depth-totalrow .buy{color:#26a69a}
+#oc-depth-totalrow .sell{color:#ef5350}
+#oc-depth-stats-title{font-size:13px;font-weight:700;color:#e0e3eb;margin:14px 0 8px}
+#oc-depth-stats-grid{display:grid;grid-template-columns:1fr 1fr 1fr;row-gap:12px}
+.oc-depth-stat-lbl{font-size:10.5px;color:#787b86;margin-bottom:2px}
+.oc-depth-stat-val{font-size:13px;font-weight:700;color:#e0e3eb}
+#oc-depth-updated{font-size:9.5px;color:#555;text-align:center;margin-top:14px}
+#oc-depth-err{color:#ef5350;font-size:12px;text-align:center;padding:20px 0}
+
 /* Trade action bar — appears at bottom of Chain tab jab ek strike select ho */
 #oc-trade-bar{
   display:none;flex-direction:column;gap:6px;padding:10px 12px;
@@ -3534,6 +3587,12 @@ select.s-select, input.s-select{
 }
 #oc-trade-bar.show{display:flex}
 #oc-trade-bar-strike{font-size:12px;font-weight:700;color:#d1d4dc;text-align:center;margin-bottom:2px}
+/* ── Total premium preview — 1 lot ke CE/PE dono ka total rupee amount,
+   strike label ke turant neeche. Qty change / limit price / order type
+   badalne par live update hota hai. ─────────────────────────────────── */
+#oc-trade-total{font-size:10.5px;font-weight:700;color:#787b86;text-align:center;margin-bottom:4px}
+#oc-trade-total .oc-total-ce{color:#26a69a}
+#oc-trade-total .oc-total-pe{color:#ef5350}
 .oc-trade-row{display:flex;align-items:center;gap:8px}
 .oc-trade-side-label{width:34px;font-size:10px;font-weight:700;color:#9598a1;text-align:center}
 .oc-trade-qty-wrap{display:flex;align-items:center;gap:4px;background:#131722;border:1px solid #2a2e39;border-radius:6px;padding:2px 4px}
@@ -4430,6 +4489,7 @@ function _hdrRelayout(){
     <!-- ═══ Virtual Buy/Sell trade bar — strike select karne par khulti hai ═══ -->
     <div id="oc-trade-bar">
       <div id="oc-trade-bar-strike">—</div>
+      <div id="oc-trade-total">—</div>
       <div id="oc-trade-greeks-row" style="display:none"></div>
       <div class="oc-otype-row">
         <button class="oc-otype-btn active" id="oc-otype-market-btn" onclick="_ocSetOrderType('market')">Market</button>
@@ -4437,7 +4497,7 @@ function _hdrRelayout(){
       </div>
       <div id="oc-trade-limit-row">
         <span class="oc-trade-mini-label">Limit ₹</span>
-        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-limit-price" placeholder="Price">
+        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-limit-price" placeholder="Price" oninput="_ocUpdateTradeTotal()">
       </div>
       <div id="oc-trade-risk-row">
         <span class="oc-trade-mini-label">SL ₹</span>
@@ -4466,6 +4526,7 @@ function _hdrRelayout(){
           <span class="oc-trade-qty-val" id="oc-trade-qty-ce">1</span>
           <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(1)">+</button>
         </div>
+        <button id="oc-depth-btn-ce" class="oc-depth-btn" onclick="_ocOpenDepth('CE')" title="Market Depth">📊</button>
         <button class="oc-trade-buy-btn" onclick="_ocConfirmTrade('CE','buy')">Buy CE</button>
         <button class="oc-trade-sell-btn" onclick="_ocConfirmTrade('CE','sell')">Sell CE</button>
       </div>
@@ -4476,11 +4537,57 @@ function _hdrRelayout(){
           <span class="oc-trade-qty-val" id="oc-trade-qty-pe">1</span>
           <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(1)">+</button>
         </div>
+        <button id="oc-depth-btn-pe" class="oc-depth-btn" onclick="_ocOpenDepth('PE')" title="Market Depth">📊</button>
         <button class="oc-trade-buy-btn" onclick="_ocConfirmTrade('PE','buy')">Buy PE</button>
         <button class="oc-trade-sell-btn" onclick="_ocConfirmTrade('PE','sell')">Sell PE</button>
       </div>
       <div id="oc-trade-margin-note">Virtual money — 1 lot = 30 qty (BANKNIFTY)</div>
     </div>
+  </div>
+
+  <!-- ═══ Market Depth (5-level order book) modal — jaisa Fyers broker app
+       me dikhta hai. 📊 icon (CE/PE trade row) se khulta hai. ═══════════ -->
+  <div id="oc-depth-backdrop" onclick="_ocCloseDepth()"></div>
+  <div id="oc-depth-sheet">
+    <div id="oc-depth-handle"></div>
+    <button id="oc-depth-close" onclick="_ocCloseDepth()">✕</button>
+    <div id="oc-depth-head">
+      <div>
+        <div id="oc-depth-symbol">—</div>
+        <div id="oc-depth-meta">Market Depth</div>
+      </div>
+      <div>
+        <div id="oc-depth-ltp">—</div>
+        <div id="oc-depth-chg">—</div>
+      </div>
+    </div>
+    <div id="oc-depth-table">
+      <div id="oc-depth-thead">
+        <span>Qty(Orders)</span><span>Bid</span><span>Ask</span><span>(Orders)Qty</span>
+      </div>
+      <div id="oc-depth-rows"></div>
+    </div>
+    <div id="oc-depth-totalbar">
+      <div id="oc-depth-totalbar-buy" style="width:50%"></div>
+      <div id="oc-depth-totalbar-sell" style="width:50%"></div>
+    </div>
+    <div id="oc-depth-totalrow">
+      <span class="buy" id="oc-depth-total-buy">—</span>
+      <span class="sell" id="oc-depth-total-sell">—</span>
+    </div>
+    <div id="oc-depth-stats-title">Price Stats</div>
+    <div id="oc-depth-stats-grid">
+      <div><div class="oc-depth-stat-lbl">Open</div><div class="oc-depth-stat-val" id="oc-depth-open">—</div></div>
+      <div><div class="oc-depth-stat-lbl">High</div><div class="oc-depth-stat-val" id="oc-depth-high">—</div></div>
+      <div><div class="oc-depth-stat-lbl">Low</div><div class="oc-depth-stat-val" id="oc-depth-low">—</div></div>
+      <div><div class="oc-depth-stat-lbl">Prev. Close</div><div class="oc-depth-stat-val" id="oc-depth-prevclose">—</div></div>
+      <div><div class="oc-depth-stat-lbl">Avg. Price</div><div class="oc-depth-stat-val" id="oc-depth-atp">—</div></div>
+      <div><div class="oc-depth-stat-lbl">Upper Circuit</div><div class="oc-depth-stat-val" id="oc-depth-upperckt">—</div></div>
+      <div><div class="oc-depth-stat-lbl">Lower Circuit</div><div class="oc-depth-stat-val" id="oc-depth-lowerckt">—</div></div>
+      <div><div class="oc-depth-stat-lbl">Volume</div><div class="oc-depth-stat-val" id="oc-depth-volume">—</div></div>
+      <div><div class="oc-depth-stat-lbl">LTQ</div><div class="oc-depth-stat-val" id="oc-depth-ltq">—</div></div>
+    </div>
+    <div id="oc-depth-updated">—</div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-positions">
@@ -20410,6 +20517,123 @@ function _ocLtpFor(strike, type, expiryEpoch) {
   return null;
 }
 function _ocSpot() { var d = _ocActiveChainData(); return (d && d.spot != null) ? Number(d.spot) : null; }
+// Selected strike ke CE/PE ka poora Fyers symbol nikalta hai (jaise
+// "NSE:BANKNIFTY25AUG50000CE") — Market Depth API ko yahi symbol chahiye.
+function _ocSymbolFor(strike, type, expiryEpoch) {
+  var d = _ocChainForLookup(expiryEpoch);
+  if (!d || !d.rows) return null;
+  for (var i = 0; i < d.rows.length; i++) {
+    var row = d.rows[i];
+    if (row.strike === strike) {
+      var leg = (type === 'CE') ? row.ce : row.pe;
+      return (leg && leg.symbol) ? leg.symbol : null;
+    }
+  }
+  return null;
+}
+
+// ── Market Depth (5-level order book) modal ─────────────────────────────
+var _ocDepthSymbol   = null;
+var _ocDepthPollTid  = null;
+var _ocDepthInFlight = false;
+
+function _ocDepthUrl(symbol) {
+  var path = '/api/market_depth?symbol=' + encodeURIComponent(symbol);
+  if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) {
+    return 'http://' + (window.location.hostname || 'localhost') + ':' + _resolvedApiPort + path;
+  }
+  return path;
+}
+
+async function _ocOpenDepth(type) {
+  if (_ocSelectedStrike == null) return;
+  var symbol = _ocSymbolFor(_ocSelectedStrike, type);
+  if (!symbol) { alert('Symbol nahi mila — pehle strike select karo.'); return; }
+  _ocDepthSymbol = symbol;
+  var symEl = document.getElementById('oc-depth-symbol');
+  var metaEl = document.getElementById('oc-depth-meta');
+  if (symEl) symEl.textContent = symbol.replace('NSE:', '');
+  if (metaEl) metaEl.textContent = (type === 'CE' ? 'CALL' : 'PUT') + ' · Strike ' + _fmtNum(_ocSelectedStrike);
+  document.getElementById('oc-depth-backdrop').classList.add('open');
+  document.getElementById('oc-depth-sheet').classList.add('open');
+  document.getElementById('oc-depth-rows').innerHTML = '';
+  document.getElementById('oc-depth-err') && document.getElementById('oc-depth-err').remove();
+  if (typeof _probeApiPort === 'function') await _probeApiPort();
+  _ocPollDepth(); // turant ek baar fetch, phir interval se
+  if (_ocDepthPollTid) clearInterval(_ocDepthPollTid);
+  _ocDepthPollTid = setInterval(_ocPollDepth, 1500);
+}
+
+function _ocCloseDepth() {
+  document.getElementById('oc-depth-backdrop').classList.remove('open');
+  document.getElementById('oc-depth-sheet').classList.remove('open');
+  if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
+  _ocDepthSymbol = null;
+}
+
+async function _ocPollDepth() {
+  if (!_ocDepthSymbol || _ocDepthInFlight) return;
+  _ocDepthInFlight = true;
+  try {
+    var r = await fetch(_ocDepthUrl(_ocDepthSymbol), { signal: AbortSignal.timeout(4000) });
+    var data = await r.json();
+    _ocRenderDepth(data);
+  } catch (e) {
+    _ocRenderDepth({ error: 'Connection failed — dobara try karo' });
+  }
+  _ocDepthInFlight = false;
+}
+
+function _ocRenderDepth(data) {
+  var rowsEl = document.getElementById('oc-depth-rows');
+  if (!rowsEl) return;
+  if (!data || data.error) {
+    rowsEl.innerHTML = '<div id="oc-depth-err">⚠️ ' + (data && data.error ? data.error : 'Data nahi mila') + '</div>';
+    return;
+  }
+  var bids = data.bids || [], asks = data.asks || [];
+  var n = Math.max(bids.length, asks.length, 5);
+  var html = '';
+  for (var i = 0; i < n; i++) {
+    var b = bids[i] || {}, a = asks[i] || {};
+    html += '<div class="oc-depth-row">' +
+      '<span class="dqb">' + (b.volume != null ? _fmtNum(b.volume) + ' (' + (b.ord || 0) + ')' : '—') + '</span>' +
+      '<span class="dpb">' + (b.price != null ? _fmtNum(b.price) : '—') + '</span>' +
+      '<span class="dpa">' + (a.price != null ? _fmtNum(a.price) : '—') + '</span>' +
+      '<span class="dqa">' + (a.volume != null ? '(' + (a.ord || 0) + ') ' + _fmtNum(a.volume) : '—') + '</span>' +
+      '</div>';
+  }
+  rowsEl.innerHTML = html;
+
+  var tb = data.total_buy_qty || 0, ts = data.total_sell_qty || 0, tot = tb + ts;
+  var buyPct = tot > 0 ? (tb / tot * 100) : 50;
+  document.getElementById('oc-depth-totalbar-buy').style.width  = buyPct + '%';
+  document.getElementById('oc-depth-totalbar-sell').style.width = (100 - buyPct) + '%';
+  document.getElementById('oc-depth-total-buy').textContent  = _fmtNum(tb) + ' (' + buyPct.toFixed(2) + '%)';
+  document.getElementById('oc-depth-total-sell').textContent = _fmtNum(ts) + ' (' + (100 - buyPct).toFixed(2) + '%)';
+
+  var ltpEl = document.getElementById('oc-depth-ltp');
+  var chgEl = document.getElementById('oc-depth-chg');
+  if (ltpEl) ltpEl.textContent = _fmtNum(data.ltp);
+  if (chgEl) {
+    var up = (data.ch || 0) >= 0;
+    chgEl.textContent = (up ? '+' : '') + _fmtNum(data.ch) + ' (' + (up ? '+' : '') + (data.chp != null ? Number(data.chp).toFixed(2) : '0.00') + '%)';
+    chgEl.className = up ? 'pos' : 'neg';
+  }
+
+  document.getElementById('oc-depth-open').textContent       = _fmtNum(data.open);
+  document.getElementById('oc-depth-high').textContent       = _fmtNum(data.high);
+  document.getElementById('oc-depth-low').textContent        = _fmtNum(data.low);
+  document.getElementById('oc-depth-prevclose').textContent  = _fmtNum(data.prev_close);
+  document.getElementById('oc-depth-atp').textContent        = _fmtNum(data.atp);
+  document.getElementById('oc-depth-upperckt').textContent   = _fmtNum(data.upper_ckt);
+  document.getElementById('oc-depth-lowerckt').textContent   = _fmtNum(data.lower_ckt);
+  document.getElementById('oc-depth-volume').textContent     = _fmtNum(data.volume);
+  document.getElementById('oc-depth-ltq').textContent        = _fmtNum(data.ltq);
+
+  var updEl = document.getElementById('oc-depth-updated');
+  if (updEl) updEl.textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN');
+}
 
 // ── Trade bar (Chain tab) ────────────────────────────────────────────────
 var _ocTradeQtyLots = 1;
@@ -20420,6 +20644,34 @@ function _ocTradeQtyStep(delta) {
   var peEl = document.getElementById('oc-trade-qty-pe');
   if (ceEl) ceEl.textContent = _ocTradeQtyLots;
   if (peEl) peEl.textContent = _ocTradeQtyLots;
+  _ocUpdateTradeTotal();
+}
+// ── Total premium preview — selected strike ke CE aur PE dono ka "1 lot ke
+// kitne rupaye lagenge" (current qty × lotSize × price), strike label ke
+// neeche dikhta hai. Market order mein LTP use hota hai; Limit order mein
+// (agar limit price bhara ho) wahi price use hota hai — taaki exact pata
+// chale ki confirm karne par kitna balance/margin lagega. ─────────────────
+function _ocUpdateTradeTotal() {
+  var totalEl = document.getElementById('oc-trade-total');
+  if (!totalEl) return;
+  var strike = _ocSelectedStrike;
+  if (strike == null) { totalEl.textContent = '—'; return; }
+  var ceLtp = _ocLtpFor(strike, 'CE');
+  var peLtp = _ocLtpFor(strike, 'PE');
+  var usingLimit = false;
+  if (_ocOrderType === 'limit') {
+    var limEl = document.getElementById('oc-trade-limit-price');
+    var limVal = limEl ? parseFloat(limEl.value) : NaN;
+    if (!isNaN(limVal) && limVal > 0) { ceLtp = limVal; peLtp = limVal; usingLimit = true; }
+  }
+  var qty = _ocTradeQtyLots * SV1OC.lotSize;
+  var ceTotal = (ceLtp != null) ? ceLtp * qty : null;
+  var peTotal = (peLtp != null) ? peLtp * qty : null;
+  var label = usingLimit ? 'Total @ Limit' : 'Total';
+  totalEl.innerHTML = label + ' (' + _ocTradeQtyLots + ' lot = ' + qty + ' qty): ' +
+    '<span class="oc-total-ce">CE ' + (ceTotal != null ? _ocFmtMoney(ceTotal) : '—') + '</span>' +
+    ' · ' +
+    '<span class="oc-total-pe">PE ' + (peTotal != null ? _ocFmtMoney(peTotal) : '—') + '</span>';
 }
 function _ocSetOrderType(t) {
   _ocOrderType = t;
@@ -20429,6 +20681,7 @@ function _ocSetOrderType(t) {
   if (mBtn) mBtn.classList.toggle('active', t === 'market');
   if (lBtn) lBtn.classList.toggle('active', t === 'limit');
   if (lRow) lRow.classList.toggle('show', t === 'limit');
+  _ocUpdateTradeTotal();
 }
 // ── SL type toggle — SL-M (trigger hote hi turant LTP par exit, jaisa pehle
 // SV1 hamesha karta tha) vs SL-L (trigger ke baad sirf SL-Limit price ya
@@ -20472,11 +20725,13 @@ function _ocShowTradeBar(strike, keepQty) {
   }
   if (!keepQty) _ocTradeQtyStep(0);
   _ocSetSLType('SLM'); // naya trade khulne par SL type reset (jaisa SV2 karta hai)
+  _ocUpdateTradeTotal();
   bar.classList.add('show');
 }
 function _ocHideTradeBar() {
   var bar = document.getElementById('oc-trade-bar');
   if (bar) bar.classList.remove('show');
+  if (typeof _ocCloseDepth === 'function') _ocCloseDepth();
 }
 // Read optional SL/TP/Trail/SL-type values from the trade bar inputs (blank = none).
 function _ocReadRiskInputs() {
@@ -21294,6 +21549,12 @@ function _ocEditPositionNote(id) {
 }
 
 // ── History tab render ───────────────────────────────────────────────────
+// Friendly labels for history "reason" field — adapted from SV2's SV2OC_REASON_LABEL.
+var OC_REASON_LABEL = {
+  manual: 'Manual', expiry: 'Expiry', TP: 'Target', SL: 'SL', 'Trail-SL': 'Trailing SL',
+  'Trail-SL(L)': 'Trailing SL (Limit)', 'SL-Limit': 'SL-Limit', partial: 'Partial Exit',
+  exitall: 'Exit All', auto_eod: 'Auto Square-Off (EOD)', rollover: 'Rollover'
+};
 function _ocRenderHistory() {
   var list = document.getElementById('oc-hist-list');
   if (!list) return;
@@ -21317,13 +21578,14 @@ function _ocRenderHistory() {
          ' · GST ' + SV1OC.cur + c.gst.toFixed(1) +
          ' = ' + SV1OC.cur + c.total.toFixed(0) + ' total')
       : ('Charges ' + SV1OC.cur + chargesTotal.toFixed(0));
+    var reasonLbl = OC_REASON_LABEL[h.reason] || h.reason || 'Manual';
     html += '<div class="oc-hist-row">'
       + '<div class="oc-hist-top">'
       +   '<span class="oc-hist-name">' + h.type + ' ' + _fmtNum(h.strike) + ' · ' + h.side.toUpperCase() + '</span>'
       +   '<span class="' + pnlCls + '" style="font-weight:700">' + (h.netPnl >= 0 ? '+' : '') + _ocFmtMoney(h.netPnl) + '</span>'
       + '</div>'
       + '<div class="oc-hist-meta">' + h.qtyLots + ' lot(s) · Entry ' + _fmtNum(h.entryPrice) + ' → Exit ' + _fmtNum(h.exitPrice)
-      +   ' · ' + (h.reason || 'manual') + ' · ' + new Date(h.exitTime).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) + '</div>'
+      +   ' · ' + reasonLbl + (h.partial ? (' (' + h.remainingLots + ' lot abhi bhi open)') : '') + ' · ' + new Date(h.exitTime).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) + '</div>'
       +   '<div class="oc-hist-charges">' + chargesLine + '</div>'
       + '</div>';
   });
