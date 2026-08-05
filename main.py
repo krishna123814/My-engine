@@ -282,7 +282,7 @@ def refresh_fyers_meta_cache() -> dict:
 OC_FILE   = "fyers_optionchain.json"
 _OC_CACHE = {"data": None, "ts": 0.0}
 _OC_LOCK  = threading.Lock()
-_OC_TTL   = 5  # seconds — real-broker jaisa near-live feel, phir bhi rate-limit safe
+_OC_TTL   = 2  # seconds — real-broker jaisa near-live feel, phir bhi rate-limit safe
 _OC_DEBUG = {"last_error": "", "last_status": None, "last_url": "", "ts": 0.0}
 
 BN_OC_SYMBOL = "NSE:NIFTYBANK-INDEX"
@@ -2304,7 +2304,7 @@ if sess_active or _btc_only:
 
     # ── Option Chain → postMessage pusher ───────────────────────────────────
     if sess_active:
-        @st.fragment(run_every=5)
+        @st.fragment(run_every=2)
         def _option_chain_pusher():
             oc = refresh_option_chain_cache()
             if not oc:
