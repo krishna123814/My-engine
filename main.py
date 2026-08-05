@@ -373,6 +373,12 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
 
     expiries = d.get("expiryData", [])
     selected_expiry_label = expiries[0].get("date") if expiries else ""
+    # Fyers "expiry" field on the expiryData item is epoch seconds (string) —
+    # frontend Rollover/Greeks features need this to compute time-to-expiry.
+    try:
+        selected_expiry_epoch = int(expiries[0].get("expiry")) if expiries and expiries[0].get("expiry") else None
+    except (TypeError, ValueError):
+        selected_expiry_epoch = None
 
     return {
         "spot": spot,
@@ -382,14 +388,49 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
         "put_oi": d.get("putOi", 0),
         "expiries": expiries,
         "expiry_label": selected_expiry_label,
+        "expiry_epoch": selected_expiry_epoch,
         "ts": time.time(),
     }
+
+# ─── Next-month expiry chain — apna alag TTL cache (SV1's "This Month /
+# Next Month" toggle ke liye). Current-month jitni baar refresh karne ki
+# zaroorat nahi (next month kam frequently move karta hai) — isliye lamba
+# TTL rakha taaki Fyers rate-limit par extra load na pade. ────────────────
+_OC_NEXT_CACHE = {"data": None, "ts": 0.0}
+_OC_NEXT_LOCK  = threading.Lock()
+_OC_NEXT_TTL   = 30  # seconds
+
+def _oc_next_month_chain(app_id: str, access_token: str, expiries: list) -> "dict | None":
+    """Current chain ke 'expiries' list se agla (2nd) monthly expiry dhoondh
+    kar uska poora CE/PE chain fetch karta hai. Fyers isi endpoint ko
+    'timestamp' param (us expiry ka epoch) ke saath dobara call karke deta
+    hai — koi alag endpoint nahi hai."""
+    now = time.time()
+    with _OC_NEXT_LOCK:
+        stale = (now - _OC_NEXT_CACHE["ts"]) >= _OC_NEXT_TTL
+        cached = _OC_NEXT_CACHE["data"]
+    if not stale:
+        return cached
+    result = None
+    if expiries and len(expiries) > 1:
+        try:
+            next_epoch = int(expiries[1].get("expiry"))
+        except (TypeError, ValueError):
+            next_epoch = None
+        if next_epoch:
+            result = fyers_get_option_chain(app_id, access_token, timestamp=str(next_epoch))
+    with _OC_NEXT_LOCK:
+        _OC_NEXT_CACHE.update({"data": result, "ts": now})
+    return result
+
 
 def refresh_option_chain_cache() -> dict:
     """TTL ke andar cache use karta hai, warna Fyers se dobara fetch karta hai,
     aur fyers_optionchain.json mein likh deta hai (chart iframe poll fallback ke liye).
     Failure hone par bhi ek 'error' field ke saath JSON likhta hai — silently
-    hang nahi hota."""
+    hang nahi hota. Saath mein 'next' key mein next-month expiry ka chain bhi
+    bundle karta hai taaki frontend This-Month/Next-Month switch client-side
+    hi kar sake, koi extra request ki zaroorat nahi."""
     now = time.time()
     with _OC_LOCK:
         stale = (now - _OC_CACHE["ts"]) >= _OC_TTL
@@ -402,7 +443,10 @@ def refresh_option_chain_cache() -> dict:
             if data:
                 with _OC_LOCK:
                     _OC_CACHE.update({"data": data, "ts": now})
-                payload = data
+                payload = dict(data)
+                payload["next"] = _oc_next_month_chain(
+                    creds["app_id"], creds["access_token"], data.get("expiries") or []
+                )
             else:
                 payload = {
                     "error": f"Fyers Option Chain API fail ho gayi — {_OC_DEBUG.get('last_error','unknown error')} "
@@ -417,7 +461,15 @@ def refresh_option_chain_cache() -> dict:
 
     with _OC_LOCK:
         cached = _OC_CACHE["data"]
-    return cached or {"error": "Cache khaali hai"}
+    if not cached:
+        return {"error": "Cache khaali hai"}
+    result = dict(cached)
+    creds = load_creds()
+    if creds.get("access_token") and creds.get("app_id"):
+        result["next"] = _oc_next_month_chain(creds["app_id"], creds["access_token"], cached.get("expiries") or [])
+    else:
+        result["next"] = None
+    return result
 
 
 def _write_login_log(payload: dict, status_code: int, response: dict):

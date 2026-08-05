@@ -2936,6 +2936,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .sv2-pnl-topleft-row.pos{color:#26a69a}
 .sv2-pnl-topleft-row.neg{color:#ef5350}
+
+/* ── SV1 Real Option Chain — top-left P&L badge, seedha #main-chart par
+   (single-chart workspace hai, koi stack cells nahi, isliye ek hi badge
+   bas — koi cell-tag routing ki zaroorat nahi). Same visual language
+   jaisa SV2 wala (transparent bg, sirf text + shadow). ──────────────── */
+.sv1-pnl-topleft{
+  position:absolute;top:4px;left:4px;z-index:11;pointer-events:none;
+  background:transparent;
+}
+.sv1-pnl-topleft-row{
+  font-size:12px;font-weight:800;line-height:1.5;white-space:nowrap;
+  text-shadow:0 1px 1px rgba(0,0,0,.9);
+  -webkit-font-smoothing:antialiased;
+}
+.sv1-pnl-topleft-row.pos{color:#26a69a}
+.sv1-pnl-topleft-row.neg{color:#ef5350}
 .grid-cell.cell-fs{
   position:fixed!important;inset:0!important;z-index:600!important;
   width:100vw!important;height:100vh!important;outline:none!important;
@@ -3405,6 +3421,13 @@ select.s-select, input.s-select{
 }
 #oc-hdr-title{font-size:13px;font-weight:700;color:#d1d4dc;flex:1}
 #oc-close{background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;line-height:1}
+#oc-greeks-btn,#oc-sound-btn,#oc-pnl-btn{
+  background:none;border:1px solid #2a2e39;color:#9598a1;font-size:12px;cursor:pointer;
+  padding:3px 7px;border-radius:5px;line-height:1;margin-right:6px;
+}
+#oc-greeks-btn.on{border-color:#2962ff;color:#2962ff;background:#2962ff18}
+#oc-sound-btn.off{opacity:.5}
+#oc-pnl-btn.on{border-color:#2962ff;color:#2962ff;background:#2962ff18}
 #oc-close:active{color:#ef5350}
 #oc-sub{
   display:flex;justify-content:space-between;padding:6px 12px;
@@ -3422,6 +3445,51 @@ select.s-select, input.s-select{
 }
 #oc-legend span{flex:1;text-align:center}
 .oc-legend-strike{flex:1.4!important}
+#oc-expiry-mode-row{display:flex;gap:6px;padding:8px 12px 0}
+.oc-expiry-mode-btn{flex:1;height:28px;border-radius:7px;border:1px solid #2a2e39;background:#1e222d;color:#787b86;font-size:10.5px;font-weight:700;cursor:pointer}
+.oc-expiry-mode-btn.active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+#oc-toggle-rows{padding:8px 12px 0}
+.oc-toggle-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#787b86;padding:0 2px 8px}
+.oc-toggle-btn{width:38px;height:22px;border-radius:11px;border:none;cursor:pointer;background:#2a2e39;position:relative}
+.oc-toggle-btn::after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#787b86;transition:left .15s,background .15s}
+.oc-toggle-btn.on{background:#2962ff55}
+.oc-toggle-btn.on::after{left:18px;background:#2962ff}
+#oc-watchlist-toggle-btn.on{background:#f0b90b55}
+#oc-watchlist-toggle-btn.on::after{background:#f0b90b}
+.oc-star-cell{flex:0 0 18px;text-align:center;color:#5b606e;cursor:pointer;font-size:12px}
+.oc-star-cell.on{color:#f0b90b}
+.oc-depth-sub{display:block;font-size:8.5px;font-weight:600;color:#9598a1;margin-top:2px;line-height:1.5}
+.oc-depth-sub .oc-up{color:#26a69a}
+.oc-depth-sub .oc-dn{color:#ef5350}
+#oc-watchlist-empty{font-size:11px;color:#5b606e;text-align:center;padding:24px 0;line-height:1.6}
+
+/* ── Analytics tab (equity curve / win-rate / best-worst) ─────────────── */
+#oc-tab-analytics{overflow-y:auto;padding:12px 12px 20px}
+#oc-an-empty{font-size:12px;color:#5b606e;text-align:center;padding:30px 0}
+#oc-an-scope-row{display:flex;gap:6px;padding:0 0 10px}
+.oc-an-scope-btn{flex:1;height:28px;border-radius:7px;border:1px solid #2a2e39;background:#1e222d;color:#787b86;font-size:10.5px;font-weight:700;cursor:pointer}
+.oc-an-scope-btn.active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+#oc-an-stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.oc-an-stat-cell{border:1px solid #2a2e39;border-radius:9px;padding:9px 10px;background:#1e222d}
+.oc-an-stat-lbl{font-size:9px;color:#787b86;font-weight:600}
+.oc-an-stat-val{font-size:15px;color:#d1d4dc;font-weight:700;margin-top:3px}
+.oc-an-stat-val.pos{color:#26a69a}
+.oc-an-stat-val.neg{color:#ef5350}
+.oc-an-stat-sub{font-size:9px;color:#5b606e;margin-top:2px}
+#oc-an-equity-wrap{border:1px solid #2a2e39;border-radius:10px;padding:10px 10px 6px;margin-bottom:12px;background:#1a1d27}
+#oc-an-equity-title{font-size:11px;font-weight:700;color:#d1d4dc;margin-bottom:6px;display:flex;justify-content:space-between}
+#oc-an-equity-title span:last-child{font-weight:700}
+#oc-an-equity-canvas{width:100%;height:120px;display:block}
+#oc-an-equity-empty{font-size:10.5px;color:#5b606e;text-align:center;padding:20px 0}
+#oc-an-bw-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.oc-an-bw-card{border:1px solid #2a2e39;border-radius:9px;padding:9px 10px;background:#1e222d}
+.oc-an-bw-card.best{border-color:#26a69a55}
+.oc-an-bw-card.worst{border-color:#ef535055}
+.oc-an-bw-lbl{font-size:9px;color:#787b86;font-weight:600}
+.oc-an-bw-pnl{font-size:14px;font-weight:700;margin-top:3px}
+.oc-an-bw-pnl.pos{color:#26a69a}
+.oc-an-bw-pnl.neg{color:#ef5350}
+.oc-an-bw-meta{font-size:9.5px;color:#787b86;margin-top:3px;line-height:1.4}
 #oc-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #oc-loading{padding:24px;text-align:center;color:#666;font-size:12px}
 .oc-row{display:flex;align-items:center;padding:5px 8px;border-bottom:1px solid #242832;font-size:11px}
@@ -3448,6 +3516,191 @@ select.s-select, input.s-select{
 #oc-balance-value{font-size:22px;font-weight:700;color:#d1d4dc}
 #oc-balance-strike-row{display:flex;justify-content:space-between;margin-top:14px;padding-top:14px;border-top:1px solid #2a2e39;font-size:11px;color:#9598a1}
 #oc-balance-updated{padding:0 12px;font-size:10px;color:#555}
+
+/* ── SV1 Virtual Trading (buy/sell on live Fyers option chain) ─────────── */
+#oc-real-btn.has-pos{border-color:#f0b90b}
+#oc-real-btn-badge{
+  display:none;margin-left:4px;font-size:9px;font-weight:700;
+  padding:1px 4px;border-radius:8px;
+}
+#oc-real-btn-badge.show{display:inline-block}
+#oc-real-btn-badge.pos{background:#26a69a22;color:#26a69a}
+#oc-real-btn-badge.neg{background:#ef535022;color:#ef5350}
+
+/* Trade action bar — appears at bottom of Chain tab jab ek strike select ho */
+#oc-trade-bar{
+  display:none;flex-direction:column;gap:6px;padding:10px 12px;
+  border-top:1px solid #2a2e39;background:#181b23;flex-shrink:0;
+}
+#oc-trade-bar.show{display:flex}
+#oc-trade-bar-strike{font-size:12px;font-weight:700;color:#d1d4dc;text-align:center;margin-bottom:2px}
+.oc-trade-row{display:flex;align-items:center;gap:8px}
+.oc-trade-side-label{width:34px;font-size:10px;font-weight:700;color:#9598a1;text-align:center}
+.oc-trade-qty-wrap{display:flex;align-items:center;gap:4px;background:#131722;border:1px solid #2a2e39;border-radius:6px;padding:2px 4px}
+.oc-trade-qty-btn{width:22px;height:22px;border:none;background:#2a2e39;color:#d1d4dc;border-radius:4px;font-size:13px;cursor:pointer;line-height:1}
+.oc-trade-qty-val{width:26px;text-align:center;font-size:12px;color:#d1d4dc;font-weight:700}
+.oc-trade-buy-btn,.oc-trade-sell-btn{
+  flex:1;height:30px;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;color:#fff;
+}
+.oc-trade-buy-btn{background:#26a69a}
+.oc-trade-buy-btn:active{background:#1e8e82}
+.oc-trade-sell-btn{background:#ef5350}
+.oc-trade-sell-btn:active{background:#d84a46}
+#oc-trade-margin-note{font-size:9.5px;color:#787b86;text-align:center;margin-top:2px}
+.oc-otype-row{display:flex;gap:6px;align-items:center}
+.oc-otype-btn{
+  flex:1;height:26px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
+  color:#787b86;font-size:10.5px;font-weight:700;cursor:pointer;
+}
+.oc-otype-btn.active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+#oc-trade-limit-row{display:none;gap:6px}
+#oc-trade-limit-row.show{display:flex}
+.oc-trade-mini-inp{
+  flex:1;height:26px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
+  color:#d1d4dc;font-size:11px;padding:0 6px;min-width:0;
+}
+.oc-trade-mini-label{font-size:9.5px;color:#787b86;white-space:nowrap}
+#oc-trade-risk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+/* ── SL type (SL-Market vs SL-Limit) — adapted from SV2's #sv2-oc-sltype-row.
+   Always visible like SV2 (SL type sirf tab matter karta hai jab SL bhara ho,
+   lekin toggle hamesha dikhta hai taaki trade se pehle set kiya ja sake). ── */
+#oc-sltype-row{display:flex;gap:6px;align-items:center;margin-top:2px}
+.oc-sltype-label{font-size:9.5px;color:#787b86;white-space:nowrap}
+.oc-otype-btn.small{flex:none;height:22px;padding:0 8px;font-size:9.5px}
+#oc-trade-sllimit-row{display:none;gap:6px;margin-top:2px}
+#oc-trade-sllimit-row.show{display:flex}
+
+/* Virtual balance card (Balance tab) */
+#oc-vbal-card{margin:0 12px 16px;padding:16px;background:#181b23;border:1px solid #2a2e39;border-radius:10px}
+#oc-vbal-label{font-size:11px;color:#787b86;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+#oc-vbal-value{font-size:22px;font-weight:700;color:#d1d4dc}
+#oc-vbal-sub{font-size:10.5px;color:#787b86;margin-top:4px}
+#oc-vbal-sub .oc-margin-amt{color:#ff9800;font-weight:700}
+#oc-vbal-actions{display:flex;gap:8px;margin-top:12px}
+.oc-vbal-btn{
+  flex:1;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
+  color:#9598a1;font-size:10.5px;font-weight:700;cursor:pointer;
+}
+.oc-vbal-btn:active{background:#2a2e39}
+#oc-vbal-edit-row{display:none;gap:6px;margin-top:10px}
+#oc-vbal-edit-row.open{display:flex}
+#oc-vbal-input{flex:1;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;color:#d1d4dc;font-size:12px;padding:0 8px}
+#oc-vbal-save{width:50px;height:28px;border:none;border-radius:6px;background:#2962ff;color:#fff;font-size:10.5px;font-weight:700;cursor:pointer}
+#oc-vbal-cancel{width:32px;height:28px;border:none;border-radius:6px;background:#2a2e39;color:#9598a1;cursor:pointer}
+#oc-vbal-margin-banner{
+  display:none;margin:0 12px 12px;padding:8px 10px;border-radius:8px;
+  background:#ef535022;border:1px solid #ef5350;color:#ff8a80;font-size:10.5px;font-weight:700;text-align:center;
+}
+#oc-vbal-margin-banner.show{display:block}
+#oc-vbal-margin-banner.warn{background:#f0b90b22;border:1px solid #f0b90b;color:#f0b90b}
+#oc-vbal-margin-banner.danger{background:#ef535022;border:1px solid #ef5350;color:#ff8a80}
+
+/* ── Margin call banner — top of panel, visible across ALL tabs (Chain,
+   Positions, Balance...), not just Balance tab. Adapted from SV2's
+   #sv2-oc-margincall-banner. "warn" = equity within 20% buffer above
+   blocked margin; "danger" = equity already below blocked margin. ────── */
+#oc-margincall-banner{
+  margin:0 12px 8px; border-radius:9px; padding:9px 12px;
+  font-size:11px; font-weight:700; line-height:1.5;
+}
+#oc-margincall-banner.warn{ background:#f0b90b1c; border:1px solid #f0b90b; color:#f0b90b; }
+#oc-margincall-banner.danger{
+  background:#ef535022; border:1px solid #ef5350; color:#ef5350;
+  animation:ocMarginPulse 1.4s ease-in-out infinite;
+}
+@keyframes ocMarginPulse{ 0%,100%{ opacity:1; } 50%{ opacity:.62; } }
+
+/* ── EOD Auto Square-Off warning banner (Positions tab, live BankNifty) ── */
+#oc-eod-banner{
+  display:none;margin:8px 12px;padding:8px 10px;border-radius:8px;
+  background:#ef535022;border:1px solid #ef5350;color:#ff8a80;font-size:10.5px;font-weight:700;text-align:center;
+}
+#oc-eod-banner.show{display:block}
+
+/* ── Rollover reminder banner (Positions tab, live BankNifty) ── */
+#oc-rollover-banner{
+  display:none;margin:8px 12px;padding:8px 10px;border-radius:8px;
+  background:#f0b90b22;border:1px solid #f0b90b;color:#f0b90b;font-size:10.5px;font-weight:700;text-align:center;
+}
+#oc-rollover-banner.show{display:block}
+#oc-rollall-btn{
+  margin-left:6px;border:1px solid #f0b90b;background:#f0b90b18;color:#f0b90b;font-size:10px;font-weight:700;
+  padding:3px 9px;border-radius:5px;cursor:pointer;
+}
+
+/* ── Greeks row inside the trade bar (Chain tab) ── */
+#oc-trade-greeks-row{
+  display:none;justify-content:space-between;gap:8px;margin:2px 0 4px;
+  font-size:9.5px;color:#9598a1;font-weight:600;
+}
+.oc-greeks-ce{color:#26a69a}
+.oc-greeks-pe{color:#ef5350}
+
+/* ── Rolled-position note under a position row ── */
+.oc-pos-note{font-size:9.5px;color:#787b86;margin-top:3px;font-style:italic;line-height:1.3}
+
+/* ── Risk & Margin panel (Positions tab) — Margin Used / Max Profit /
+   Max Loss for the current open position-set, adapted from SV2's
+   #sv2-oc-risk-panel. ─────────────────────────────────────────────── */
+#oc-risk-panel{
+  border:1px solid #2a2e39; border-radius:10px; padding:10px 12px; margin:0 12px 10px;
+  background:#1a1d27;
+}
+#oc-risk-title{ font-size:11.5px; font-weight:700; color:#d1d4dc; margin-bottom:8px; }
+#oc-risk-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px 10px; }
+.oc-risk-cell{ display:flex; flex-direction:column; gap:2px; }
+.oc-risk-lbl{ font-size:9.5px; color:#787b86; }
+.oc-risk-val{ font-size:13px; font-weight:700; color:#d1d4dc; }
+.oc-risk-val.pos{ color:#26a69a; }
+.oc-risk-val.neg{ color:#ef5350; }
+#oc-risk-note{ font-size:9px; color:#5b606e; margin-top:8px; line-height:1.4; white-space:pre-line; }
+
+/* ── Positions toolbar (Exit All) ── */
+#oc-pos-toolbar{display:none;padding:8px 12px;text-align:right}
+#oc-pos-toolbar.show{display:block}
+#oc-exitall-btn{
+  border:1px solid #ef5350;background:#ef535015;color:#ef5350;font-size:10.5px;font-weight:700;
+  padding:6px 12px;border-radius:6px;cursor:pointer;
+}
+#oc-exitall-btn:active{background:#ef535030}
+
+/* ── Per-position action buttons row (Square Off / Partial / SL-TP / Trail) ── */
+.oc-pos-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+.oc-pos-actions button{
+  flex:1;min-width:64px;border:1px solid #2a2e39;background:#131722;color:#9598a1;
+  font-size:9.5px;font-weight:700;padding:5px 4px;border-radius:5px;cursor:pointer;
+}
+.oc-pos-actions button:active{background:#2a2e39}
+.oc-pos-actions .oc-pos-close-btn{border-color:#ef5350;color:#ef5350;background:#ef535012}
+
+/* Positions tab */
+.oc-pos-row{padding:10px 12px;border-bottom:1px solid #242832;font-size:11px}
+.oc-pos-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.oc-pos-name{font-weight:700;color:#d1d4dc}
+.oc-pos-side-tag{font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;margin-left:6px}
+.oc-pos-side-tag.buy{background:#26a69a22;color:#26a69a}
+.oc-pos-side-tag.sell{background:#ef535022;color:#ef5350}
+.oc-pos-meta{color:#787b86;font-size:10px}
+.oc-pos-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.oc-pos-pnl{font-weight:700}
+.oc-pos-close-btn{
+  border:1px solid #2a2e39;background:#181b23;color:#9598a1;font-size:10px;font-weight:700;
+  padding:4px 10px;border-radius:6px;cursor:pointer;
+}
+.oc-pos-close-btn:active{background:#2a2e39}
+
+/* History tab */
+.oc-hist-row{padding:9px 12px;border-bottom:1px solid #242832;font-size:10.5px}
+.oc-hist-top{display:flex;justify-content:space-between}
+.oc-hist-name{font-weight:700;color:#d1d4dc}
+.oc-hist-meta{color:#787b86;font-size:9.5px;margin-top:2px}
+.oc-hist-charges{color:#5b606e;font-size:9px;margin-top:2px;line-height:1.4}
+.oc-pos-section-hdr{padding:8px 12px 4px;font-size:10px;font-weight:700;color:#787b86;letter-spacing:.04em;text-transform:uppercase}
+.oc-pend-cancel-btn{
+  border:1px solid #2a2e39;background:#181b23;color:#ef5350;font-size:10px;font-weight:700;
+  padding:4px 10px;border-radius:6px;cursor:pointer;
+}
+.oc-pend-cancel-btn:active{background:#2a2e39}
 #fyers-meta-panel{
   display:none;position:fixed;z-index:10002;
   bottom:34px;left:8px;
@@ -4087,7 +4340,7 @@ function _hdrRelayout(){
 <div id="bottom-bar">
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
   <button id="fyers-meta-btn" onclick="toggleFyersMeta()" title="Fyers Balance + Nearest Strike">💰 Balance</button>
-  <button id="oc-real-btn" onclick="toggleOptionChain()" title="Real Option Chain (Fyers Live Data)">⛓ Chain</button>
+  <button id="oc-real-btn" onclick="toggleOptionChain()" title="Real Option Chain (Fyers Live Data) + Virtual Trading">⛓ Chain<span id="oc-real-btn-badge"></span></button>
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
@@ -4120,6 +4373,9 @@ function _hdrRelayout(){
 <div id="oc-panel">
   <div id="oc-hdr">
     <span id="oc-hdr-title">⛓ Option Chain — BANKNIFTY</span>
+    <button id="oc-pnl-btn" onclick="_ocPnlOverlayToggle()" title="Position P&amp;L (strike ke saath) chart par Show/Hide karo">P&amp;L</button>
+    <button id="oc-greeks-btn" onclick="_ocToggleGreeks()" title="Greeks (Delta/IV/Theta/Vega) trade bar mein dikhao">Ⓖ</button>
+    <button id="oc-sound-btn" onclick="_ocToggleSound()" title="Sound alerts on/off">🔊</button>
     <button id="oc-close" onclick="toggleOptionChain()">✕</button>
   </div>
   <div id="oc-sub">
@@ -4127,20 +4383,40 @@ function _hdrRelayout(){
     <span id="oc-expiry">Expiry: —</span>
   </div>
 
+  <!-- ═══ Margin call banner — hamesha visible (Chain/Positions/Balance sab
+       tabs mein), adapted from SV2's #sv2-oc-margincall-banner ═══ -->
+  <div id="oc-margincall-banner" style="display:none"></div>
+
   <div id="oc-tabs">
     <button class="oc-tab-btn active" id="oc-tab-chain-btn" onclick="_ocSelectTab('chain')">Chain</button>
     <button class="oc-tab-btn" id="oc-tab-pos-btn" onclick="_ocSelectTab('positions')">Positions</button>
     <button class="oc-tab-btn" id="oc-tab-bal-btn" onclick="_ocSelectTab('balance')">Balance</button>
     <button class="oc-tab-btn" id="oc-tab-hist-btn" onclick="_ocSelectTab('history')">History</button>
+    <button class="oc-tab-btn" id="oc-tab-an-btn" onclick="_ocSelectTab('analytics')">📈 P&amp;L</button>
   </div>
 
   <div class="oc-tabpanel active" id="oc-tab-chain">
+    <div id="oc-expiry-mode-row">
+      <button class="oc-expiry-mode-btn active" id="oc-expiry-mode-cur" onclick="_ocSetExpiryMode('current')">This Month</button>
+      <button class="oc-expiry-mode-btn" id="oc-expiry-mode-next" onclick="_ocSetExpiryMode('next')">Next Month</button>
+    </div>
+    <div id="oc-toggle-rows">
+      <div class="oc-toggle-row">
+        <span>Show Depth (Bid/Ask · OI · Vol)</span>
+        <button class="oc-toggle-btn" id="oc-depth-toggle-btn" onclick="_ocToggleDepth()"></button>
+      </div>
+      <div class="oc-toggle-row">
+        <span>⭐ Watchlist Only (favourite strikes)</span>
+        <button class="oc-toggle-btn" id="oc-watchlist-toggle-btn" onclick="_ocToggleWatchlistFilter()"></button>
+      </div>
+    </div>
     <div id="oc-col-hdr">
       <span class="oc-col-ce">CALLS (CE)</span>
       <span class="oc-col-strike">STRIKE</span>
       <span class="oc-col-pe">PUTS (PE)</span>
     </div>
     <div id="oc-legend">
+      <span class="oc-star-cell"></span>
       <span>OI</span><span>Chg%</span><span>LTP</span>
       <span class="oc-legend-strike"></span>
       <span>LTP</span><span>Chg%</span><span>OI</span>
@@ -4151,15 +4427,84 @@ function _hdrRelayout(){
     <div id="oc-ftr">
       <span id="oc-updated">—</span>
     </div>
+    <!-- ═══ Virtual Buy/Sell trade bar — strike select karne par khulti hai ═══ -->
+    <div id="oc-trade-bar">
+      <div id="oc-trade-bar-strike">—</div>
+      <div id="oc-trade-greeks-row" style="display:none"></div>
+      <div class="oc-otype-row">
+        <button class="oc-otype-btn active" id="oc-otype-market-btn" onclick="_ocSetOrderType('market')">Market</button>
+        <button class="oc-otype-btn" id="oc-otype-limit-btn" onclick="_ocSetOrderType('limit')">Limit</button>
+      </div>
+      <div id="oc-trade-limit-row">
+        <span class="oc-trade-mini-label">Limit ₹</span>
+        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-limit-price" placeholder="Price">
+      </div>
+      <div id="oc-trade-risk-row">
+        <span class="oc-trade-mini-label">SL ₹</span>
+        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-sl" placeholder="optional">
+        <span class="oc-trade-mini-label">TP ₹</span>
+        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-tp" placeholder="optional">
+        <span class="oc-trade-mini-label">Trail ₹</span>
+        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-trail" placeholder="optional">
+      </div>
+      <!-- ═══ SL type — SL-Market (turant LTP par exit) vs SL-Limit (trigger ke
+           baad sirf limit price ya usse behtar par exit — adapted from SV2's
+           _sv2OCSetSLType) — sirf SL bhara ho tab hi visible hoti hai ═══ -->
+      <div id="oc-sltype-row">
+        <span class="oc-sltype-label">SL type:</span>
+        <button class="oc-otype-btn small active" id="oc-sltype-slm-btn" onclick="_ocSetSLType('SLM')">SL-Market</button>
+        <button class="oc-otype-btn small" id="oc-sltype-sll-btn" onclick="_ocSetSLType('SLL')">SL-Limit</button>
+      </div>
+      <div id="oc-trade-sllimit-row">
+        <span class="oc-trade-mini-label">SL-Limit ₹</span>
+        <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-sllimit" placeholder="fill price">
+      </div>
+      <div class="oc-trade-row">
+        <span class="oc-trade-side-label">CE</span>
+        <div class="oc-trade-qty-wrap">
+          <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(-1)">−</button>
+          <span class="oc-trade-qty-val" id="oc-trade-qty-ce">1</span>
+          <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(1)">+</button>
+        </div>
+        <button class="oc-trade-buy-btn" onclick="_ocConfirmTrade('CE','buy')">Buy CE</button>
+        <button class="oc-trade-sell-btn" onclick="_ocConfirmTrade('CE','sell')">Sell CE</button>
+      </div>
+      <div class="oc-trade-row">
+        <span class="oc-trade-side-label">PE</span>
+        <div class="oc-trade-qty-wrap">
+          <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(-1)">−</button>
+          <span class="oc-trade-qty-val" id="oc-trade-qty-pe">1</span>
+          <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(1)">+</button>
+        </div>
+        <button class="oc-trade-buy-btn" onclick="_ocConfirmTrade('PE','buy')">Buy PE</button>
+        <button class="oc-trade-sell-btn" onclick="_ocConfirmTrade('PE','sell')">Sell PE</button>
+      </div>
+      <div id="oc-trade-margin-note">Virtual money — 1 lot = 30 qty (BANKNIFTY)</div>
+    </div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-positions">
-    <div class="oc-empty-state">📭 Abhi koi open position nahi.<br>Buy/Sell feature aane ke baad yahan live positions dikhenge.</div>
+    <div id="oc-eod-banner"></div>
+    <div id="oc-rollover-banner"></div>
+    <div id="oc-risk-panel" style="display:none">
+      <div id="oc-risk-title">📐 Risk &amp; Margin</div>
+      <div id="oc-risk-grid">
+        <div class="oc-risk-cell"><span class="oc-risk-lbl">Margin Used</span><span class="oc-risk-val" id="oc-risk-margin">--</span></div>
+        <div class="oc-risk-cell"><span class="oc-risk-lbl">Max Profit</span><span class="oc-risk-val pos" id="oc-risk-maxprofit">--</span></div>
+        <div class="oc-risk-cell"><span class="oc-risk-lbl">Max Loss</span><span class="oc-risk-val neg" id="oc-risk-maxloss">--</span></div>
+      </div>
+      <div id="oc-risk-note">⚠️ Approx estimate (expiry payoff, current open positions par based) — asli broker margin/risk isse alag ho sakta hai.</div>
+    </div>
+    <div id="oc-pos-toolbar"><button id="oc-exitall-btn" onclick="_ocExitAllPositions()">⛔ Exit All</button></div>
+    <div id="oc-pending-wrap"></div>
+    <div id="oc-pos-list">
+      <div class="oc-empty-state" id="oc-pos-empty">📭 Abhi koi open position nahi.<br>Chain tab me strike select karke Buy/Sell karo.</div>
+    </div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-balance">
     <div id="oc-balance-card">
-      <div id="oc-balance-label">Fyers Available Balance</div>
+      <div id="oc-balance-label">Fyers Available Balance (Real)</div>
       <div id="oc-balance-value">—</div>
       <div id="oc-balance-strike-row">
         <span>Nearest Strike (BANKNIFTY)</span>
@@ -4167,10 +4512,79 @@ function _hdrRelayout(){
       </div>
     </div>
     <div id="oc-balance-updated">Update ka wait ho raha hai…</div>
+
+    <div id="oc-vbal-margin-banner"></div>
+    <div id="oc-vbal-card">
+      <div id="oc-vbal-label">
+        <span>💰 Virtual Trading Balance</span>
+      </div>
+      <div id="oc-vbal-value">₹25,000</div>
+      <div id="oc-vbal-sub"></div>
+      <div id="oc-vbal-actions">
+        <button class="oc-vbal-btn" onclick="_ocVBalStartEdit()">✏️ Set Amount</button>
+        <button class="oc-vbal-btn" onclick="_ocVBalReset()">↺ Reset to ₹25,000</button>
+      </div>
+      <div id="oc-vbal-edit-row">
+        <input type="number" id="oc-vbal-input" inputmode="decimal" placeholder="Enter amount">
+        <button id="oc-vbal-save" onclick="_ocVBalSaveEdit()">Save</button>
+        <button id="oc-vbal-cancel" onclick="_ocVBalCancelEdit()">✕</button>
+      </div>
+    </div>
   </div>
 
   <div class="oc-tabpanel" id="oc-tab-history">
-    <div class="oc-empty-state">📭 Abhi koi trade history nahi.<br>Buy/Sell feature aane ke baad closed trades yahan dikhenge.</div>
+    <div id="oc-hist-list">
+      <div class="oc-empty-state" id="oc-hist-empty">📭 Abhi koi trade history nahi.<br>Position close karne par yahan dikhega.</div>
+    </div>
+  </div>
+
+  <div class="oc-tabpanel" id="oc-tab-analytics">
+    <div id="oc-an-empty" style="display:none">Abhi koi closed trade nahi — kam-se-kam ek trade square-off hone ke baad P&amp;L analytics yahan dikhega 👆</div>
+    <div id="oc-an-body" style="display:none">
+      <div id="oc-an-scope-row">
+        <button class="oc-an-scope-btn active" id="oc-an-scope-day" onclick="_ocAnSetScope('day')">Latest Day</button>
+        <button class="oc-an-scope-btn" id="oc-an-scope-overall" onclick="_ocAnSetScope('overall')">Overall</button>
+      </div>
+      <div id="oc-an-stats-grid">
+        <div class="oc-an-stat-cell">
+          <div class="oc-an-stat-lbl">Net P&amp;L</div>
+          <div class="oc-an-stat-val" id="oc-an-netpnl">--</div>
+          <div class="oc-an-stat-sub" id="oc-an-netpnl-sub"></div>
+        </div>
+        <div class="oc-an-stat-cell">
+          <div class="oc-an-stat-lbl">Win Rate</div>
+          <div class="oc-an-stat-val" id="oc-an-winrate">--</div>
+          <div class="oc-an-stat-sub" id="oc-an-winrate-sub"></div>
+        </div>
+        <div class="oc-an-stat-cell">
+          <div class="oc-an-stat-lbl">Trades</div>
+          <div class="oc-an-stat-val" id="oc-an-trades">--</div>
+          <div class="oc-an-stat-sub" id="oc-an-trades-sub"></div>
+        </div>
+        <div class="oc-an-stat-cell">
+          <div class="oc-an-stat-lbl">Avg P&amp;L / Trade</div>
+          <div class="oc-an-stat-val" id="oc-an-avgpnl">--</div>
+          <div class="oc-an-stat-sub" id="oc-an-avgpnl-sub"></div>
+        </div>
+      </div>
+      <div id="oc-an-equity-wrap">
+        <div id="oc-an-equity-title"><span>📈 Equity Curve</span><span id="oc-an-equity-final"></span></div>
+        <canvas id="oc-an-equity-canvas"></canvas>
+        <div id="oc-an-equity-empty" style="display:none">Is scope mein equity curve ke liye kaafi trades nahi hain.</div>
+      </div>
+      <div id="oc-an-bw-row">
+        <div class="oc-an-bw-card best">
+          <div class="oc-an-bw-lbl">🏆 Best Trade</div>
+          <div class="oc-an-bw-pnl" id="oc-an-best-pnl">--</div>
+          <div class="oc-an-bw-meta" id="oc-an-best-meta"></div>
+        </div>
+        <div class="oc-an-bw-card worst">
+          <div class="oc-an-bw-lbl">🥶 Worst Trade</div>
+          <div class="oc-an-bw-pnl" id="oc-an-worst-pnl">--</div>
+          <div class="oc-an-bw-meta" id="oc-an-worst-meta"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -19348,25 +19762,42 @@ function toggleOptionChain() {
   const p = document.getElementById('oc-panel');
   if (!p) return;
   p.classList.toggle('open');
-  if (p.classList.contains('open')) { _pollOptionChain(); _ocSyncBalanceTab(); }
+  if (p.classList.contains('open')) {
+    _pollOptionChain(); _ocSyncBalanceTab();
+    var curBtn = document.getElementById('oc-expiry-mode-cur');
+    var nextBtn = document.getElementById('oc-expiry-mode-next');
+    if (curBtn) curBtn.classList.toggle('active', SV1OC.expiryMode === 'current');
+    if (nextBtn) nextBtn.classList.toggle('active', SV1OC.expiryMode === 'next');
+    var depthBtn = document.getElementById('oc-depth-toggle-btn');
+    if (depthBtn) depthBtn.classList.toggle('on', SV1OC.depthOn);
+    var wlBtn = document.getElementById('oc-watchlist-toggle-btn');
+    if (wlBtn) wlBtn.classList.toggle('on', SV1OC.watchlistFilterOn);
+    if (typeof _ocRenderPositions === 'function') _ocRenderPositions();
+    if (typeof _ocRenderHistory === 'function') _ocRenderHistory();
+    if (_ocActiveTab === 'analytics' && typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
+  } else {
+    _ocHideTradeBar();
+  }
 }
 
 // ── Tabs: Chain / Positions / Balance / History (independent from SV2) ────
 let _ocActiveTab = 'chain';
 function _ocSelectTab(tab) {
   _ocActiveTab = tab;
-  ['chain','positions','balance','history'].forEach(t => {
-    const btn = document.getElementById('oc-tab-' + (t==='positions'?'pos':t==='history'?'hist':t) + '-btn');
+  ['chain','positions','balance','history','analytics'].forEach(t => {
+    const btn = document.getElementById('oc-tab-' + (t==='positions'?'pos':t==='history'?'hist':t==='analytics'?'an':t) + '-btn');
     const panel = document.getElementById('oc-tab-' + t);
     if (btn) btn.classList.toggle('active', t === tab);
     if (panel) panel.classList.toggle('active', t === tab);
   });
   if (tab === 'balance') _ocSyncBalanceTab();
+  if (tab === 'positions' && typeof _ocRenderPositions === 'function') _ocRenderPositions();
+  if (tab === 'history' && typeof _ocRenderHistory === 'function') _ocRenderHistory();
+  if (tab === 'analytics' && typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
 }
 
-// ── Tap a strike row to select/highlight it (no order panel — Buy/Sell
-// abhi add nahi hai). Sirf ek row select rehti hai; dobara tap karne se
-// deselect ho jaati hai. ────────────────────────────────────────────────
+// ── Tap a strike row to select/highlight it + open the Buy/Sell trade bar
+// niche. Dobara tap karne se deselect + trade bar band ho jaati hai. ──────
 let _ocSelectedStrike = null;
 function _ocSelectStrike(el, strike) {
   const prev = document.querySelector('.oc-row.oc-selected');
@@ -19374,9 +19805,11 @@ function _ocSelectStrike(el, strike) {
   if (_ocSelectedStrike === strike) {
     el.classList.remove('oc-selected');
     _ocSelectedStrike = null;
+    _ocHideTradeBar();
   } else {
     el.classList.add('oc-selected');
     _ocSelectedStrike = strike;
+    _ocShowTradeBar(strike);
   }
 }
 
@@ -19392,6 +19825,7 @@ function _ocSyncBalanceTab() {
   if (obEl && bEl) obEl.textContent = bEl.textContent;
   if (osEl && sEl) osEl.textContent = sEl.textContent;
   if (ouEl && uEl) ouEl.textContent = uEl.textContent;
+  _ocSyncVBalCard(); // virtual wallet card (alag se, real balance ke niche)
 }
 
 function _fmtNum(n) {
@@ -19407,33 +19841,87 @@ function _applyOptionChain(data) {
     return;
   }
   if (!data.rows) return;
+  // ── Virtual trading engine ke liye latest chain snapshots save karo (live
+  // LTP lookup for open positions' mark-to-market P&L) — CURRENT-month aur
+  // NEXT-month dono, taaki kisi bhi expiry par li gayi position ka LTP sahi
+  // milta rahe, chahe abhi chain view kisi bhi mode mein ho. ──────────────
+  _ocLastChainData = data;
+  _ocLastChainDataNext = data.next || null;
+  _ocRenderChainFromCache();
+
+  // Trade bar khuli ho to uska LTP bhi refresh karo, aur agar Positions tab
+  // active hai to live P&L bhi turant update ho jaaye. Har live tick par
+  // working (limit) orders aur SL/TP/Trailing-SL bhi check ho jaate hain.
+  if (_ocSelectedStrike != null) _ocShowTradeBar(_ocSelectedStrike, true);
+  if (typeof _ocCheckPendingOrders === 'function') _ocCheckPendingOrders();
+  if (typeof _ocUpdateTrailingSL === 'function') _ocUpdateTrailingSL();
+  if (typeof _ocCheckSLTP === 'function') _ocCheckSLTP();
+  if (typeof _ocCheckExpirySettlement === 'function') _ocCheckExpirySettlement();
+  if (typeof _ocUpdateEodSquareOffWarning === 'function') _ocUpdateEodSquareOffWarning();
+  if (typeof _ocUpdateMarginCallBanner === 'function') _ocUpdateMarginCallBanner();
+  _ocRenderPositions();
+  _ocRefreshHeaderBadge();
+}
+
+// ── Renders the Chain tab from whatever is already in memory (current or
+// next month, per SV1OC.expiryMode) — no network call needed, so toggling
+// This-Month/Next-Month or Depth/Watchlist just re-paints instantly. ──────
+function _ocRenderChainFromCache() {
+  const data = _ocActiveChainData();
+  const body = document.getElementById('oc-body');
   const spotEl = document.getElementById('oc-spot');
   const expEl  = document.getElementById('oc-expiry');
   const updEl  = document.getElementById('oc-updated');
+  if (!data) return;
+  if (data.error) {
+    if (body) body.innerHTML = `<div id="oc-loading" style="color:#ef5350;padding:16px;">⚠️ ${data.error}</div>`;
+    return;
+  }
+  if (!data.rows) return;
   if (spotEl) spotEl.textContent = 'Spot: ' + _fmtNum(data.spot);
-  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—');
+  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—') + (SV1OC.expiryMode === 'next' ? ' (Next Month)' : '');
   if (updEl) {
     const t = data.ts ? new Date(data.ts * 1000) : new Date();
     updEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   }
   if (!body) return;
 
+  let rows = data.rows;
+  if (SV1OC.watchlistFilterOn) {
+    rows = rows.filter(row => SV1OC.watchlist.indexOf(row.strike) >= 0);
+  }
+  if (!rows.length) {
+    body.innerHTML = SV1OC.watchlistFilterOn
+      ? '<div id="oc-watchlist-empty">⭐ Watchlist khaali hai — kisi bhi strike ke ☆ par tap karke usse watchlist mein add karo.</div>'
+      : '<div id="oc-loading">Data nahi mila</div>';
+    return;
+  }
+
+  function depthLine(leg) {
+    if (!leg) return '';
+    const oiCls = (leg.oich || 0) >= 0 ? 'oc-up' : 'oc-dn';
+    return `<span class="oc-depth-sub">B/A ${_fmtNum(leg.bid)}/${_fmtNum(leg.ask)}<br>`
+         + `OI <span class="${oiCls}">${_fmtNum(leg.oich)}</span> · Vol ${_fmtNum(leg.volume)}</span>`;
+  }
+
   let html = '';
-  data.rows.forEach(row => {
+  rows.forEach(row => {
     const ce = row.ce || {};
     const pe = row.pe || {};
     const isAtm = data.atm != null && row.strike === data.atm;
     const ceChgCls = (ce.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
     const peChgCls = (pe.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
     const selCls = (_ocSelectedStrike === row.strike) ? ' oc-selected' : '';
+    const isWl = SV1OC.watchlist.indexOf(row.strike) >= 0;
     html += `<div class="oc-row${isAtm ? ' oc-atm' : ''}${selCls}" onclick="_ocSelectStrike(this, ${row.strike})">`
-         +   `<span class="oc-cell">${_fmtNum(ce.oi)}</span>`
+         +   `<span class="oc-star-cell${isWl ? ' on' : ''}" onclick="_ocToggleWatchlist(${row.strike}, event)">${isWl ? '★' : '☆'}</span>`
+         +   `<span class="oc-cell">${_fmtNum(ce.oi)}${SV1OC.depthOn ? depthLine(ce) : ''}</span>`
          +   `<span class="oc-cell ${ceChgCls}">${_fmtNum(ce.chgp)}%</span>`
          +   `<span class="oc-cell">${_fmtNum(ce.ltp)}</span>`
          +   `<span class="oc-cell oc-strike-cell">${_fmtNum(row.strike)}</span>`
          +   `<span class="oc-cell">${_fmtNum(pe.ltp)}</span>`
          +   `<span class="oc-cell ${peChgCls}">${_fmtNum(pe.chgp)}%</span>`
-         +   `<span class="oc-cell">${_fmtNum(pe.oi)}</span>`
+         +   `<span class="oc-cell">${_fmtNum(pe.oi)}${SV1OC.depthOn ? depthLine(pe) : ''}</span>`
          +  `</div>`;
   });
   body.innerHTML = html || '<div id="oc-loading">Data nahi mila</div>';
@@ -19462,6 +19950,1673 @@ function _startOCPolling() {
   }, 6000);
 }
 _startOCPolling();
+
+// ══════════════════════════════════════════════════════════════════════
+// ── SV1 VIRTUAL TRADING ENGINE ──────────────────────────────────────────
+// Real Fyers option chain (SV1, live, no replay) par Buy/Sell — asli order
+// Fyers ko kabhi nahi jaata, sab kuch localStorage me virtual rehta hai.
+// SV2OC (Stack View 2, replay-based) se PURI TARAH ALAG hai — apni alag
+// storage keys (sv1_oc_*), apna alag ₹25,000 wallet, apna alag engine.
+// Data hamesha LIVE hai (real Date.now(), koi replay clock nahi). ────────
+// ══════════════════════════════════════════════════════════════════════
+var _ocLastChainData = null;     // CURRENT-month live chain payload (for LTP lookup, backward-compat)
+var _ocLastChainDataNext = null; // NEXT-month live chain payload (This Month / Next Month toggle)
+
+var SV1OC = {
+  strikeStep: 100,
+  lotSize: 30,                 // BankNifty lot size
+  startingBalance: 25000,      // ₹25,000 virtual starting balance
+  marginPct: 0.12,             // approx SPAN+exposure margin % for SELL (option writing)
+  brokeragePerOrder: 20,       // flat ₹ per executed leg
+  sttRate: 0.001,              // ~0.1% STT on SELL-side premium turnover
+  miscChargeRate: 0.0005,      // exchange + SEBI + stamp + GST bundle (rough)
+  cur: '₹', locale: 'en-IN',
+  balance: 25000,
+  // {id, strike, type:'CE'|'PE', side:'buy'|'sell', qtyLots, entryPrice, entryTime,
+  //  marginBlocked, sl, tp, trailPoints, trailBest}
+  positions: [],
+  // Working (unfilled) LIMIT orders — {id, strike, type, side, qtyLots, limitPrice,
+  //  sl, tp, trailPoints, placedTime}
+  pendingOrders: [],
+  history: [],    // closed trades: {id, strike, type, side, qtyLots, entryPrice, exitPrice, entryTime, exitTime, grossPnl, charges, netPnl, balanceAfter, reason}
+  // ── Chart-overlay: open positions ka live P&L, seedha #main-chart par
+  // (top-left badge) — oc-hdr ke "P&L" icon se show/hide hota hai, state
+  // localStorage mein persist hoti hai. ──────────────────────────────────
+  pnlOverlayOn: (function () {
+    try { return localStorage.getItem('sv1_oc_pnl_overlay_on') === '1'; } catch (_) { return false; }
+  })(),
+  // 'current' (This Month) | 'next' (Next Month) — sirf CHAIN VIEW ke liye,
+  // har position/order apna khud ka expiryEpoch store karta hai isliye
+  // display switch karne se existing positions ka LTP/P&L nahi bigadta.
+  expiryMode: (function () {
+    try { return localStorage.getItem('sv1_oc_expiry_mode_v1') || 'current'; } catch (_) { return 'current'; }
+  })(),
+  depthOn: (function () {
+    try { return localStorage.getItem('sv1_oc_depth_on_v1') === '1'; } catch (_) { return false; }
+  })(),
+  watchlistFilterOn: (function () {
+    try { return localStorage.getItem('sv1_oc_watchlist_filter_v1') === '1'; } catch (_) { return false; }
+  })(),
+  watchlist: (function () {
+    try { var raw = localStorage.getItem('sv1_oc_watchlist_v1'); return raw ? JSON.parse(raw) : []; }
+    catch (_) { return []; }
+  })()
+};
+
+function _ocSK(name) { return 'sv1_oc_' + name + '_v1'; }
+
+// ── Which chain (current/next) is being DISPLAYED right now ───────────────
+function _ocActiveChainData() {
+  return (SV1OC.expiryMode === 'next' && _ocLastChainDataNext && !_ocLastChainDataNext.error)
+    ? _ocLastChainDataNext : _ocLastChainData;
+}
+function _ocSetExpiryMode(mode) {
+  if (mode !== 'current' && mode !== 'next') return;
+  SV1OC.expiryMode = mode;
+  try { localStorage.setItem('sv1_oc_expiry_mode_v1', mode); } catch (_) {}
+  var curBtn = document.getElementById('oc-expiry-mode-cur');
+  var nextBtn = document.getElementById('oc-expiry-mode-next');
+  if (curBtn) curBtn.classList.toggle('active', mode === 'current');
+  if (nextBtn) nextBtn.classList.toggle('active', mode === 'next');
+  // Naye mode mein strike select ho ye zaroori nahi — deselect kar do taaki
+  // trade bar galat expiry ke LTP na dikhaye.
+  var prevSel = document.querySelector('.oc-row.oc-selected');
+  if (prevSel) prevSel.classList.remove('oc-selected');
+  _ocSelectedStrike = null;
+  _ocHideTradeBar();
+  _ocRenderChainFromCache();
+}
+function _ocToggleDepth() {
+  SV1OC.depthOn = !SV1OC.depthOn;
+  try { localStorage.setItem('sv1_oc_depth_on_v1', SV1OC.depthOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('oc-depth-toggle-btn');
+  if (btn) btn.classList.toggle('on', SV1OC.depthOn);
+  _ocRenderChainFromCache();
+}
+function _ocToggleWatchlistFilter() {
+  SV1OC.watchlistFilterOn = !SV1OC.watchlistFilterOn;
+  try { localStorage.setItem('sv1_oc_watchlist_filter_v1', SV1OC.watchlistFilterOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('oc-watchlist-toggle-btn');
+  if (btn) btn.classList.toggle('on', SV1OC.watchlistFilterOn);
+  _ocRenderChainFromCache();
+}
+function _ocSaveWatchlist() { try { localStorage.setItem('sv1_oc_watchlist_v1', JSON.stringify(SV1OC.watchlist)); } catch (_) {} }
+function _ocToggleWatchlist(strike, evt) {
+  if (evt) evt.stopPropagation(); // row-select trigger na ho
+  var i = SV1OC.watchlist.indexOf(strike);
+  if (i >= 0) SV1OC.watchlist.splice(i, 1); else SV1OC.watchlist.push(strike);
+  _ocSaveWatchlist();
+  _ocRenderChainFromCache();
+}
+function _ocLoadBalance() {
+  try {
+    var raw = localStorage.getItem(_ocSK('balance'));
+    SV1OC.balance = (raw != null && raw !== '') ? parseFloat(raw) : SV1OC.startingBalance;
+    if (isNaN(SV1OC.balance)) SV1OC.balance = SV1OC.startingBalance;
+  } catch (_) { SV1OC.balance = SV1OC.startingBalance; }
+}
+function _ocSaveBalance() { try { localStorage.setItem(_ocSK('balance'), String(SV1OC.balance)); } catch (_) {} }
+function _ocLoadPositions() {
+  try { var raw = localStorage.getItem(_ocSK('positions')); SV1OC.positions = raw ? JSON.parse(raw) : []; }
+  catch (_) { SV1OC.positions = []; }
+}
+function _ocSavePositions() { try { localStorage.setItem(_ocSK('positions'), JSON.stringify(SV1OC.positions)); } catch (_) {} }
+function _ocLoadPendingOrders() {
+  try { var raw = localStorage.getItem(_ocSK('pending')); SV1OC.pendingOrders = raw ? JSON.parse(raw) : []; }
+  catch (_) { SV1OC.pendingOrders = []; }
+}
+function _ocSavePendingOrders() { try { localStorage.setItem(_ocSK('pending'), JSON.stringify(SV1OC.pendingOrders)); } catch (_) {} }
+function _ocLoadHistory() {
+  try { var raw = localStorage.getItem(_ocSK('history')); SV1OC.history = raw ? JSON.parse(raw) : []; }
+  catch (_) { SV1OC.history = []; }
+}
+function _ocSaveHistory() { try { localStorage.setItem(_ocSK('history'), JSON.stringify(SV1OC.history)); } catch (_) {} }
+// Boot: load persisted state once at page-load.
+_ocLoadBalance(); _ocLoadPositions(); _ocLoadPendingOrders(); _ocLoadHistory();
+(function () {
+  var b = document.getElementById('oc-pnl-btn');
+  if (b) b.classList.toggle('on', SV1OC.pnlOverlayOn);
+})();
+
+function _ocFmtMoney(v) { return SV1OC.cur + (v || 0).toLocaleString(SV1OC.locale, { maximumFractionDigits: 0 }); }
+
+// ══════════════════════════════════════════════════════════════════════
+// ── SOUND ALERTS — tiny WebAudio beeps, no external files needed. One
+// shared AudioContext (browsers require it to start from a user gesture,
+// so it's created lazily on first beep call). Mute toggle persists. ─────
+// ══════════════════════════════════════════════════════════════════════
+try { SV1OC.soundOn = localStorage.getItem(_ocSK('sound')) !== '0'; } catch (_) { SV1OC.soundOn = true; }
+var _ocAudioCtx = null;
+function _ocGetAudioCtx() {
+  if (!_ocAudioCtx) {
+    try { _ocAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) { return null; }
+  }
+  if (_ocAudioCtx.state === 'suspended') { try { _ocAudioCtx.resume(); } catch (_) {} }
+  return _ocAudioCtx;
+}
+function _ocBeep(freq, durMs, type, gainVal, delayMs) {
+  if (!SV1OC.soundOn) return;
+  var ctx = _ocGetAudioCtx();
+  if (!ctx) return;
+  try {
+    var t0 = ctx.currentTime + ((delayMs || 0) / 1000);
+    var osc = ctx.createOscillator();
+    var gain = ctx.createGain();
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(gainVal != null ? gainVal : 0.09, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + durMs / 1000);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(t0); osc.stop(t0 + durMs / 1000 + 0.02);
+  } catch (_) {}
+}
+function _ocSoundBuyFill()  { _ocBeep(700, 90, 'sine', 0.08); }
+function _ocSoundSellFill() { _ocBeep(500, 90, 'sine', 0.08); }
+function _ocSoundTarget()   { _ocBeep(1046, 110, 'triangle'); _ocBeep(1568, 160, 'triangle', 0.08, 100); }
+function _ocSoundSL()       { _ocBeep(400, 150, 'sawtooth', 0.07); _ocBeep(260, 220, 'sawtooth', 0.07, 130); }
+function _ocSoundDanger()   { _ocBeep(300, 150, 'square', 0.09); _ocBeep(300, 150, 'square', 0.09, 220); }
+function _ocSoundRollover() { _ocBeep(600, 100, 'triangle', 0.07); _ocBeep(800, 100, 'triangle', 0.07, 110); }
+function _ocSoundExpiry() { _ocBeep(523, 100, 'square'); _ocBeep(659, 100, 'square', 0.08, 110); _ocBeep(784, 150, 'square', 0.08, 220); }
+function _ocToggleSound() {
+  SV1OC.soundOn = !SV1OC.soundOn;
+  try { localStorage.setItem(_ocSK('sound'), SV1OC.soundOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('oc-sound-btn');
+  if (btn) { btn.textContent = SV1OC.soundOn ? '🔊' : '🔇'; btn.classList.toggle('off', !SV1OC.soundOn); }
+  if (SV1OC.soundOn) _ocBeep(700, 80, 'sine', 0.06);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ── GREEKS — Black-Scholes, using REAL live LTP to back out Implied
+// Volatility (bisection), then computing Delta/Gamma/Theta/Vega from that
+// IV. Kyunki yahan asli market premium available hai (SV2 replay ki tarah
+// assumed/simulated IV nahi), ye greeks/IV live market ke hisaab se
+// accurate hain. Risk-free rate ek chhota rough constant maan liya hai. ──
+// ══════════════════════════════════════════════════════════════════════
+var OC_RISK_FREE_RATE = 0.065; // ~6.5% rough T-bill proxy
+function _ocNormPdf(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
+function _ocNormCdf(x) {
+  // Abramowitz-Stegun approximation — accurate enough for option greeks.
+  var t = 1 / (1 + 0.2316419 * Math.abs(x));
+  var y = 1 - _ocNormPdf(x) * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return x >= 0 ? y : 1 - y;
+}
+// Returns { price, delta, gamma, theta, vega } — theta is per-DAY (₹ decay/day), vega is per-1%-IV-move.
+function _ocBlackScholes(spot, strike, tYears, r, iv, type) {
+  if (!(spot > 0) || !(strike > 0) || !(tYears > 0) || !(iv > 0)) return null;
+  var sqrtT = Math.sqrt(tYears);
+  var d1 = (Math.log(spot / strike) + (r + 0.5 * iv * iv) * tYears) / (iv * sqrtT);
+  var d2 = d1 - iv * sqrtT;
+  var isCall = (type === 'CE');
+  var Nd1 = _ocNormCdf(isCall ? d1 : -d1);
+  var Nd2 = _ocNormCdf(isCall ? d2 : -d2);
+  var price = isCall
+    ? (spot * _ocNormCdf(d1) - strike * Math.exp(-r * tYears) * _ocNormCdf(d2))
+    : (strike * Math.exp(-r * tYears) * _ocNormCdf(-d2) - spot * _ocNormCdf(-d1));
+  var delta = isCall ? _ocNormCdf(d1) : (_ocNormCdf(d1) - 1);
+  var gamma = _ocNormPdf(d1) / (spot * iv * sqrtT);
+  var vega = spot * _ocNormPdf(d1) * sqrtT / 100; // per 1% IV move
+  var theta = (isCall
+    ? (-(spot * _ocNormPdf(d1) * iv) / (2 * sqrtT) - r * strike * Math.exp(-r * tYears) * _ocNormCdf(d2))
+    : (-(spot * _ocNormPdf(d1) * iv) / (2 * sqrtT) + r * strike * Math.exp(-r * tYears) * _ocNormCdf(-d2))) / 365;
+  return { price: price, delta: delta, gamma: gamma, theta: theta, vega: vega };
+}
+// Bisection search for the IV that reproduces the observed live market price.
+function _ocImpliedVol(marketPrice, spot, strike, tYears, r, type) {
+  if (!(marketPrice > 0) || !(spot > 0) || !(strike > 0) || !(tYears > 0)) return null;
+  var lo = 0.01, hi = 3.0;
+  for (var i = 0; i < 60; i++) {
+    var mid = (lo + hi) / 2;
+    var bs = _ocBlackScholes(spot, strike, tYears, r, mid, type);
+    if (!bs) return null;
+    if (bs.price > marketPrice) hi = mid; else lo = mid;
+  }
+  return (lo + hi) / 2;
+}
+// Epoch (seconds) of the currently-displayed expiry, from the live Fyers chain payload.
+function _ocExpiryEpoch() {
+  var d = _ocActiveChainData();
+  if (!d) return null;
+  if (d.expiry_epoch) return Number(d.expiry_epoch);
+  return null; // expiry_epoch backend field na mile to greeks/rollover-timing silently skip ho jaate hain
+}
+function _ocTimeToExpiryYears() {
+  var exp = _ocExpiryEpoch();
+  if (exp == null) return null;
+  var secsLeft = exp - Math.floor(Date.now() / 1000);
+  if (secsLeft <= 0) return null;
+  return secsLeft / (365 * 24 * 3600);
+}
+// Full greeks bundle for a strike+type, using its OWN live LTP as market price.
+function _ocGreeksFor(strike, type) {
+  var spot = _ocSpot();
+  var ltp = _ocLtpFor(strike, type);
+  var t = _ocTimeToExpiryYears();
+  if (spot == null || ltp == null || ltp <= 0 || t == null) return null;
+  var iv = _ocImpliedVol(ltp, spot, strike, t, OC_RISK_FREE_RATE, type);
+  if (iv == null) return null;
+  var g = _ocBlackScholes(spot, strike, t, OC_RISK_FREE_RATE, iv, type);
+  if (!g) return null;
+  g.iv = iv;
+  return g;
+}
+try { SV1OC.greeksOn = localStorage.getItem(_ocSK('greeks')) === '1'; } catch (_) { SV1OC.greeksOn = false; }
+function _ocToggleGreeks() {
+  SV1OC.greeksOn = !SV1OC.greeksOn;
+  try { localStorage.setItem(_ocSK('greeks'), SV1OC.greeksOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('oc-greeks-btn');
+  if (btn) btn.classList.toggle('on', SV1OC.greeksOn);
+  if (_ocSelectedStrike != null) _ocShowTradeBar(_ocSelectedStrike, true);
+}
+function _ocTotalBlockedMargin() {
+  var total = 0;
+  SV1OC.positions.forEach(function (p) { total += (p.marginBlocked || 0); });
+  return total;
+}
+function _ocAvailableBalance() { return SV1OC.balance - _ocTotalBlockedMargin(); }
+// Simplified SPAN+exposure-style margin ESTIMATE for writing (selling) an
+// option — notional*marginPct + collected premium as buffer.
+function _ocApproxMargin(spot, premiumAmt, qty) {
+  var notional = (spot || 0) * qty;
+  return notional * SV1OC.marginPct + premiumAmt;
+}
+
+// ── Greedy hedge-pairing (per option TYPE, CE/PE separately) — matches each
+// SELL strike against the nearest opposite-side hedge BUY strike (CE: buy
+// strike > sell strike; PE: buy strike < sell strike), forming a vertical-
+// spread pair whose max-loss = strike-width × qty. Mutates the passed-in
+// {strike,lots} arrays (consumes matched lots). Adapted verbatim from SV2's
+// _sv2OCPairForHedge(). ───────────────────────────────────────────────────
+function _ocPairForHedge(sellArr, buyArr, type) {
+  var pairs = [];
+  var sells = sellArr.slice().sort(function (a, b) { return type === 'CE' ? a.strike - b.strike : b.strike - a.strike; });
+  sells.forEach(function (s) {
+    while (s.lots > 0) {
+      var candidates = buyArr.filter(function (b) {
+        return b.lots > 0 && (type === 'CE' ? b.strike > s.strike : b.strike < s.strike);
+      });
+      if (!candidates.length) break;
+      candidates.sort(function (a, b) { return type === 'CE' ? (a.strike - b.strike) : (b.strike - a.strike); });
+      var b = candidates[0];
+      var matchLots = Math.min(s.lots, b.lots);
+      pairs.push({ sellStrike: s.strike, buyStrike: b.strike, lots: matchLots, width: Math.abs(b.strike - s.strike) });
+      s.lots -= matchLots;
+      b.lots -= matchLots;
+    }
+  });
+  return pairs;
+}
+// ── Hedge-aware portfolio margin — current open SV1OC.positions par based.
+// Compares "naked sum" (agar koi hedge-pairing na ki jaaye, sab SELL lots
+// individually margined) vs "hedge-aware total" (matched vertical-spreads
+// ko sirf unki max-loss jitna margin) — difference hi Hedge Margin Benefit
+// hai. Ye manually li gayi kisi bhi 2 positions par bhi lagu hota hai (ek
+// sold + uske aage wala bought strike, same type, to dono ek spread maane
+// jaate hain) — Option Strategy Builder se alag ek generic engine hai.
+// Positions ko unke expiryEpoch ke hisaab se pehle group kiya jaata hai
+// (spread sirf same-expiry legs ke beech valid hota hai). NOTE: ye sirf ek
+// DISPLAY/analytics estimate hai — actual balance/margin-block abhi bhi
+// existing per-position marginBlocked engine (_ocTotalBlockedMargin) se hi
+// control hota hai, isse badla nahi gaya (taaki trading/balance flow stable
+// rahe). Adapted from SV2's _sv2OCComputePortfolioMargin(). ────────────────
+function _ocComputePortfolioMargin() {
+  var spot = _ocSpot();
+  if (!SV1OC.positions.length || spot == null) return { total: 0, nakedSum: 0, hedgeBenefit: 0 };
+  var byExpiry = {};
+  SV1OC.positions.forEach(function (p) {
+    var key = (p.expiryEpoch != null) ? String(p.expiryEpoch) : 'na';
+    if (!byExpiry[key]) byExpiry[key] = { CE: { sell: [], buy: [] }, PE: { sell: [], buy: [] } };
+    var bucket = byExpiry[key][p.type];
+    if (!bucket) return;
+    var arr = (p.side === 'sell') ? bucket.sell : bucket.buy;
+    var existing = arr.filter(function (x) { return x.strike === p.strike; })[0];
+    if (existing) existing.lots += p.qtyLots; else arr.push({ strike: p.strike, lots: p.qtyLots });
+  });
+  var nakedSum = 0;
+  SV1OC.positions.forEach(function (p) {
+    if (p.side !== 'sell') return;
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    if (ltp == null) ltp = p.entryPrice; // live LTP na mile to entry price par fallback
+    var qty = p.qtyLots * SV1OC.lotSize;
+    nakedSum += _ocApproxMargin(spot, ltp * qty, qty);
+  });
+  var hedgeAwareTotal = 0;
+  Object.keys(byExpiry).forEach(function (expKey) {
+    var expiryEpoch = (expKey === 'na') ? null : Number(expKey);
+    ['CE', 'PE'].forEach(function (type) {
+      var sellArr = byExpiry[expKey][type].sell.map(function (x) { return { strike: x.strike, lots: x.lots }; });
+      var buyArr = byExpiry[expKey][type].buy.map(function (x) { return { strike: x.strike, lots: x.lots }; });
+      var pairs = _ocPairForHedge(sellArr, buyArr, type);
+      pairs.forEach(function (pr) {
+        hedgeAwareTotal += pr.width * pr.lots * SV1OC.lotSize; // spread ka max-loss hi margin
+      });
+      sellArr.forEach(function (s) { // jo lots hedge se match nahi hue — wo naked hain
+        if (s.lots > 0) {
+          var ltp = _ocLtpFor(s.strike, type, expiryEpoch);
+          if (ltp == null) ltp = 0;
+          var qty = s.lots * SV1OC.lotSize;
+          hedgeAwareTotal += _ocApproxMargin(spot, ltp * qty, qty);
+        }
+      });
+    });
+  });
+  return { total: hedgeAwareTotal, nakedSum: nakedSum, hedgeBenefit: Math.max(0, nakedSum - hedgeAwareTotal) };
+}
+
+// ── Expiry-day payoff analysis for a set of legs (adapted from SV2's
+// _sv2OCIntrinsicAt / _sv2OCPayoffPnlForLegs / _sv2OCPayoffAnalyzeLegs /
+// _sv2OCFmtPnlOrUnlimited) — used by the Risk Panel (Positions tab) aur
+// pre-trade confirm dialog (max profit/loss preview before Buy/Sell). ────
+function _ocIntrinsicAt(S, strike, type) {
+  return (type === 'CE') ? Math.max(S - strike, 0) : Math.max(strike - S, 0);
+}
+// legs: [{strike, type, side:'buy'|'sell', qtyLots, price}] — combined P&L
+// at expiry, underlying price S par.
+function _ocPayoffPnlForLegs(legs, S) {
+  var total = 0;
+  legs.forEach(function (leg) {
+    var intrinsic = _ocIntrinsicAt(S, leg.strike, leg.type);
+    var perUnit = (leg.side === 'buy') ? (intrinsic - leg.price) : (leg.price - intrinsic);
+    total += perUnit * leg.qtyLots * SV1OC.lotSize;
+  });
+  return total;
+}
+// Payoff piecewise-LINEAR hota hai strikes ke beech — isliye har strike +
+// dono extreme ends check karna kaafi hai max/min ke liye.
+function _ocPayoffAnalyzeLegs(legs) {
+  if (!legs || !legs.length) return null;
+  var step = SV1OC.strikeStep;
+  var strikes = legs.map(function (l) { return l.strike; });
+  var lo = Math.max(step, Math.min.apply(null, strikes) - 6 * step);
+  var hi = Math.max.apply(null, strikes) + 6 * step;
+  var pts = strikes.slice();
+  pts.push(lo, hi);
+  pts = pts.filter(function (v, i, a) { return a.indexOf(v) === i; }).sort(function (a, b) { return a - b; });
+  var maxP = -Infinity, minP = Infinity;
+  pts.forEach(function (S) {
+    var v = _ocPayoffPnlForLegs(legs, S);
+    if (v > maxP) maxP = v;
+    if (v < minP) minP = v;
+  });
+  // Extreme ends ke bahar ek aur point check karo — slope se pata chalta
+  // hai profit/loss unlimited hai ya nahi.
+  var vHiA = _ocPayoffPnlForLegs(legs, hi), vHiB = _ocPayoffPnlForLegs(legs, hi + step);
+  var vLoA = _ocPayoffPnlForLegs(legs, lo), vLoB = _ocPayoffPnlForLegs(legs, Math.max(1, lo - step));
+  var upSlope = vHiB - vHiA;
+  var downSlope = vLoB - vLoA;
+  var unlimitedProfit = (upSlope > 0.01) || (downSlope > 0.01);
+  var unlimitedLoss = (upSlope < -0.01) || (downSlope < -0.01);
+  return {
+    maxProfit: unlimitedProfit ? null : maxP,
+    maxLoss: unlimitedLoss ? null : minP,
+    unlimitedProfit: unlimitedProfit,
+    unlimitedLoss: unlimitedLoss
+  };
+}
+function _ocFmtPnlOrUnlimited(v, unlimited) {
+  if (unlimited) return 'Unlimited ⚠️';
+  if (v == null) return '--';
+  return (v >= 0 ? '+' : '−') + SV1OC.cur + Math.abs(v).toFixed(0);
+}
+// Charges breakdown for one executed leg — EXACT NSE (F&O options) rate-card,
+// same structure jaisa SV2's _sv2OCCalcChargesBreakdown (BankNifty branch),
+// adapted for SV1's existing (premiumAmt, side) call signature taaki
+// mojooda call-sites (_ocExecuteFill / _ocClosePosition / _ocPartialExitPosition)
+// bina badle chalte rahein — sirf ab .total ke saath poora itemized object
+// bhi milta hai (brokerage/STT/exchange/SEBI/stamp/GST alag-alag):
+//   • Brokerage       : flat ₹ per executed leg (as configured)
+//   • STT             : 0.1% of premium, SELL side only (buy side = nil)
+//   • Exchange txn chg: ₹35.03 per crore of premium turnover, BOTH sides
+//   • SEBI turnover fee: ₹10 per crore of premium turnover, BOTH sides
+//   • Stamp duty      : 0.003% of premium, BUY side only (real NSE rule)
+//   • GST             : 18% on (brokerage + exchange txn charge + SEBI fee)
+//                       — GST does NOT apply on STT or stamp duty (real rule)
+function _ocApproxCharges(premiumAmt, side) {
+  var brokerage = SV1OC.brokeragePerOrder;
+  var stt = (side === 'sell') ? premiumAmt * 0.001 : 0;              // 0.1% sell-side
+  var exchange = premiumAmt * (35.03 / 1e7);                          // ₹35.03 / crore
+  var sebi = premiumAmt * (10 / 1e7);                                 // ₹10 / crore
+  var stampDuty = (side === 'buy') ? premiumAmt * 0.00003 : 0;        // 0.003% buy-side
+  var gst = 0.18 * (brokerage + exchange + sebi);                     // GST only on these three
+  return {
+    brokerage: brokerage, stt: stt, exchange: exchange, sebi: sebi,
+    stampDuty: stampDuty, gst: gst,
+    total: brokerage + stt + exchange + sebi + stampDuty + gst
+  };
+}
+
+// ── LTP lookup from the last live chain snapshot, by strike + CE/PE ─────
+// expiryEpoch (optional) — jab position/pending-order khud ka expiryEpoch
+// jaanta hai, us epoch se match karke SAHI chain (current vs next) chunte
+// hain, chahe screen par abhi doosra expiry display ho raha ho. Bina
+// expiryEpoch ke (jaise trade-bar preview) currently-displayed chain use
+// hoti hai — purana (backward-compatible) behaviour.
+function _ocChainForLookup(expiryEpoch) {
+  if (expiryEpoch != null) {
+    if (_ocLastChainData && Number(_ocLastChainData.expiry_epoch) === Number(expiryEpoch)) return _ocLastChainData;
+    if (_ocLastChainDataNext && Number(_ocLastChainDataNext.expiry_epoch) === Number(expiryEpoch)) return _ocLastChainDataNext;
+  }
+  return _ocActiveChainData();
+}
+function _ocLtpFor(strike, type, expiryEpoch) {
+  var d = _ocChainForLookup(expiryEpoch);
+  if (!d || !d.rows) return null;
+  for (var i = 0; i < d.rows.length; i++) {
+    var row = d.rows[i];
+    if (row.strike === strike) {
+      var leg = (type === 'CE') ? row.ce : row.pe;
+      return (leg && leg.ltp != null) ? Number(leg.ltp) : null;
+    }
+  }
+  return null;
+}
+function _ocSpot() { var d = _ocActiveChainData(); return (d && d.spot != null) ? Number(d.spot) : null; }
+
+// ── Trade bar (Chain tab) ────────────────────────────────────────────────
+var _ocTradeQtyLots = 1;
+var _ocOrderType = 'market'; // 'market' | 'limit'
+function _ocTradeQtyStep(delta) {
+  _ocTradeQtyLots = Math.max(1, _ocTradeQtyLots + delta);
+  var ceEl = document.getElementById('oc-trade-qty-ce');
+  var peEl = document.getElementById('oc-trade-qty-pe');
+  if (ceEl) ceEl.textContent = _ocTradeQtyLots;
+  if (peEl) peEl.textContent = _ocTradeQtyLots;
+}
+function _ocSetOrderType(t) {
+  _ocOrderType = t;
+  var mBtn = document.getElementById('oc-otype-market-btn');
+  var lBtn = document.getElementById('oc-otype-limit-btn');
+  var lRow = document.getElementById('oc-trade-limit-row');
+  if (mBtn) mBtn.classList.toggle('active', t === 'market');
+  if (lBtn) lBtn.classList.toggle('active', t === 'limit');
+  if (lRow) lRow.classList.toggle('show', t === 'limit');
+}
+// ── SL type toggle — SL-M (trigger hote hi turant LTP par exit, jaisa pehle
+// SV1 hamesha karta tha) vs SL-L (trigger ke baad sirf SL-Limit price ya
+// usse behtar par hi exit — agar price gap ho jaaye to fill guarantee nahi,
+// real risk, jaisa real broker ka SL-Limit order). Adapted from SV2's
+// _sv2OCSetSLType(). ──────────────────────────────────────────────────────
+var _ocSLType = 'SLM'; // 'SLM' | 'SLL'
+function _ocSetSLType(mode) {
+  _ocSLType = (mode === 'SLL') ? 'SLL' : 'SLM';
+  var mBtn = document.getElementById('oc-sltype-slm-btn');
+  var lBtn = document.getElementById('oc-sltype-sll-btn');
+  var sllRow = document.getElementById('oc-trade-sllimit-row');
+  if (mBtn) mBtn.classList.toggle('active', _ocSLType === 'SLM');
+  if (lBtn) lBtn.classList.toggle('active', _ocSLType === 'SLL');
+  if (sllRow) sllRow.classList.toggle('show', _ocSLType === 'SLL');
+}
+function _ocShowTradeBar(strike, keepQty) {
+  var bar = document.getElementById('oc-trade-bar');
+  var lbl = document.getElementById('oc-trade-bar-strike');
+  if (!bar) return;
+  var ceLtp = _ocLtpFor(strike, 'CE');
+  var peLtp = _ocLtpFor(strike, 'PE');
+  if (lbl) {
+    lbl.textContent = 'Strike ' + _fmtNum(strike) +
+      '  ·  CE ' + (ceLtp != null ? _fmtNum(ceLtp) : '—') +
+      '  ·  PE ' + (peLtp != null ? _fmtNum(peLtp) : '—');
+  }
+  var greeksRow = document.getElementById('oc-trade-greeks-row');
+  if (greeksRow) {
+    if (SV1OC.greeksOn) {
+      var ceG = _ocGreeksFor(strike, 'CE');
+      var peG = _ocGreeksFor(strike, 'PE');
+      function fmtG(g) {
+        return g ? ('Δ' + g.delta.toFixed(2) + ' IV' + (g.iv * 100).toFixed(1) + '% Θ' + g.theta.toFixed(1) + ' V' + g.vega.toFixed(1)) : '—';
+      }
+      greeksRow.innerHTML = '<span class="oc-greeks-ce">CE: ' + fmtG(ceG) + '</span><span class="oc-greeks-pe">PE: ' + fmtG(peG) + '</span>';
+      greeksRow.style.display = 'flex';
+    } else {
+      greeksRow.style.display = 'none';
+    }
+  }
+  if (!keepQty) _ocTradeQtyStep(0);
+  _ocSetSLType('SLM'); // naya trade khulne par SL type reset (jaisa SV2 karta hai)
+  bar.classList.add('show');
+}
+function _ocHideTradeBar() {
+  var bar = document.getElementById('oc-trade-bar');
+  if (bar) bar.classList.remove('show');
+}
+// Read optional SL/TP/Trail/SL-type values from the trade bar inputs (blank = none).
+function _ocReadRiskInputs() {
+  function num(id) {
+    var el = document.getElementById(id);
+    if (!el || el.value === '') return null;
+    var v = parseFloat(el.value);
+    return isNaN(v) ? null : v;
+  }
+  return {
+    sl: num('oc-trade-sl'), tp: num('oc-trade-tp'), trail: num('oc-trade-trail'),
+    slType: _ocSLType, slLimitPrice: num('oc-trade-sllimit')
+  };
+}
+
+// ── Core fill executor — mutates balance + opens a position. Used both for
+// an immediate MARKET order and for a LIMIT order that just got triggered. ─
+function _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk) {
+  var qty = qtyLots * SV1OC.lotSize;
+  var premiumAmt = fillPrice * qty;
+  var charges = _ocApproxCharges(premiumAmt, side);
+  risk = risk || {};
+
+  if (side === 'buy') {
+    var totalCost = premiumAmt + charges.total;
+    if (totalCost > _ocAvailableBalance()) {
+      alert('❌ Insufficient available balance! ' + _ocFmtMoney(totalCost) + ' chahiye (premium + charges), available sirf ' + _ocFmtMoney(_ocAvailableBalance()) + ' hai.');
+      return false;
+    }
+    SV1OC.balance -= totalCost;
+    SV1OC.positions.push({
+      id: 'p' + Date.now() + Math.floor(Math.random() * 1000),
+      strike: strike, type: type, side: 'buy', qtyLots: qtyLots,
+      entryPrice: fillPrice, entryTime: Date.now(), marginBlocked: 0,
+      sl: risk.sl != null ? risk.sl : null, tp: risk.tp != null ? risk.tp : null,
+      slType: risk.slType === 'SLL' ? 'SLL' : 'SLM',
+      slLimitPrice: risk.slLimitPrice != null ? risk.slLimitPrice : null,
+      slTriggered: false,
+      trailPoints: risk.trail != null ? risk.trail : null, trailBest: fillPrice,
+      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocActiveChainData() && _ocActiveChainData().expiry_label) || null
+    });
+    _ocSoundBuyFill();
+  } else { // sell (option writing) — margin block hota hai, premium turant credit
+    var margin = _ocApproxMargin(_ocSpot(), premiumAmt, qty);
+    var netCredit = premiumAmt - charges.total;
+    if (margin > _ocAvailableBalance()) {
+      alert('❌ Insufficient margin! Sell karne ke liye ' + _ocFmtMoney(margin) + ' margin chahiye, available sirf ' + _ocFmtMoney(_ocAvailableBalance()) + ' hai.');
+      return false;
+    }
+    SV1OC.balance += netCredit;
+    SV1OC.positions.push({
+      id: 'p' + Date.now() + Math.floor(Math.random() * 1000),
+      strike: strike, type: type, side: 'sell', qtyLots: qtyLots,
+      entryPrice: fillPrice, entryTime: Date.now(), marginBlocked: margin,
+      sl: risk.sl != null ? risk.sl : null, tp: risk.tp != null ? risk.tp : null,
+      slType: risk.slType === 'SLL' ? 'SLL' : 'SLM',
+      slLimitPrice: risk.slLimitPrice != null ? risk.slLimitPrice : null,
+      slTriggered: false,
+      trailPoints: risk.trail != null ? risk.trail : null, trailBest: fillPrice,
+      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocActiveChainData() && _ocActiveChainData().expiry_label) || null
+    });
+    _ocSoundSellFill();
+  }
+  _ocSaveBalance(); _ocSavePositions();
+  return true;
+}
+
+// ── Place a Buy/Sell — Market fills immediately; Limit becomes a "working"
+// order that fills automatically once the live LTP reaches the price. ────
+function _ocPlaceTrade(type, side) {
+  var strike = _ocSelectedStrike;
+  if (strike == null) return;
+  var qtyLots = _ocTradeQtyLots;
+  var risk = _ocReadRiskInputs();
+  // SL-Limit chuna hai to SL-Limit fill price bharna zaroori hai (jaisa SV2) —
+  // sirf tab enforce karo jab SL bhi actually set kiya ho.
+  if (risk.slType === 'SLL' && risk.sl != null && risk.slLimitPrice == null) {
+    alert('⚠️ SL-Limit select kiya hai to "SL-Limit ₹" fill price bharna zaroori hai.');
+    return;
+  }
+
+  if (_ocOrderType === 'limit') {
+    var limitInp = document.getElementById('oc-trade-limit-price');
+    var limitPrice = limitInp ? parseFloat(limitInp.value) : NaN;
+    if (isNaN(limitPrice) || limitPrice <= 0) {
+      alert('⚠️ Limit price daalo pehle.');
+      return;
+    }
+    var _ocPendChain = _ocActiveChainData();
+    SV1OC.pendingOrders.push({
+      id: 'w' + Date.now() + Math.floor(Math.random() * 1000),
+      strike: strike, type: type, side: side, qtyLots: qtyLots, limitPrice: limitPrice,
+      sl: risk.sl, tp: risk.tp, trailPoints: risk.trail,
+      slType: risk.slType, slLimitPrice: risk.slLimitPrice, placedTime: Date.now(),
+      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocPendChain && _ocPendChain.expiry_label) || null
+    });
+    _ocSavePendingOrders();
+    _ocRenderPositions();
+    alert('📝 Working order place ho gaya — ' + (side === 'buy' ? 'Buy' : 'Sell') + ' ' + type + ' ' +
+          _fmtNum(strike) + ' @ ' + _fmtNum(limitPrice) + ' (' + qtyLots + ' lot). LTP reach hote hi auto-fill hoga.');
+    return;
+  }
+
+  // Market order
+  var ltp = _ocLtpFor(strike, type);
+  if (ltp == null || ltp <= 0) {
+    alert('⚠️ Live LTP abhi available nahi hai, thodi der me try karo.');
+    return;
+  }
+  var ok = _ocExecuteFill(strike, type, side, qtyLots, ltp, risk);
+  if (!ok) return;
+  _ocRenderPositions(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge();
+  _ocShowTradeBar(strike, true);
+  alert('✅ ' + (side === 'buy' ? 'Buy' : 'Sell') + ' ' + type + ' ' + _fmtNum(strike) +
+        ' — ' + qtyLots + ' lot(s) @ ' + _fmtNum(ltp) + ' (virtual)');
+}
+
+// ── Pre-trade confirm — Buy/Sell button seedha _ocPlaceTrade nahi call
+// karta, pehle ye wrapper chalta hai: prospective naya leg + saare
+// existing open positions milaake expiry-day payoff analyze karta hai,
+// aur ek confirm() dialog mein Max Profit/Max Loss dikhata hai — tabhi
+// aage _ocPlaceTrade se actual execution hoti hai. Adapted from SV2's
+// _sv2OCConfirmTrade (jahan ye ek dedicated confirm-sheet ke through
+// hota hai; SV1 ka trade bar single-tap hai isliye yahan browser confirm()
+// use kiya hai). Limit-price missing/invalid case mein seedha
+// _ocPlaceTrade par fallback karta hai — wahi apna validation alert dega. ─
+function _ocConfirmTrade(type, side) {
+  var strike = _ocSelectedStrike;
+  if (strike == null) return;
+  var qtyLots = _ocTradeQtyLots;
+  var ltp = (_ocOrderType === 'limit')
+    ? (function () {
+        var el = document.getElementById('oc-trade-limit-price');
+        var v = el ? parseFloat(el.value) : NaN;
+        return isNaN(v) ? null : v;
+      })()
+    : _ocLtpFor(strike, type);
+  if (ltp == null || ltp <= 0) { _ocPlaceTrade(type, side); return; } // let _ocPlaceTrade show its own validation alert
+
+  var existingLegs = SV1OC.positions.map(function (p) {
+    return { strike: p.strike, type: p.type, side: p.side, qtyLots: p.qtyLots, price: p.entryPrice };
+  });
+  var combined = existingLegs.concat([{ strike: strike, type: type, side: side, qtyLots: qtyLots, price: ltp }]);
+  var analysis = _ocPayoffAnalyzeLegs(combined);
+
+  var qty = qtyLots * SV1OC.lotSize;
+  var charges = _ocApproxCharges(ltp * qty, side);
+  var _riskPreview = _ocReadRiskInputs();
+  var slTypeNote = (_riskPreview.sl != null)
+    ? ('\nSL type: ' + (_riskPreview.slType === 'SLL' ? ('SL-Limit (trigger @ ' + _fmtNum(_riskPreview.sl) + ', fill @ ' + (_riskPreview.slLimitPrice != null ? _fmtNum(_riskPreview.slLimitPrice) : '—') + ')') : ('SL-Market (trigger @ ' + _fmtNum(_riskPreview.sl) + ')')))
+    : '';
+
+  var msg = (side === 'buy' ? '🟢 BUY ' : '🔴 SELL ') + type + ' ' + _fmtNum(strike) +
+    (_ocOrderType === 'limit' ? ' (Limit)' : ' (Market)') +
+    ' — ' + qtyLots + ' lot(s) @ ' + _fmtNum(ltp) + '\n' +
+    'Charges (approx): ' + _ocFmtMoney(charges.total) + slTypeNote + '\n\n' +
+    '📐 Agar ye trade execute ho jaaye (sab open positions milaake):\n' +
+    'Max Profit: ' + _ocFmtPnlOrUnlimited(analysis.maxProfit, analysis.unlimitedProfit) + '\n' +
+    'Max Loss: ' + _ocFmtPnlOrUnlimited(analysis.maxLoss, analysis.unlimitedLoss) + '\n\n' +
+    'Confirm karein?';
+
+  if (!confirm(msg)) return;
+  _ocPlaceTrade(type, side);
+}
+
+// ── Cancel a working (unfilled) limit order ──────────────────────────────
+function _ocCancelPendingOrder(id) {
+  var idx = SV1OC.pendingOrders.findIndex(function (o) { return o.id === id; });
+  if (idx === -1) return;
+  SV1OC.pendingOrders.splice(idx, 1);
+  _ocSavePendingOrders();
+  _ocRenderPositions();
+}
+
+// ── On every live tick: check working limit orders for a fill ───────────
+// Buy-limit fills when LTP has dropped to/below the limit price; sell-limit
+// fills when LTP has risen to/above it (standard limit-order convention).
+function _ocCheckPendingOrders() {
+  if (!SV1OC.pendingOrders.length) return;
+  var stillPending = [];
+  var filledAny = false;
+  SV1OC.pendingOrders.forEach(function (o) {
+    var ltp = _ocLtpFor(o.strike, o.type, o.expiryEpoch);
+    var shouldFill = (ltp != null) && (
+      (o.side === 'buy' && ltp <= o.limitPrice) ||
+      (o.side === 'sell' && ltp >= o.limitPrice)
+    );
+    if (shouldFill) {
+      var ok = _ocExecuteFill(o.strike, o.type, o.side, o.qtyLots, ltp, {
+        sl: o.sl, tp: o.tp, trail: o.trailPoints, slType: o.slType, slLimitPrice: o.slLimitPrice
+      });
+      if (ok) { filledAny = true; return; } // drop from pending — filled
+    }
+    stillPending.push(o);
+  });
+  SV1OC.pendingOrders = stillPending;
+  if (filledAny) { _ocSavePendingOrders(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge(); }
+}
+
+// ── On every live tick: check open positions for SL / TP / Trailing-SL ──
+// SL type handling adapted from SV2's _sv2OCCheckSLTP:
+//   SL-Market (default, p.slType !== 'SLL') — trigger hote hi turant current
+//   LTP par exit, jaisa pehle SV1 hamesha karta tha.
+//   SL-Limit (p.slType === 'SLL') — trigger hone par turant exit NAHI hota;
+//   p.slTriggered = true set hoke sirf "armed" state mein jaata hai, aur
+//   tabhi close hota hai jab LTP p.slLimitPrice ke barabar ya usse behtar aa
+//   jaaye (jaisa real broker ka SL-Limit order — agar price gap-down/up ho
+//   jaaye to fill guarantee nahi, position khuli reh sakti hai — real risk).
+function _ocCheckSLTP() {
+  if (!SV1OC.positions.length) return;
+  var toClose = [];
+  var changed = false;
+  SV1OC.positions.forEach(function (p) {
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    if (ltp == null) return;
+    var isBuy = (p.side === 'buy');
+    var effectiveSL = p.sl;
+    // Trailing SL — ratchets in the trader's favour only, never loosens.
+    if (p.trailPoints != null && p.trailPoints > 0) {
+      if (isBuy) {
+        if (p.trailBest == null || ltp > p.trailBest) p.trailBest = ltp;
+        effectiveSL = p.trailBest - p.trailPoints;
+      } else {
+        if (p.trailBest == null || ltp < p.trailBest) p.trailBest = ltp;
+        effectiveSL = p.trailBest + p.trailPoints;
+      }
+    }
+    var hitSL = (effectiveSL != null) && (isBuy ? ltp <= effectiveSL : ltp >= effectiveSL);
+    var hitTP = (p.tp != null) && (isBuy ? ltp >= p.tp : ltp <= p.tp);
+    if (hitTP) { toClose.push({ id: p.id, reason: 'TP' }); return; }
+    if (hitSL && p.slType !== 'SLL') {
+      // SL-Market — turant current LTP par exit (jaisa pehle).
+      toClose.push({ id: p.id, reason: (p.trailPoints ? 'Trail-SL' : 'SL') });
+      return;
+    }
+    if (hitSL && p.slType === 'SLL' && !p.slTriggered) {
+      p.slTriggered = true; // trigger hua, ab sirf SL-Limit price ka wait
+      changed = true;
+    }
+    if (p.slTriggered && p.slLimitPrice != null) {
+      // Fillable sirf tab jab LTP limit price ke barabar ya usse behtar aa jaaye.
+      var slFillable = isBuy ? (ltp >= p.slLimitPrice) : (ltp <= p.slLimitPrice);
+      if (slFillable) {
+        toClose.push({ id: p.id, reason: (p.trailPoints ? 'Trail-SL(L)' : 'SL-Limit') });
+      }
+    }
+  });
+  _ocSavePositions(); // persist trailBest / slTriggered updates even if nothing closed
+  toClose.forEach(function (c) { _ocClosePosition(c.id, c.reason); });
+}
+
+// ── Square-off (close) a virtual position at current market LTP ─────────
+// reason = 'manual' | 'SL' | 'TP' | 'exitall' | 'auto_eod' | 'rollover' | 'expiry'
+// explicitPrice (optional) — jab diya jaaye (expiry settlement ke case mein),
+// live LTP fetch nahi hota, seedha isi price par settle hota hai.
+function _ocClosePosition(id, reason, explicitPrice) {
+  var idx = SV1OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  var p = SV1OC.positions[idx];
+  var ltp = (explicitPrice != null) ? explicitPrice : _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+  if (ltp == null) { alert('⚠️ Live LTP abhi available nahi hai, thodi der me try karo.'); return; }
+  var qty = p.qtyLots * SV1OC.lotSize;
+  var exitAmt = ltp * qty;
+  var exitSide = (p.side === 'buy') ? 'sell' : 'buy'; // closing leg is opposite side
+  var charges = _ocApproxCharges(exitAmt, exitSide);
+  var grossPnl = (p.side === 'buy')
+    ? (ltp - p.entryPrice) * qty
+    : (p.entryPrice - ltp) * qty;
+  var netPnl = grossPnl - charges.total;
+
+  if (p.side === 'buy') {
+    SV1OC.balance += (exitAmt - charges.total); // return proceeds from selling back
+  } else {
+    SV1OC.balance -= (exitAmt + charges.total); // buy back to close short, margin releases automatically (marginBlocked just removed below)
+  }
+  SV1OC.positions.splice(idx, 1);
+  SV1OC.history.unshift({
+    id: 'h' + Date.now(), strike: p.strike, type: p.type, side: p.side, qtyLots: p.qtyLots,
+    entryPrice: p.entryPrice, exitPrice: ltp, entryTime: p.entryTime, exitTime: Date.now(),
+    grossPnl: grossPnl, charges: charges, netPnl: netPnl, balanceAfter: SV1OC.balance,
+    reason: reason || 'manual'
+  });
+  _ocSaveBalance(); _ocSavePositions(); _ocSaveHistory();
+  _ocRenderPositions(); _ocRenderHistory(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge();
+  // 'exitall' / 'auto_eod' bulk-close karte hain, unka apna combined summary
+  // alert hota hai (_ocExitAllPositions / _ocUpdateEodSquareOffWarning) —
+  // isliye yahan per-leg alert sirf SL/TP jaise single-position auto-triggers ke liye.
+  if (reason && reason.indexOf('SL') !== -1) _ocSoundSL();
+  else if (reason === 'TP') _ocSoundTarget();
+  else if (reason === 'expiry') _ocSoundExpiry();
+  if (reason && reason !== 'manual' && reason !== 'exitall' && reason !== 'auto_eod' && reason !== 'rollover' && reason !== 'expiry') {
+    alert((reason.indexOf('SL') !== -1 ? '🛑 ' : '🎯 ') + reason + ' hit — ' + p.type + ' ' + _fmtNum(p.strike) +
+          ' auto square-off ho gaya @ ' + _fmtNum(ltp) + ' (Net P&L ' + (netPnl >= 0 ? '+' : '') + _ocFmtMoney(netPnl) + ')');
+  }
+  return netPnl;
+}
+
+// ── Expiry Auto-Settlement — jaisa hi real time expiry cross kar jaaye
+// (position ka apna stored p.expiryEpoch, jo entry ke time ki chain se
+// mila tha), position real NSE cash-settlement jaisa INTRINSIC value par
+// (live spot se calculate) automatically square-off ho jaati hai — chahe
+// Option Chain panel khula ho ya nahi. Har live tick (_applyOptionChain)
+// par check hota hai. Adapted from SV2's _sv2OCCheckExpirySettlement. ────
+function _ocCheckExpirySettlement() {
+  if (!SV1OC.positions.length) return;
+  var spot = _ocSpot();
+  if (spot == null) return; // spot na ho to intrinsic settle nahi ho sakta, agla tick try karega
+  var nowSec = Math.floor(Date.now() / 1000);
+  var settled = [];
+  for (var i = SV1OC.positions.length - 1; i >= 0; i--) {
+    var p = SV1OC.positions[i];
+    if (p.expiryEpoch == null || nowSec < p.expiryEpoch) continue;
+    var settlePrice = (p.type === 'CE') ? Math.max(spot - p.strike, 0) : Math.max(p.strike - spot, 0);
+    var netPnl = _ocClosePosition(p.id, 'expiry', settlePrice);
+    if (netPnl != null) {
+      settled.push(p.side.toUpperCase() + ' ' + p.type + ' ' + _fmtNum(p.strike) + ' → settled @ ' + _fmtNum(settlePrice) + ' (P&L ' + (netPnl >= 0 ? '+' : '') + _ocFmtMoney(netPnl) + ')');
+    }
+  }
+  if (settled.length) {
+    alert('📅 Expiry Settlement:\n\n' + settled.join('\n'));
+  }
+}
+
+// ── Edit SL/TP on an already-open position ───────────────────────────────
+function _ocEditSLTP(id) {
+  var p = SV1OC.positions.find(function (x) { return x.id === id; });
+  if (!p) return;
+  var slIn = prompt('Stop-Loss price (khaali chhodo hatane ke liye):', p.sl != null ? p.sl : '');
+  if (slIn === null) return; // cancelled
+  var tpIn = prompt('Target price (khaali chhodo hatane ke liye):', p.tp != null ? p.tp : '');
+  if (tpIn === null) return;
+  p.sl = slIn.trim() === '' ? null : (isNaN(parseFloat(slIn)) ? p.sl : parseFloat(slIn));
+  p.tp = tpIn.trim() === '' ? null : (isNaN(parseFloat(tpIn)) ? p.tp : parseFloat(tpIn));
+  // Manual fixed-price SL overrides any active Trailing SL on this position.
+  if (p.trailPoints != null) { p.trailPoints = null; p.trailBest = null; }
+  _ocSavePositions();
+  _ocRenderPositions();
+}
+
+// ── Set / edit / turn-off Trailing SL on an already-open position — SL
+// automatically "chases" the live LTP by a fixed point-distance and only
+// ever tightens (never loosens). Ye SV2 (replay) wale Trailing SL jaisa hi
+// hai, bas yahan live Fyers LTP par kaam karta hai. ───────────────────────
+function _ocSetTrailSL(id) {
+  var p = SV1OC.positions.find(function (x) { return x.id === id; });
+  if (!p) return;
+  var msg = 'Trailing SL — kitne points/₹ door rakhni hai current LTP se?\n(Khaali chhodo ya 0 daalo Trailing SL band karne ke liye)';
+  var input = prompt(msg, p.trailPoints != null ? String(p.trailPoints) : '');
+  if (input === null) return; // cancelled
+  var trimmed = input.trim();
+  if (trimmed === '' || parseFloat(trimmed) <= 0 || isNaN(parseFloat(trimmed))) {
+    p.trailPoints = null;
+    p.trailBest = null;
+    _ocSavePositions();
+    _ocRenderPositions();
+    return;
+  }
+  var pts = parseFloat(trimmed);
+  var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+  var mark = (ltp != null) ? ltp : p.entryPrice;
+  p.trailPoints = pts;
+  p.trailBest = mark;
+  var isBuy = (p.side === 'buy');
+  var initSL = isBuy ? (mark - pts) : (mark + pts);
+  // Trailing SL kabhi bhi existing fixed SL se "loose" nahi hoga — sirf tighten karega.
+  if (p.sl == null || (isBuy ? initSL > p.sl : initSL < p.sl)) p.sl = initSL;
+  _ocSavePositions();
+  _ocRenderPositions();
+  alert('🔄 Trailing SL ON — ' + pts + ' pts. Abhi SL ≈ ' + _ocFmtMoney(p.sl) + ', jaise-jaise LTP favour mein chalega SL bhi saath trail karega.');
+}
+// ── Runs every live tick (before _ocCheckSLTP) — best-favourable LTP track
+// karke SL ko tighten karta hai. Never loosens the SL. ───────────────────
+function _ocUpdateTrailingSL() {
+  if (!SV1OC.positions.length) return;
+  var changed = false;
+  SV1OC.positions.forEach(function (p) {
+    if (p.trailPoints == null) return; // trailing off is position ke liye
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    if (ltp == null) return;
+    var isBuy = (p.side === 'buy');
+    if (p.trailBest == null) p.trailBest = ltp;
+    if (isBuy ? (ltp > p.trailBest) : (ltp < p.trailBest)) {
+      p.trailBest = ltp;
+      changed = true;
+    }
+    var candidateSL = isBuy ? (p.trailBest - p.trailPoints) : (p.trailBest + p.trailPoints);
+    if (p.sl == null || (isBuy ? candidateSL > p.sl : candidateSL < p.sl)) {
+      p.sl = candidateSL;
+      changed = true;
+    }
+  });
+  if (changed) _ocSavePositions();
+}
+
+// ── Partial Exit — kitne lots exit karne hain poochta hai (prompt), baaki
+// position khuli rehti hai apne original entry price par. Full lots (ya
+// zyada) daalne par poori position hi square-off ho jaati hai. ───────────
+function _ocPartialExitPosition(id) {
+  var idx = SV1OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  var p = SV1OC.positions[idx];
+  if (p.qtyLots <= 1) { _ocClosePosition(id); return; } // sirf 1 lot — partial ka matlab nahi
+  var suggested = Math.max(1, Math.floor(p.qtyLots / 2));
+  var input = prompt('Kitne lot(s) exit karne hain? (Total open: ' + p.qtyLots + ' lot)', String(suggested));
+  if (input === null) return; // cancelled
+  var exitLots = parseInt(input, 10);
+  if (isNaN(exitLots) || exitLots <= 0) { alert('Invalid quantity — ek positive number daalo.'); return; }
+  if (exitLots >= p.qtyLots) { _ocClosePosition(id); return; } // pura ya zyada → full square-off
+
+  var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+  if (ltp == null) { alert('⚠️ Live LTP abhi available nahi hai, thodi der me try karo.'); return; }
+  var exitQty = exitLots * SV1OC.lotSize;
+  var exitAmt = ltp * exitQty;
+  var exitSide = (p.side === 'buy') ? 'sell' : 'buy';
+  var charges = _ocApproxCharges(exitAmt, exitSide);
+  var entryAmt = p.entryPrice * exitQty;
+  var grossPnl = (p.side === 'buy') ? (exitAmt - entryAmt) : (entryAmt - exitAmt);
+  var netPnl = grossPnl - charges.total;
+
+  if (p.side === 'buy') {
+    SV1OC.balance += (exitAmt - charges.total);
+  } else {
+    SV1OC.balance -= (exitAmt + charges.total);
+  }
+  // Margin (agar SELL/writing position thi) us exited fraction ke hisaab
+  // se proportionally release hota hai, baaki position ka margin block rehta hai.
+  var marginReleaseFrac = exitLots / p.qtyLots;
+  var marginReleased = (p.marginBlocked || 0) * marginReleaseFrac;
+  p.marginBlocked = Math.max(0, (p.marginBlocked || 0) - marginReleased);
+  p.qtyLots = p.qtyLots - exitLots;
+
+  SV1OC.history.unshift({
+    id: 'h' + Date.now(), strike: p.strike, type: p.type, side: p.side, qtyLots: exitLots,
+    entryPrice: p.entryPrice, exitPrice: ltp, entryTime: p.entryTime, exitTime: Date.now(),
+    grossPnl: grossPnl, charges: charges, netPnl: netPnl, balanceAfter: SV1OC.balance,
+    reason: 'partial', partial: true, remainingLots: p.qtyLots
+  });
+  _ocSaveBalance(); _ocSavePositions(); _ocSaveHistory();
+  _ocRenderPositions(); _ocRenderHistory(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge();
+  alert('✂️ Partial Exit — ' + exitLots + ' lot(s) @ ' + _fmtNum(ltp) + ' (Net P&L ' + (netPnl >= 0 ? '+' : '') + _ocFmtMoney(netPnl) + '). ' + p.qtyLots + ' lot(s) abhi bhi open hai.');
+}
+
+// ── Exit All — ek hi tap mein saari open positions live LTP par square off,
+// jaisa broker app ka "Exit All" panic-button hota hai. ──────────────────
+function _ocExitAllPositions() {
+  var n = SV1OC.positions.length;
+  if (!n) return;
+  if (!confirm('⛔ Exit All — saari ' + n + ' open position(s) abhi market (live LTP) price par square-off ho jaayengi. Confirm?')) return;
+  var missing = [];
+  for (var i = SV1OC.positions.length - 1; i >= 0; i--) {
+    var p = SV1OC.positions[i];
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    if (ltp == null) { missing.push(p.type + ' ' + p.strike); continue; }
+    _ocClosePosition(p.id, 'exitall');
+  }
+  if (missing.length) {
+    alert('⚠️ Kuch positions live LTP na milne ki wajah se close nahi ho payi: ' + missing.join(', ') + '. Thodi der me dobara try karo.');
+  }
+}
+
+// ── EOD Auto Square-Off (BankNifty MIS/intraday cutoff, ~3:15–3:20 PM IST) ──
+var OC_EOD_WARN_MIN  = 15 * 60 + 15; // 3:15 PM IST — warning starts
+var OC_EOD_FORCE_MIN = 15 * 60 + 20; // 3:20 PM IST — forced square-off
+var _ocEodForcedToday = false;
+function _ocUpdateEodSquareOffWarning() {
+  var banner = document.getElementById('oc-eod-banner');
+  if (!banner) return;
+  if (!SV1OC.positions.length) { banner.classList.remove('show'); _ocEodForcedToday = false; return; }
+  var now = new Date();
+  var istMs = now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000);
+  var ist = new Date(istMs);
+  var minOfDay = ist.getHours() * 60 + ist.getMinutes();
+
+  if (minOfDay >= OC_EOD_FORCE_MIN) {
+    if (!_ocEodForcedToday) {
+      _ocEodForcedToday = true;
+      var n = SV1OC.positions.length;
+      var missing = [];
+      for (var i = SV1OC.positions.length - 1; i >= 0; i--) {
+        var p = SV1OC.positions[i];
+        var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+        if (ltp == null) { missing.push(p.type + ' ' + p.strike); continue; }
+        _ocClosePosition(p.id, 'auto_eod');
+      }
+      banner.classList.remove('show');
+      if (n) { _ocSoundDanger(); alert('⏰ Auto Square-Off (3:20 PM IST) — open MIS/intraday position(s) automatically square-off ho gayi.' + (missing.length ? '\n(LTP na milne ki wajah se chhoot gayi: ' + missing.join(', ') + ')' : '')); }
+    }
+    return;
+  }
+  if (minOfDay >= OC_EOD_WARN_MIN) {
+    var minsLeft = Math.max(0, OC_EOD_FORCE_MIN - minOfDay);
+    banner.textContent = '⏰ Auto Square-Off in ~' + minsLeft + ' min — open position(s) 3:20 PM IST tak khud square-off na kiye to LIVE price par automatically band ho jaayengi (MIS/intraday rule jaisa).';
+    banner.classList.add('show');
+    return;
+  }
+  banner.classList.remove('show');
+  _ocEodForcedToday = false;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// ── ROLLOVER — BankNifty ab sirf MONTHLY contracts deta hai (NSE rule
+// w.e.f. Sept 2025), expiry = mahine ka aakhri TUESDAY (holiday hue to
+// pichhle trading din). Jab kisi open position ki (locked-at-entry)
+// expiry paas aati hai to warn karo; "Roll" position ko live LTP par
+// square-off karke, agle-cycle expiry ke liye ek THEORETICAL entry price
+// (Black-Scholes, isi position ki abhi-abhi nikli IMPLIED VOL use karke)
+// par nayi position khol deta hai — kyunki live chain sirf CURRENT expiry
+// ka data deta hai, agle month ka asli live LTP fetch nahi ho sakta. Isliye
+// rolled position par saaf "theoretical" note lagta hai — Fyers app khol
+// kar entry confirm/adjust kar lena chahiye. ─────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+var OC_ROLLOVER_WARN_SEC = 24 * 3600; // 1 din pehle se warning
+var _ocRolloverAlerted = false;
+function _ocLastTuesdayOfMonth(year, monthIndex0) {
+  var lastDate = new Date(Date.UTC(year, monthIndex0 + 1, 0, 10, 0, 0)); // 10:00 UTC = 15:30 IST close
+  var day = lastDate.getUTCDay();
+  var diff = (day - 2 + 7) % 7; // Tuesday = 2
+  lastDate.setUTCDate(lastDate.getUTCDate() - diff);
+  return lastDate;
+}
+function _ocAdjustForHolidays(dateObj) {
+  var d = new Date(dateObj.getTime());
+  while (true) {
+    var day = d.getUTCDay();
+    var isHoliday = false;
+    try {
+      var ds = (typeof _utcDateStr === 'function') ? _utcDateStr(Math.floor(d.getTime() / 1000)) : null;
+      isHoliday = ds && (typeof NSE_HOLIDAYS !== 'undefined') && NSE_HOLIDAYS.has(ds);
+    } catch (_) {}
+    if (day === 0 || day === 6 || isHoliday) { d.setUTCDate(d.getUTCDate() - 1); continue; }
+    break;
+  }
+  return d;
+}
+// Given a (locked) expiry epoch, return the NEXT month's monthly-expiry epoch.
+function _ocNextMonthlyExpiryEpoch(afterEpoch) {
+  var d = new Date(afterEpoch * 1000);
+  var y = d.getUTCFullYear(), m = d.getUTCMonth() + 1; // move one calendar month forward
+  if (m > 11) { m = 0; y += 1; }
+  var candidate = _ocLastTuesdayOfMonth(y, m);
+  candidate = _ocAdjustForHolidays(candidate);
+  return Math.floor(candidate.getTime() / 1000);
+}
+function _ocSoonestExpiringPosition() {
+  var soonest = null;
+  SV1OC.positions.forEach(function (p) {
+    if (p.expiryEpoch == null) return;
+    if (soonest == null || p.expiryEpoch < soonest.expiryEpoch) soonest = p;
+  });
+  return soonest;
+}
+function _ocUpdateRolloverWarning() {
+  var banner = document.getElementById('oc-rollover-banner');
+  if (!banner) return;
+  var nowSec = Math.floor(Date.now() / 1000);
+  var nearCount = 0;
+  SV1OC.positions.forEach(function (p) {
+    if (p.expiryEpoch != null && (p.expiryEpoch - nowSec) <= OC_ROLLOVER_WARN_SEC && (p.expiryEpoch - nowSec) > -6 * 3600) nearCount++;
+  });
+  if (!nearCount) {
+    banner.classList.remove('show');
+    _ocRolloverAlerted = false;
+    return;
+  }
+  var soonest = _ocSoonestExpiringPosition();
+  var hrsLeft = soonest ? Math.max(0, Math.round((soonest.expiryEpoch - nowSec) / 3600)) : null;
+  banner.innerHTML = '🔄 ' + nearCount + ' position(s) ki expiry paas hai' + (hrsLeft != null ? ' (~' + hrsLeft + ' hr)' : '') +
+    ' — square-off karo ya Roll karo. <button id="oc-rollall-btn" onclick="_ocRolloverAllPositions()">Roll All</button>';
+  banner.classList.add('show');
+  if (!_ocRolloverAlerted) { _ocRolloverAlerted = true; _ocSoundRollover(); }
+}
+// Core roll routine — square-off @ live LTP, open fresh position for the
+// NEXT monthly cycle at a theoretical BS price (using IV implied from the
+// just-closed leg's live LTP, so it's grounded in today's real market).
+function _ocRollPosition(id) {
+  var idx = SV1OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  var p = SV1OC.positions[idx];
+  var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+  if (ltp == null) { alert('⚠️ Live LTP abhi available nahi hai, thodi der me try karo.'); return; }
+  var spot = _ocSpot();
+  var tCur = _ocTimeToExpiryYears();
+  var oldExpiryLabel = p.expiryLabel || 'current';
+  var qtyLots = p.qtyLots, side = p.side, strike = p.strike, type = p.type;
+
+  // 1) Square-off the current-cycle leg at live LTP.
+  _ocClosePosition(id, 'rollover');
+
+  // 2) Open the next-cycle leg at a theoretical price (needs spot + a valid
+  // current IV reading; without those we can't estimate — user squared off,
+  // but skip auto re-entry and tell them to open it manually from the chain).
+  var nextExpiryEpoch = p.expiryEpoch != null ? _ocNextMonthlyExpiryEpoch(p.expiryEpoch) : null;
+  if (spot == null || tCur == null || nextExpiryEpoch == null) {
+    alert('🔄 ' + type + ' ' + strike + ' square-off ho gaya (rollover). Agla-cycle position theoretical price estimate nahi kar paaya (spot/expiry data missing) — naya position chain se manually khol lo.');
+    return;
+  }
+  var iv = _ocImpliedVol(ltp, spot, strike, tCur, OC_RISK_FREE_RATE, type);
+  if (iv == null) {
+    alert('🔄 ' + type + ' ' + strike + ' square-off ho gaya (rollover). IV estimate nahi ban paaya — naya position chain se manually khol lo.');
+    return;
+  }
+  var tNext = (nextExpiryEpoch - Math.floor(Date.now() / 1000)) / (365 * 24 * 3600);
+  var bsNext = _ocBlackScholes(spot, strike, tNext, OC_RISK_FREE_RATE, iv, type);
+  if (!bsNext || !(bsNext.price > 0)) {
+    alert('🔄 ' + type + ' ' + strike + ' square-off ho gaya (rollover). Agla-cycle theoretical price nikal nahi paaya — naya position chain se manually khol lo.');
+    return;
+  }
+  var theoPrice = Math.round(bsNext.price * 100) / 100;
+  var ok = _ocExecuteFill(strike, type, side, qtyLots, theoPrice, { sl: null, tp: null, trail: null });
+  if (ok) {
+    var newP = SV1OC.positions[SV1OC.positions.length - 1];
+    newP.expiryEpoch = nextExpiryEpoch;
+    newP.expiryLabel = 'next-cycle (rolled)';
+    newP.note = 'Rolled from ' + oldExpiryLabel + ' @ theoretical ' + _ocFmtMoney(theoPrice) + ' (IV ' + (iv * 100).toFixed(1) + '%) — confirm/adjust vs live Fyers chain once that expiry loads.';
+    _ocSavePositions();
+    _ocRenderPositions(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge();
+    alert('🔄 Rolled — ' + type + ' ' + strike + ' ' + side.toUpperCase() + ' next-cycle expiry mein @ ' + _ocFmtMoney(theoPrice) + ' (theoretical, IV ' + (iv * 100).toFixed(1) + '%). Fyers chain us expiry par switch hote hi price confirm/adjust kar lena.');
+  }
+}
+function _ocRolloverAllPositions() {
+  var nowSec = Math.floor(Date.now() / 1000);
+  var toRoll = SV1OC.positions.filter(function (p) {
+    return p.expiryEpoch != null && (p.expiryEpoch - nowSec) <= OC_ROLLOVER_WARN_SEC;
+  }).map(function (p) { return p.id; });
+  if (!toRoll.length) return;
+  if (!confirm('🔄 Roll All — ' + toRoll.length + ' position(s) next-cycle expiry mein roll ho jaayengi (theoretical entry price par). Confirm?')) return;
+  toRoll.forEach(function (id) { _ocRollPosition(id); });
+}
+
+// ── Positions tab render (live P&L, mark-to-market) ──────────────────────
+function _ocPortfolioUnrealizedPnl() {
+  var total = 0;
+  SV1OC.positions.forEach(function (p) {
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    if (ltp == null) return;
+    var qty = p.qtyLots * SV1OC.lotSize;
+    total += (p.side === 'buy') ? (ltp - p.entryPrice) * qty : (p.entryPrice - ltp) * qty;
+  });
+  return total;
+}
+// ── Risk & Margin card (Positions tab) — margin used + max profit/loss
+// (current open position-set ka expiry-day payoff), adapted from SV2's
+// _sv2OCRenderRiskPanel. "Margin Used" ab hedge-aware hai (_ocComputePortfolioMargin) —
+// agar ek sold + uske aage wala bought strike (same type) khula ho, dono ko
+// spread maan ke sirf spread-width jitna margin dikhta hai, naked-sum nahi.
+// NOTE: ye sirf display estimate hai — actual balance-block abhi bhi flat
+// per-position engine (_ocTotalBlockedMargin) se hi hota hai. ─────────────
+function _ocRenderRiskPanel() {
+  var panel = document.getElementById('oc-risk-panel');
+  if (!panel) return;
+  if (!SV1OC.positions.length) { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  var pm = _ocComputePortfolioMargin();
+  var marginEl = document.getElementById('oc-risk-margin');
+  if (marginEl) marginEl.textContent = _ocFmtMoney(pm.total);
+  var legs = SV1OC.positions.map(function (p) {
+    return { strike: p.strike, type: p.type, side: p.side, qtyLots: p.qtyLots, price: p.entryPrice };
+  });
+  var analysis = _ocPayoffAnalyzeLegs(legs);
+  var mpEl = document.getElementById('oc-risk-maxprofit');
+  var mlEl = document.getElementById('oc-risk-maxloss');
+  if (mpEl) mpEl.textContent = analysis ? _ocFmtPnlOrUnlimited(analysis.maxProfit, analysis.unlimitedProfit) : '--';
+  if (mlEl) mlEl.textContent = analysis ? _ocFmtPnlOrUnlimited(analysis.maxLoss, analysis.unlimitedLoss) : '--';
+  var noteEl = document.getElementById('oc-risk-note');
+  if (noteEl) {
+    var baseNote = '⚠️ Approx estimate (expiry payoff, current open positions par based) — asli broker margin/risk isse alag ho sakta hai.';
+    noteEl.textContent = (pm.hedgeBenefit > 0)
+      ? (baseNote + '\n🛡️ Hedge Margin Benefit: ' + _ocFmtMoney(pm.hedgeBenefit) + ' bacha (matched vertical-spreads ki wajah se naked-margin se kam block ho raha hai).')
+      : baseNote;
+  }
+}
+// ── SV1 — Live P&L Overlay on Chart (top-left badge, seedha #main-chart
+// par) — SV2 ke _sv2OCPnlOverlayToggle/_sv2OCUpdatePnlOverlay/
+// _sv2OCRenderPnlTopLeft se adapt kiya gaya hai. SV1 mein Stack View 2
+// jaisi multi-cell layout nahi hai (sirf ek #main-chart), isliye yahan
+// cell-tag routing (note se "cell show-TF") ki zaroorat nahi — bas ek hi
+// badge, #main-chart ke top-left mein, sab open positions stacked. ──────
+function _ocPnlOverlayToggle() {
+  SV1OC.pnlOverlayOn = !SV1OC.pnlOverlayOn;
+  try { localStorage.setItem('sv1_oc_pnl_overlay_on', SV1OC.pnlOverlayOn ? '1' : '0'); } catch (_) {}
+  var btn = document.getElementById('oc-pnl-btn');
+  if (btn) btn.classList.toggle('on', SV1OC.pnlOverlayOn);
+  _ocUpdatePnlOverlay();
+}
+function _ocUpdatePnlOverlay() {
+  _ocRenderPnlTopLeft();
+}
+function _ocRenderPnlTopLeft() {
+  var mainEl = document.getElementById('main-chart');
+  if (!mainEl) return;
+  var box = mainEl.querySelector('.sv1-pnl-topleft');
+
+  if (!SV1OC.pnlOverlayOn || !SV1OC.positions || !SV1OC.positions.length) {
+    if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+    return;
+  }
+
+  var html = '';
+  SV1OC.positions.forEach(function (p) {
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    if (ltp == null) return;
+    var qty = p.qtyLots * SV1OC.lotSize;
+    var pnl = (p.side === 'buy') ? (ltp - p.entryPrice) * qty : (p.entryPrice - ltp) * qty;
+    var invested = (p.side === 'buy') ? (p.entryPrice * qty) : (p.marginBlocked || (p.entryPrice * qty));
+    var pct = (invested > 0) ? (pnl / invested * 100) : 0;
+    var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
+    var pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+    var cls = pnl >= 0 ? 'pos' : 'neg';
+    html += '<div class="sv1-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV1OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
+  });
+
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'sv1-pnl-topleft';
+    mainEl.appendChild(box);
+  }
+  box.innerHTML = html;
+  box.style.display = html ? '' : 'none';
+}
+
+function _ocRenderPendingOrders() {
+  var wrap = document.getElementById('oc-pending-wrap');
+  if (!wrap) return;
+  if (!SV1OC.pendingOrders.length) { wrap.innerHTML = ''; return; }
+  var html = '<div class="oc-pos-section-hdr">⏳ Working Orders (Limit)</div>';
+  SV1OC.pendingOrders.forEach(function (o) {
+    var ltp = _ocLtpFor(o.strike, o.type, o.expiryEpoch);
+    var riskBits = [];
+    if (o.sl != null) riskBits.push('SL ' + _fmtNum(o.sl));
+    if (o.tp != null) riskBits.push('TP ' + _fmtNum(o.tp));
+    if (o.trailPoints != null) riskBits.push('Trail ' + _fmtNum(o.trailPoints));
+    html += '<div class="oc-pos-row">'
+      + '<div class="oc-pos-top">'
+      +   '<span class="oc-pos-name">' + o.type + ' ' + _fmtNum(o.strike)
+      +     '<span class="oc-pos-side-tag ' + o.side + '">' + o.side.toUpperCase() + ' LIMIT</span></span>'
+      + '</div>'
+      + '<div class="oc-pos-meta">' + o.qtyLots + ' lot(s) · Limit ' + _fmtNum(o.limitPrice) + ' · LTP ' + (ltp != null ? _fmtNum(ltp) : '—')
+      +   (riskBits.length ? ' · ' + riskBits.join(' · ') : '') + '</div>'
+      + '<div class="oc-pos-bottom">'
+      +   '<span class="oc-pos-meta">' + new Date(o.placedTime).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'}) + '</span>'
+      +   '<button class="oc-pend-cancel-btn" onclick="_ocCancelPendingOrder(\'' + o.id + '\')">Cancel</button>'
+      + '</div>'
+      + '</div>';
+  });
+  wrap.innerHTML = html;
+}
+function _ocRenderPositions() {
+  _ocRenderPendingOrders();
+  try { _ocUpdateEodSquareOffWarning(); } catch (_) {}
+  try { _ocUpdateRolloverWarning(); } catch (_) {}
+  try { _ocUpdatePnlOverlay(); } catch (_) {}
+  try { _ocUpdateMarginCallBanner(); } catch (_) {}
+  try { _ocRenderRiskPanel(); } catch (_) {}
+  var toolbar = document.getElementById('oc-pos-toolbar');
+  var list = document.getElementById('oc-pos-list');
+  if (!list) return;
+  if (toolbar) toolbar.classList.toggle('show', SV1OC.positions.length > 0);
+  if (!SV1OC.positions.length) {
+    list.innerHTML = '<div class="oc-empty-state" id="oc-pos-empty">📭 Abhi koi open position nahi.<br>Chain tab me strike select karke Buy/Sell karo.</div>';
+    return;
+  }
+  var nowSec = Math.floor(Date.now() / 1000);
+  var html = '';
+  SV1OC.positions.forEach(function (p) {
+    var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+    var qty = p.qtyLots * SV1OC.lotSize;
+    var pnl = (ltp != null) ? ((p.side === 'buy') ? (ltp - p.entryPrice) * qty : (p.entryPrice - ltp) * qty) : null;
+    var pnlCls = (pnl == null) ? '' : (pnl >= 0 ? 'oc-up' : 'oc-dn');
+    var pnlTxt = (pnl == null) ? '—' : (pnl >= 0 ? '+' : '') + _ocFmtMoney(pnl);
+    var riskBits = [];
+    var slTypeSuffix = (p.slType === 'SLL') ? ('(L)' + (p.slLimitPrice != null ? ' →' + _fmtNum(p.slLimitPrice) : '') + (p.slTriggered ? ' armed' : '')) : '(M)';
+    if (p.trailPoints != null) riskBits.push('Trail-SL' + slTypeSuffix + ' ' + _fmtNum(p.trailPoints) + ' (cur ' + _fmtNum(p.sl) + ')');
+    else if (p.sl != null) riskBits.push('SL' + slTypeSuffix + ' ' + _fmtNum(p.sl));
+    if (p.tp != null) riskBits.push('TP ' + _fmtNum(p.tp));
+    var nearExpiry = (p.expiryEpoch != null) && ((p.expiryEpoch - nowSec) <= OC_ROLLOVER_WARN_SEC);
+    html += '<div class="oc-pos-row">'
+      + '<div class="oc-pos-top">'
+      +   '<span class="oc-pos-name">' + p.type + ' ' + _fmtNum(p.strike)
+      +     '<span class="oc-pos-side-tag ' + p.side + '">' + p.side.toUpperCase() + '</span></span>'
+      +   '<span class="oc-pos-pnl ' + pnlCls + '">' + pnlTxt + '</span>'
+      + '</div>'
+      + '<div class="oc-pos-meta">' + p.qtyLots + ' lot(s) · Entry ' + _fmtNum(p.entryPrice) + ' · LTP ' + (ltp != null ? _fmtNum(ltp) : '—')
+      +   (riskBits.length ? ' · ' + riskBits.join(' · ') : '')
+      +   (p.expiryLabel ? ' · Exp ' + p.expiryLabel : '') + (nearExpiry ? ' 🔄' : '') + '</div>'
+      +   (p.note ? '<div class="oc-pos-note">📝 ' + p.note.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>' : '')
+      + '<div class="oc-pos-bottom">'
+      +   '<span class="oc-pos-meta">' + new Date(p.entryTime).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'}) + '</span>'
+      + '</div>'
+      + '<div class="oc-pos-actions">'
+      +   '<button onclick="_ocEditSLTP(\'' + p.id + '\')">SL/TP</button>'
+      +   '<button onclick="_ocSetTrailSL(\'' + p.id + '\')">Trail SL</button>'
+      +   (p.qtyLots > 1 ? '<button onclick="_ocPartialExitPosition(\'' + p.id + '\')">Partial</button>' : '')
+      +   (nearExpiry ? '<button onclick="_ocRollPosition(\'' + p.id + '\')">🔄 Roll</button>' : '')
+      +   '<button onclick="_ocEditPositionNote(\'' + p.id + '\')">📝 ' + (p.note ? 'Edit Note' : 'Add Note') + '</button>'
+      +   '<button class="oc-pos-close-btn" onclick="_ocClosePosition(\'' + p.id + '\')">Square Off</button>'
+      + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+// ── SV1 — Position Note / Tag editing (adapted from SV2's
+// _sv2OCEditPositionNote). Prompt-based edit, khaali chhodne par note
+// hata deta hai. Save + re-render dono karta hai (note + Edit/Add-Note
+// button label turant update ho jaata hai). ─────────────────────────────
+function _ocEditPositionNote(id) {
+  var idx = SV1OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  var currentNote = SV1OC.positions[idx].note || '';
+  var newNote = prompt('📝 Trade note / reason edit karo:\n(Khaali chhodne par note hata jaayega)', currentNote);
+  if (newNote === null) return; // cancelled
+  SV1OC.positions[idx].note = newNote.trim();
+  _ocSavePositions();
+  _ocRenderPositions();
+}
+
+// ── History tab render ───────────────────────────────────────────────────
+function _ocRenderHistory() {
+  var list = document.getElementById('oc-hist-list');
+  if (!list) return;
+  if (!SV1OC.history.length) {
+    list.innerHTML = '<div class="oc-empty-state" id="oc-hist-empty">📭 Abhi koi trade history nahi.<br>Position close karne par yahan dikhega.</div>';
+    return;
+  }
+  var html = '';
+  SV1OC.history.forEach(function (h) {
+    var pnlCls = h.netPnl >= 0 ? 'oc-up' : 'oc-dn';
+    // Backward-compat: purani history entries mein 'charges' sirf ek number
+    // tha (lump total), naye entries mein poora breakdown object hai.
+    var c = (h.charges && typeof h.charges === 'object') ? h.charges : null;
+    var chargesTotal = c ? c.total : (h.charges || 0);
+    var chargesLine = c
+      ? ('Brokerage ' + SV1OC.cur + c.brokerage.toFixed(0) +
+         ' · STT ' + SV1OC.cur + c.stt.toFixed(0) +
+         ' · Exch ' + SV1OC.cur + c.exchange.toFixed(1) +
+         ' · SEBI ' + SV1OC.cur + c.sebi.toFixed(2) +
+         (c.stampDuty ? (' · Stamp ' + SV1OC.cur + c.stampDuty.toFixed(1)) : '') +
+         ' · GST ' + SV1OC.cur + c.gst.toFixed(1) +
+         ' = ' + SV1OC.cur + c.total.toFixed(0) + ' total')
+      : ('Charges ' + SV1OC.cur + chargesTotal.toFixed(0));
+    html += '<div class="oc-hist-row">'
+      + '<div class="oc-hist-top">'
+      +   '<span class="oc-hist-name">' + h.type + ' ' + _fmtNum(h.strike) + ' · ' + h.side.toUpperCase() + '</span>'
+      +   '<span class="' + pnlCls + '" style="font-weight:700">' + (h.netPnl >= 0 ? '+' : '') + _ocFmtMoney(h.netPnl) + '</span>'
+      + '</div>'
+      + '<div class="oc-hist-meta">' + h.qtyLots + ' lot(s) · Entry ' + _fmtNum(h.entryPrice) + ' → Exit ' + _fmtNum(h.exitPrice)
+      +   ' · ' + (h.reason || 'manual') + ' · ' + new Date(h.exitTime).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) + '</div>'
+      +   '<div class="oc-hist-charges">' + chargesLine + '</div>'
+      + '</div>';
+  });
+  list.innerHTML = html;
+  if (_ocActiveTab === 'analytics' && typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
+}
+
+// ── P&L & Analytics tab (adapted from SV2's _sv2OCRenderAnalytics /
+// _sv2OCDrawEquityCurve / _sv2OCAnSetScope) — SV1OC.history newest-first
+// (unshift se), exitTime yahan Date.now() epoch-MILLISECONDS mein hai
+// (SV2 mein replay-clock epoch-seconds tha, isliye date-string helper mein
+// *1000 nahi karna). "Latest Day" scope = history ki sabse recent trade
+// jis IST-date par close hui, us din ke sab trades. "Overall" = poora
+// history array. Dono se: net P&L, win-rate, trade count, avg P&L/trade,
+// equity curve (chronological cumulative net P&L), best/worst trade. ─────
+var SV1OC_AN_SCOPE = 'day';
+function _ocAnSetScope(scope) {
+  SV1OC_AN_SCOPE = scope;
+  var dayBtn = document.getElementById('oc-an-scope-day');
+  var ovBtn = document.getElementById('oc-an-scope-overall');
+  if (dayBtn) dayBtn.classList.toggle('active', scope === 'day');
+  if (ovBtn) ovBtn.classList.toggle('active', scope === 'overall');
+  _ocRenderAnalytics();
+}
+// IST date-string (YYYY-MM-DD) for a given epoch-MILLISECONDS (SV1's own
+// exitTime unit — Date.now(), not SV2's replay epoch-seconds).
+function _ocAnDateStr(epochMs) {
+  return new Date(epochMs).toISOString().slice(0, 10);
+}
+function _ocRenderAnalytics() {
+  var emptyEl = document.getElementById('oc-an-empty');
+  var bodyEl = document.getElementById('oc-an-body');
+  var hist = SV1OC.history || [];
+  if (!hist.length) {
+    if (emptyEl) emptyEl.style.display = '';
+    if (bodyEl) bodyEl.style.display = 'none';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (bodyEl) bodyEl.style.display = '';
+
+  // hist[0] = most recent closed trade (unshift order)
+  var latestDay = _ocAnDateStr(hist[0].exitTime);
+  var dayTrades = hist.filter(function (h) { return _ocAnDateStr(h.exitTime) === latestDay; });
+  var scoped = (SV1OC_AN_SCOPE === 'day') ? dayTrades : hist;
+
+  var trades = scoped.length;
+  var wins = scoped.filter(function (h) { return h.netPnl > 0; }).length;
+  var winRate = trades ? (wins / trades * 100) : 0;
+  var netPnl = 0;
+  scoped.forEach(function (h) { netPnl += h.netPnl; });
+  var avgPnl = trades ? (netPnl / trades) : 0;
+
+  var netEl = document.getElementById('oc-an-netpnl');
+  var netSubEl = document.getElementById('oc-an-netpnl-sub');
+  if (netEl) { netEl.textContent = (netPnl >= 0 ? '+' : '') + netPnl.toFixed(0); netEl.className = 'oc-an-stat-val ' + (netPnl >= 0 ? 'pos' : 'neg'); }
+  if (netSubEl) netSubEl.textContent = SV1OC_AN_SCOPE === 'day' ? latestDay : 'all-time';
+
+  var wrEl = document.getElementById('oc-an-winrate');
+  var wrSubEl = document.getElementById('oc-an-winrate-sub');
+  if (wrEl) wrEl.textContent = winRate.toFixed(0) + '%';
+  if (wrSubEl) wrSubEl.textContent = wins + 'W / ' + (trades - wins) + 'L';
+
+  var trEl = document.getElementById('oc-an-trades');
+  var trSubEl = document.getElementById('oc-an-trades-sub');
+  if (trEl) trEl.textContent = String(trades);
+  if (trSubEl) trSubEl.textContent = SV1OC_AN_SCOPE === 'day' ? 'on latest day' : 'all-time';
+
+  var avgEl = document.getElementById('oc-an-avgpnl');
+  var avgSubEl = document.getElementById('oc-an-avgpnl-sub');
+  if (avgEl) { avgEl.textContent = (avgPnl >= 0 ? '+' : '') + avgPnl.toFixed(0); avgEl.className = 'oc-an-stat-val ' + (avgPnl >= 0 ? 'pos' : 'neg'); }
+  if (avgSubEl) avgSubEl.textContent = 'per trade';
+
+  // Best / worst single trade (within current scope)
+  var best = null, worst = null;
+  scoped.forEach(function (h) {
+    if (best === null || h.netPnl > best.netPnl) best = h;
+    if (worst === null || h.netPnl < worst.netPnl) worst = h;
+  });
+  var bestPnlEl = document.getElementById('oc-an-best-pnl');
+  var bestMetaEl = document.getElementById('oc-an-best-meta');
+  var worstPnlEl = document.getElementById('oc-an-worst-pnl');
+  var worstMetaEl = document.getElementById('oc-an-worst-meta');
+  if (best) {
+    if (bestPnlEl) { bestPnlEl.textContent = '+' + best.netPnl.toFixed(0); bestPnlEl.className = 'oc-an-bw-pnl pos'; }
+    if (bestMetaEl) bestMetaEl.textContent = best.side.toUpperCase() + ' BANKNIFTY ' + best.strike + ' ' + best.type + ' · ' + _ocAnDateStr(best.exitTime);
+  }
+  if (worst) {
+    var wCls = worst.netPnl >= 0 ? 'pos' : 'neg';
+    if (worstPnlEl) { worstPnlEl.textContent = (worst.netPnl >= 0 ? '+' : '') + worst.netPnl.toFixed(0); worstPnlEl.className = 'oc-an-bw-pnl ' + wCls; }
+    if (worstMetaEl) worstMetaEl.textContent = worst.side.toUpperCase() + ' BANKNIFTY ' + worst.strike + ' ' + worst.type + ' · ' + _ocAnDateStr(worst.exitTime);
+  }
+
+  // Equity curve — chronological (oldest→newest) cumulative net P&L
+  var chrono = scoped.slice().reverse();
+  var cum = 0;
+  var points = chrono.map(function (h) { cum += h.netPnl; return cum; });
+  var finalEl = document.getElementById('oc-an-equity-final');
+  if (finalEl) { finalEl.textContent = (cum >= 0 ? '+' : '') + cum.toFixed(0); finalEl.style.color = cum >= 0 ? '#26a69a' : '#ef5350'; }
+  _ocDrawEquityCurve(points);
+}
+// Lightweight canvas line-chart — same approach as SV2's equity curve, no
+// external charting lib needed. Green if scope ends net-positive, red if
+// net-negative, with a light fill + zero baseline for context.
+function _ocDrawEquityCurve(points) {
+  var canvas = document.getElementById('oc-an-equity-canvas');
+  var emptyEl = document.getElementById('oc-an-equity-empty');
+  if (!canvas) return;
+  if (!points || points.length < 2) {
+    canvas.style.display = 'none';
+    if (emptyEl) emptyEl.style.display = '';
+    return;
+  }
+  canvas.style.display = '';
+  if (emptyEl) emptyEl.style.display = 'none';
+  var dpr = window.devicePixelRatio || 1;
+  var cssW = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
+  var cssH = 120;
+  canvas.width = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.height = cssH + 'px';
+  var ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  var padL = 4, padR = 4, padT = 8, padB = 8;
+  var w = cssW - padL - padR, h = cssH - padT - padB;
+  var minV = Math.min(0, Math.min.apply(null, points));
+  var maxV = Math.max(0, Math.max.apply(null, points));
+  if (minV === maxV) { minV -= 1; maxV += 1; }
+  var xStep = points.length > 1 ? w / (points.length - 1) : w;
+  function xAt(i) { return padL + i * xStep; }
+  function yAt(v) { return padT + h - ((v - minV) / (maxV - minV)) * h; }
+
+  var finalPositive = points[points.length - 1] >= 0;
+  var lineColor = finalPositive ? '#26a69a' : '#ef5350';
+  var fillColor = finalPositive ? 'rgba(38,166,154,0.14)' : 'rgba(239,83,80,0.14)';
+
+  ctx.save();
+  ctx.strokeStyle = '#2a2e39';
+  ctx.setLineDash([3, 3]);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, yAt(0));
+  ctx.lineTo(padL + w, yAt(0));
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.beginPath();
+  ctx.moveTo(xAt(0), yAt(points[0]));
+  points.forEach(function (v, i) { ctx.lineTo(xAt(i), yAt(v)); });
+  ctx.lineTo(xAt(points.length - 1), yAt(0));
+  ctx.lineTo(xAt(0), yAt(0));
+  ctx.closePath();
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+
+  ctx.beginPath();
+  points.forEach(function (v, i) {
+    var x = xAt(i), y = yAt(v);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = 1.6;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  var lastX = xAt(points.length - 1), lastY = yAt(points[points.length - 1]);
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = lineColor;
+  ctx.fill();
+}
+
+// ── Virtual balance card (Balance tab) ───────────────────────────────────
+function _ocSyncVBalCard() {
+  var el = document.getElementById('oc-vbal-value');
+  var subEl = document.getElementById('oc-vbal-sub');
+  if (el) el.textContent = _ocFmtMoney(SV1OC.balance);
+  var blocked = _ocTotalBlockedMargin();
+  if (subEl) {
+    if (blocked > 0) {
+      var avail = SV1OC.balance - blocked;
+      subEl.innerHTML = 'Available ' + _ocFmtMoney(avail) + ' · <span class="oc-margin-amt">' + _ocFmtMoney(blocked) + ' margin blocked</span>';
+    } else {
+      subEl.textContent = '';
+    }
+  }
+  _ocUpdateMarginCallBanner();
+}
+// ── Margin-call banner — equity (balance + open positions ka unrealized
+// MTM) blocked margin (SV1OC.marginBlocked, actual balance-blocking figure —
+// hedge-aware estimate nahi) ke against risky ho jaaye to warning dikhata
+// hai. Ek saath DO jagah update hoti hain: (1) #oc-margincall-banner — top
+// of panel, hamesha visible chahe koi bhi tab khula ho (jaisa SV2 karta
+// hai); (2) #oc-vbal-margin-banner — Balance tab ke andar wahi detail,
+// backward-compat ke liye. "Near" (equity, blocked margin ke 20% buffer ke
+// andar) = warning (yellow), "Breach" (equity < blocked margin) = danger
+// (red, pulsing) + ek ONE-TIME alert per breach (re-arms sirf equity
+// buffer ke upar recover hone ke baad). Adapted from SV2's
+// _sv2OCUpdateMarginCallBanner(). Har live tick par (_applyOptionChain se)
+// aur har trade/close ke baad chalta hai. ─────────────────────────────────
+function _ocUpdateMarginCallBanner() {
+  var topBanner = document.getElementById('oc-margincall-banner');
+  var vbalBanner = document.getElementById('oc-vbal-margin-banner');
+  var blocked = _ocTotalBlockedMargin();
+  if (blocked <= 0) {
+    if (topBanner) topBanner.style.display = 'none';
+    if (vbalBanner) vbalBanner.classList.remove('show', 'warn', 'danger');
+    SV1OC._marginCallAlerted = false;
+    return;
+  }
+  var equity = SV1OC.balance + _ocPortfolioUnrealizedPnl();
+  var ratio = equity / blocked;
+  var cls, msg;
+  if (ratio < 1) {
+    cls = 'danger';
+    msg = '🚨 MARGIN CALL — Equity (' + _ocFmtMoney(equity) + ') required margin (' + _ocFmtMoney(blocked) + ') se kam hai! Positions square-off karo ya balance add karo.';
+    if (!SV1OC._marginCallAlerted) {
+      SV1OC._marginCallAlerted = true;
+      _ocSoundDanger();
+      try { alert('🚨 MARGIN CALL!\n\nEquity ' + _ocFmtMoney(equity) + ' required margin ' + _ocFmtMoney(blocked) + ' se kam ho gaya hai.\nKuch positions square-off karo ya loss control karo.'); } catch (_) {}
+    }
+  } else if (ratio < 1.2) {
+    cls = 'warn';
+    msg = '⚠️ Margin Call ke paas — Equity ' + _ocFmtMoney(equity) + ', required margin ' + _ocFmtMoney(blocked) + '. Buffer kam hai, loss control mein rakho.';
+    SV1OC._marginCallAlerted = false; // buffer zone — re-arm karo taaki aage breach ho to phir alert mile
+  } else {
+    if (topBanner) topBanner.style.display = 'none';
+    if (vbalBanner) vbalBanner.classList.remove('show', 'warn', 'danger');
+    SV1OC._marginCallAlerted = false;
+    return;
+  }
+  if (topBanner) { topBanner.className = cls; topBanner.style.display = 'block'; topBanner.textContent = msg; }
+  if (vbalBanner) { vbalBanner.classList.remove('warn', 'danger'); vbalBanner.classList.add('show', cls); vbalBanner.textContent = msg; }
+}
+function _ocVBalStartEdit() {
+  var row = document.getElementById('oc-vbal-edit-row');
+  var input = document.getElementById('oc-vbal-input');
+  if (row) row.classList.add('open');
+  if (input) input.value = Math.round(SV1OC.balance);
+}
+function _ocVBalCancelEdit() {
+  var row = document.getElementById('oc-vbal-edit-row');
+  if (row) row.classList.remove('open');
+}
+function _ocVBalSaveEdit() {
+  var input = document.getElementById('oc-vbal-input');
+  var row = document.getElementById('oc-vbal-edit-row');
+  if (!input) return;
+  var val = parseFloat(input.value);
+  if (isNaN(val) || val < 0) { alert('Sahi amount daalo'); return; }
+  SV1OC.balance = val;
+  _ocSaveBalance();
+  if (row) row.classList.remove('open');
+  _ocSyncVBalCard(); _ocRefreshHeaderBadge();
+}
+function _ocVBalReset() {
+  if (SV1OC.positions.length || SV1OC.pendingOrders.length) {
+    if (!confirm('Reset karne se saari open positions aur working orders bhi clear ho jayengi (history safe rahegi). Continue?')) return;
+    SV1OC.positions = [];
+    SV1OC.pendingOrders = [];
+    _ocSavePositions(); _ocSavePendingOrders();
+    _ocRenderPositions();
+  }
+  SV1OC.balance = SV1OC.startingBalance;
+  _ocSaveBalance();
+  _ocSyncVBalCard(); _ocRefreshHeaderBadge();
+}
+
+// ── ⛓ Chain button badge — total open P&L + has-pos highlight ───────────
+function _ocRefreshHeaderBadge() {
+  var btn = document.getElementById('oc-real-btn');
+  var badge = document.getElementById('oc-real-btn-badge');
+  if (!btn || !badge) return;
+  var hasPos = SV1OC.positions.length > 0;
+  btn.classList.toggle('has-pos', hasPos);
+  if (!hasPos) { badge.classList.remove('show', 'pos', 'neg'); return; }
+  var pnl = _ocPortfolioUnrealizedPnl();
+  badge.textContent = (pnl >= 0 ? '+' : '') + _ocFmtMoney(pnl);
+  badge.classList.add('show');
+  badge.classList.toggle('pos', pnl >= 0);
+  badge.classList.toggle('neg', pnl < 0);
+}
+// Kick off once at load + whenever the panel opens (in case chain data
+// arrived before positions/badge wiring finished).
+setTimeout(function () {
+  _ocRenderPositions(); _ocRenderHistory(); _ocRefreshHeaderBadge();
+  var sBtn = document.getElementById('oc-sound-btn');
+  if (sBtn) { sBtn.textContent = SV1OC.soundOn ? '🔊' : '🔇'; sBtn.classList.toggle('off', !SV1OC.soundOn); }
+  var gBtn = document.getElementById('oc-greeks-btn');
+  if (gBtn) gBtn.classList.toggle('on', SV1OC.greeksOn);
+}, 0);
 
 // ── Fast direct tick poll — talks straight to the local side-port HTTP
 // server (the same one /api/bn_history already uses) instead of going
