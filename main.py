@@ -578,6 +578,49 @@ def refresh_option_chain_cache() -> dict:
     return result
 
 
+# ─── Option Chain background refresher ─────────────────────────────────────
+# PEHLE: _option_chain_pusher (Streamlit @st.fragment) seedha refresh_option_
+# chain_cache() ko call karta tha — jisme Fyers ko REST call jaata tha. Ye call
+# session ke execution thread ko block kar deta tha, jiski wajah se _bn_tick_
+# pusher (jo sirf in-memory _LIVE dict padhta hai, koi network call nahi) bhi
+# rukk jaata tha — spot-price ka tick-by-tick feel isi wajah se lag khata tha.
+#
+# AB: ek alag background daemon thread khud apni raftaar se (har ~1s check,
+# andar TTL-gated hai to asli Fyers call sirf _OC_TTL second mein ek baar hoti
+# hai) option chain fetch karta rehta hai aur natije ko _OC_LAST_PAYLOAD mein
+# likhta hai. _option_chain_pusher fragment ab sirf ye already-computed cache
+# padhta hai — koi network I/O nahi, isliye kabhi block nahi karta. ──────────
+_OC_LAST_PAYLOAD: dict = {"data": None, "ts": 0.0}
+_OC_LAST_PAYLOAD_LOCK = threading.Lock()
+
+def _option_chain_bg_loop():
+    while True:
+        try:
+            payload = refresh_option_chain_cache()
+        except Exception as e:
+            payload = {"error": f"bg loop exception: {e}"}
+        with _OC_LAST_PAYLOAD_LOCK:
+            _OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
+        time.sleep(1)
+
+def get_cached_option_chain_payload() -> dict:
+    """Non-blocking read — background thread ye already update kar raha hai.
+    Streamlit fragment/pusher isi ko call kare, kabhi refresh_option_chain_cache()
+    seedha na bulaye (warna wapas blocking wapas aa jaayegi)."""
+    with _OC_LAST_PAYLOAD_LOCK:
+        data = _OC_LAST_PAYLOAD["data"]
+        age  = time.time() - _OC_LAST_PAYLOAD["ts"]
+    if data is None:
+        return {"error": "Option chain load ho raha hai… (pehli fetch abhi baaki hai)"}
+    if age > 15:
+        # Background thread kisi wajah se ruk gaya ho to purana data dikhane
+        # ke bajaye saaf bata do — silently stale data dikhana bhi galat hai.
+        d = dict(data)
+        d["stale_warning"] = f"Data {int(age)}s purana hai — background refresh check karo"
+        return d
+    return data
+
+
 def _write_login_log(payload: dict, status_code: int, response: dict):
     """Write login attempt details to login_debug.json for inspection."""
     try:
@@ -1637,6 +1680,8 @@ def _ensure_live_threads():
         threading.Thread(target=_rest_live_loop, name="FyersRESTPoller", daemon=True).start()
     if "FyersTokenMonitor" not in names:
         threading.Thread(target=_token_monitor_loop, name="FyersTokenMonitor", daemon=True).start()
+    if "OptionChainBG" not in names:
+        threading.Thread(target=_option_chain_bg_loop, name="OptionChainBG", daemon=True).start()
     _start_ws()
     _register_api_route()
 
@@ -2435,10 +2480,14 @@ if sess_active or _btc_only:
         _fyers_meta_pusher()
 
     # ── Option Chain → postMessage pusher ───────────────────────────────────
+    # Ab ye kabhi Fyers ko seedha network call NAHI karta — sirf background
+    # thread (OptionChainBG) ka already-fetched cache padhta hai. Isliye run_every
+    # ko 1s rakhna bhi safe hai: koi blocking I/O nahi, spot-tick pusher
+    # (_bn_tick_pusher) ab kabhi iske peeche wait nahi karega.
     if sess_active:
-        @st.fragment(run_every=2)
+        @st.fragment(run_every=1)
         def _option_chain_pusher():
-            oc = refresh_option_chain_cache()
+            oc = get_cached_option_chain_payload()
             if not oc:
                 oc = {"error": "Kuch data nahi mila (unknown reason)"}
             _oc_json = json.dumps(oc)
