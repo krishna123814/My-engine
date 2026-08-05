@@ -3468,6 +3468,31 @@ select.s-select, input.s-select{
 .fm-label{font-size:11px;color:#848da0}
 .fm-value{font-size:14px;font-weight:700;color:#26a69a}
 #fm-updated{font-size:10px;color:#555;margin-top:2px}
+/* ── BTC Option Chain (Binance public API) — Step 1 mini panel ─────────────
+   Fyers wale "💰 Balance" panel jaisa hi chhota popup, bas isme BTCUSDT ka
+   ek ATM strike + CE/PE premium dikhta hai (poori chain abhi nahi). ── */
+#btc-oc-panel{
+  display:none;position:fixed;z-index:10002;
+  bottom:34px;left:8px;
+  width:min(300px,90vw);
+  background:#1e222d;border:1px solid #363c4e;border-radius:10px;
+  box-shadow:0 8px 32px #000c;flex-direction:column;overflow:hidden;
+}
+#btc-oc-panel.open{display:flex}
+#btc-oc-hdr{
+  display:flex;align-items:center;gap:6px;padding:8px 10px;
+  border-bottom:1px solid #2a2e39;flex-shrink:0;
+}
+#btc-oc-hdr span{font-size:12px;font-weight:700;color:#d1d4dc;flex:1}
+#btc-oc-close{background:none;border:none;color:#787b86;font-size:14px;cursor:pointer;padding:0 2px;line-height:1}
+#btc-oc-close:active{color:#ef5350}
+#btc-oc-body{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.btc-oc-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.btc-oc-label{font-size:11px;color:#848da0}
+.btc-oc-value{font-size:14px;font-weight:700;color:#d1d4dc}
+.btc-oc-value.ce{color:#26a69a}
+.btc-oc-value.pe{color:#ef5350}
+#btc-oc-updated{font-size:10px;color:#555;margin-top:2px}
 #notepad-panel{
   display:none;position:fixed;z-index:10002;
   top:0;left:0;
@@ -4088,6 +4113,7 @@ function _hdrRelayout(){
   <button id="ind-btn" onclick="toggleIndPanel()">📊 Indicators</button>
   <button id="fyers-meta-btn" onclick="toggleFyersMeta()" title="Fyers Balance + Nearest Strike">💰 Balance</button>
   <button id="oc-real-btn" onclick="toggleOptionChain()" title="Real Option Chain (Fyers Live Data)">⛓ Chain</button>
+  <button id="btc-oc-btn" onclick="toggleBtcOptionChain()" title="BTC Option Chain (Binance Public API)">₿ Chain</button>
   <div class="bot-sep"></div>
   <button id="auto-btn" onclick="autoFitChart()" title="Auto-fit candles to normal size">⊡ Auto</button>
   <button id="goto-date-btn" onclick="toggleGotoDate()" title="Go to date">📅</button>
@@ -4190,6 +4216,37 @@ function _hdrRelayout(){
       <span class="fm-value" id="fm-strike">—</span>
     </div>
     <div id="fm-updated">Update ka wait ho raha hai…</div>
+  </div>
+</div>
+
+<!-- ═══ BTC OPTION CHAIN PANEL (Binance Public API — Step 1: 1 ATM strike) ══ -->
+<div id="btc-oc-panel">
+  <div id="btc-oc-hdr">
+    <span id="btc-oc-title">₿ BTC Option Chain</span>
+    <button id="btc-oc-close" onclick="toggleBtcOptionChain()">✕</button>
+  </div>
+  <div id="btc-oc-body">
+    <div class="btc-oc-row">
+      <span class="btc-oc-label">Spot (BTCUSDT)</span>
+      <span class="btc-oc-value" id="btc-oc-spot">—</span>
+    </div>
+    <div class="btc-oc-row">
+      <span class="btc-oc-label">ATM Strike</span>
+      <span class="btc-oc-value" id="btc-oc-strike">—</span>
+    </div>
+    <div class="btc-oc-row">
+      <span class="btc-oc-label">Expiry</span>
+      <span class="btc-oc-value" id="btc-oc-expiry">—</span>
+    </div>
+    <div class="btc-oc-row">
+      <span class="btc-oc-label">CE Premium</span>
+      <span class="btc-oc-value ce" id="btc-oc-ce">—</span>
+    </div>
+    <div class="btc-oc-row">
+      <span class="btc-oc-label">PE Premium</span>
+      <span class="btc-oc-value pe" id="btc-oc-pe">—</span>
+    </div>
+    <div id="btc-oc-updated">Update ka wait ho raha hai…</div>
   </div>
 </div>
 
@@ -19286,6 +19343,9 @@ window.addEventListener('message', function(evt) {
     if (msg && msg.type === 'option_chain') {
       _applyOptionChain(msg.data);
     }
+    if (msg && msg.type === 'btc_option_chain') {
+      _applyBtcOptionChain(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
@@ -19462,6 +19522,62 @@ function _startOCPolling() {
   }, 6000);
 }
 _startOCPolling();
+
+// ── BTC Option Chain (Binance public API) — Step 1: 1 ATM strike panel ────
+// Fyers wale oc-panel jaisa hi pattern: postMessage primary, file-poll
+// (binance_optionchain.json) fallback. Login ki zaroorat nahi.
+function toggleBtcOptionChain() {
+  const p = document.getElementById('btc-oc-panel');
+  if (!p) return;
+  p.classList.toggle('open');
+  if (p.classList.contains('open')) _pollBtcOptionChain();
+}
+
+function _applyBtcOptionChain(data) {
+  if (!data) return;
+  const spotEl   = document.getElementById('btc-oc-spot');
+  const strikeEl = document.getElementById('btc-oc-strike');
+  const expEl    = document.getElementById('btc-oc-expiry');
+  const ceEl     = document.getElementById('btc-oc-ce');
+  const peEl     = document.getElementById('btc-oc-pe');
+  const updEl    = document.getElementById('btc-oc-updated');
+  if (data.error) {
+    if (updEl) updEl.textContent = '⚠️ ' + data.error;
+    return;
+  }
+  if (spotEl)   spotEl.textContent   = _fmtNum(data.spot);
+  if (strikeEl) strikeEl.textContent = _fmtNum(data.strike);
+  if (expEl)    expEl.textContent    = data.expiry_label || '—';
+  if (ceEl)     ceEl.textContent     = data.call_premium != null ? _fmtNum(data.call_premium) : '—';
+  if (peEl)     peEl.textContent     = data.put_premium  != null ? _fmtNum(data.put_premium)  : '—';
+  if (updEl) {
+    const t = data.ts ? new Date(data.ts * 1000) : new Date();
+    updEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  }
+}
+
+let _btcOcPollIv = null;
+async function _pollBtcOptionChain() {
+  const paths = ['./binance_optionchain.json', '/binance_optionchain.json', 'binance_optionchain.json'];
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        _applyBtcOptionChain(d);
+        return;
+      }
+    } catch(_) {}
+  }
+}
+function _startBtcOCPolling() {
+  if (_btcOcPollIv) return;
+  _btcOcPollIv = setInterval(() => {
+    const p = document.getElementById('btc-oc-panel');
+    if (p && p.classList.contains('open')) _pollBtcOptionChain();
+  }, 8000);
+}
+_startBtcOCPolling();
 
 // ── Fast direct tick poll — talks straight to the local side-port HTTP
 // server (the same one /api/bn_history already uses) instead of going

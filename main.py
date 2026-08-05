@@ -1304,6 +1304,127 @@ def load_btc_daily() -> list:
             pass
     return all_candles
 
+# ─── BTC Option Chain (Binance PUBLIC Options API) — Step 1: sirf 1 ATM strike ──
+# Poori Binance option-chain website iframe mein (Streamlit Cloud pe) blocked
+# ho jaati hai, isliye hum website nahi — Binance ke PUBLIC EAPI (Options)
+# endpoints seedha call karke, ek-ek strike manually nikaalenge aur apni
+# khud ki chain banayenge. Yeh sirf pehla step hai: nearest-expiry ka ATM
+# strike + uska CE/PE premium (markPrice). In endpoints ko koi login/API-key
+# nahi chahiye — bilkul fyers_get_option_chain() jaisa hi pattern hai, bas
+# Fyers ki jagah Binance.
+BTC_OC_FILE   = "binance_optionchain.json"
+_BTC_OC_CACHE = {"data": None, "ts": 0.0}
+_BTC_OC_LOCK  = threading.Lock()
+_BTC_OC_TTL   = 10  # seconds — public API hai, thoda relaxed rate rakha hai
+_BTC_OC_DEBUG = {"last_error": "", "ts": 0.0}
+
+
+def binance_get_spot(symbol: str = "BTCUSDT") -> "float | None":
+    """Public spot price — koi auth nahi chahiye."""
+    try:
+        r = requests.get(
+            "https://api.binance.com/api/v3/ticker/price",
+            params={"symbol": symbol}, timeout=8,
+        ).json()
+        return float(r["price"])
+    except Exception as e:
+        _BTC_OC_DEBUG.update({"last_error": f"spot fetch fail: {e}", "ts": time.time()})
+        return None
+
+
+def binance_get_atm_option(underlying: str = "BTCUSDT") -> "dict | None":
+    """Binance Options (EAPI) se sabse nazdeeki expiry ka ATM strike dhoondhta
+    hai aur uska CE (Call) + PE (Put) premium (markPrice) fetch karta hai.
+    Puri chain nahi — jaan-boojh kar sirf 1 strike, taaki rate-limit / iframe
+    block ka risk na aaye. Isi function ko baad mein loop mein chalaakar
+    strike-by-strike puri manual chain banayi jaa sakti hai."""
+    spot = binance_get_spot(underlying)
+    if spot is None:
+        return {"error": "Binance spot price nahi mila."}
+
+    try:
+        info = requests.get(
+            "https://eapi.binance.com/eapi/v1/exchangeInfo", timeout=8,
+        ).json()
+    except Exception as e:
+        _BTC_OC_DEBUG.update({"last_error": f"exchangeInfo fail: {e}", "ts": time.time()})
+        return {"error": f"Binance Options exchangeInfo fail ho gayi — {e}"}
+
+    base = underlying.replace("USDT", "")  # "BTCUSDT" -> "BTC"
+    opt_symbols = [
+        s for s in info.get("optionSymbols", [])
+        if s.get("symbol", "").startswith(base + "-")
+    ]
+    if not opt_symbols:
+        return {"error": f"{base} ke liye koi option symbol nahi mila (exchangeInfo)."}
+
+    now_ms = int(time.time() * 1000)
+    expiries = sorted({s["expiryDate"] for s in opt_symbols if s.get("expiryDate", 0) > now_ms})
+    if not expiries:
+        return {"error": "Koi future expiry nahi mili."}
+    nearest_expiry = expiries[0]
+
+    same_expiry = [s for s in opt_symbols if s.get("expiryDate") == nearest_expiry]
+    strikes = sorted({float(s["strikePrice"]) for s in same_expiry})
+    atm_strike = min(strikes, key=lambda k: abs(k - spot))
+
+    call_sym = next((s["symbol"] for s in same_expiry
+                      if float(s["strikePrice"]) == atm_strike and s.get("side") == "CALL"), None)
+    put_sym = next((s["symbol"] for s in same_expiry
+                     if float(s["strikePrice"]) == atm_strike and s.get("side") == "PUT"), None)
+
+    def _premium(sym: "str | None") -> "float | None":
+        if not sym:
+            return None
+        try:
+            r = requests.get(
+                "https://eapi.binance.com/eapi/v1/mark",
+                params={"symbol": sym}, timeout=8,
+            ).json()
+            row = r[0] if isinstance(r, list) else r
+            return float(row.get("markPrice", 0))
+        except Exception as e:
+            _BTC_OC_DEBUG.update({"last_error": f"mark fetch fail ({sym}): {e}", "ts": time.time()})
+            return None
+
+    expiry_label = datetime.datetime.utcfromtimestamp(nearest_expiry / 1000).strftime("%d-%b-%Y")
+
+    return {
+        "spot":         spot,
+        "strike":       atm_strike,
+        "expiry_label": expiry_label,
+        "call_symbol":  call_sym,
+        "call_premium": _premium(call_sym),
+        "put_symbol":   put_sym,
+        "put_premium":  _premium(put_sym),
+        "ts":           time.time(),
+    }
+
+
+def refresh_btc_option_chain_cache() -> dict:
+    """TTL ke andar cache use karta hai, warna Binance se dobara fetch karta
+    hai aur binance_optionchain.json mein likh deta hai (chart iframe ke liye
+    poll fallback — bilkul fyers_optionchain.json jaisa)."""
+    now = time.time()
+    with _BTC_OC_LOCK:
+        stale = (now - _BTC_OC_CACHE["ts"]) >= _BTC_OC_TTL
+    if stale:
+        data = binance_get_atm_option()
+        if data and "error" not in data:
+            with _BTC_OC_LOCK:
+                _BTC_OC_CACHE.update({"data": data, "ts": now})
+        payload = data or {"error": "Kuch data nahi mila (unknown reason)."}
+        try:
+            with open(BTC_OC_FILE, "w") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+        return payload
+    with _BTC_OC_LOCK:
+        cached = _BTC_OC_CACHE["data"]
+    return cached or {"error": "Cache khaali hai"}
+
+
 # ─── OHLC converter ───────────────────────────────────────────────────────────
 def to_ohlc(bars: list) -> list:
     out = []
@@ -2276,6 +2397,36 @@ if sess_active or _btc_only:
             components.html(_script3, height=0, scrolling=False)
 
         _option_chain_pusher()
+
+    # ── BTC Option Chain (Binance public API) → postMessage pusher ──────────
+    # Fyers login (sess_active) ki zaroorat nahi — Binance Options endpoints
+    # public hain. Abhi sirf 1 ATM strike (CE+PE premium) bhejta hai; iski
+    # window.parent listener chart.html mein baad mein add karni hogi
+    # (type: 'btc_option_chain'), jaise 'option_chain' ke liye already hai.
+    @st.fragment(run_every=10)
+    def _btc_option_chain_pusher():
+        btc_oc = refresh_btc_option_chain_cache()
+        if not btc_oc:
+            btc_oc = {"error": "Kuch data nahi mila (unknown reason)"}
+        _btc_oc_json = json.dumps(btc_oc)
+        _script3b = f"""
+<script>
+(function() {{
+  var btcOc = {_btc_oc_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'btc_option_chain', data: btcOc }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+        components.html(_script3b, height=0, scrolling=False)
+
+    _btc_option_chain_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
