@@ -404,60 +404,99 @@ _DEPTH_CACHE: dict = {}
 _DEPTH_LOCK = threading.Lock()
 _DEPTH_TTL  = 1.5  # seconds — depth apna alag chhota TTL, sirf active symbol ke liye
 
+_DEPTH_DEBUG = {"last_error": "", "last_status": None, "ts": 0.0}
+
 def fyers_get_market_depth(app_id: str, access_token: str, symbol: str) -> "dict | None":
     """Fyers Market Depth API se 5-level bid/ask order book + price stats fetch karta hai.
     Response shape match karta hai Fyers app ke 'Market Depth' screen se:
     bids/asks (5 levels each, price+volume+orders), totalbuyqty/totalsellqty,
-    o/h/l/c, ltp/ltq/volume, upper_ckt/lower_ckt, atp (avg price)."""
-    headers = {"Authorization": f"{app_id}:{access_token}"}
-    params = {"symbol": symbol, "ohlcv_flag": "1"}
+    o/h/l/c, ltp/ltq/volume, upper_ckt/lower_ckt, atp (avg price).
+    Poori tarah try/except mein wrapped hai — koi bhi unexpected exception yahin
+    pakdi jaati hai taaki side-server ka do_GET crash na ho (warna browser ko
+    'connection failed' milta hai, kisi asli JSON error ke bajaye)."""
     try:
+        headers = {"Authorization": f"{app_id}:{access_token}"}
+        params = {"symbol": symbol, "ohlcv_flag": "1"}
         resp = requests.get("https://api-t1.fyers.in/data/depth", headers=headers, params=params, timeout=6)
-        r = resp.json()
+        last_status = resp.status_code
+        try:
+            r = resp.json()
+        except Exception:
+            err = f"Non-JSON response (HTTP {resp.status_code}): {resp.text[:200]}"
+            _DEPTH_DEBUG.update({"last_error": err, "last_status": last_status, "ts": time.time()})
+            return {"error": err}
+
+        if not isinstance(r, dict) or r.get("s") != "ok":
+            err = (r.get("message", str(r)) if isinstance(r, dict) else str(r))[:300]
+            _DEPTH_DEBUG.update({"last_error": err, "last_status": last_status, "ts": time.time()})
+            return {"error": f"Fyers depth API fail — {err} (HTTP {last_status})"}
+
+        dmap = r.get("d") or {}
+        if not isinstance(dmap, dict) or not dmap:
+            err = "Fyers ne depth data khaali bheja (dmap empty)"
+            _DEPTH_DEBUG.update({"last_error": err, "last_status": last_status, "ts": time.time()})
+            return {"error": err}
+
+        # Normally dmap ki key exact 'symbol' hoti hai, lekin agar Fyers thoda
+        # alag casing/format bhejde to fallback: agar sirf ek hi entry hai to
+        # wahi use kar lo (case-insensitive match bhi try karo).
+        d = dmap.get(symbol)
+        if d is None:
+            for k, v in dmap.items():
+                if k.upper() == symbol.upper():
+                    d = v
+                    break
+        if d is None and len(dmap) == 1:
+            d = next(iter(dmap.values()))
+        if not d:
+            err = f"Symbol '{symbol}' depth response mein nahi mila. Mile keys: {list(dmap.keys())[:5]}"
+            _DEPTH_DEBUG.update({"last_error": err, "last_status": last_status, "ts": time.time()})
+            return {"error": err}
+
+        _DEPTH_DEBUG.update({"last_error": "", "last_status": last_status, "ts": time.time()})
+        return {
+            "symbol": symbol,
+            "ltp": d.get("ltp", 0),
+            "ch": d.get("ch", 0),
+            "chp": d.get("chp", 0),
+            "bids": d.get("bids", []),
+            "asks": d.get("ask", []),
+            "total_buy_qty":  d.get("totalbuyqty", 0),
+            "total_sell_qty": d.get("totalsellqty", 0),
+            "open": d.get("o", 0),
+            "high": d.get("h", 0),
+            "low": d.get("l", 0),
+            "prev_close": d.get("c", 0),
+            "atp": d.get("atp", 0),
+            "upper_ckt": d.get("upper_ckt", 0),
+            "lower_ckt": d.get("lower_ckt", 0),
+            "volume": d.get("v", 0),
+            "ltq": d.get("ltq", 0),
+            "ts": time.time(),
+        }
     except Exception as e:
-        return {"error": str(e)}
-    if r.get("s") != "ok":
-        return {"error": r.get("message", str(r))[:300]}
-    d = (r.get("d") or {}).get(symbol, {})
-    if not d:
-        return {"error": "Symbol data not found in depth response"}
-    return {
-        "symbol": symbol,
-        "ltp": d.get("ltp", 0),
-        "ch": d.get("ch", 0),
-        "chp": d.get("chp", 0),
-        "bids": d.get("bids", []),
-        "asks": d.get("ask", []),
-        "total_buy_qty":  d.get("totalbuyqty", 0),
-        "total_sell_qty": d.get("totalsellqty", 0),
-        "open": d.get("o", 0),
-        "high": d.get("h", 0),
-        "low": d.get("l", 0),
-        "prev_close": d.get("c", 0),
-        "atp": d.get("atp", 0),
-        "upper_ckt": d.get("upper_ckt", 0),
-        "lower_ckt": d.get("lower_ckt", 0),
-        "volume": d.get("v", 0),
-        "ltq": d.get("ltq", 0),
-        "ts": time.time(),
-    }
+        _DEPTH_DEBUG.update({"last_error": str(e), "last_status": None, "ts": time.time()})
+        return {"error": f"Exception: {e}"}
 
 def refresh_market_depth_cache(symbol: str) -> dict:
     """TTL-cached depth fetch — ek hi symbol baar-baar poll hone par bhi
     Fyers ko sirf har _DEPTH_TTL second mein ek baar hit karta hai."""
-    now = time.time()
-    with _DEPTH_LOCK:
-        entry = _DEPTH_CACHE.get(symbol)
-        if entry and (now - entry["ts"]) < _DEPTH_TTL:
-            return entry["data"]
-    creds = load_creds()
-    if not creds.get("access_token") or not creds.get("app_id"):
-        payload = {"error": "Fyers login nahi mila"}
-    else:
-        payload = fyers_get_market_depth(creds["app_id"], creds["access_token"], symbol) or {"error": "unknown error"}
-    with _DEPTH_LOCK:
-        _DEPTH_CACHE[symbol] = {"data": payload, "ts": now}
-    return payload
+    try:
+        now = time.time()
+        with _DEPTH_LOCK:
+            entry = _DEPTH_CACHE.get(symbol)
+            if entry and (now - entry["ts"]) < _DEPTH_TTL:
+                return entry["data"]
+        creds = load_creds()
+        if not creds.get("access_token") or not creds.get("app_id"):
+            payload = {"error": "Fyers login nahi mila — pehle login karo."}
+        else:
+            payload = fyers_get_market_depth(creds["app_id"], creds["access_token"], symbol) or {"error": "unknown error"}
+        with _DEPTH_LOCK:
+            _DEPTH_CACHE[symbol] = {"data": payload, "ts": now}
+        return payload
+    except Exception as e:
+        return {"error": f"refresh_market_depth_cache exception: {e}"}
 
 # ─── Next-month expiry chain — apna alag TTL cache (SV1's "This Month /
 # Next Month" toggle ke liye). Current-month jitni baar refresh karne ki
@@ -1691,13 +1730,17 @@ def _register_api_route():
                 if parsed.path == "/api/market_depth":
                     dqs = _up.parse_qs(parsed.query, keep_blank_values=False)
                     dsymbol = dqs.get("symbol", [""])[0]
-                    if not dsymbol:
-                        body = b'{"error":"symbol missing"}'
-                        self.send_response(400)
-                    else:
-                        dpayload = refresh_market_depth_cache(dsymbol)
-                        body = json.dumps(dpayload).encode()
-                        self.send_response(200)
+                    try:
+                        if not dsymbol:
+                            body = b'{"error":"symbol missing"}'
+                            self.send_response(400)
+                        else:
+                            dpayload = refresh_market_depth_cache(dsymbol)
+                            body = json.dumps(dpayload).encode()
+                            self.send_response(200)
+                    except Exception as e:
+                        body = json.dumps({"error": f"server exception: {e}"}).encode()
+                        self.send_response(500)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
                     self.send_header("Cache-Control", "no-cache")
