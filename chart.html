@@ -18642,6 +18642,9 @@ function switchAsset(name) {
   // Marker state samet) save kar lo, taaki baad me wapas aane par resume ho sake.
   try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
   S.asset = name;
+  // SV1 Option Chain (⛓ Chain, bottom bar) ka virtual-trading state (balance/
+  // positions/history) naye asset ki apni alag storage se reload karo.
+  if (typeof _ocOnAssetSwitch === 'function') _ocOnAssetSwitch();
   _swingPresetOnAssetChange(name);  // auto-apply preset if locked
   const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
   // Update LTP area label for non-BTC assets
@@ -19892,6 +19895,7 @@ function toggleOptionChain() {
   if (!p) return;
   p.classList.toggle('open');
   if (p.classList.contains('open')) {
+    if (typeof _ocUpdateStaticLabels === 'function') _ocUpdateStaticLabels();
     if (typeof _ocRenderChainFromCache === 'function') _ocRenderChainFromCache();
     if (typeof _ocIsBinanceAsset === 'function' && _ocIsBinanceAsset()) _pollBinanceOptionChain();
     else _pollOptionChain();
@@ -19932,16 +19936,10 @@ function _ocSelectTab(tab) {
 // niche. Dobara tap karne se deselect + trade bar band ho jaati hai. ──────
 let _ocSelectedStrike = null;
 function _ocSelectStrike(el, strike) {
-  // BTC chain abhi sirf DISPLAY ke liye hai — virtual trade bar (₹, lot-size
-  // 30, BankNifty margin/STT math) BTC/USDT strikes par galat/misleading
-  // hoga, isliye BTC active hote waqt row-select ko sirf highlight tak
-  // seemit rakha hai, trade bar nahi khulta.
-  if (_ocIsBinanceAsset()) {
-    const prev = document.querySelector('.oc-row.oc-selected');
-    if (prev && prev !== el) prev.classList.remove('oc-selected');
-    el.classList.toggle('oc-selected');
-    return;
-  }
+  // BTC ke liye bhi ab full virtual Buy/Sell trade-bar khulti hai — SV1OC
+  // apna lot-size/margin/STT/charges math current asset (BankNifty ya BTC)
+  // ki apni CFG se leta hai (dekho SV1OC_ASSET_CFG + _ocSyncAssetContext),
+  // isliye ab koi asset-specific gate ki zaroorat nahi.
   const prev = document.querySelector('.oc-row.oc-selected');
   if (prev && prev !== el) prev.classList.remove('oc-selected');
   if (_ocSelectedStrike === strike) {
@@ -20141,9 +20139,33 @@ var _ocLastChainData = null;     // CURRENT-month live chain payload (for LTP lo
 var _ocLastChainDataNext = null; // NEXT-month live chain payload (This Month / Next Month toggle)
 var _ocBinanceChainData = null;  // Live BTCUSDT option-chain payload (Binance) — jab top-left symbol BTC ho
 
+// ── Per-asset settings — BankNifty (Fyers) vs BTCUSDT (Binance). Har asset
+// ki apni lot-size/strike-gap/charges/currency/starting-balance hoti hai.
+// _ocSyncAssetContext() inhi values ko SV1OC ke flat fields (neeche) mein
+// copy karta hai jab bhi asset switch hota hai — taaki neeche ka baaki sara
+// engine (margin/greeks/charges/P&L, sab SV1OC.xxx directly use karta hai)
+// bina rewrite kiye dono asset ke liye sahi kaam kare. Values SV2's
+// SV2OC_ASSET_CFG jaisi hi hain (consistency ke liye). ─────────────────────
+var SV1OC_ASSET_CFG = {
+  bn: {
+    label: 'BANKNIFTY',
+    strikeStep: 100, lotSize: 30, qtySingular: 'lot', qtyPlural: 'lots',
+    marginPct: 0.12, brokeragePerOrder: 20, sttRate: 0.001, miscChargeRate: 0.0005,
+    startingBalance: 25000, cur: '₹', locale: 'en-IN'
+  },
+  btc: {
+    label: 'BTCUSDT',
+    strikeStep: 500, lotSize: 0.1, qtySingular: 'contract', qtyPlural: 'contracts',
+    marginPct: 0.15, brokeragePerOrder: 0.5, sttRate: 0, miscChargeRate: 0.0003,
+    startingBalance: 10000, cur: '$', locale: 'en-US'
+  }
+};
+
 var SV1OC = {
+  currentAssetKey: 'bn',       // 'bn' | 'btc' — _ocSyncAssetContext() ise maintain karta hai
   strikeStep: 100,
-  lotSize: 30,                 // BankNifty lot size
+  lotSize: 30,                 // BankNifty lot size (default — asset switch par sync ho jaata hai)
+  qtySingular: 'lot', qtyPlural: 'lots',
   startingBalance: 25000,      // ₹25,000 virtual starting balance
   marginPct: 0.12,             // approx SPAN+exposure margin % for SELL (option writing)
   brokeragePerOrder: 20,       // flat ₹ per executed leg
@@ -20182,13 +20204,86 @@ var SV1OC = {
   })()
 };
 
-function _ocSK(name) { return 'sv1_oc_' + name + '_v1'; }
+// BankNifty ke liye OLD (suffix-less) keys hi use hoti hain — backward
+// compatible, existing users ka data kabhi nahi khota. BTC ke liye alag
+// suffix'd keys — dono asset ka wallet/positions/history kabhi mix nahi hota.
+function _ocSK(name) {
+  return (_ocAssetKey() === 'btc') ? ('sv1_oc_' + name + '_btc_v1') : ('sv1_oc_' + name + '_v1');
+}
 
 // ── Which chain is being DISPLAYED right now — asset (BTC/BankNifty) ke
 // hisaab se source pehle decide hota hai, phir BankNifty ke liye current/next
 // month toggle apply hota hai (BTC chain mein "next month" jaisa concept nahi hai). ──
 function _ocIsBinanceAsset() {
   return (typeof S !== 'undefined' && typeof BTC_ASSET !== 'undefined' && S.asset === BTC_ASSET);
+}
+function _ocAssetKey() { return _ocIsBinanceAsset() ? 'btc' : 'bn'; }
+
+// ── SV1OC ke flat "settings" fields (lot size, strike gap, charges,
+// currency) ko current asset ki CFG se sync karta hai. Balance/positions/
+// pending/history yahan touch nahi hote — wo load functions khud _ocSK() ke
+// through apni asset-specific key se aate hain (dekho _ocOnAssetSwitch). ──
+function _ocSyncAssetContext() {
+  var ak = _ocAssetKey();
+  var cfg = SV1OC_ASSET_CFG[ak];
+  SV1OC.currentAssetKey  = ak;
+  SV1OC.strikeStep       = cfg.strikeStep;
+  SV1OC.lotSize          = cfg.lotSize;
+  SV1OC.qtySingular      = cfg.qtySingular;
+  SV1OC.qtyPlural        = cfg.qtyPlural;
+  SV1OC.startingBalance  = cfg.startingBalance;
+  SV1OC.marginPct        = cfg.marginPct;
+  SV1OC.brokeragePerOrder= cfg.brokeragePerOrder;
+  SV1OC.sttRate          = cfg.sttRate;
+  SV1OC.miscChargeRate   = cfg.miscChargeRate;
+  SV1OC.cur              = cfg.cur;
+  SV1OC.locale           = cfg.locale;
+}
+
+// ── Static UI text jo asset ke hisaab se badalta hai — margin note, "Reset
+// to ₹X/$X" button, aur wo do cheezein (real Fyers-balance card ka "Nearest
+// Strike" row + 📊 Market-Depth buttons) jo sirf BankNifty/Fyers ke liye
+// relevant hain (Binance ka apna real-balance card login-page par already
+// hai, isliye BTC ke waqt yahan sirf Virtual Trading Balance dikhti hai). ──
+function _ocUpdateStaticLabels() {
+  var isBTC = SV1OC.currentAssetKey === 'btc';
+  var cfg = SV1OC_ASSET_CFG[SV1OC.currentAssetKey];
+  var noteEl = document.getElementById('oc-trade-margin-note');
+  if (noteEl) noteEl.textContent = 'Virtual money — 1 ' + cfg.qtySingular + ' = ' + cfg.lotSize + ' qty (' + cfg.label + ')';
+  var resetBtn = document.querySelector('#oc-vbal-actions .oc-vbal-btn:last-child');
+  if (resetBtn) resetBtn.textContent = '↺ Reset to ' + cfg.cur + cfg.startingBalance.toLocaleString(cfg.locale);
+  var realCard = document.getElementById('oc-balance-card');
+  if (realCard) realCard.style.display = isBTC ? 'none' : '';
+  var depthCe = document.getElementById('oc-depth-btn-ce');
+  var depthPe = document.getElementById('oc-depth-btn-pe');
+  if (depthCe) depthCe.style.display = isBTC ? 'none' : '';
+  if (depthPe) depthPe.style.display = isBTC ? 'none' : '';
+}
+
+// ── Asset switch hone par (BankNifty ↔ BTC) poora SV1OC virtual-trading
+// state uss asset ki apni alag storage se reload karo, aur agar panel khula
+// ho to sab labels/tabs turant refresh karo. Purane asset ki selected strike/
+// open trade-bar clear kar do (dusre asset par woh strike invalid hai). ────
+function _ocOnAssetSwitch() {
+  var prevKey = SV1OC.currentAssetKey;
+  _ocSyncAssetContext();
+  if (prevKey !== SV1OC.currentAssetKey) {
+    _ocHideTradeBar();
+    var prevSel = document.querySelector('.oc-row.oc-selected');
+    if (prevSel) prevSel.classList.remove('oc-selected');
+    _ocSelectedStrike = null;
+  }
+  _ocLoadBalance(); _ocLoadPositions(); _ocLoadPendingOrders(); _ocLoadHistory();
+  _ocUpdateStaticLabels();
+  var p = document.getElementById('oc-panel');
+  if (p && p.classList.contains('open')) {
+    _ocRenderChainFromCache();
+    _ocSyncBalanceTab();
+    _ocRenderPositions();
+    _ocRenderHistory();
+    if (_ocActiveTab === 'analytics' && typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
+  }
+  _ocRefreshHeaderBadge();
 }
 function _ocActiveChainData() {
   if (_ocIsBinanceAsset()) return _ocBinanceChainData;
@@ -20257,6 +20352,7 @@ function _ocLoadHistory() {
 }
 function _ocSaveHistory() { try { localStorage.setItem(_ocSK('history'), JSON.stringify(SV1OC.history)); } catch (_) {} }
 // Boot: load persisted state once at page-load.
+_ocSyncAssetContext();
 _ocLoadBalance(); _ocLoadPositions(); _ocLoadPendingOrders(); _ocLoadHistory();
 (function () {
   var b = document.getElementById('oc-pnl-btn');
@@ -20317,7 +20413,11 @@ function _ocToggleSound() {
 // assumed/simulated IV nahi), ye greeks/IV live market ke hisaab se
 // accurate hain. Risk-free rate ek chhota rough constant maan liya hai. ──
 // ══════════════════════════════════════════════════════════════════════
-var OC_RISK_FREE_RATE = 0.065; // ~6.5% rough T-bill proxy
+var OC_RISK_FREE_RATE_BN  = 0.065; // ~6.5% rough T-bill proxy (BankNifty)
+var OC_RISK_FREE_RATE_BTC = 0.0;   // crypto derivatives conventionally use ~0% risk-free rate
+Object.defineProperty(window, 'OC_RISK_FREE_RATE', {
+  get: function () { return (typeof SV1OC !== 'undefined' && SV1OC.currentAssetKey === 'btc') ? OC_RISK_FREE_RATE_BTC : OC_RISK_FREE_RATE_BN; }
+});
 function _ocNormPdf(x) { return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI); }
 function _ocNormCdf(x) {
   // Abramowitz-Stegun approximation — accurate enough for option greeks.
@@ -21277,6 +21377,9 @@ var _ocEodForcedToday = false;
 function _ocUpdateEodSquareOffWarning() {
   var banner = document.getElementById('oc-eod-banner');
   if (!banner) return;
+  // BTC 24/7 trade hota hai — MIS/intraday 3:20 PM IST square-off sirf
+  // BankNifty (NSE cash-market hours) ke liye maayne rakhta hai.
+  if (SV1OC.currentAssetKey === 'btc') { banner.classList.remove('show'); _ocEodForcedToday = false; return; }
   if (!SV1OC.positions.length) { banner.classList.remove('show'); _ocEodForcedToday = false; return; }
   var now = new Date();
   var istMs = now.getTime() + (now.getTimezoneOffset() * 60000) + (5.5 * 3600000);
@@ -21353,6 +21456,13 @@ function _ocNextMonthlyExpiryEpoch(afterEpoch) {
   candidate = _ocAdjustForHolidays(candidate);
   return Math.floor(candidate.getTime() / 1000);
 }
+// BTC (Binance) options weekly cycle mein expire hote hain, BankNifty monthly
+// mein — Roll feature ke liye "agla-cycle" epoch nikalne ka asset-aware entry
+// point. BankNifty ka behaviour bilkul same rehta hai (backward compatible).
+function _ocNextExpiryEpoch(afterEpoch) {
+  if (SV1OC.currentAssetKey === 'btc') return afterEpoch + 7 * 24 * 3600; // ~1 week aage
+  return _ocNextMonthlyExpiryEpoch(afterEpoch);
+}
 function _ocSoonestExpiringPosition() {
   var soonest = null;
   SV1OC.positions.forEach(function (p) {
@@ -21401,7 +21511,7 @@ function _ocRollPosition(id) {
   // 2) Open the next-cycle leg at a theoretical price (needs spot + a valid
   // current IV reading; without those we can't estimate — user squared off,
   // but skip auto re-entry and tell them to open it manually from the chain).
-  var nextExpiryEpoch = p.expiryEpoch != null ? _ocNextMonthlyExpiryEpoch(p.expiryEpoch) : null;
+  var nextExpiryEpoch = p.expiryEpoch != null ? _ocNextExpiryEpoch(p.expiryEpoch) : null;
   if (spot == null || tCur == null || nextExpiryEpoch == null) {
     alert('🔄 ' + type + ' ' + strike + ' square-off ho gaya (rollover). Agla-cycle position theoretical price estimate nahi kar paaya (spot/expiry data missing) — naya position chain se manually khol lo.');
     return;
@@ -21749,12 +21859,12 @@ function _ocRenderAnalytics() {
   var worstMetaEl = document.getElementById('oc-an-worst-meta');
   if (best) {
     if (bestPnlEl) { bestPnlEl.textContent = '+' + best.netPnl.toFixed(0); bestPnlEl.className = 'oc-an-bw-pnl pos'; }
-    if (bestMetaEl) bestMetaEl.textContent = best.side.toUpperCase() + ' BANKNIFTY ' + best.strike + ' ' + best.type + ' · ' + _ocAnDateStr(best.exitTime);
+    if (bestMetaEl) bestMetaEl.textContent = best.side.toUpperCase() + ' ' + SV1OC_ASSET_CFG[SV1OC.currentAssetKey].label + ' ' + best.strike + ' ' + best.type + ' · ' + _ocAnDateStr(best.exitTime);
   }
   if (worst) {
     var wCls = worst.netPnl >= 0 ? 'pos' : 'neg';
     if (worstPnlEl) { worstPnlEl.textContent = (worst.netPnl >= 0 ? '+' : '') + worst.netPnl.toFixed(0); worstPnlEl.className = 'oc-an-bw-pnl ' + wCls; }
-    if (worstMetaEl) worstMetaEl.textContent = worst.side.toUpperCase() + ' BANKNIFTY ' + worst.strike + ' ' + worst.type + ' · ' + _ocAnDateStr(worst.exitTime);
+    if (worstMetaEl) worstMetaEl.textContent = worst.side.toUpperCase() + ' ' + SV1OC_ASSET_CFG[SV1OC.currentAssetKey].label + ' ' + worst.strike + ' ' + worst.type + ' · ' + _ocAnDateStr(worst.exitTime);
   }
 
   // Equity curve — chronological (oldest→newest) cumulative net P&L
