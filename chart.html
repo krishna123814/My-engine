@@ -4480,7 +4480,7 @@ function _hdrRelayout(){
       <span class="oc-legend-strike"></span>
       <span>LTP</span><span>Chg%</span><span>OI</span>
     </div>
-    <div id="oc-body"
+    <div id="oc-body">
       <div id="oc-loading">Data load ho raha hai…</div>
     </div>
     <div id="oc-ftr">
@@ -18644,16 +18644,6 @@ function switchAsset(name) {
   S.asset = name;
   _swingPresetOnAssetChange(name);  // auto-apply preset if locked
   const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
-  // SV1 real Option Chain panel (bottom-bar ⛓ Chain) hamesha BankNifty
-  // dikhata hai — asset switch se iska koi lena-dena nahi (BTC ke liye
-  // yeh panel exist hi nahi karta).
-  {
-    const ocp = document.getElementById('oc-panel');
-    if (ocp && ocp.classList.contains('open')) {
-      _ocRenderChainFromCache();
-      if (typeof _pollOptionChain === 'function') _pollOptionChain();
-    }
-  }
   // Update LTP area label for non-BTC assets
   const ltpEl = document.getElementById('hdr-ltp'); if (ltpEl && name !== BTC_ASSET) ltpEl.textContent = '--';
   const chgEl = document.getElementById('hdr-chg'); if (chgEl && name !== BTC_ASSET) chgEl.textContent = '--';
@@ -19823,6 +19813,7 @@ window.addEventListener('message', function(evt) {
     if (msg && msg.type === 'option_chain') {
       _applyOptionChain(msg.data);
     }
+    // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
 
@@ -19885,8 +19876,7 @@ function toggleOptionChain() {
   if (!p) return;
   p.classList.toggle('open');
   if (p.classList.contains('open')) {
-    _pollOptionChain();
-    _ocSyncBalanceTab();
+    _pollOptionChain(); _ocSyncBalanceTab();
     var curBtn = document.getElementById('oc-expiry-mode-cur');
     var nextBtn = document.getElementById('oc-expiry-mode-next');
     if (curBtn) curBtn.classList.toggle('active', SV1OC.expiryMode === 'current');
@@ -20069,8 +20059,7 @@ function _startOCPolling() {
   if (_ocPollIv) return;
   _ocPollIv = setInterval(() => {
     const p = document.getElementById('oc-panel');
-    if (!p || !p.classList.contains('open')) return;
-    _pollOptionChain();
+    if (p && p.classList.contains('open')) _pollOptionChain();
   }, 6000);
 }
 _startOCPolling();
@@ -20129,7 +20118,7 @@ var SV1OC = {
 
 function _ocSK(name) { return 'sv1_oc_' + name + '_v1'; }
 
-// SV1 Real Option Chain — BankNifty only (current/next expiry). ───────────
+// ── Which chain (current/next) is being DISPLAYED right now ───────────────
 function _ocActiveChainData() {
   return (SV1OC.expiryMode === 'next' && _ocLastChainDataNext && !_ocLastChainDataNext.error)
     ? _ocLastChainDataNext : _ocLastChainData;

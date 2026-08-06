@@ -3,7 +3,6 @@ import json
 import os
 import time
 import threading
-import traceback
 import hashlib
 import zipfile
 import requests
@@ -53,7 +52,6 @@ iframe{border:none!important}
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 CREDS_FILE        = ".fyers_creds.json"
-MARKET_TOGGLES_FILE = ".market_toggles.json"   # BankNifty/BTC ON-OFF state persist yahan hoti hai
 BN_LIVE_FILE      = "bn_live.json"
 DAILY_CACHE_FILE  = "btc_daily_cache.json"
 BN_DAILY_CACHE    = "bn_daily_cache.json"
@@ -127,25 +125,6 @@ def load_creds() -> dict:
 def save_creds(d: dict):
     with open(CREDS_FILE, "w") as f:
         json.dump(d, f)
-
-# ─── Market ON/OFF toggle persistence (BankNifty / BTCUSDT) ───────────────────
-# "Jaisa last chhoda tha waisa rahe" — state disk par save hoti hai taaki
-# session/restart ke baad bhi wahi ON/OFF wapas mile.
-def load_market_toggles() -> dict:
-    if os.path.exists(MARKET_TOGGLES_FILE):
-        try:
-            with open(MARKET_TOGGLES_FILE) as f:
-                d = json.load(f)
-                return {"banknifty": bool(d.get("banknifty", True)),
-                        "btc":       bool(d.get("btc", True))}
-        except Exception:
-            pass
-    return {"banknifty": True, "btc": True}
-
-def save_market_toggles(d: dict):
-    with open(MARKET_TOGGLES_FILE, "w") as f:
-        json.dump({"banknifty": bool(d.get("banknifty", True)),
-                    "btc":       bool(d.get("btc", True))}, f)
 
 # ─── OTP-based automated Fyers login ──────────────────────────────────────────
 def fyers_send_otp(client_id: str, app_id: str) -> tuple[bool, str]:
@@ -645,93 +624,6 @@ def get_cached_option_chain_payload() -> dict:
         d["stale_warning"] = f"Data {int(age)}s purana hai — background refresh check karo"
         return d
     return data
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# ─── BINANCE — Login + Full BTCUSDT Option Chain ───────────────────────────
-# Login yahan Fyers jaisa OAuth nahi hai — user khud API Key + Secret Key
-# manually daalta hai (Binance API Management se generate karke). Request
-# signing / endpoint shapes / error-handling EXACTLY reference file
-# (main.py) ke pattern se copy kiye gaye hain taaki koi call fail na ho.
-# ═════════════════════════════════════════════════════════════════════════
-import hmac as _hmac
-from urllib.parse import urlencode as _urlencode
-
-BINANCE_CREDS_FILE = ".binance_creds.json"
-BINANCE_BASE_URL   = "https://api.binance.com"
-
-def load_binance_creds() -> dict:
-    if os.path.exists(BINANCE_CREDS_FILE):
-        try:
-            with open(BINANCE_CREDS_FILE) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def save_binance_creds(d: dict):
-    with open(BINANCE_CREDS_FILE, "w") as f:
-        json.dump(d, f)
-
-def binance_is_connected() -> bool:
-    c = load_binance_creds()
-    return bool(c.get("api_key") and c.get("secret_key") and c.get("verified"))
-
-# ── Signing / request helpers (verbatim pattern from reference main.py) ────
-def _binance_server_time() -> int:
-    try:
-        r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
-        if r.status_code == 200:
-            return r.json().get("serverTime", int(time.time() * 1000))
-    except Exception:
-        pass
-    return int(time.time() * 1000)
-
-def _binance_sign(params: dict, secret_key: str) -> str:
-    params["timestamp"]  = _binance_server_time()
-    params["recvWindow"] = 10000
-    qs  = _urlencode(params, doseq=True)
-    sig = _hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
-    return f"{qs}&signature={sig}"
-
-def binance_call_api(base: str, path: str, params: dict, api_key: str,
-                      signed: bool = False, secret_key: str = None):
-    """GET wrapper — same shape/behavior as reference call_api(): returns
-    (True, json_data) ya (False, error_string)."""
-    headers = {"X-MBX-APIKEY": api_key} if api_key else {}
-    qs = _binance_sign(params.copy(), secret_key) if signed else _urlencode(params, doseq=True)
-    url = f"{base}{path}"
-    if qs:
-        url = f"{url}?{qs}"
-    try:
-        r = requests.get(url, headers=headers, timeout=20)
-        ct = r.headers.get("Content-Type", "")
-        if "application/json" in ct:
-            data = r.json()
-            if r.status_code == 200:
-                return True, data
-            code = data.get("code", r.status_code)
-            msg  = data.get("msg", "Unknown error")
-            return False, f"Error {code}: {msg}"
-        text = r.text.strip()
-        if "<html" in text.lower():
-            return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON (endpoint unavailable for your account/region)"
-        return False, f"HTTP {r.status_code}: {text[:500]}"
-    except requests.exceptions.Timeout:
-        return False, "Request timed out"
-    except requests.exceptions.ConnectionError:
-        return False, "Connection error"
-    except Exception as e:
-        return False, str(e)
-
-def binance_test_login(api_key: str, secret_key: str) -> "tuple[bool, str]":
-    """Login validate karne ke liye ek signed spot-account call — reference
-    ke get_spot_balance() jaisi hi exact request-shape use karta hai."""
-    ok, data = binance_call_api(BINANCE_BASE_URL, "/api/v3/account", {}, api_key,
-                                 signed=True, secret_key=secret_key)
-    if not ok:
-        return False, data
-    return True, "ok"
 
 
 def _write_login_log(payload: dict, status_code: int, response: dict):
@@ -2088,7 +1980,6 @@ if _qp.get("sv2_load") == "1":
     st.session_state["_sv2_anchor_date_btc"] = None
     st.session_state["_sv2_data_requested"]  = True
     st.session_state["_btc_only_mode"] = True
-    st.session_state["_entered_dashboard_btc"] = True
     st.rerun()
 
 # Handler 4: SV2 chunk / candle-count settings — Reset to default
@@ -2106,27 +1997,7 @@ if _qp.get("sv2_chunk_reset") == "1":
 creds      = load_creds()
 sess_active = is_session_active()
 
-# ─── Market ON/OFF toggle state (BankNifty / BTCUSDT) ─────────────────────────
-# Jo market OFF hai uski koi bhi background working (live data, option
-# chain, threads, pushers) bilkul nahi chalti — taaki chart par load kam
-# pade (ek time par sirf ek hi market study karne ke liye). Disk se
-# persisted state load karke session mein ek baar set karte hain; widget
-# neeche starting page par render hota hai (usi key ko reuse karta hai).
-_mkt_toggles_persisted = load_market_toggles()
-if "banknifty_enabled" not in st.session_state:
-    st.session_state["banknifty_enabled"] = _mkt_toggles_persisted["banknifty"]
-if "btc_enabled" not in st.session_state:
-    st.session_state["btc_enabled"] = _mkt_toggles_persisted["btc"]
-banknifty_enabled = st.session_state["banknifty_enabled"]
-btc_enabled        = st.session_state["btc_enabled"]
-
-# ─── Dashboard "Enter" gate — login safal hone se dashboard turant nahi
-# khulta; user ko explicitly "➡️ Enter" dabana padta hai (starting page
-# par login card ke niche). Alag alag Fyers/Binance ke liye alag flag. ───────
-_entered_bn  = st.session_state.get("_entered_dashboard_bn", False)
-_entered_btc = st.session_state.get("_entered_dashboard_btc", False)
-
-if sess_active and banknifty_enabled:
+if sess_active:
     _ensure_live_threads()
 
 with st.sidebar:
@@ -2271,21 +2142,19 @@ with st.sidebar:
 # ─── Fetch all chart data ─────────────────────────────────────────────────────
 # Cache key includes first 8 chars of token so new token → fresh fetch
 @st.cache_data(ttl=HIST_CACHE_TTL, show_spinner=False)
-def _get_chart_data(sess: bool, _tok: str = "", bn_on: bool = True, btc_on: bool = True):
-    btc_1m   = fetch_btc("1m",  1000) if btc_on else []
-    btc_15m  = fetch_btc("15m", 1000) if btc_on else []
-    btc_day  = load_btc_daily()       if btc_on else []
-    bn_1m    = fetch_bn_intraday(1)  if (sess and bn_on) else []
-    bn_5m    = fetch_bn_intraday(5)  if (sess and bn_on) else []
-    bn_15m   = fetch_bn_intraday(15) if (sess and bn_on) else []
-    bn_45m   = fetch_bn_intraday(45) if (sess and bn_on) else []
-    bn_day   = load_bn_daily()       if (sess and bn_on) else []
+def _get_chart_data(sess: bool, _tok: str = ""):
+    btc_1m   = fetch_btc("1m",  1000)
+    btc_15m  = fetch_btc("15m", 1000)
+    btc_day  = load_btc_daily()
+    bn_1m    = fetch_bn_intraday(1)  if sess else []
+    bn_5m    = fetch_bn_intraday(5)  if sess else []
+    bn_15m   = fetch_bn_intraday(15) if sess else []
+    bn_45m   = fetch_bn_intraday(45) if sess else []
+    bn_day   = load_bn_daily()       if sess else []
     return btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day
 
 _tok_hint = creds.get("access_token", "")[:8] if sess_active else ""
-btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(
-    sess_active, _tok_hint, banknifty_enabled, btc_enabled
-)
+btc_1m, btc_15m, btc_day, bn_1m, bn_5m, bn_15m, bn_45m, bn_day = _get_chart_data(sess_active, _tok_hint)
 
 # ─── TOTP error notification (from iframe-triggered auto-login failure) ────────
 if "totp_err" in st.session_state:
@@ -2484,51 +2353,25 @@ def _build_chart_html(
 
 
 # ─── Main area: embed chart directly (no separate API server needed) ─────────
-
-# ── Market ON/OFF toggles (starting page — sabse upar) ────────────────────────
-# Ek time par sirf ek hi market study karne ke liye: jo market OFF hai uski
-# option chain, live data, background threads — sab kuch band ho jaata hai
-# (upar hi gate ho chuka hai), taaki chart par extra load na pade. Jaisa
-# last chhoda tha waisa hi state yahan wapas dikhti hai (disk-persisted).
-_tgl_bn_col, _tgl_btc_col = st.columns(2)
-with _tgl_bn_col:
-    st.toggle("📊 BankNifty", key="banknifty_enabled")
-with _tgl_btc_col:
-    st.toggle("₿ BTCUSDT", key="btc_enabled")
-
-if (st.session_state["banknifty_enabled"] != _mkt_toggles_persisted["banknifty"]
-        or st.session_state["btc_enabled"] != _mkt_toggles_persisted["btc"]):
-    save_market_toggles({
-        "banknifty": st.session_state["banknifty_enabled"],
-        "btc":       st.session_state["btc_enabled"],
-    })
-
 st.markdown("## 📊 BankNifty Live Chart")
 
 # ── BTC-only mode (no Fyers needed) ──────────────────────────────────────────
 _btc_only = st.session_state.get("_btc_only_mode", False)
 
-# Chart render hone se pehle SV2 data sirf Fyers-login (sess_active) flow ke
-# liye "requested" maana jaata hai — taaki us case mein calendar/last-replay
-# turant kaam kare. BTC-only "skip login" entry ke liye YE AUTO-PRELOAD
-# JAAN-BOOJH KAR NAHI karte — is entry point se sirf tabhi SV2 replay data
-# load ho jab user khud Stack View 2 ke calendar se date select kare ya
-# "Last Replay" chune (dono hi is-sv2_load fallback ko trigger karte hain
-# neeche, jo Python side data fetch karke wahi pending action resume kar
-# deta hai). Isse starting-page se seedha chart kholne par shuru mein
-# GitHub se koi extra fetch/resample nahi hota — load kam hota hai.
-if sess_active and not st.session_state.get("_sv2_data_requested"):
+# Chart render hone se pehle SV2 data hamesha "requested" hona chahiye —
+# chahe Fyers login se aaye ho ya BTC-only button se. Warna in-chart
+# Stack View 2 calendar (📅) se date select karte waqt JS ko
+# _sv2DataIsLoaded()==false milta hai aur wo ek broken full-page reload
+# try karta hai (window.parent form-submit) jo poori app ko "restart"
+# jaisa dikha deta hai. Yahan pehle hi default anchor set karke us bug
+# ko root se khatam kar diya.
+if (sess_active or _btc_only) and not st.session_state.get("_sv2_data_requested"):
     st.session_state.setdefault("_sv2_anchor_date_bn",  _sv2_default_date("bn"))
     st.session_state["_sv2_anchor_date_btc"] = None
     st.session_state["_sv2_data_requested"]  = True
 
-# Dashboard sirf tabhi khulta hai jab login safal ho CHUKA ho AUR user ne
-# "➡️ Enter" button explicitly dabaya ho (starting page par login card ke
-# niche) — login hote hi seedha ander nahi ghusega.
-_show_dashboard = (sess_active and _entered_bn) or (_btc_only and _entered_btc)
-
-if _show_dashboard:
-    if sess_active and _entered_bn:
+if sess_active or _btc_only:
+    if sess_active:
         st.success("✅ Fyers connected — live data active")
     else:
         st.info("📊 BTC Chart mode — BankNifty data available nahi (Fyers login nahi hai)")
@@ -2549,14 +2392,10 @@ if _show_dashboard:
             st.session_state["_sv2_data_requested"]  = True
             st.rerun()
 
-    # BankNifty toggle OFF ho to chart ko sess_active=False hi bataya jaata hai
-    # (Fyers login ho bhi to bhi) — taaki BankNifty se jude saare panels/data
-    # chart ke andar bhi na khule aur load na pade.
-    _bn_chart_active = sess_active and _entered_bn and banknifty_enabled
     _chart_html = _build_chart_html(
         btc_1m, btc_15m, btc_day,
         bn_1m,  bn_5m,  bn_15m,  bn_45m,  bn_day,
-        _bn_chart_active,
+        sess_active,
     )
     components.html(_chart_html, height=950, scrolling=False)
 
@@ -2565,7 +2404,7 @@ if _show_dashboard:
     # Har 1s pe latest tick iframe ko postMessage se milega.
     # chart.html ka _applyBNLiveTick() + resampleForTF() automatically
     # 1m/15m/45m/135m/1d/3d/9d — sab TFs pe live candle update karta hai.
-    if _bn_chart_active:
+    if sess_active:
         @st.fragment(run_every=1)
         def _bn_tick_pusher():
             with _LAST_TICK_LOCK:
@@ -2637,7 +2476,7 @@ if _show_dashboard:
     # hai), phir 💰 Balance panel (Stack View 1 bottom-bar) ko postMessage se
     # bhej deta hai. Iframe poll (fyers_meta.json) fallback ke roop mein bhi
     # kaam karta hai agar postMessage miss ho jaye.
-    if _bn_chart_active:
+    if sess_active:
         @st.fragment(run_every=5)
         def _fyers_meta_pusher():
             meta = refresh_fyers_meta_cache()
@@ -2666,7 +2505,7 @@ if _show_dashboard:
     # thread (OptionChainBG) ka already-fetched cache padhta hai. Isliye run_every
     # ko 1s rakhna bhi safe hai: koi blocking I/O nahi, spot-tick pusher
     # (_bn_tick_pusher) ab kabhi iske peeche wait nahi karega.
-    if _bn_chart_active:
+    if sess_active:
         @st.fragment(run_every=1)
         def _option_chain_pusher():
             oc = get_cached_option_chain_payload()
@@ -2829,97 +2668,6 @@ else:
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
-    # ── Enter button — Fyers login safal hone ke baad hi active hota hai;
-    # dabate hi BankNifty dashboard ke andar entry ho jaati hai. ─────────────
-    st.markdown("<div style='max-width:620px;margin:0 auto 20px;'>", unsafe_allow_html=True)
-    if st.button(
-        "➡️ Enter (BankNifty Dashboard)",
-        use_container_width=True,
-        type="primary",
-        key="fyers_enter_btn",
-        disabled=not sess_active,
-    ):
-        st.session_state["_entered_dashboard_bn"] = True
-        st.rerun()
-    if not sess_active:
-        st.caption("👆 Pehle upar login karo, phir yeh Enter button active hoga")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # ── Binance Login (BTCUSDT Option Chain) ────────────────────────────────
-    # Fyers jaisa OAuth nahi — API Key/Secret manually daalte hain (Binance
-    # API Management se generate karke). Login "test" ek signed /api/v3/account
-    # call se hota hai — reference main.py ke get_spot_balance() jaisi hi
-    # exact request-shape, taaki fail na ho.
-    _bn_creds_m = load_binance_creds()
-    _bn_connected_m = binance_is_connected()
-
-    st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
-    st.markdown('''<div class="login-title">₿ Binance Login</div>''', unsafe_allow_html=True)
-    st.markdown('''<div class="login-sub">API Key + Secret Key daalo — phir BTCUSDT ka full option chain milega</div>''', unsafe_allow_html=True)
-
-    if _bn_connected_m:
-        st.success("✅ Binance connected!")
-
-    _bn_api_key_m = st.text_input(
-        "Binance API Key",
-        value=_bn_creds_m.get("api_key", ""),
-        type="password",
-        placeholder="Binance → API Management se generate karo",
-        key="binance_api_key_inp",
-    )
-    _bn_secret_m = st.text_input(
-        "Binance Secret Key",
-        value=_bn_creds_m.get("secret_key", ""),
-        type="password",
-        placeholder="Secret sirf ek baar dikhta hai — copy karke yahan paste karo",
-        key="binance_secret_key_inp",
-    )
-
-    col_bn_test, col_bn_disc = st.columns([1, 1])
-    with col_bn_test:
-        if st.button("⚡ Connect", use_container_width=True, type="primary", key="binance_connect_btn"):
-            if not _bn_api_key_m.strip() or not _bn_secret_m.strip():
-                st.warning("API Key aur Secret Key dono daalo pehle")
-            else:
-                with st.spinner("Binance account check ho raha hai…"):
-                    _bn_ok, _bn_msg = binance_test_login(_bn_api_key_m.strip(), _bn_secret_m.strip())
-                if _bn_ok:
-                    save_binance_creds({
-                        "api_key":    _bn_api_key_m.strip(),
-                        "secret_key": _bn_secret_m.strip(),
-                        "verified":   True,
-                    })
-                    st.success("🎉 Binance Connected!")
-                    st.rerun()
-                else:
-                    st.error(f"❌ Login Failed: {_bn_msg}")
-                    st.caption("Check karo: API key/secret sahi hai, IP-whitelist restriction nahi hai, aur 'Enable Reading' permission on hai.")
-    with col_bn_disc:
-        if _bn_connected_m:
-            if st.button("🔌 Disconnect", use_container_width=True, key="binance_disconnect_btn"):
-                if os.path.exists(BINANCE_CREDS_FILE):
-                    os.remove(BINANCE_CREDS_FILE)
-                st.rerun()
-
-    st.markdown('''</div>''', unsafe_allow_html=True)
-
-    # ── Enter button — Binance connect hone ke baad hi active hota hai;
-    # dabate hi seedha BTCUSDT dashboard ke andar entry ho jaati hai. ───────
-    st.markdown("<div style='max-width:620px;margin:0 auto 20px;'>", unsafe_allow_html=True)
-    if st.button(
-        "➡️ Enter (BTCUSDT Dashboard)",
-        use_container_width=True,
-        type="primary",
-        key="binance_enter_btn",
-        disabled=not _bn_connected_m,
-    ):
-        st.session_state["_btc_only_mode"] = True
-        st.session_state["_entered_dashboard_btc"] = True
-        st.rerun()
-    if not _bn_connected_m:
-        st.caption("👆 Pehle upar Binance connect karo, phir yeh Enter button active hoga")
-    st.markdown("</div>", unsafe_allow_html=True)
-
     # ── BTC Chart without Fyers ────────────────────────────────────────────────
     st.markdown("""
     <style>
@@ -2954,15 +2702,16 @@ else:
 
     st.markdown("<div style='max-width:620px;margin:10px auto 0;'>", unsafe_allow_html=True)
     if st.button("₿ BTC Chart Kholo (Fyers ke bina)", use_container_width=True, key="btc_only_btn"):
-        # Sirf 1x1/live BTC chart kholo — Stack View 2 replay data yahan
-        # PRE-LOAD nahi karte (pehle yahin turant SV2 fetch ho jaata tha,
-        # jo shuru mein extra GitHub fetch/resample ki wajah se load
-        # badhata tha). Ab SV2 data sirf tabhi load hoga jab user khud
-        # Stack View 2 ke andar calendar se date select kare ya "Last
-        # Replay" chune — us waqt chart.html ka apna fallback
-        # (_sv2RequestDataLoad) automatically request karke le aayega.
+        # BTC ka chunk system khatam ho chuka hai (koi date-anchor nahi
+        # chahiye), lekin SV2 data (BN + BTC dono) turant "requested" mark
+        # karna zaroori hai — warna in-chart calendar (Stack View 2) se date
+        # select karte waqt _sv2DataIsLoaded() false milta hai aur JS ek
+        # broken full-page reload try karta hai jo poori app ko restart
+        # jaisa dikhaata hai. Isliye yahin se hi data load kara do.
+        st.session_state["_sv2_anchor_date_bn"]  = _sv2_default_date("bn")
+        st.session_state["_sv2_anchor_date_btc"] = None
+        st.session_state["_sv2_data_requested"]  = True
         st.session_state["_btc_only_mode"] = True
-        st.session_state["_entered_dashboard_btc"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
