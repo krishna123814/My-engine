@@ -247,6 +247,15 @@ if use_proxy:
     proxies = build_proxies(proxy_host, proxy_port, proxy_user, proxy_pass)
     if proxies:
         st.sidebar.success("Proxy configured")
+        if st.sidebar.button("Check Proxy IP/Location"):
+            try:
+                r = requests.get("https://ip.oxylabs.io/location", proxies=proxies, timeout=15)
+                if r.status_code == 200:
+                    st.sidebar.json(r.json())
+                else:
+                    st.sidebar.error(f"Check failed: HTTP {r.status_code}")
+            except Exception as e:
+                st.sidebar.error(f"Check failed: {e}")
     else:
         st.sidebar.warning("Fill all proxy fields to enable proxy")
 else:
