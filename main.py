@@ -2260,8 +2260,12 @@ if _qp.get("sv2_chunk_reset") == "1":
 
 creds      = load_creds()
 sess_active = is_session_active()
+_btc_only_early = st.session_state.get("_btc_only_mode", False)
 
-if sess_active:
+# BinanceOptionChainBG thread BTC-only users ke liye bhi chahiye (Binance
+# option chain Fyers session se independent hai) — isliye sirf sess_active
+# nahi, _btc_only bhi is check me shaamil.
+if sess_active or _btc_only_early:
     _ensure_live_threads()
 
 with st.sidebar:
@@ -2801,7 +2805,9 @@ if sess_active or _btc_only:
     # Same pattern as _option_chain_pusher, alag message type ('binance_option_
     # chain') se — Chain panel (Stack View 1) frontend par asset (BTC/BankNifty)
     # ke hisaab se in dono mein se sahi wala pick karke render karta hai.
-    if sess_active:
+    # BTC-only (Fyers-less) users ke liye bhi chalna chahiye — Binance data
+    # Fyers session se independent hai, isliye _btc_only bhi allowed.
+    if sess_active or _btc_only:
         @st.fragment(run_every=1)
         def _binance_option_chain_pusher():
             boc = get_cached_binance_option_chain_payload()
