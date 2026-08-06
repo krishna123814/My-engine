@@ -2622,14 +2622,16 @@ st.markdown("## 📊 BankNifty Live Chart")
 # ── BTC-only mode (no Fyers needed) ──────────────────────────────────────────
 _btc_only = st.session_state.get("_btc_only_mode", False)
 
-# Chart render hone se pehle SV2 data hamesha "requested" hona chahiye —
-# chahe Fyers login se aaye ho ya BTC-only button se. Warna in-chart
-# Stack View 2 calendar (📅) se date select karte waqt JS ko
-# _sv2DataIsLoaded()==false milta hai aur wo ek broken full-page reload
-# try karta hai (window.parent form-submit) jo poori app ko "restart"
-# jaisa dikha deta hai. Yahan pehle hi default anchor set karke us bug
-# ko root se khatam kar diya.
-if (sess_active or _btc_only) and not st.session_state.get("_sv2_data_requested"):
+# Chart render hone se pehle SV2 data "requested" hona chahiye — lekin
+# SIRF Fyers-login (sess_active) flow ke liye. BTC skip-button flow
+# (_btc_only) ke liye jaan-boojh kar NAHI: replay data tabhi load hona
+# chahiye jab SV2 me user khud date select kare ya "Resume Last Replay"
+# dabaye. Agar in-chart calendar se date select/resume hota hai aur data
+# abhi tak load nahi hua, JS ka _sv2RequestDataLoad() ek ?sv2_load=1
+# reload trigger karta hai jise "Handler 3b" (_qp.get("sv2_load")) yahi
+# safely handle karta hai — isliye ye eager pre-load ab _btc_only ke liye
+# zaroori nahi hai.
+if sess_active and not st.session_state.get("_sv2_data_requested"):
     st.session_state.setdefault("_sv2_anchor_date_bn",  _sv2_default_date("bn"))
     st.session_state["_sv2_anchor_date_btc"] = None
     st.session_state["_sv2_data_requested"]  = True
@@ -3044,15 +3046,12 @@ else:
 
     st.markdown("<div style='max-width:620px;margin:10px auto 0;'>", unsafe_allow_html=True)
     if st.button("₿ BTC Chart Kholo (Fyers ke bina)", use_container_width=True, key="btc_only_btn"):
-        # BTC ka chunk system khatam ho chuka hai (koi date-anchor nahi
-        # chahiye), lekin SV2 data (BN + BTC dono) turant "requested" mark
-        # karna zaroori hai — warna in-chart calendar (Stack View 2) se date
-        # select karte waqt _sv2DataIsLoaded() false milta hai aur JS ek
-        # broken full-page reload try karta hai jo poori app ko restart
-        # jaisa dikhaata hai. Isliye yahin se hi data load kara do.
-        st.session_state["_sv2_anchor_date_bn"]  = _sv2_default_date("bn")
-        st.session_state["_sv2_anchor_date_btc"] = None
-        st.session_state["_sv2_data_requested"]  = True
+        # Sirf BTC-only mode ON karo — SV2 replay data yahan turant load
+        # NAHI karna. Chart empty/lazy state me khulega; replay data tabhi
+        # load hoga jab user khud SV2 me date select kare ya "Resume Last
+        # Replay" dabaye (us waqt JS ka _sv2RequestDataLoad() ek
+        # ?sv2_load=1 reload trigger karega jise Handler 3b handle karta
+        # hai).
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
