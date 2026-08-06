@@ -67,8 +67,10 @@ def call_api(base, path, params, api_key, signed=False, secret_key=None):
     # against a different proxy/network path.
 
     last_error = "No proxies available"
+    attempts = []  # log of every proxy tried for THIS call, in order
 
     for raw_proxy in get_ordered_proxies():
+        proxy_ip = raw_proxy.split(":")[0]
         if signed:
             qs = sign_request(params.copy(), secret_key)
         else:
@@ -85,36 +87,47 @@ def call_api(base, path, params, api_key, signed=False, secret_key=None):
             if "application/json" in ct:
                 data = r.json()
                 if r.status_code == 200:
+                    attempts.append({"proxy": proxy_ip, "result": "SUCCESS (200)"})
                     st.session_state["working_proxy"] = raw_proxy
+                    st.session_state["last_proxy_attempts"] = attempts
                     return True, data
                 else:
                     code = data.get("code", r.status_code)
                     msg = data.get("msg", "Unknown error")
                     # Geo-block / restricted-location errors -> try next proxy
                     if code in (0, -1, 451) or "restricted location" in str(msg).lower():
-                        last_error = f"Error {code}: {msg} (proxy {raw_proxy.split(':')[0]} blocked, trying next)"
+                        last_error = f"Error {code}: {msg} (proxy {proxy_ip} blocked, trying next)"
+                        attempts.append({"proxy": proxy_ip, "result": f"BLOCKED - Error {code}: {msg}"})
                         continue
                     # Any other real API error (bad key, bad symbol, etc.) -> no point rotating
+                    attempts.append({"proxy": proxy_ip, "result": f"API ERROR (not geo/IP) - Error {code}: {msg}"})
                     st.session_state["working_proxy"] = raw_proxy
+                    st.session_state["last_proxy_attempts"] = attempts
                     return False, f"Error {code}: {msg}"
 
             text = r.text.strip()
             if "<html" in text.lower() or r.status_code in (451, 403):
-                last_error = f"HTTP {r.status_code}: blocked via proxy {raw_proxy.split(':')[0]}, trying next"
+                last_error = f"HTTP {r.status_code}: blocked via proxy {proxy_ip}, trying next"
+                attempts.append({"proxy": proxy_ip, "result": f"BLOCKED - HTTP {r.status_code}"})
                 continue
             last_error = f"HTTP {r.status_code}: {text[:500]}"
+            attempts.append({"proxy": proxy_ip, "result": f"HTTP {r.status_code}: {text[:200]}"})
             continue
 
         except requests.exceptions.Timeout:
-            last_error = f"Timed out via proxy {raw_proxy.split(':')[0]}, trying next"
+            last_error = f"Timed out via proxy {proxy_ip}, trying next"
+            attempts.append({"proxy": proxy_ip, "result": "TIMEOUT"})
             continue
         except requests.exceptions.ConnectionError:
-            last_error = f"Connection error via proxy {raw_proxy.split(':')[0]}, trying next"
+            last_error = f"Connection error via proxy {proxy_ip}, trying next"
+            attempts.append({"proxy": proxy_ip, "result": "CONNECTION ERROR"})
             continue
         except Exception as e:
-            last_error = f"{e} (proxy {raw_proxy.split(':')[0]}, trying next)"
+            last_error = f"{e} (proxy {proxy_ip}, trying next)"
+            attempts.append({"proxy": proxy_ip, "result": f"EXCEPTION: {e}"})
             continue
 
+    st.session_state["last_proxy_attempts"] = attempts
     return False, f"All proxies failed. Last error: {last_error}"
 
 # -------------------------
@@ -228,7 +241,8 @@ def get_options_balance(api_key, secret_key):
         full_debug.append({
             "path": path,
             "ok": ok,
-            "response": data
+            "response": data,
+            "proxy_attempts": st.session_state.get("last_proxy_attempts", [])
         })
 
         if ok:
@@ -287,6 +301,8 @@ if st.button("Fetch Data"):
                 st.write("No non-zero spot balances found")
         else:
             st.error(f"Spot balance error: {spot_result}")
+        with st.expander("Proxy attempts: spot balance"):
+            st.json(st.session_state.get("last_proxy_attempts", []))
 
         # 2) BTC price
         btc_price, err = get_spot_price("BTCUSDT")
@@ -295,7 +311,10 @@ if st.button("Fetch Data"):
         else:
             st.subheader("BTC Spot Price")
             st.write(btc_price)
+        with st.expander("Proxy attempts: BTC price"):
+            st.json(st.session_state.get("last_proxy_attempts", []))
 
+        if not err:
             # 3) nearest option
             nearest, err = get_nearest_option(api_key, btc_price, side=side)
             if err:
@@ -303,7 +322,10 @@ if st.button("Fetch Data"):
             else:
                 st.subheader("Nearest BTC Option")
                 st.json(nearest)
+            with st.expander("Proxy attempts: nearest option"):
+                st.json(st.session_state.get("last_proxy_attempts", []))
 
+            if not err:
                 # 4) premium
                 premium, err = get_option_premium(api_key, nearest["symbol"])
                 if err:
@@ -311,6 +333,8 @@ if st.button("Fetch Data"):
                 else:
                     st.subheader("Option Premium")
                     st.json(premium)
+                with st.expander("Proxy attempts: option premium"):
+                    st.json(st.session_state.get("last_proxy_attempts", []))
 
                 # 5) order book
                 order_book, err = get_option_order_book(api_key, nearest["symbol"], limit=10)
@@ -319,6 +343,8 @@ if st.button("Fetch Data"):
                 else:
                     st.subheader("Option Order Book")
                     st.json(order_book)
+                with st.expander("Proxy attempts: order book"):
+                    st.json(st.session_state.get("last_proxy_attempts", []))
 
         # 6) options balance
         st.subheader("Options Balance")
