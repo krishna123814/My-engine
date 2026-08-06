@@ -483,13 +483,33 @@ def _ws_ffloat(v, default=0.0):
 BINANCE_SPOT_WS_URL = "wss://stream.binance.com:9443/ws/btcusdt@bookTicker"
 _BN_SPOT_WS   = {"price": None, "ts": 0.0}
 _BN_SPOT_LOCK = threading.Lock()
+_BN_SPOT_WS_DEBUG = {
+    "status": "idle", "last_error": None, "opened_ts": None,
+    "closed_ts": None, "close_info": None, "msg_count": 0,
+}
+_BN_SPOT_WS_DEBUG_LOCK = threading.Lock()
 
 def _binance_spot_ws_loop():
     if not _WS_AVAILABLE:
+        with _BN_SPOT_WS_DEBUG_LOCK:
+            _BN_SPOT_WS_DEBUG["status"] = "websocket-client not installed"
         return
     backoff = 1
     while True:
         try:
+            def on_open(ws):
+                with _BN_SPOT_WS_DEBUG_LOCK:
+                    _BN_SPOT_WS_DEBUG["status"] = "connected"
+                    _BN_SPOT_WS_DEBUG["opened_ts"] = time.time()
+            def on_error(ws, err):
+                with _BN_SPOT_WS_DEBUG_LOCK:
+                    _BN_SPOT_WS_DEBUG["status"] = "error"
+                    _BN_SPOT_WS_DEBUG["last_error"] = str(err)
+            def on_close(ws, code, msg):
+                with _BN_SPOT_WS_DEBUG_LOCK:
+                    _BN_SPOT_WS_DEBUG["status"] = "closed"
+                    _BN_SPOT_WS_DEBUG["closed_ts"] = time.time()
+                    _BN_SPOT_WS_DEBUG["close_info"] = f"{code}: {msg}"
             def on_message(ws, message):
                 try:
                     d = json.loads(message)
@@ -500,13 +520,21 @@ def _binance_spot_ws_loop():
                         with _BN_SPOT_LOCK:
                             _BN_SPOT_WS["price"] = price
                             _BN_SPOT_WS["ts"] = time.time()
-                except Exception:
-                    pass
-            app = _ws_client.WebSocketApp(BINANCE_SPOT_WS_URL, on_message=on_message)
+                        with _BN_SPOT_WS_DEBUG_LOCK:
+                            _BN_SPOT_WS_DEBUG["msg_count"] += 1
+                except Exception as e:
+                    with _BN_SPOT_WS_DEBUG_LOCK:
+                        _BN_SPOT_WS_DEBUG["last_error"] = f"parse: {e}"
+            app = _ws_client.WebSocketApp(
+                BINANCE_SPOT_WS_URL, on_message=on_message,
+                on_open=on_open, on_error=on_error, on_close=on_close,
+            )
             app.run_forever(ping_interval=180, ping_timeout=10)  # blocks tak connection zinda hai
             backoff = 1  # clean return ke baad backoff reset
-        except Exception:
-            pass
+        except Exception as e:
+            with _BN_SPOT_WS_DEBUG_LOCK:
+                _BN_SPOT_WS_DEBUG["status"] = "exception"
+                _BN_SPOT_WS_DEBUG["last_error"] = str(e)
         time.sleep(min(backoff, 30))
         backoff = min(backoff * 2, 30)
 
@@ -534,6 +562,30 @@ _BN_OPT_WS_STATE = {
 }
 _BN_OPT_WS_STATE_LOCK = threading.Lock()
 
+# Debug/diagnostics — payload ke saath frontend ko bhejte hain taaki panel
+# mein connection status/error/last-tick dikh sake (koi extra REST call nahi).
+_BN_OPT_WS_DEBUG = {
+    "status": "idle",        # idle / connecting / connected / error / closed / exception
+    "url_stream_count": 0,
+    "last_error": None,
+    "opened_ts": None,
+    "closed_ts": None,
+    "close_info": None,
+    "msg_count": 0,
+    "last_raw": None,        # ek sample raw message (truncated) — field-mapping verify karne ke liye
+    "last_raw_ts": None,
+    "last_sym_parsed": None,
+}
+_BN_OPT_WS_DEBUG_LOCK = threading.Lock()
+
+def get_binance_ws_debug():
+    with _BN_OPT_WS_DEBUG_LOCK:
+        opt = dict(_BN_OPT_WS_DEBUG)
+    with _BN_SPOT_WS_DEBUG_LOCK:
+        spot = dict(_BN_SPOT_WS_DEBUG)
+    opt["ws_client_installed"] = _WS_AVAILABLE
+    return {"spot": spot, "options": opt}
+
 def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
     """Ek combined-stream connection: N option symbols ka @ticker +
     ek hi @openInterest@<expiry> stream (jo us expiry ki saari strikes ka
@@ -544,10 +596,32 @@ def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
     if expiry_str:
         streams.append(f"btcusdt@openInterest@{expiry_str}")
     url = f"{BINANCE_OPT_WS_BASE}?streams=" + "/".join(streams)
+    with _BN_OPT_WS_DEBUG_LOCK:
+        _BN_OPT_WS_DEBUG["status"] = "connecting"
+        _BN_OPT_WS_DEBUG["url_stream_count"] = len(streams)
+        _BN_OPT_WS_DEBUG["last_error"] = None
 
     def _still_current():
         with _BN_OPT_WS_STATE_LOCK:
             return _BN_OPT_WS_STATE["generation"] == generation
+
+    def on_open(ws):
+        with _BN_OPT_WS_STATE_LOCK:
+            _BN_OPT_WS_STATE["app"] = ws
+        with _BN_OPT_WS_DEBUG_LOCK:
+            _BN_OPT_WS_DEBUG["status"] = "connected"
+            _BN_OPT_WS_DEBUG["opened_ts"] = time.time()
+
+    def on_error(ws, err):
+        with _BN_OPT_WS_DEBUG_LOCK:
+            _BN_OPT_WS_DEBUG["status"] = "error"
+            _BN_OPT_WS_DEBUG["last_error"] = str(err)
+
+    def on_close(ws, code, msg):
+        with _BN_OPT_WS_DEBUG_LOCK:
+            _BN_OPT_WS_DEBUG["status"] = "closed"
+            _BN_OPT_WS_DEBUG["closed_ts"] = time.time()
+            _BN_OPT_WS_DEBUG["close_info"] = f"{code}: {msg}"
 
     def on_message(ws, message):
         if not _still_current():
@@ -557,6 +631,10 @@ def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
                 pass
             return
         try:
+            with _BN_OPT_WS_DEBUG_LOCK:
+                _BN_OPT_WS_DEBUG["msg_count"] += 1
+                _BN_OPT_WS_DEBUG["last_raw"] = message[:400]
+                _BN_OPT_WS_DEBUG["last_raw_ts"] = time.time()
             msg = json.loads(message)
             payload = msg.get("data", msg)
             stream_name = msg.get("stream", "")
@@ -595,20 +673,24 @@ def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
             }
             with _BN_OPT_WS_LOCK:
                 _BN_OPT_TICKS[sym] = leg
-        except Exception:
-            pass
-
-    def on_open(ws):
-        with _BN_OPT_WS_STATE_LOCK:
-            _BN_OPT_WS_STATE["app"] = ws
+            with _BN_OPT_WS_DEBUG_LOCK:
+                _BN_OPT_WS_DEBUG["last_sym_parsed"] = sym
+        except Exception as e:
+            with _BN_OPT_WS_DEBUG_LOCK:
+                _BN_OPT_WS_DEBUG["last_error"] = f"parse: {e}"
 
     try:
-        app = _ws_client.WebSocketApp(url, on_message=on_message, on_open=on_open)
+        app = _ws_client.WebSocketApp(
+            url, on_message=on_message, on_open=on_open,
+            on_error=on_error, on_close=on_close,
+        )
         # eoptions server har 5 min ping bhejta hai; websocket-client isko
         # khud hi pong se jawab de deta hai (built-in), extra kaam nahi karna.
         app.run_forever(ping_interval=0)
-    except Exception:
-        pass
+    except Exception as e:
+        with _BN_OPT_WS_DEBUG_LOCK:
+            _BN_OPT_WS_DEBUG["status"] = "exception"
+            _BN_OPT_WS_DEBUG["last_error"] = str(e)
 
 def _binance_opt_ws_ensure(symbols: set, expiry_str: str):
     """Agar subscribed symbol-set/expiry badal gaya (ATM shift, naya
@@ -831,6 +913,7 @@ def binance_get_full_option_chain(api_key: str, strikecount: int = BINANCE_OC_ST
             "expiry_epoch": int(nearest_expiry / 1000) if nearest_expiry else None,
             "ts": time.time(),
             "live_ws": _WS_AVAILABLE,
+            "ws_debug": get_binance_ws_debug(),
         }
         if _WS_AVAILABLE and not any_live:
             result["warming_up"] = "Websocket connect ho raha hai — kuch second mein live prices aa jayenge."
@@ -859,7 +942,7 @@ def refresh_binance_option_chain_cache() -> dict:
                     _BINANCE_OC_CACHE.update({"data": data, "ts": now})
                 payload = data
             else:
-                payload = {"error": f"Binance option chain fetch fail ho gaya — {err}"}
+                payload = {"error": f"Binance option chain fetch fail ho gaya — {err}", "ws_debug": get_binance_ws_debug()}
         try:
             with open(BINANCE_OC_FILE, "w") as f:
                 json.dump(payload, f)

@@ -4485,6 +4485,7 @@ function _hdrRelayout(){
     </div>
     <div id="oc-ftr">
       <span id="oc-updated">—</span>
+      <span id="oc-ws-debug" style="display:block;font-size:11px;opacity:0.75;margin-top:2px;white-space:pre-wrap;"></span>
     </div>
     <!-- ═══ Virtual Buy/Sell trade bar — strike select karne par khulti hai ═══ -->
     <div id="oc-trade-bar">
@@ -20012,6 +20013,28 @@ function _applyBinanceOptionChain(data) {
   if (_ocIsBinanceAsset()) _ocRenderChainFromCache();
 }
 
+// ── DEBUG: Binance live-websocket status (temporary diagnostic panel) ──────
+// Backend har payload ke saath data.ws_debug bhejta hai (spot ws + options
+// ws ka connection status/last-error/msg-count/last-raw-tick). Isse yahan
+// dikhakar pata chalta hai ki websocket connect ho raha hai ya nahi, aur
+// agar ho raha hai to actual tick fields kya naam se aa rahe hain.
+function _ocRenderWsDebug(wsDebug) {
+  const el = document.getElementById('oc-ws-debug');
+  if (!el) return;
+  if (!wsDebug) { el.textContent = ''; return; }
+  const s = wsDebug.spot || {};
+  const o = wsDebug.options || {};
+  const ago = (ts) => ts ? Math.round(Date.now()/1000 - ts) + 's ago' : '—';
+  let lines = [];
+  lines.push(`WS lib installed: ${o.ws_client_installed}`);
+  lines.push(`Spot WS: ${s.status || '—'} | msgs: ${s.msg_count||0} | opened: ${ago(s.opened_ts)} | err: ${s.last_error||'—'}`);
+  lines.push(`Opt WS: ${o.status || '—'} | streams: ${o.url_stream_count||0} | msgs: ${o.msg_count||0} | opened: ${ago(o.opened_ts)}`);
+  if (o.status === 'closed') lines.push(`Opt WS closed: ${o.close_info||'—'}`);
+  if (o.last_error) lines.push(`Opt WS err: ${o.last_error}`);
+  if (o.last_raw) lines.push(`Last raw tick (${ago(o.last_raw_ts)}): ${o.last_raw}`);
+  el.textContent = lines.join('\n');
+}
+
 // ── Renders the Chain tab from whatever is already in memory (current or
 // next month, per SV1OC.expiryMode) — no network call needed, so toggling
 // This-Month/Next-Month or Depth/Watchlist just re-paints instantly. ──────
@@ -20034,6 +20057,7 @@ function _ocRenderChainFromCache() {
   }
   if (data.error) {
     if (body) body.innerHTML = `<div id="oc-loading" style="color:#ef5350;padding:16px;">⚠️ ${data.error}</div>`;
+    _ocRenderWsDebug(isBTC ? data.ws_debug : null);
     return;
   }
   if (!data.rows) return;
@@ -20043,6 +20067,7 @@ function _ocRenderChainFromCache() {
     const t = data.ts ? new Date(data.ts * 1000) : new Date();
     updEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   }
+  _ocRenderWsDebug(isBTC ? data.ws_debug : null);
   if (!body) return;
 
   let rows = data.rows;
