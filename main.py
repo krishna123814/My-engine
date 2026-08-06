@@ -10,131 +10,83 @@ BASE_URL = "https://api.binance.com"
 EAPI_URL = "https://eapi.binance.com"
 
 # -------------------------
-# Proxy rotation (Webshare)
+# Proxy helpers
 # -------------------------
-RAW_PROXIES = [
-    "31.59.20.176:6754:pyzxofpu:iuwdubctq5qf",
-    "31.56.127.193:7684:pyzxofpu:iuwdubctq5qf",
-    "45.38.107.97:6014:pyzxofpu:iuwdubctq5qf",
-    "198.105.121.200:6462:pyzxofpu:iuwdubctq5qf",
-    "64.137.96.74:6641:pyzxofpu:iuwdubctq5qf",
-    "198.23.243.226:6361:pyzxofpu:iuwdubctq5qf",
-    "38.154.185.97:6370:pyzxofpu:iuwdubctq5qf",
-    "84.247.60.125:6095:pyzxofpu:iuwdubctq5qf",
-    "142.111.67.146:5611:pyzxofpu:iuwdubctq5qf",
-    "191.96.254.138:6185:pyzxofpu:iuwdubctq5qf",
-]
+def build_proxies(proxy_host, proxy_port, proxy_user, proxy_pass):
+    """
+    Build a requests-compatible proxies dict for Oxylabs (or any HTTP proxy).
+    Returns None if proxy is not configured.
+    """
+    if not proxy_host or not proxy_port or not proxy_user or not proxy_pass:
+        return None
 
-def _proxy_dict(raw):
-    ip, port, user, pwd = raw.split(":")
-    url = f"http://{user}:{pwd}@{ip}:{port}"
-    return {"http": url, "https": url}
-
-def get_ordered_proxies():
-    """Sticky proxy first (if one already worked this session), then the rest."""
-    order = list(RAW_PROXIES)
-    working = st.session_state.get("working_proxy")
-    if working and working in order:
-        order.remove(working)
-        order.insert(0, working)
-    return order
+    proxy_url = f"http://{proxy_user}:{proxy_pass}@{proxy_host}:{proxy_port}"
+    return {
+        "http": proxy_url,
+        "https": proxy_url,
+    }
 
 # -------------------------
 # Common helpers
 # -------------------------
-def get_server_time():
-    for raw in get_ordered_proxies():
-        try:
-            r = requests.get(f"{BASE_URL}/api/v3/time", timeout=10, proxies=_proxy_dict(raw))
-            if r.status_code == 200:
-                return r.json().get("serverTime", int(time.time() * 1000))
-        except Exception:
-            continue
+def get_server_time(proxies=None):
+    try:
+        r = requests.get(f"{BASE_URL}/api/v3/time", timeout=10, proxies=proxies)
+        if r.status_code == 200:
+            return r.json().get("serverTime", int(time.time() * 1000))
+    except Exception:
+        pass
     return int(time.time() * 1000)
 
-def sign_request(params, secret_key):
-    params["timestamp"] = get_server_time()
+def sign_request(params, secret_key, proxies=None):
+    params["timestamp"] = get_server_time(proxies=proxies)
     params["recvWindow"] = 10000
     qs = urlencode(params, doseq=True)
     sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
     return f"{qs}&signature={sig}"
 
-def call_api(base, path, params, api_key, signed=False, secret_key=None):
+def call_api(base, path, params, api_key, signed=False, secret_key=None, proxies=None):
     headers = {"X-MBX-APIKEY": api_key} if api_key else {}
 
-    # Note: for signed requests, timestamp/signature is (re)computed fresh
-    # for EVERY proxy attempt below, so an old timestamp never gets reused
-    # against a different proxy/network path.
+    if signed:
+        qs = sign_request(params.copy(), secret_key, proxies=proxies)
+    else:
+        qs = urlencode(params, doseq=True)
 
-    last_error = "No proxies available"
-    attempts = []  # log of every proxy tried for THIS call, in order
+    url = f"{base}{path}"
+    if qs:
+        url = f"{url}?{qs}"
 
-    for raw_proxy in get_ordered_proxies():
-        proxy_ip = raw_proxy.split(":")[0]
-        if signed:
-            qs = sign_request(params.copy(), secret_key)
-        else:
-            qs = urlencode(params, doseq=True)
+    try:
+        r = requests.get(url, headers=headers, timeout=20, proxies=proxies)
+        ct = r.headers.get("Content-Type", "")
 
-        url = f"{base}{path}"
-        if qs:
-            url = f"{url}?{qs}"
+        if "application/json" in ct:
+            data = r.json()
+            if r.status_code == 200:
+                return True, data
+            else:
+                code = data.get("code", r.status_code)
+                msg = data.get("msg", "Unknown error")
+                return False, f"Error {code}: {msg}"
 
-        try:
-            r = requests.get(url, headers=headers, timeout=20, proxies=_proxy_dict(raw_proxy))
-            ct = r.headers.get("Content-Type", "")
+        text = r.text.strip()
+        if "<html" in text.lower():
+            return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON (endpoint may be unavailable for your account/region)"
+        return False, f"HTTP {r.status_code}: {text[:500]}"
 
-            if "application/json" in ct:
-                data = r.json()
-                if r.status_code == 200:
-                    attempts.append({"proxy": proxy_ip, "result": "SUCCESS (200)"})
-                    st.session_state["working_proxy"] = raw_proxy
-                    st.session_state["last_proxy_attempts"] = attempts
-                    return True, data
-                else:
-                    code = data.get("code", r.status_code)
-                    msg = data.get("msg", "Unknown error")
-                    # Geo-block / restricted-location errors -> try next proxy
-                    if code in (0, -1, 451) or "restricted location" in str(msg).lower():
-                        last_error = f"Error {code}: {msg} (proxy {proxy_ip} blocked, trying next)"
-                        attempts.append({"proxy": proxy_ip, "result": f"BLOCKED - Error {code}: {msg}"})
-                        continue
-                    # Any other real API error (bad key, bad symbol, etc.) -> no point rotating
-                    attempts.append({"proxy": proxy_ip, "result": f"API ERROR (not geo/IP) - Error {code}: {msg}"})
-                    st.session_state["working_proxy"] = raw_proxy
-                    st.session_state["last_proxy_attempts"] = attempts
-                    return False, f"Error {code}: {msg}"
-
-            text = r.text.strip()
-            if "<html" in text.lower() or r.status_code in (451, 403):
-                last_error = f"HTTP {r.status_code}: blocked via proxy {proxy_ip}, trying next"
-                attempts.append({"proxy": proxy_ip, "result": f"BLOCKED - HTTP {r.status_code}"})
-                continue
-            last_error = f"HTTP {r.status_code}: {text[:500]}"
-            attempts.append({"proxy": proxy_ip, "result": f"HTTP {r.status_code}: {text[:200]}"})
-            continue
-
-        except requests.exceptions.Timeout:
-            last_error = f"Timed out via proxy {proxy_ip}, trying next"
-            attempts.append({"proxy": proxy_ip, "result": "TIMEOUT"})
-            continue
-        except requests.exceptions.ConnectionError:
-            last_error = f"Connection error via proxy {proxy_ip}, trying next"
-            attempts.append({"proxy": proxy_ip, "result": "CONNECTION ERROR"})
-            continue
-        except Exception as e:
-            last_error = f"{e} (proxy {proxy_ip}, trying next)"
-            attempts.append({"proxy": proxy_ip, "result": f"EXCEPTION: {e}"})
-            continue
-
-    st.session_state["last_proxy_attempts"] = attempts
-    return False, f"All proxies failed. Last error: {last_error}"
+    except requests.exceptions.Timeout:
+        return False, "Request timed out"
+    except requests.exceptions.ConnectionError:
+        return False, "Connection error"
+    except Exception as e:
+        return False, str(e)
 
 # -------------------------
 # Spot account
 # -------------------------
-def get_spot_balance(api_key, secret_key):
-    ok, data = call_api(BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key)
+def get_spot_balance(api_key, secret_key, proxies=None):
+    ok, data = call_api(BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key, proxies=proxies)
     if not ok:
         return False, data
 
@@ -144,8 +96,8 @@ def get_spot_balance(api_key, secret_key):
     ]
     return True, balances
 
-def get_spot_price(symbol="BTCUSDT"):
-    ok, data = call_api(BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
+def get_spot_price(symbol="BTCUSDT", proxies=None):
+    ok, data = call_api(BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False, proxies=proxies)
     if not ok:
         return None, data
     return float(data["price"]), None
@@ -153,8 +105,8 @@ def get_spot_price(symbol="BTCUSDT"):
 # -------------------------
 # Options market
 # -------------------------
-def get_nearest_option(api_key, btc_price, side="CALL"):
-    ok, data = call_api(EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
+def get_nearest_option(api_key, btc_price, side="CALL", proxies=None):
+    ok, data = call_api(EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False, proxies=proxies)
     if not ok:
         return None, data
 
@@ -186,9 +138,9 @@ def get_nearest_option(api_key, btc_price, side="CALL"):
     candidates.sort(key=lambda x: x["distance"])
     return candidates[0], None
 
-def get_option_premium(api_key, option_symbol):
+def get_option_premium(api_key, option_symbol, proxies=None):
     # mark endpoint usually gives premium-like mark price data
-    ok, data = call_api(EAPI_URL, "/eapi/v1/mark", {"symbol": option_symbol}, api_key, signed=False)
+    ok, data = call_api(EAPI_URL, "/eapi/v1/mark", {"symbol": option_symbol}, api_key, signed=False, proxies=proxies)
     if not ok:
         return None, data
 
@@ -206,13 +158,14 @@ def get_option_premium(api_key, option_symbol):
         "vega": row.get("vega"),
     }, None
 
-def get_option_order_book(api_key, option_symbol, limit=10):
+def get_option_order_book(api_key, option_symbol, limit=10, proxies=None):
     ok, data = call_api(
         EAPI_URL,
         "/eapi/v1/depth",
         {"symbol": option_symbol, "limit": limit},
         api_key,
-        signed=False
+        signed=False,
+        proxies=proxies
     )
     if not ok:
         return None, data
@@ -221,7 +174,7 @@ def get_option_order_book(api_key, option_symbol, limit=10):
 # -------------------------
 # Options balance
 # -------------------------
-def get_options_balance(api_key, secret_key):
+def get_options_balance(api_key, secret_key, proxies=None):
     """
     Fetch options wallet/account balance first.
     Position endpoint is only fallback/debug, not actual wallet balance.
@@ -237,12 +190,11 @@ def get_options_balance(api_key, secret_key):
     full_debug = []
 
     for path in candidate_paths:
-        ok, data = call_api(EAPI_URL, path, {}, api_key, signed=True, secret_key=secret_key)
+        ok, data = call_api(EAPI_URL, path, {}, api_key, signed=True, secret_key=secret_key, proxies=proxies)
         full_debug.append({
             "path": path,
             "ok": ok,
-            "response": data,
-            "proxy_attempts": st.session_state.get("last_proxy_attempts", [])
+            "response": data
         })
 
         if ok:
@@ -275,10 +227,30 @@ def get_options_balance(api_key, secret_key):
 st.set_page_config(page_title="Binance Spot + Options Checker", layout="centered")
 st.title("Binance Login + Spot Balance + BTC Option Strike/Premium")
 
-if st.session_state.get("working_proxy"):
-    st.sidebar.success(f"Active proxy: {st.session_state['working_proxy'].split(':')[0]}")
+# -------------------------
+# Proxy configuration (sidebar)
+# -------------------------
+st.sidebar.header("Proxy Settings (Oxylabs)")
+use_proxy = st.sidebar.checkbox("Use Proxy", value=True)
+
+# Try to pull defaults from Streamlit secrets first (safer than hardcoding)
+default_host = st.secrets.get("PROXY_HOST", "dc.oxylabs.io") if hasattr(st, "secrets") else "dc.oxylabs.io"
+default_port = st.secrets.get("PROXY_PORT", "8001") if hasattr(st, "secrets") else "8001"
+default_user = st.secrets.get("PROXY_USER", "") if hasattr(st, "secrets") else ""
+default_pass = st.secrets.get("PROXY_PASS", "") if hasattr(st, "secrets") else ""
+
+if use_proxy:
+    proxy_host = st.sidebar.text_input("Proxy Host", value=default_host)
+    proxy_port = st.sidebar.text_input("Proxy Port", value=default_port)
+    proxy_user = st.sidebar.text_input("Proxy Username", value=default_user)
+    proxy_pass = st.sidebar.text_input("Proxy Password", value=default_pass, type="password")
+    proxies = build_proxies(proxy_host, proxy_port, proxy_user, proxy_pass)
+    if proxies:
+        st.sidebar.success("Proxy configured")
+    else:
+        st.sidebar.warning("Fill all proxy fields to enable proxy")
 else:
-    st.sidebar.info("No proxy locked yet — will try all on first request")
+    proxies = None
 
 api_key = st.text_input("Binance API Key", type="password")
 secret_key = st.text_input("Binance Secret Key", type="password")
@@ -291,7 +263,7 @@ if st.button("Fetch Data"):
         st.info("Checking Binance account...")
 
         # 1) Spot balance
-        ok_spot, spot_result = get_spot_balance(api_key, secret_key)
+        ok_spot, spot_result = get_spot_balance(api_key, secret_key, proxies=proxies)
         if ok_spot:
             st.success("Spot login successful")
             st.subheader("Spot Balances")
@@ -301,54 +273,42 @@ if st.button("Fetch Data"):
                 st.write("No non-zero spot balances found")
         else:
             st.error(f"Spot balance error: {spot_result}")
-        with st.expander("Proxy attempts: spot balance"):
-            st.json(st.session_state.get("last_proxy_attempts", []))
 
         # 2) BTC price
-        btc_price, err = get_spot_price("BTCUSDT")
+        btc_price, err = get_spot_price("BTCUSDT", proxies=proxies)
         if err:
             st.error(f"BTC price fetch error: {err}")
         else:
             st.subheader("BTC Spot Price")
             st.write(btc_price)
-        with st.expander("Proxy attempts: BTC price"):
-            st.json(st.session_state.get("last_proxy_attempts", []))
 
-        if not err:
             # 3) nearest option
-            nearest, err = get_nearest_option(api_key, btc_price, side=side)
+            nearest, err = get_nearest_option(api_key, btc_price, side=side, proxies=proxies)
             if err:
                 st.error(f"Nearest option error: {err}")
             else:
                 st.subheader("Nearest BTC Option")
                 st.json(nearest)
-            with st.expander("Proxy attempts: nearest option"):
-                st.json(st.session_state.get("last_proxy_attempts", []))
 
-            if not err:
                 # 4) premium
-                premium, err = get_option_premium(api_key, nearest["symbol"])
+                premium, err = get_option_premium(api_key, nearest["symbol"], proxies=proxies)
                 if err:
                     st.error(f"Option premium error: {err}")
                 else:
                     st.subheader("Option Premium")
                     st.json(premium)
-                with st.expander("Proxy attempts: option premium"):
-                    st.json(st.session_state.get("last_proxy_attempts", []))
 
                 # 5) order book
-                order_book, err = get_option_order_book(api_key, nearest["symbol"], limit=10)
+                order_book, err = get_option_order_book(api_key, nearest["symbol"], limit=10, proxies=proxies)
                 if err:
                     st.error(f"Option order book error: {err}")
                 else:
                     st.subheader("Option Order Book")
                     st.json(order_book)
-                with st.expander("Proxy attempts: order book"):
-                    st.json(st.session_state.get("last_proxy_attempts", []))
 
         # 6) options balance
         st.subheader("Options Balance")
-        ok_opt, opt_result = get_options_balance(api_key, secret_key)
+        ok_opt, opt_result = get_options_balance(api_key, secret_key, proxies=proxies)
 
         if ok_opt:
             st.success(f"Options endpoint worked: {opt_result['endpoint']}")
