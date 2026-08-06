@@ -20031,6 +20031,12 @@ function _ocRenderWsDebug(wsDebug) {
   lines.push(`Opt WS: ${o.status || '—'} | streams: ${o.url_stream_count||0} | msgs: ${o.msg_count||0} | opened: ${ago(o.opened_ts)}`);
   if (o.status === 'closed') lines.push(`Opt WS closed: ${o.close_info||'—'}`);
   if (o.last_error) lines.push(`Opt WS err: ${o.last_error}`);
+  if (o.preflight) {
+    const pf = o.preflight;
+    lines.push(`Preflight [${pf.host}] DNS: ${pf.dns||'—'}`);
+    lines.push(`Preflight TCP:443: ${pf.tcp_connect||'—'}`);
+    lines.push(`Preflight WS-handshake: ${pf.ws_handshake||'—'}`);
+  }
   if (o.last_raw) lines.push(`Last raw tick (${ago(o.last_raw_ts)}): ${o.last_raw}`);
   el.textContent = lines.join('\n');
 }

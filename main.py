@@ -6,6 +6,7 @@ import threading
 import hashlib
 import hmac
 import zipfile
+import socket
 import requests
 import pyotp
 import streamlit as st
@@ -20,6 +21,11 @@ from urllib.parse import urlencode
 try:
     import websocket as _ws_client  # pip install websocket-client
     _WS_AVAILABLE = True
+    # Default socket timeout — iske bina agar koi firewall packets silently
+    # drop kare (reject nahi, bas ignore) to connect() hamesha ke liye hang
+    # ho sakta hai aur na error aayega na close — status "connecting" par
+    # atka reh jaayega. Timeout set karne se real exception turant milegi.
+    _ws_client.setdefaulttimeout(10)
 except Exception:
     _ws_client = None
     _WS_AVAILABLE = False
@@ -575,6 +581,7 @@ _BN_OPT_WS_DEBUG = {
     "last_raw": None,        # ek sample raw message (truncated) — field-mapping verify karne ke liye
     "last_raw_ts": None,
     "last_sym_parsed": None,
+    "preflight": None,       # DNS/TCP/WS-handshake diagnostic result
 }
 _BN_OPT_WS_DEBUG_LOCK = threading.Lock()
 
@@ -585,6 +592,45 @@ def get_binance_ws_debug():
         spot = dict(_BN_SPOT_WS_DEBUG)
     opt["ws_client_installed"] = _WS_AVAILABLE
     return {"spot": spot, "options": opt}
+
+def _binance_opt_ws_preflight(host: str = "nbstream.binance.com", port: int = 443):
+    """3 alag-alag layer par test karo taaki exact pata chale connection
+    kahan atak raha hai: DNS resolve -> raw TCP connect -> TLS/WS handshake.
+    Har step apna exception/time record karta hai. Ye WebSocketApp se ALAG,
+    chhota-sa standalone check hai jo turant result deta hai."""
+    result = {"host": host, "dns": None, "tcp_connect": None, "ws_handshake": None, "ran_ts": time.time()}
+    try:
+        t0 = time.time()
+        infos = socket.getaddrinfo(host, port)
+        ip = infos[0][4][0] if infos else "?"
+        result["dns"] = f"OK ({len(infos)} addr, e.g. {ip}) in {time.time()-t0:.2f}s"
+    except Exception as e:
+        result["dns"] = f"FAIL: {type(e).__name__}: {e}"
+        with _BN_OPT_WS_DEBUG_LOCK:
+            _BN_OPT_WS_DEBUG["preflight"] = result
+        return result
+    try:
+        t0 = time.time()
+        sock = socket.create_connection((host, port), timeout=8)
+        sock.close()
+        result["tcp_connect"] = f"OK in {time.time()-t0:.2f}s"
+    except Exception as e:
+        result["tcp_connect"] = f"FAIL: {type(e).__name__}: {e}"
+        with _BN_OPT_WS_DEBUG_LOCK:
+            _BN_OPT_WS_DEBUG["preflight"] = result
+        return result
+    if _WS_AVAILABLE:
+        try:
+            t0 = time.time()
+            test_url = f"wss://{host}/eoptions/ws"
+            probe = _ws_client.create_connection(test_url, timeout=8)
+            probe.close()
+            result["ws_handshake"] = f"OK in {time.time()-t0:.2f}s"
+        except Exception as e:
+            result["ws_handshake"] = f"FAIL: {type(e).__name__}: {e}"
+    with _BN_OPT_WS_DEBUG_LOCK:
+        _BN_OPT_WS_DEBUG["preflight"] = result
+    return result
 
 def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
     """Ek combined-stream connection: N option symbols ka @ticker +
@@ -600,6 +646,10 @@ def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
         _BN_OPT_WS_DEBUG["status"] = "connecting"
         _BN_OPT_WS_DEBUG["url_stream_count"] = len(streams)
         _BN_OPT_WS_DEBUG["last_error"] = None
+
+    # Preflight — connect() ke silently hang hone se pehle hi exact wajah
+    # pakad lo (DNS / TCP / TLS-handshake mein se kahan atak raha hai).
+    _binance_opt_ws_preflight()
 
     def _still_current():
         with _BN_OPT_WS_STATE_LOCK:
