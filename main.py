@@ -399,6 +399,266 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
         "ts": time.time(),
     }
 
+# ─── Binance (BTC Options) — manual API key/secret login ───────────────────
+# Reference file (user-provided) ke pattern se ported. Module-level rakha hai
+# taaki background thread (BinanceOptionChainBG) bhi inhe use kar sake — login
+# page ke andar local def karne se background thread inhe access nahi kar pata.
+BINANCE_BASE_URL = "https://api.binance.com"
+BINANCE_EAPI_URL = "https://eapi.binance.com"
+
+def _binance_server_time() -> int:
+    try:
+        r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
+        if r.status_code == 200:
+            return r.json().get("serverTime", int(time.time() * 1000))
+    except Exception:
+        pass
+    return int(time.time() * 1000)
+
+def _binance_sign(params: dict, secret_key: str) -> str:
+    params["timestamp"] = _binance_server_time()
+    params["recvWindow"] = 10000
+    qs = urlencode(params, doseq=True)
+    sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    return f"{qs}&signature={sig}"
+
+def _binance_call(base: str, path: str, params: dict, api_key: str,
+                   signed: bool = False, secret_key: str = None):
+    headers = {"X-MBX-APIKEY": api_key} if api_key else {}
+    if signed:
+        qs = _binance_sign(params.copy(), secret_key)
+    else:
+        qs = urlencode(params, doseq=True)
+    url = f"{base}{path}"
+    if qs:
+        url = f"{url}?{qs}"
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        ct = r.headers.get("Content-Type", "")
+        if "application/json" in ct:
+            data = r.json()
+            if r.status_code == 200:
+                return True, data
+            code = data.get("code", r.status_code)
+            msg = data.get("msg", "Unknown error")
+            return False, f"Error {code}: {msg}"
+        text = r.text.strip()
+        if "<html" in text.lower():
+            return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON (endpoint may be unavailable for your account/region)"
+        return False, f"HTTP {r.status_code}: {text[:500]}"
+    except requests.exceptions.Timeout:
+        return False, "Request timed out"
+    except requests.exceptions.ConnectionError:
+        return False, "Connection error"
+    except Exception as e:
+        return False, str(e)
+
+def binance_get_spot_balance(api_key: str, secret_key: str):
+    ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key)
+    if not ok:
+        return False, data
+    balances = [
+        b for b in data.get("balances", [])
+        if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0
+    ]
+    return True, balances
+
+def binance_get_spot_price(symbol: str = "BTCUSDT"):
+    ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
+    if not ok:
+        return None, data
+    return float(data["price"]), None
+
+def binance_get_nearest_option(api_key: str, btc_price: float, side: str = "CALL"):
+    ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
+    if not ok:
+        return None, data
+    symbols = data.get("optionSymbols", [])
+    candidates = []
+    for s in symbols:
+        if s.get("underlying", "") != "BTCUSDT":
+            continue
+        if s.get("side", "").upper() != side.upper():
+            continue
+        try:
+            strike = float(s.get("strikePrice"))
+        except Exception:
+            continue
+        candidates.append({
+            "symbol": s.get("symbol"),
+            "strikePrice": strike,
+            "expiryDate": s.get("expiryDate"),
+            "side": s.get("side"),
+            "distance": abs(strike - btc_price),
+        })
+    if not candidates:
+        return None, f"No BTCUSDT {side} option found"
+    candidates.sort(key=lambda x: x["distance"])
+    return candidates[0], None
+
+def binance_get_option_premium(api_key: str, option_symbol: str):
+    ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/mark", {"symbol": option_symbol}, api_key, signed=False)
+    if not ok:
+        return None, data
+    row = data[0] if isinstance(data, list) and data else data
+    return {
+        "symbol": row.get("symbol", option_symbol),
+        "markPrice": row.get("markPrice"),
+        "bidIV": row.get("bidIV"),
+        "askIV": row.get("askIV"),
+        "markIV": row.get("markIV"),
+        "delta": row.get("delta"),
+        "gamma": row.get("gamma"),
+        "theta": row.get("theta"),
+        "vega": row.get("vega"),
+    }, None
+
+# ─── Binance FULL option chain (multi-strike, CE/PE grid) ───────────────────
+# Stack View 1 bottom-bar "⛓ Chain" panel ke liye — jab top-left symbol BTC ho
+# to isi shape ka data Fyers wale option-chain jaisa hi (rows: strike/ce/pe)
+# frontend ko milta hai, taaki wahi ek UI dono asset render kar sake.
+BINANCE_OC_FILE   = "binance_optionchain.json"
+_BINANCE_OC_CACHE = {"data": None, "ts": 0.0}
+_BINANCE_OC_LOCK  = threading.Lock()
+_BINANCE_OC_TTL   = 3   # seconds
+BINANCE_OC_STRIKE_COUNT = 10  # ATM ke dono taraf itni strikes
+
+def binance_get_full_option_chain(api_key: str, strikecount: int = BINANCE_OC_STRIKE_COUNT):
+    """BTCUSDT spot + nearest-expiry option chain (CE/PE dono, strike-wise
+    grouped) — Fyers fyers_get_option_chain() jaisa hi return-shape."""
+    try:
+        ok, price_data = _binance_call(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": "BTCUSDT"}, "", signed=False)
+        if not ok:
+            return None, f"BTC price fetch fail: {price_data}"
+        spot = float(price_data["price"])
+
+        ok, info = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
+        if not ok:
+            return None, f"exchangeInfo fail: {info}"
+        symbols = info.get("optionSymbols", [])
+        btc_syms = [s for s in symbols if s.get("underlying", "") == "BTCUSDT"]
+        if not btc_syms:
+            return None, "Koi BTCUSDT option symbol nahi mila"
+
+        expiries = sorted(set(s.get("expiryDate") for s in btc_syms if s.get("expiryDate")))
+        if not expiries:
+            return None, "Koi expiry nahi mili"
+        nearest_expiry = expiries[0]
+        chain_syms = [s for s in btc_syms if s.get("expiryDate") == nearest_expiry]
+
+        strikes_sorted = sorted(set(float(s.get("strikePrice")) for s in chain_syms if s.get("strikePrice")))
+        if not strikes_sorted:
+            return None, "Koi strike price nahi mili"
+        atm = min(strikes_sorted, key=lambda x: abs(x - spot))
+        atm_idx = strikes_sorted.index(atm)
+        lo = max(0, atm_idx - strikecount)
+        hi = min(len(strikes_sorted), atm_idx + strikecount + 1)
+        selected_strikes = set(strikes_sorted[lo:hi])
+
+        ok, tick = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/ticker", {}, api_key, signed=False)
+        tick_map = {}
+        if ok and isinstance(tick, list):
+            tick_map = {t.get("symbol"): t for t in tick}
+
+        rows_map = {}
+        for s in chain_syms:
+            try:
+                strike = float(s.get("strikePrice"))
+            except Exception:
+                continue
+            if strike not in selected_strikes:
+                continue
+            sym  = s.get("symbol")
+            side = (s.get("side") or "").upper()
+            t = tick_map.get(sym, {})
+            leg = {
+                "ltp":    float(t.get("lastPrice", 0) or 0),
+                "chg":    float(t.get("priceChange", 0) or 0),
+                "chgp":   float(t.get("priceChangePercent", 0) or 0),
+                "oi":     float(t.get("openInterest", 0) or 0),
+                "oich":   0,
+                "oichp":  0,
+                "volume": float(t.get("volume", 0) or 0),
+                "bid":    float(t.get("bidPrice", 0) or 0),
+                "ask":    float(t.get("askPrice", 0) or 0),
+                "symbol": sym,
+            }
+            row = rows_map.setdefault(strike, {"strike": strike, "ce": None, "pe": None})
+            if side == "CALL":
+                row["ce"] = leg
+            elif side == "PUT":
+                row["pe"] = leg
+
+        rows = sorted(rows_map.values(), key=lambda x: x["strike"])
+        expiry_label = datetime.datetime.utcfromtimestamp(nearest_expiry / 1000).strftime("%d %b %Y") if nearest_expiry else ""
+
+        return {
+            "spot": spot,
+            "atm": atm,
+            "rows": rows,
+            "expiry_label": expiry_label,
+            "expiry_epoch": int(nearest_expiry / 1000) if nearest_expiry else None,
+            "ts": time.time(),
+        }, None
+    except Exception as e:
+        return None, str(e)
+
+_BINANCE_OC_LAST_PAYLOAD = {"data": None, "ts": 0.0}
+_BINANCE_OC_LAST_PAYLOAD_LOCK = threading.Lock()
+
+def refresh_binance_option_chain_cache() -> dict:
+    """TTL-cached refresh, Fyers wale refresh_option_chain_cache() jaisa hi
+    pattern — background thread hi ise call karta hai, koi blocking nahi."""
+    now = time.time()
+    with _BINANCE_OC_LOCK:
+        stale = (now - _BINANCE_OC_CACHE["ts"]) >= _BINANCE_OC_TTL
+    if stale:
+        creds = load_creds()
+        api_key = creds.get("binance_api_key", "")
+        if not api_key:
+            payload = {"error": "Binance login nahi mila — login page par API Key/Secret Key daalo."}
+        else:
+            data, err = binance_get_full_option_chain(api_key)
+            if data:
+                with _BINANCE_OC_LOCK:
+                    _BINANCE_OC_CACHE.update({"data": data, "ts": now})
+                payload = data
+            else:
+                payload = {"error": f"Binance option chain fetch fail ho gaya — {err}"}
+        try:
+            with open(BINANCE_OC_FILE, "w") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+        return payload
+
+    with _BINANCE_OC_LOCK:
+        cached = _BINANCE_OC_CACHE["data"]
+    return dict(cached) if cached else {"error": "Cache khaali hai"}
+
+def _binance_oc_bg_loop():
+    while True:
+        try:
+            payload = refresh_binance_option_chain_cache()
+        except Exception as e:
+            payload = {"error": f"binance bg loop exception: {e}"}
+        with _BINANCE_OC_LAST_PAYLOAD_LOCK:
+            _BINANCE_OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
+        time.sleep(1)
+
+def get_cached_binance_option_chain_payload() -> dict:
+    with _BINANCE_OC_LAST_PAYLOAD_LOCK:
+        data = _BINANCE_OC_LAST_PAYLOAD["data"]
+        age  = time.time() - _BINANCE_OC_LAST_PAYLOAD["ts"]
+    if data is None:
+        return {"error": "Binance option chain load ho raha hai… (pehli fetch abhi baaki hai)"}
+    if age > 15:
+        d = dict(data)
+        d["stale_warning"] = f"Data {int(age)}s purana hai — background refresh check karo"
+        return d
+    return data
+
+
 # ─── Market Depth (5-level Bid/Ask order book) — jaisa Fyers app ka
 # "Market Depth" bottom-sheet dikhata hai (Qty(Orders) | Bid | Ask | (Orders)Qty,
 # total buy/sell %, aur Price Stats: Open/High/Low/PrevClose/AvgPrice/Circuits/
@@ -1711,6 +1971,8 @@ def _ensure_live_threads():
         threading.Thread(target=_token_monitor_loop, name="FyersTokenMonitor", daemon=True).start()
     if "OptionChainBG" not in names:
         threading.Thread(target=_option_chain_bg_loop, name="OptionChainBG", daemon=True).start()
+    if "BinanceOptionChainBG" not in names:
+        threading.Thread(target=_binance_oc_bg_loop, name="BinanceOptionChainBG", daemon=True).start()
     _start_ws()
     _register_api_route()
 
@@ -2533,120 +2795,37 @@ if sess_active or _btc_only:
 
         _option_chain_pusher()
 
+    # ── Binance BTC Option Chain → postMessage pusher ───────────────────────
+    # Same pattern as _option_chain_pusher, alag message type ('binance_option_
+    # chain') se — Chain panel (Stack View 1) frontend par asset (BTC/BankNifty)
+    # ke hisaab se in dono mein se sahi wala pick karke render karta hai.
+    if sess_active:
+        @st.fragment(run_every=1)
+        def _binance_option_chain_pusher():
+            boc = get_cached_binance_option_chain_payload()
+            if not boc:
+                boc = {"error": "Kuch data nahi mila (unknown reason)"}
+            _boc_json = json.dumps(boc)
+            _script5 = f"""
+<script>
+(function() {{
+  var oc = {_boc_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'binance_option_chain', data: oc }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_script5, height=0, scrolling=False)
+
+        _binance_option_chain_pusher()
+
 else:
-    # ─── Binance (BTC Options) — manual API key/secret login ──────────────────
-    # Reference file (app.py user ne diya) ke pattern se hi ported — koi extra
-    # feature add nahi ki, sirf: spot balance + ek nearest strike + uska premium.
-    BINANCE_BASE_URL = "https://api.binance.com"
-    BINANCE_EAPI_URL = "https://eapi.binance.com"
-
-    def _binance_server_time() -> int:
-        try:
-            r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
-            if r.status_code == 200:
-                return r.json().get("serverTime", int(time.time() * 1000))
-        except Exception:
-            pass
-        return int(time.time() * 1000)
-
-    def _binance_sign(params: dict, secret_key: str) -> str:
-        params["timestamp"] = _binance_server_time()
-        params["recvWindow"] = 10000
-        qs = urlencode(params, doseq=True)
-        sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
-        return f"{qs}&signature={sig}"
-
-    def _binance_call(base: str, path: str, params: dict, api_key: str,
-                       signed: bool = False, secret_key: str = None):
-        headers = {"X-MBX-APIKEY": api_key} if api_key else {}
-        if signed:
-            qs = _binance_sign(params.copy(), secret_key)
-        else:
-            qs = urlencode(params, doseq=True)
-        url = f"{base}{path}"
-        if qs:
-            url = f"{url}?{qs}"
-        try:
-            r = requests.get(url, headers=headers, timeout=20)
-            ct = r.headers.get("Content-Type", "")
-            if "application/json" in ct:
-                data = r.json()
-                if r.status_code == 200:
-                    return True, data
-                code = data.get("code", r.status_code)
-                msg = data.get("msg", "Unknown error")
-                return False, f"Error {code}: {msg}"
-            text = r.text.strip()
-            if "<html" in text.lower():
-                return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON (endpoint may be unavailable for your account/region)"
-            return False, f"HTTP {r.status_code}: {text[:500]}"
-        except requests.exceptions.Timeout:
-            return False, "Request timed out"
-        except requests.exceptions.ConnectionError:
-            return False, "Connection error"
-        except Exception as e:
-            return False, str(e)
-
-    def binance_get_spot_balance(api_key: str, secret_key: str):
-        ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key)
-        if not ok:
-            return False, data
-        balances = [
-            b for b in data.get("balances", [])
-            if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0
-        ]
-        return True, balances
-
-    def binance_get_spot_price(symbol: str = "BTCUSDT"):
-        ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
-        if not ok:
-            return None, data
-        return float(data["price"]), None
-
-    def binance_get_nearest_option(api_key: str, btc_price: float, side: str = "CALL"):
-        ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
-        if not ok:
-            return None, data
-        symbols = data.get("optionSymbols", [])
-        candidates = []
-        for s in symbols:
-            if s.get("underlying", "") != "BTCUSDT":
-                continue
-            if s.get("side", "").upper() != side.upper():
-                continue
-            try:
-                strike = float(s.get("strikePrice"))
-            except Exception:
-                continue
-            candidates.append({
-                "symbol": s.get("symbol"),
-                "strikePrice": strike,
-                "expiryDate": s.get("expiryDate"),
-                "side": s.get("side"),
-                "distance": abs(strike - btc_price),
-            })
-        if not candidates:
-            return None, f"No BTCUSDT {side} option found"
-        candidates.sort(key=lambda x: x["distance"])
-        return candidates[0], None
-
-    def binance_get_option_premium(api_key: str, option_symbol: str):
-        ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/mark", {"symbol": option_symbol}, api_key, signed=False)
-        if not ok:
-            return None, data
-        row = data[0] if isinstance(data, list) and data else data
-        return {
-            "symbol": row.get("symbol", option_symbol),
-            "markPrice": row.get("markPrice"),
-            "bidIV": row.get("bidIV"),
-            "askIV": row.get("askIV"),
-            "markIV": row.get("markIV"),
-            "delta": row.get("delta"),
-            "gamma": row.get("gamma"),
-            "theta": row.get("theta"),
-            "vega": row.get("vega"),
-        }, None
-
     # ─── Main area inline Login Panel ─────────────────────────────────────────
     _creds_main = load_creds()
     _has_old    = bool(_creds_main.get("access_token"))
@@ -2795,6 +2974,9 @@ else:
         if not _bn_api_key or not _bn_secret_key:
             st.error("Pehle API Key aur Secret Key daalo")
         else:
+            # Stack View 1 ke live BTC option-chain background thread ke liye
+            # bhi yahi keys chahiye (wo alag se chalta hai) — isliye save kar do.
+            save_creds({**load_creds(), "binance_api_key": _bn_api_key, "binance_secret_key": _bn_secret_key})
             with st.spinner("Binance se data la rahe hain…"):
                 _ok_bspot, _bspot_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
                 _btc_price, _err_price = binance_get_spot_price("BTCUSDT")

@@ -18696,6 +18696,19 @@ function switchAsset(name) {
     if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     else _btcStartRest();
   }
+  // ── Real Option Chain panel (Stack View 1) — agar khula hai to turant
+  // sahi asset ka data dikhao (title + spot + rows), 1s push/6s poll ka
+  // wait mat karo. ──────────────────────────────────────────────────────
+  try {
+    const _ocP = document.getElementById('oc-panel');
+    if (_ocP && _ocP.classList.contains('open')) {
+      if (typeof _ocRenderChainFromCache === 'function') _ocRenderChainFromCache();
+      if (typeof _ocIsBinanceAsset === 'function') {
+        if (_ocIsBinanceAsset() && typeof _pollBinanceOptionChain === 'function') _pollBinanceOptionChain();
+        else if (!_ocIsBinanceAsset() && typeof _pollOptionChain === 'function') _pollOptionChain();
+      }
+    }
+  } catch(_) {}
 }
 
 function _applyBTCKline(k) {
@@ -19813,6 +19826,9 @@ window.addEventListener('message', function(evt) {
     if (msg && msg.type === 'option_chain') {
       _applyOptionChain(msg.data);
     }
+    if (msg && msg.type === 'binance_option_chain') {
+      _applyBinanceOptionChain(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
@@ -19876,7 +19892,10 @@ function toggleOptionChain() {
   if (!p) return;
   p.classList.toggle('open');
   if (p.classList.contains('open')) {
-    _pollOptionChain(); _ocSyncBalanceTab();
+    if (typeof _ocRenderChainFromCache === 'function') _ocRenderChainFromCache();
+    if (typeof _ocIsBinanceAsset === 'function' && _ocIsBinanceAsset()) _pollBinanceOptionChain();
+    else _pollOptionChain();
+    _ocSyncBalanceTab();
     var curBtn = document.getElementById('oc-expiry-mode-cur');
     var nextBtn = document.getElementById('oc-expiry-mode-next');
     if (curBtn) curBtn.classList.toggle('active', SV1OC.expiryMode === 'current');
@@ -19913,6 +19932,16 @@ function _ocSelectTab(tab) {
 // niche. Dobara tap karne se deselect + trade bar band ho jaati hai. ──────
 let _ocSelectedStrike = null;
 function _ocSelectStrike(el, strike) {
+  // BTC chain abhi sirf DISPLAY ke liye hai — virtual trade bar (₹, lot-size
+  // 30, BankNifty margin/STT math) BTC/USDT strikes par galat/misleading
+  // hoga, isliye BTC active hote waqt row-select ko sirf highlight tak
+  // seemit rakha hai, trade bar nahi khulta.
+  if (_ocIsBinanceAsset()) {
+    const prev = document.querySelector('.oc-row.oc-selected');
+    if (prev && prev !== el) prev.classList.remove('oc-selected');
+    el.classList.toggle('oc-selected');
+    return;
+  }
   const prev = document.querySelector('.oc-row.oc-selected');
   if (prev && prev !== el) prev.classList.remove('oc-selected');
   if (_ocSelectedStrike === strike) {
@@ -19976,23 +20005,42 @@ function _applyOptionChain(data) {
   _ocRefreshHeaderBadge();
 }
 
+// ── Live Binance BTC option-chain push/poll handler — sirf Chain-view render
+// karta hai (Positions/Balance/History/P&L virtual-trading tabs abhi BankNifty
+// (Fyers) tak hi seemit hain, isko touch nahi karta). ──────────────────────
+function _applyBinanceOptionChain(data) {
+  if (!data) return;
+  _ocBinanceChainData = data;
+  if (_ocIsBinanceAsset()) _ocRenderChainFromCache();
+}
+
 // ── Renders the Chain tab from whatever is already in memory (current or
 // next month, per SV1OC.expiryMode) — no network call needed, so toggling
 // This-Month/Next-Month or Depth/Watchlist just re-paints instantly. ──────
 function _ocRenderChainFromCache() {
+  const isBTC = _ocIsBinanceAsset();
   const data = _ocActiveChainData();
   const body = document.getElementById('oc-body');
   const spotEl = document.getElementById('oc-spot');
   const expEl  = document.getElementById('oc-expiry');
   const updEl  = document.getElementById('oc-updated');
-  if (!data) return;
+  const titleEl = document.getElementById('oc-hdr-title');
+  if (titleEl) titleEl.textContent = isBTC ? '⛓ Option Chain — BTCUSDT' : '⛓ Option Chain — BANKNIFTY';
+  const expModeRow = document.getElementById('oc-expiry-mode-row');
+  if (expModeRow) expModeRow.style.display = isBTC ? 'none' : '';
+  if (!data) {
+    if (body) body.innerHTML = '<div id="oc-loading">Data load ho raha hai…</div>';
+    if (spotEl) spotEl.textContent = 'Spot: —';
+    if (expEl)  expEl.textContent  = 'Expiry: —';
+    return;
+  }
   if (data.error) {
     if (body) body.innerHTML = `<div id="oc-loading" style="color:#ef5350;padding:16px;">⚠️ ${data.error}</div>`;
     return;
   }
   if (!data.rows) return;
   if (spotEl) spotEl.textContent = 'Spot: ' + _fmtNum(data.spot);
-  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—') + (SV1OC.expiryMode === 'next' ? ' (Next Month)' : '');
+  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—') + (!isBTC && SV1OC.expiryMode === 'next' ? ' (Next Month)' : '');
   if (updEl) {
     const t = data.ts ? new Date(data.ts * 1000) : new Date();
     updEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -20055,11 +20103,28 @@ async function _pollOptionChain() {
     } catch(_) {}
   }
 }
+// Direct poll fallback — binance_optionchain.json seedha read karta hai
+async function _pollBinanceOptionChain() {
+  const paths = ['./binance_optionchain.json', '/binance_optionchain.json', 'binance_optionchain.json'];
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        _applyBinanceOptionChain(d);
+        return;
+      }
+    } catch(_) {}
+  }
+}
 function _startOCPolling() {
   if (_ocPollIv) return;
   _ocPollIv = setInterval(() => {
     const p = document.getElementById('oc-panel');
-    if (p && p.classList.contains('open')) _pollOptionChain();
+    if (p && p.classList.contains('open')) {
+      if (_ocIsBinanceAsset()) _pollBinanceOptionChain();
+      else _pollOptionChain();
+    }
   }, 6000);
 }
 _startOCPolling();
@@ -20074,6 +20139,7 @@ _startOCPolling();
 // ══════════════════════════════════════════════════════════════════════
 var _ocLastChainData = null;     // CURRENT-month live chain payload (for LTP lookup, backward-compat)
 var _ocLastChainDataNext = null; // NEXT-month live chain payload (This Month / Next Month toggle)
+var _ocBinanceChainData = null;  // Live BTCUSDT option-chain payload (Binance) — jab top-left symbol BTC ho
 
 var SV1OC = {
   strikeStep: 100,
@@ -20118,8 +20184,14 @@ var SV1OC = {
 
 function _ocSK(name) { return 'sv1_oc_' + name + '_v1'; }
 
-// ── Which chain (current/next) is being DISPLAYED right now ───────────────
+// ── Which chain is being DISPLAYED right now — asset (BTC/BankNifty) ke
+// hisaab se source pehle decide hota hai, phir BankNifty ke liye current/next
+// month toggle apply hota hai (BTC chain mein "next month" jaisa concept nahi hai). ──
+function _ocIsBinanceAsset() {
+  return (typeof S !== 'undefined' && typeof BTC_ASSET !== 'undefined' && S.asset === BTC_ASSET);
+}
 function _ocActiveChainData() {
+  if (_ocIsBinanceAsset()) return _ocBinanceChainData;
   return (SV1OC.expiryMode === 'next' && _ocLastChainDataNext && !_ocLastChainDataNext.error)
     ? _ocLastChainDataNext : _ocLastChainData;
 }
