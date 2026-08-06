@@ -513,137 +513,397 @@ def binance_get_option_premium(api_key: str, option_symbol: str):
         "vega": row.get("vega"),
     }, None
 
-# ─── Binance FULL option chain (multi-strike, CE/PE grid) ───────────────────
+# ─── Binance FULL option chain (multi-strike, CE/PE grid) — WEBSOCKET LIVE ──
 # Stack View 1 bottom-bar "⛓ Chain" panel ke liye — jab top-left symbol BTC ho
 # to isi shape ka data Fyers wale option-chain jaisa hi (rows: strike/ce/pe)
 # frontend ko milta hai, taaki wahi ek UI dono asset render kar sake.
-BINANCE_OC_FILE   = "binance_optionchain.json"
-_BINANCE_OC_CACHE = {"data": None, "ts": 0.0}
-_BINANCE_OC_LOCK  = threading.Lock()
-_BINANCE_OC_TTL   = 3   # seconds
-BINANCE_OC_STRIKE_COUNT = 10  # ATM ke dono taraf itni strikes
+#
+# PEHLE: har 1 second REST se exchangeInfo + ticker + price teeno fetch hote
+# the — Binance API limit cross hone ka risk. AB: sirf WebSocket se live data
+# aata hai (mark price/bid/ask/greeks/IV + last trade + spot price), aur REST
+# sirf 2 jagah, bahut kam frequency par:
+#   • exchangeInfo (strikes/expiries list) — har 10 minute mein 1 baar
+#     (BINANCE_OC_META_TTL) — ye rarely badalta hai.
+#   • 24hr ticker (OI/Volume/Change% — WS pe koi public option-OI stream
+#     nahi hai) — har 5 second mein 1 baar, POORE market ke liye EK hi call
+#     (per-symbol nahi) — (BINANCE_OC_TICKER_TTL).
+# Payload build karne wala background loop (_binance_oc_bg_loop) ab bilkul
+# koi network call NAHI karta — sirf in-memory WS data se render karta hai.
+try:
+    import websocket  # pip install websocket-client
+except ImportError:
+    websocket = None
 
-def binance_get_full_option_chain(api_key: str, strikecount: int = BINANCE_OC_STRIKE_COUNT):
-    """BTCUSDT spot + nearest-expiry option chain (CE/PE dono, strike-wise
-    grouped) — Fyers fyers_get_option_chain() jaisa hi return-shape."""
+BINANCE_OC_FILE          = "binance_optionchain.json"
+BINANCE_OC_STRIKE_WINDOW = 10     # ATM ke dono taraf, HAR expiry ke liye itni strikes
+BINANCE_OC_META_TTL      = 600    # exchangeInfo (strikes/expiries) refresh — 10 min
+BINANCE_OC_TICKER_TTL    = 5      # 24hr ticker snapshot (OI/vol/chg%) refresh — 5 sec
+
+BINANCE_WS_MARK_URL  = "wss://fstream.binance.com/market/stream?streams=btcusdt@optionMarkPrice"
+BINANCE_WS_TRADE_URL = "wss://fstream.binance.com/public/stream?streams=btcusdt@optionTrade"
+BINANCE_WS_SPOT_URL  = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
+
+# symbol -> {mark,bid,ask,last,delta,gamma,theta,vega,iv,oi,chg,chgp,volume,vol_cum,ts}
+_BN_LIVE_QUOTES = {}
+_BN_LIVE_LOCK   = threading.Lock()
+
+_BN_SPOT_PRICE = {"price": None, "ts": 0.0}
+_BN_SPOT_LOCK  = threading.Lock()
+
+# exchangeInfo se banaya gaya static-ish structure: expiry_epoch(ms) -> [{strike, ce_symbol, pe_symbol}]
+_BN_CHAIN_META = {"expiries": [], "by_expiry": {}, "ts": 0.0}
+_BN_CHAIN_META_LOCK = threading.Lock()
+
+_BN_TICKER_LAST = {"ts": 0.0}
+
+_BN_WS_STATE = {"mark_connected": False, "trade_connected": False, "spot_connected": False, "last_error": None}
+
+# ── Step 1: exchangeInfo — strikes/expiries ka structure (rarely changes) ──
+def _bn_refresh_option_meta(force: bool = False) -> tuple[bool, str]:
+    now = time.time()
+    with _BN_CHAIN_META_LOCK:
+        if not force and (now - _BN_CHAIN_META["ts"]) < BINANCE_OC_META_TTL:
+            return True, "cached"
+    creds = load_creds()
+    api_key = creds.get("binance_api_key", "")
+    ok, info = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
+    if not ok:
+        return False, f"exchangeInfo fail: {info}"
+    symbols = info.get("optionSymbols", [])
+    btc_syms = [s for s in symbols if s.get("underlying", "") == "BTCUSDT"]
+    if not btc_syms:
+        return False, "Koi BTCUSDT option symbol nahi mila"
+
+    by_expiry: dict = {}
+    for s in btc_syms:
+        try:
+            strike = float(s.get("strikePrice"))
+            expiry_epoch = int(s.get("expiryDate"))
+        except Exception:
+            continue
+        sym  = s.get("symbol")
+        side = (s.get("side") or "").upper()
+        strike_map = by_expiry.setdefault(expiry_epoch, {})
+        row = strike_map.setdefault(strike, {"strike": strike, "ce_symbol": None, "pe_symbol": None})
+        if side == "CALL":
+            row["ce_symbol"] = sym
+        elif side == "PUT":
+            row["pe_symbol"] = sym
+
+    final_by_expiry = {epoch: sorted(m.values(), key=lambda x: x["strike"]) for epoch, m in by_expiry.items()}
+    with _BN_CHAIN_META_LOCK:
+        _BN_CHAIN_META["expiries"]  = sorted(final_by_expiry.keys())
+        _BN_CHAIN_META["by_expiry"] = final_by_expiry
+        _BN_CHAIN_META["ts"] = now
+    return True, "refreshed"
+
+def _binance_oc_meta_bg_loop():
+    while True:
+        try:
+            _bn_refresh_option_meta()
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = f"meta loop: {e}"
+        time.sleep(30)  # TTL check ke liye baar-baar wake, actual REST call sirf TTL cross hone par
+
+# ── Step 2: 24hr ticker snapshot — OI/Volume/Change% (WS pe available nahi) ─
+# POORE market ke liye EK call (symbol param nahi diya), per-symbol nahi.
+def _bn_refresh_ticker_snapshot():
+    now = time.time()
+    if (now - _BN_TICKER_LAST["ts"]) < BINANCE_OC_TICKER_TTL:
+        return
+    _BN_TICKER_LAST["ts"] = now
+    creds = load_creds()
+    api_key = creds.get("binance_api_key", "")
+    ok, tick = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/ticker", {}, api_key, signed=False)
+    if not ok or not isinstance(tick, list):
+        return
+    with _BN_LIVE_LOCK:
+        for t in tick:
+            sym = t.get("symbol")
+            if not sym:
+                continue
+            row = _BN_LIVE_QUOTES.setdefault(sym, {})
+            row["oi"]     = float(t.get("openInterest", 0) or 0)
+            row["chg"]    = float(t.get("priceChange", 0) or 0)
+            row["chgp"]   = float(t.get("priceChangePercent", 0) or 0)
+            row["volume"] = float(t.get("volume", 0) or 0)
+            # WS ne abhi tak kuch na bheja ho to REST se ek baar fallback fill ho jaaye
+            row.setdefault("bid",  float(t.get("bidPrice", 0) or 0))
+            row.setdefault("ask",  float(t.get("askPrice", 0) or 0))
+            row.setdefault("last", float(t.get("lastPrice", 0) or 0))
+            row.setdefault("mark", float(t.get("lastPrice", 0) or 0))
+
+def _binance_oc_ticker_bg_loop():
+    while True:
+        try:
+            _bn_refresh_ticker_snapshot()
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = f"ticker loop: {e}"
+        time.sleep(BINANCE_OC_TICKER_TTL)
+
+# ── Step 3: WebSocket #1 — Option Mark Price (mark/bid/ask/greeks/IV), LIVE ──
+# Single connection, underlying-level ("btcusdt") — sabhi strikes/expiries ka
+# data isi ek stream mein aata hai (array push), per-symbol subscribe nahi
+# karna padta. Field-map verified: lowercase b/a=buy/sell IV (NOT bid/ask —
+# real bid/ask are bo/ao), lowercase v=vega (NOT volume — real volume "V" 24hr ticker se aata hai).
+_BN_MARK_FIELD_MAP = {
+    "last":  ["c"],
+    "bid":   ["bo"],
+    "ask":   ["ao"],
+    "mark":  ["mp"],
+    "delta": ["d"],
+    "gamma": ["g"],
+    "theta": ["t"],
+    "vega":  ["v"],
+    "iv":    ["vo"],
+    "buy_iv":  ["b"],
+    "sell_iv": ["a"],
+}
+
+def _bn_apply_mark_msg(msg: dict):
     try:
-        ok, price_data = _binance_call(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": "BTCUSDT"}, "", signed=False)
-        if not ok:
-            return None, f"BTC price fetch fail: {price_data}"
-        spot = float(price_data["price"])
+        sym = msg.get("s")
+        if not sym:
+            return
+        with _BN_LIVE_LOCK:
+            row = _BN_LIVE_QUOTES.setdefault(sym, {})
+            for target, keys in _BN_MARK_FIELD_MAP.items():
+                for k in keys:
+                    if k in msg and msg[k] not in (None, ""):
+                        row[target] = msg[k]
+                        break
+            row["ts"] = time.time()
+    except Exception:
+        pass
 
-        ok, info = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
-        if not ok:
-            return None, f"exchangeInfo fail: {info}"
-        symbols = info.get("optionSymbols", [])
-        btc_syms = [s for s in symbols if s.get("underlying", "") == "BTCUSDT"]
-        if not btc_syms:
-            return None, "Koi BTCUSDT option symbol nahi mila"
+def _bn_ws_mark_on_message(ws, message):
+    try:
+        data = json.loads(message)
+        payload = data.get("data") if isinstance(data, dict) and "data" in data else data
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    _bn_apply_mark_msg(item)
+        elif isinstance(payload, dict):
+            _bn_apply_mark_msg(payload)
+        _BN_WS_STATE["last_error"] = None
+    except Exception as e:
+        _BN_WS_STATE["last_error"] = str(e)
 
-        expiries = sorted(set(s.get("expiryDate") for s in btc_syms if s.get("expiryDate")))
-        if not expiries:
-            return None, "Koi expiry nahi mili"
-        nearest_expiry = expiries[0]
-        chain_syms = [s for s in btc_syms if s.get("expiryDate") == nearest_expiry]
+def _bn_ws_mark_loop():
+    if websocket is None:
+        _BN_WS_STATE["last_error"] = "websocket-client package missing — pip install websocket-client"
+        return
+    while True:
+        try:
+            wsapp = websocket.WebSocketApp(
+                BINANCE_WS_MARK_URL,
+                on_open=lambda ws: _BN_WS_STATE.update({"mark_connected": True}),
+                on_message=_bn_ws_mark_on_message,
+                on_error=lambda ws, e: _BN_WS_STATE.update({"mark_connected": False, "last_error": str(e)}),
+                on_close=lambda ws, c, m: _BN_WS_STATE.update({"mark_connected": False}),
+            )
+            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = str(e)
+        _BN_WS_STATE["mark_connected"] = False
+        time.sleep(3)   # reconnect backoff
 
-        strikes_sorted = sorted(set(float(s.get("strikePrice")) for s in chain_syms if s.get("strikePrice")))
-        if not strikes_sorted:
-            return None, "Koi strike price nahi mili"
+# ── Step 4: WebSocket #2 — Option Trade stream (last price + cumulative volume) ──
+def _bn_apply_trade_msg(msg: dict):
+    try:
+        sym = msg.get("s")
+        if not sym:
+            return
+        price, qty = msg.get("p"), msg.get("q")
+        with _BN_LIVE_LOCK:
+            row = _BN_LIVE_QUOTES.setdefault(sym, {})
+            if price not in (None, ""):
+                row["last"] = price
+            if qty not in (None, ""):
+                try:
+                    row["vol_cum"] = float(row.get("vol_cum", 0) or 0) + float(qty)
+                except Exception:
+                    pass
+            row["ts"] = time.time()
+    except Exception:
+        pass
+
+def _bn_ws_trade_on_message(ws, message):
+    try:
+        data = json.loads(message)
+        payload = data.get("data") if isinstance(data, dict) and "data" in data else data
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    _bn_apply_trade_msg(item)
+        elif isinstance(payload, dict):
+            _bn_apply_trade_msg(payload)
+    except Exception:
+        pass
+
+def _bn_ws_trade_loop():
+    if websocket is None:
+        return
+    while True:
+        try:
+            wsapp = websocket.WebSocketApp(
+                BINANCE_WS_TRADE_URL,
+                on_open=lambda ws: _BN_WS_STATE.update({"trade_connected": True}),
+                on_message=_bn_ws_trade_on_message,
+                on_error=lambda ws, e: _BN_WS_STATE.update({"trade_connected": False, "last_error": str(e)}),
+                on_close=lambda ws, c, m: _BN_WS_STATE.update({"trade_connected": False}),
+            )
+            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = str(e)
+        _BN_WS_STATE["trade_connected"] = False
+        time.sleep(3)
+
+# ── Step 5: WebSocket #3 — BTCUSDT spot price (agg trade), REST price-poll ki
+# jagah — pehle har second ek REST call lagti thi, ab bilkul nahi. ──────────
+def _bn_ws_spot_on_message(ws, message):
+    try:
+        data = json.loads(message)
+        price = data.get("p")
+        if price not in (None, ""):
+            with _BN_SPOT_LOCK:
+                _BN_SPOT_PRICE["price"] = float(price)
+                _BN_SPOT_PRICE["ts"] = time.time()
+    except Exception:
+        pass
+
+def _bn_ws_spot_loop():
+    if websocket is None:
+        return
+    while True:
+        try:
+            wsapp = websocket.WebSocketApp(
+                BINANCE_WS_SPOT_URL,
+                on_open=lambda ws: _BN_WS_STATE.update({"spot_connected": True}),
+                on_message=_bn_ws_spot_on_message,
+                on_error=lambda ws, e: _BN_WS_STATE.update({"spot_connected": False, "last_error": str(e)}),
+                on_close=lambda ws, c, m: _BN_WS_STATE.update({"spot_connected": False}),
+            )
+            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = str(e)
+        _BN_WS_STATE["spot_connected"] = False
+        time.sleep(3)
+
+def _ensure_binance_ws_threads():
+    """Idempotent — Streamlit rerun par dobara call hone par bhi duplicate
+    thread nahi banti (thread name check, jaisa _ensure_live_threads karta hai)."""
+    names = {t.name for t in threading.enumerate()}
+    if "BinanceOptMarkWS" not in names:
+        threading.Thread(target=_bn_ws_mark_loop, name="BinanceOptMarkWS", daemon=True).start()
+    if "BinanceOptTradeWS" not in names:
+        threading.Thread(target=_bn_ws_trade_loop, name="BinanceOptTradeWS", daemon=True).start()
+    if "BinanceSpotWS" not in names:
+        threading.Thread(target=_bn_ws_spot_loop, name="BinanceSpotWS", daemon=True).start()
+    if "BinanceOptMetaBG" not in names:
+        threading.Thread(target=_binance_oc_meta_bg_loop, name="BinanceOptMetaBG", daemon=True).start()
+    if "BinanceOptTickerBG" not in names:
+        threading.Thread(target=_binance_oc_ticker_bg_loop, name="BinanceOptTickerBG", daemon=True).start()
+
+# ── Step 6: payload builder — SABHI expiries, PURE in-memory (no network) ──
+def _bn_rebuild_payload_from_memory() -> dict:
+    with _BN_CHAIN_META_LOCK:
+        expiries  = list(_BN_CHAIN_META["expiries"])
+        by_expiry = dict(_BN_CHAIN_META["by_expiry"])
+    if not expiries:
+        return {"error": "Option chain metadata load ho raha hai… (exchangeInfo abhi fetch nahi hui, thodi der ruko)"}
+
+    with _BN_SPOT_LOCK:
+        spot = _BN_SPOT_PRICE["price"]
+    if spot is None:
+        # WS spot abhi connect nahi hua (rare/startup) — ek-baar REST fallback
+        spot, _err = binance_get_spot_price("BTCUSDT")
+    if spot is None:
+        return {"error": "BTC spot price abhi available nahi (WebSocket connect ho raha hai)"}
+
+    with _BN_LIVE_LOCK:
+        live_snapshot = {k: dict(v) for k, v in _BN_LIVE_QUOTES.items()}
+
+    def leg_from(sym):
+        if not sym:
+            return None
+        q = live_snapshot.get(sym, {})
+        return {
+            "symbol": sym,
+            "ltp":    float(q.get("last") or q.get("mark") or 0),
+            "mark":   float(q.get("mark") or 0),
+            "chg":    float(q.get("chg") or 0),
+            "chgp":   float(q.get("chgp") or 0),
+            "oi":     float(q.get("oi") or 0),
+            "oich":   0,
+            "oichp":  0,
+            "volume": float(q.get("volume") or q.get("vol_cum") or 0),
+            "bid":    float(q.get("bid") or 0),
+            "ask":    float(q.get("ask") or 0),
+            "iv":     q.get("iv"),
+            "delta":  q.get("delta"),
+            "gamma":  q.get("gamma"),
+            "theta":  q.get("theta"),
+            "vega":   q.get("vega"),
+        }
+
+    chains, expiry_meta_list = {}, []
+    for epoch in expiries:
+        rows_all = by_expiry.get(epoch, [])
+        if not rows_all:
+            continue
+        strikes_sorted = [r["strike"] for r in rows_all]
         atm = min(strikes_sorted, key=lambda x: abs(x - spot))
         atm_idx = strikes_sorted.index(atm)
-        lo = max(0, atm_idx - strikecount)
-        hi = min(len(strikes_sorted), atm_idx + strikecount + 1)
-        selected_strikes = set(strikes_sorted[lo:hi])
+        lo = max(0, atm_idx - BINANCE_OC_STRIKE_WINDOW)
+        hi = min(len(rows_all), atm_idx + BINANCE_OC_STRIKE_WINDOW + 1)
+        rows_out = [
+            {"strike": r["strike"], "ce": leg_from(r.get("ce_symbol")), "pe": leg_from(r.get("pe_symbol"))}
+            for r in rows_all[lo:hi]
+        ]
+        label = datetime.datetime.utcfromtimestamp(epoch / 1000).strftime("%d %b %Y")
+        chains[str(epoch)] = {"atm": atm, "rows": rows_out, "expiry_label": label}
+        expiry_meta_list.append({"epoch": epoch, "label": label})
 
-        ok, tick = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/ticker", {}, api_key, signed=False)
-        tick_map = {}
-        if ok and isinstance(tick, list):
-            tick_map = {t.get("symbol"): t for t in tick}
+    if not chains:
+        return {"error": "Koi expiry chain nahi ban paayi"}
 
-        rows_map = {}
-        for s in chain_syms:
-            try:
-                strike = float(s.get("strikePrice"))
-            except Exception:
-                continue
-            if strike not in selected_strikes:
-                continue
-            sym  = s.get("symbol")
-            side = (s.get("side") or "").upper()
-            t = tick_map.get(sym, {})
-            leg = {
-                "ltp":    float(t.get("lastPrice", 0) or 0),
-                "chg":    float(t.get("priceChange", 0) or 0),
-                "chgp":   float(t.get("priceChangePercent", 0) or 0),
-                "oi":     float(t.get("openInterest", 0) or 0),
-                "oich":   0,
-                "oichp":  0,
-                "volume": float(t.get("volume", 0) or 0),
-                "bid":    float(t.get("bidPrice", 0) or 0),
-                "ask":    float(t.get("askPrice", 0) or 0),
-                "symbol": sym,
-            }
-            row = rows_map.setdefault(strike, {"strike": strike, "ce": None, "pe": None})
-            if side == "CALL":
-                row["ce"] = leg
-            elif side == "PUT":
-                row["pe"] = leg
-
-        rows = sorted(rows_map.values(), key=lambda x: x["strike"])
-        expiry_label = datetime.datetime.utcfromtimestamp(nearest_expiry / 1000).strftime("%d %b %Y") if nearest_expiry else ""
-
-        return {
-            "spot": spot,
-            "atm": atm,
-            "rows": rows,
-            "expiry_label": expiry_label,
-            "expiry_epoch": int(nearest_expiry / 1000) if nearest_expiry else None,
-            "ts": time.time(),
-        }, None
-    except Exception as e:
-        return None, str(e)
+    default_epoch = expiries[0]  # nearest expiry
+    nearest = chains[str(default_epoch)]
+    return {
+        "spot": spot,
+        "expiries": expiry_meta_list,               # SABHI expiries — frontend dropdown ke liye
+        "default_expiry_epoch": default_epoch,
+        "chains": chains,                            # epoch(str) -> {atm, rows, expiry_label}
+        # backward-compat top-level fields = nearest expiry (purane consumers ke liye)
+        "atm": nearest["atm"],
+        "rows": nearest["rows"],
+        "expiry_label": nearest["expiry_label"],
+        "expiry_epoch": int(default_epoch / 1000),
+        "ws": dict(_BN_WS_STATE),
+        "ts": time.time(),
+    }
 
 _BINANCE_OC_LAST_PAYLOAD = {"data": None, "ts": 0.0}
 _BINANCE_OC_LAST_PAYLOAD_LOCK = threading.Lock()
 
-def refresh_binance_option_chain_cache() -> dict:
-    """TTL-cached refresh, Fyers wale refresh_option_chain_cache() jaisa hi
-    pattern — background thread hi ise call karta hai, koi blocking nahi."""
-    now = time.time()
-    with _BINANCE_OC_LOCK:
-        stale = (now - _BINANCE_OC_CACHE["ts"]) >= _BINANCE_OC_TTL
-    if stale:
-        creds = load_creds()
-        api_key = creds.get("binance_api_key", "")
-        if not api_key:
-            payload = {"error": "Binance login nahi mila — login page par API Key/Secret Key daalo."}
-        else:
-            data, err = binance_get_full_option_chain(api_key)
-            if data:
-                with _BINANCE_OC_LOCK:
-                    _BINANCE_OC_CACHE.update({"data": data, "ts": now})
-                payload = data
-            else:
-                payload = {"error": f"Binance option chain fetch fail ho gaya — {err}"}
+def _binance_oc_bg_loop():
+    """Ab koi network call NAHI karta — sirf WS threads ke already-updated
+    in-memory data se payload rebuild karta hai, har 1 second. Isi wajah se
+    1s interval bilkul safe hai (koi REST rate-limit risk nahi)."""
+    while True:
+        try:
+            payload = _bn_rebuild_payload_from_memory()
+        except Exception as e:
+            payload = {"error": f"binance bg loop exception: {e}"}
+        with _BINANCE_OC_LAST_PAYLOAD_LOCK:
+            _BINANCE_OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
         try:
             with open(BINANCE_OC_FILE, "w") as f:
                 json.dump(payload, f)
         except Exception:
             pass
-        return payload
-
-    with _BINANCE_OC_LOCK:
-        cached = _BINANCE_OC_CACHE["data"]
-    return dict(cached) if cached else {"error": "Cache khaali hai"}
-
-def _binance_oc_bg_loop():
-    while True:
-        try:
-            payload = refresh_binance_option_chain_cache()
-        except Exception as e:
-            payload = {"error": f"binance bg loop exception: {e}"}
-        with _BINANCE_OC_LAST_PAYLOAD_LOCK:
-            _BINANCE_OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
         time.sleep(1)
 
 def get_cached_binance_option_chain_payload() -> dict:
@@ -1973,6 +2233,7 @@ def _ensure_live_threads():
         threading.Thread(target=_option_chain_bg_loop, name="OptionChainBG", daemon=True).start()
     if "BinanceOptionChainBG" not in names:
         threading.Thread(target=_binance_oc_bg_loop, name="BinanceOptionChainBG", daemon=True).start()
+    _ensure_binance_ws_threads()
     _start_ws()
     _register_api_route()
 

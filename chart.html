@@ -3448,6 +3448,13 @@ select.s-select, input.s-select{
 #oc-expiry-mode-row{display:flex;gap:6px;padding:8px 12px 0}
 .oc-expiry-mode-btn{flex:1;height:28px;border-radius:7px;border:1px solid #2a2e39;background:#1e222d;color:#787b86;font-size:10.5px;font-weight:700;cursor:pointer}
 .oc-expiry-mode-btn.active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+/* ── BTC (Binance) real option-chain — expiry dropdown (sabhi expiries),
+   BankNifty ke "This Month/Next Month" toggle ki jagah dikhta hai ── */
+#oc-btc-expiry-row{display:flex;align-items:center;gap:8px;padding:8px 12px 0}
+#oc-btc-expiry-row label{color:#787b86;font-size:10.5px;font-weight:700;white-space:nowrap}
+#oc-btc-expiry-select{flex:1;height:28px;border-radius:7px;border:1px solid #2a2e39;background:#1e222d;color:#d1d4dc;font-size:11px;font-weight:600;padding:0 8px;cursor:pointer}
+#oc-btc-ws-dot{width:7px;height:7px;border-radius:50%;background:#787b86;flex-shrink:0}
+#oc-btc-ws-dot.live{background:#26a69a;box-shadow:0 0 4px #26a69a}
 #oc-toggle-rows{padding:8px 12px 0}
 .oc-toggle-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#787b86;padding:0 2px 8px}
 .oc-toggle-btn{width:38px;height:22px;border-radius:11px;border:none;cursor:pointer;background:#2a2e39;position:relative}
@@ -4458,6 +4465,11 @@ function _hdrRelayout(){
     <div id="oc-expiry-mode-row">
       <button class="oc-expiry-mode-btn active" id="oc-expiry-mode-cur" onclick="_ocSetExpiryMode('current')">This Month</button>
       <button class="oc-expiry-mode-btn" id="oc-expiry-mode-next" onclick="_ocSetExpiryMode('next')">Next Month</button>
+    </div>
+    <div id="oc-btc-expiry-row" style="display:none">
+      <span id="oc-btc-ws-dot" title="Live WebSocket status"></span>
+      <label for="oc-btc-expiry-select">Expiry</label>
+      <select id="oc-btc-expiry-select" onchange="_ocSetBtcExpiry(this.value)"></select>
     </div>
     <div id="oc-toggle-rows">
       <div class="oc-toggle-row">
@@ -20028,6 +20040,9 @@ function _ocRenderChainFromCache() {
   if (titleEl) titleEl.textContent = isBTC ? '⛓ Option Chain — BTCUSDT' : '⛓ Option Chain — BANKNIFTY';
   const expModeRow = document.getElementById('oc-expiry-mode-row');
   if (expModeRow) expModeRow.style.display = isBTC ? 'none' : '';
+  const btcExpRow = document.getElementById('oc-btc-expiry-row');
+  if (btcExpRow) btcExpRow.style.display = isBTC ? '' : 'none';
+  if (isBTC) _ocPopulateBtcExpiries(_ocBinanceChainData);
   if (!data) {
     if (body) body.innerHTML = '<div id="oc-loading">Data load ho raha hai…</div>';
     if (spotEl) spotEl.textContent = 'Spot: —';
@@ -20170,6 +20185,11 @@ var SV1OC = {
   expiryMode: (function () {
     try { return localStorage.getItem('sv1_oc_expiry_mode_v1') || 'current'; } catch (_) { return 'current'; }
   })(),
+  // BTC (Binance) chain ke liye — user ne kaunsi expiry select ki hai (epoch
+  // ms, string). null = default/nearest expiry use hogi. ────────────────
+  btcExpiryEpoch: (function () {
+    try { return localStorage.getItem('sv1_oc_btc_expiry_epoch_v1') || null; } catch (_) { return null; }
+  })(),
   depthOn: (function () {
     try { return localStorage.getItem('sv1_oc_depth_on_v1') === '1'; } catch (_) { return false; }
   })(),
@@ -20191,9 +20211,60 @@ function _ocIsBinanceAsset() {
   return (typeof S !== 'undefined' && typeof BTC_ASSET !== 'undefined' && S.asset === BTC_ASSET);
 }
 function _ocActiveChainData() {
-  if (_ocIsBinanceAsset()) return _ocBinanceChainData;
+  if (_ocIsBinanceAsset()) {
+    var d = _ocBinanceChainData;
+    // Naya payload shape: d.chains = { "<epoch>": {atm, rows, expiry_label} },
+    // d.expiries = [{epoch, label}, ...] (SABHI expiries). User ne jo expiry
+    // chuni hai (SV1OC.btcExpiryEpoch) usi ka chain merge karke lauta do —
+    // spot/expiries/ts/ws top-level se, rows/atm/expiry_label chosen expiry se.
+    if (d && d.chains) {
+      var epoch = SV1OC.btcExpiryEpoch;
+      var picked = (epoch != null) ? d.chains[epoch] : null;
+      if (!picked) picked = d.chains[d.default_expiry_epoch] || null;
+      if (picked) return Object.assign({}, d, picked);
+    }
+    return d; // fallback — purana/simple shape (top-level rows/atm/expiry_label = nearest)
+  }
   return (SV1OC.expiryMode === 'next' && _ocLastChainDataNext && !_ocLastChainDataNext.error)
     ? _ocLastChainDataNext : _ocLastChainData;
+}
+
+// ── BTC expiry dropdown ka <select> populate karta hai (sabhi expiries) —
+// sirf tab dobara banata hai jab list actually badli ho, taaki user ka
+// current selection har 1s refresh mein reset na ho. ───────────────────
+var _ocBtcExpiriesSig = null;
+function _ocPopulateBtcExpiries(data) {
+  var sel = document.getElementById('oc-btc-expiry-select');
+  if (!sel || !data || !data.expiries || !data.expiries.length) return;
+  var sig = data.expiries.map(function (e) { return e.epoch; }).join(',');
+  if (_ocBtcExpiriesSig !== sig) {
+    sel.innerHTML = data.expiries.map(function (e) {
+      return '<option value="' + e.epoch + '">' + e.label + '</option>';
+    }).join('');
+    _ocBtcExpiriesSig = sig;
+    var want = SV1OC.btcExpiryEpoch;
+    var hasWant = want != null && data.expiries.some(function (e) { return String(e.epoch) === String(want); });
+    if (!hasWant) {
+      SV1OC.btcExpiryEpoch = String(data.default_expiry_epoch || data.expiries[0].epoch);
+      try { localStorage.setItem('sv1_oc_btc_expiry_epoch_v1', SV1OC.btcExpiryEpoch); } catch (_) {}
+    }
+  }
+  if (sel.value !== String(SV1OC.btcExpiryEpoch)) sel.value = SV1OC.btcExpiryEpoch;
+  var dot = document.getElementById('oc-btc-ws-dot');
+  if (dot) {
+    var live = !!(data.ws && data.ws.mark_connected);
+    dot.classList.toggle('live', live);
+    dot.title = live ? 'Live WebSocket connected' : 'WebSocket connecting…';
+  }
+}
+function _ocSetBtcExpiry(val) {
+  SV1OC.btcExpiryEpoch = String(val);
+  try { localStorage.setItem('sv1_oc_btc_expiry_epoch_v1', SV1OC.btcExpiryEpoch); } catch (_) {}
+  var prevSel = document.querySelector('.oc-row.oc-selected');
+  if (prevSel) prevSel.classList.remove('oc-selected');
+  _ocSelectedStrike = null;
+  _ocHideTradeBar();
+  _ocRenderChainFromCache();
 }
 function _ocSetExpiryMode(mode) {
   if (mode !== 'current' && mode !== 'next') return;
