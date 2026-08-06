@@ -741,7 +741,13 @@ def binance_get_spot_price(symbol: str = "BTCUSDT"):
     return float(data["price"]), None
 
 # ── Full Option Chain builder ───────────────────────────────────────────────
-_BTC_OC_DEBUG = {"last_error": "", "ts": 0.0}
+_BTC_OC_DEBUG = {
+    "last_error": "", "ts": 0.0,
+    "step": "idle",              # kis step par abhi hai: exchangeInfo/mark_bulk/mark_per_strike/ticker/done
+    "attempt_start_ts": 0.0,     # current attempt kab shuru hua (0 = koi attempt chal nahi raha)
+    "last_success_ts": 0.0,      # last successful fetch kab hua tha
+    "last_duration": 0.0,        # last attempt (success ya fail) kitni der chala
+}
 
 def binance_get_option_chain(api_key: str, underlying: str = "BTCUSDT") -> "dict | None":
     """Binance ka poora option chain fetch karta hai — Fyers wale function
@@ -759,6 +765,7 @@ def binance_get_option_chain(api_key: str, underlying: str = "BTCUSDT") -> "dict
       4) /eapi/v1/ticker (unsigned, bulk) — 24hr volume/OI
       5) Strike-wise CE/PE rows mein assemble karo
     """
+    _BTC_OC_DEBUG["step"] = "exchangeInfo"
     ok, info = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
     if not ok:
         _BTC_OC_DEBUG.update({"last_error": f"exchangeInfo: {info}", "ts": time.time()})
@@ -782,23 +789,35 @@ def binance_get_option_chain(api_key: str, underlying: str = "BTCUSDT") -> "dict
     chosen_expiry   = expiries_sorted[0]          # nearest expiry (v1: sirf current)
     chain_symbols   = by_expiry[chosen_expiry]
 
+    _BTC_OC_DEBUG["step"] = "spot_price"
     spot, spot_err = binance_get_spot_price(underlying)
 
     # Bulk mark-price snapshot (ek hi call mein saare symbols) — fail ho to
     # per-strike fallback (reference get_option_premium() jaisa, 1-1 karke).
+    _BTC_OC_DEBUG["step"] = "mark_bulk"
     mark_map: dict = {}
     ok_bulk, bulk_data = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/mark", {}, api_key, signed=False)
     if ok_bulk and isinstance(bulk_data, list):
         for row in bulk_data:
             mark_map[row.get("symbol")] = row
 
+    _BTC_OC_DEBUG["step"] = "ticker_bulk"
     ticker_map: dict = {}
     ok_tk, tk_data = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/ticker", {}, api_key, signed=False)
     if ok_tk and isinstance(tk_data, list):
         for row in tk_data:
             ticker_map[row.get("symbol")] = row
 
+    # Kitne strikes ke liye bulk mark miss hua (in sab ke liye niche
+    # per-strike fallback call lagegi — yeh SABSE SLOW step ho sakta hai
+    # agar bulk fail ho gaya ho, kyunki ek-ek strike ke liye alag network
+    # call lagti hai).
+    _n_chain = len(chain_symbols)
+    _n_missing_mark = sum(1 for s in chain_symbols if mark_map.get(s.get("symbol")) is None)
+    _BTC_OC_DEBUG["step"] = f"mark_per_strike (0/{_n_missing_mark} of {_n_chain} symbols)"
+
     rows_map: dict = {}
+    _done_per_strike = 0
     for s in chain_symbols:
         sym = s.get("symbol")
         try:
@@ -817,6 +836,8 @@ def binance_get_option_chain(api_key: str, underlying: str = "BTCUSDT") -> "dict
                 mrow = _mdata[0] if isinstance(_mdata, list) and _mdata else (_mdata if isinstance(_mdata, dict) else {})
             else:
                 mrow = {}
+            _done_per_strike += 1
+            _BTC_OC_DEBUG["step"] = f"mark_per_strike ({_done_per_strike}/{_n_missing_mark} of {_n_chain} symbols)"
 
         trow = ticker_map.get(sym, {})
 
@@ -860,6 +881,7 @@ def binance_get_option_chain(api_key: str, underlying: str = "BTCUSDT") -> "dict
 
     expiry_dt    = datetime.datetime.utcfromtimestamp(chosen_expiry / 1000)
     expiry_label = expiry_dt.strftime("%d %b %Y")
+    _BTC_OC_DEBUG["step"] = "done"
 
     return {
         "asset": "btc",
@@ -922,25 +944,57 @@ _BTC_OC_LAST_PAYLOAD_LOCK = threading.Lock()
 
 def _binance_option_chain_bg_loop():
     while True:
+        _attempt_start = time.time()
+        _BTC_OC_DEBUG["attempt_start_ts"] = _attempt_start
+        _BTC_OC_DEBUG["step"] = "starting"
         try:
             payload = refresh_binance_option_chain_cache()
         except Exception as e:
             payload = {"asset": "btc", "error": f"bg loop exception: {e}"}
+        _now = time.time()
+        _BTC_OC_DEBUG["last_duration"] = round(_now - _attempt_start, 2)
+        _BTC_OC_DEBUG["attempt_start_ts"] = 0.0   # is attempt ka kaam khatam
+        if payload and not payload.get("error"):
+            _BTC_OC_DEBUG["last_success_ts"] = _now
         with _BTC_OC_LAST_PAYLOAD_LOCK:
-            _BTC_OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
+            _BTC_OC_LAST_PAYLOAD.update({"data": payload, "ts": _now})
         time.sleep(2)
 
 def get_cached_binance_option_chain_payload() -> dict:
     with _BTC_OC_LAST_PAYLOAD_LOCK:
         data = _BTC_OC_LAST_PAYLOAD["data"]
-        age  = time.time() - _BTC_OC_LAST_PAYLOAD["ts"]
+        ts   = _BTC_OC_LAST_PAYLOAD["ts"]
+        age  = time.time() - ts
+
+    # ── DEBUG fields — sirf diagnose karne ke liye, taaki UI mein dikh
+    # sake ki bg thread chal raha hai ya nahi, connected hai ya nahi,
+    # kis step par atka hai, aur kitni der se atka hai. In fields ko
+    # chart.html abhi ek chhoti si debug line mein dikhata hai (BTC
+    # option chain panel ke upar). ──────────────────────────────────────
+    _now = time.time()
+    _thread_alive = any(t.name == "BinanceOptionChainBG" and t.is_alive()
+                         for t in threading.enumerate())
+    _attempt_start = _BTC_OC_DEBUG.get("attempt_start_ts", 0.0)
+    _dbg = {
+        "debug_thread_alive":     _thread_alive,
+        "debug_connected":        binance_is_connected(),
+        "debug_last_error":       _BTC_OC_DEBUG.get("last_error", ""),
+        "debug_step":             _BTC_OC_DEBUG.get("step", "idle"),
+        "debug_attempt_running_for": round(_now - _attempt_start, 1) if _attempt_start else None,
+        "debug_last_success_ago":    round(_now - _BTC_OC_DEBUG["last_success_ts"], 1) if _BTC_OC_DEBUG.get("last_success_ts") else None,
+        "debug_last_duration":       _BTC_OC_DEBUG.get("last_duration", 0.0),
+        "debug_server_now":       _now,
+    }
+
     if data is None:
-        return {"asset": "btc", "error": "Binance option chain load ho raha hai… (pehli fetch abhi baaki hai)"}
+        payload = {"asset": "btc", "error": "Binance option chain load ho raha hai… (pehli fetch abhi baaki hai)"}
+        payload.update(_dbg)
+        return payload
+    d = dict(data)
     if age > 20:
-        d = dict(data)
         d["stale_warning"] = f"Data {int(age)}s purana hai — background refresh check karo"
-        return d
-    return data
+    d.update(_dbg)
+    return d
 
 def _ensure_binance_oc_thread():
     """Binance creds hone par hi background thread chalao — Fyers login se

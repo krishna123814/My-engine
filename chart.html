@@ -4480,6 +4480,8 @@ function _hdrRelayout(){
       <span class="oc-legend-strike"></span>
       <span>LTP</span><span>Chg%</span><span>OI</span>
     </div>
+    <div id="oc-btc-debug" style="display:none;font-size:10px;color:#ffb300;background:#1a1300;
+         padding:6px 10px;border-bottom:1px solid #2a2e3e;font-family:monospace;white-space:pre-wrap;"></div>
     <div id="oc-body">
       <div id="oc-loading">Data load ho raha hai…</div>
     </div>
@@ -19815,6 +19817,9 @@ let _bnGridDomCatchupTid = null;
 window.addEventListener('message', function(evt) {
   try {
     const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
+    if (msg && msg.type === 'option_chain_btc') {
+      console.log('[postMessage listener] option_chain_btc received');
+    }
     if (msg && msg.type === 'bn_live') {
       // Fallback only — skip if the fast 300ms poll already applied
       // something recently (normal case), to avoid processing the same
@@ -20008,7 +20013,31 @@ function _applyOptionChain(data) {
 // abhi BTC ke liye enable nahi hai — sirf chain dikhana hai ("baaki baad
 // mein"), isliye strike-select yahan sirf highlight karta hai. ─────────────
 var _ocLastChainDataBTC = null;
+// ── DEBUG counters — BTC option chain postMessage kitni baar aur kab
+// mila, dikhane ke liye. Isse pata chalega ki message reach kar raha hai
+// ya nahi (chahe abhi BankNifty tab active ho). Console mein bhi log
+// hota hai. Diagnose ke baad yeh block hata dena. ───────────────────────
+window._ocBtcMsgCount = window._ocBtcMsgCount || 0;
 function _applyOptionChainBTC(data) {
+  window._ocBtcMsgCount++;
+  var _now = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  console.log('[BTC-OC #' + window._ocBtcMsgCount + ' @ ' + _now + ']', data);
+  var _dbgEl = document.getElementById('oc-btc-debug');
+  if (_dbgEl) {
+    _dbgEl.style.display = 'block';
+    var _runningFor = (data && data.debug_attempt_running_for != null) ? (data.debug_attempt_running_for + 's') : '—';
+    var _successAgo = (data && data.debug_last_success_ago != null) ? (data.debug_last_success_ago + 's ago') : 'kabhi nahi';
+    _dbgEl.textContent =
+      'DEBUG msg#' + window._ocBtcMsgCount + ' @ ' + _now +
+      ' | connected=' + (data ? data.debug_connected : '—') +
+      ' | thread_alive=' + (data ? data.debug_thread_alive : '—') +
+      '\n step=' + (data ? data.debug_step : '—') +
+      ' | is chal raha hai: ' + _runningFor +
+      ' | last success: ' + _successAgo +
+      ' | last duration=' + (data ? data.debug_last_duration : '—') + 's' +
+      '\n error=' + (data && data.error ? data.error : '(none)') +
+      (data && data.debug_last_error ? (' | last_error=' + data.debug_last_error) : '');
+  }
   if (!data) return;
   _ocLastChainDataBTC = data;
   var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
@@ -20104,12 +20133,15 @@ async function _pollOptionChainBTC() {
   for (const p of paths) {
     try {
       const r = await fetch(p, { cache: 'no-store' });
+      console.log('[BTC-OC poll] ' + p + ' -> ' + r.status);
       if (r.ok) {
         const d = await r.json();
         _applyOptionChainBTC(d);
         return;
       }
-    } catch(_) {}
+    } catch(e) {
+      console.log('[BTC-OC poll] ' + p + ' -> failed: ' + e);
+    }
   }
 }
 function _startOCPolling() {
