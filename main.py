@@ -453,65 +453,7 @@ def _binance_call(base: str, path: str, params: dict, api_key: str,
     except Exception as e:
         return False, str(e)
 
-def binance_get_spot_balance(api_key: str, secret_key: str):
-    ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key)
-    if not ok:
-        return False, data
-    balances = [
-        b for b in data.get("balances", [])
-        if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0
-    ]
-    return True, balances
 
-def binance_get_spot_price(symbol: str = "BTCUSDT"):
-    ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
-    if not ok:
-        return None, data
-    return float(data["price"]), None
-
-def binance_get_nearest_option(api_key: str, btc_price: float, side: str = "CALL"):
-    ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
-    if not ok:
-        return None, data
-    symbols = data.get("optionSymbols", [])
-    candidates = []
-    for s in symbols:
-        if s.get("underlying", "") != "BTCUSDT":
-            continue
-        if s.get("side", "").upper() != side.upper():
-            continue
-        try:
-            strike = float(s.get("strikePrice"))
-        except Exception:
-            continue
-        candidates.append({
-            "symbol": s.get("symbol"),
-            "strikePrice": strike,
-            "expiryDate": s.get("expiryDate"),
-            "side": s.get("side"),
-            "distance": abs(strike - btc_price),
-        })
-    if not candidates:
-        return None, f"No BTCUSDT {side} option found"
-    candidates.sort(key=lambda x: x["distance"])
-    return candidates[0], None
-
-def binance_get_option_premium(api_key: str, option_symbol: str):
-    ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/mark", {"symbol": option_symbol}, api_key, signed=False)
-    if not ok:
-        return None, data
-    row = data[0] if isinstance(data, list) and data else data
-    return {
-        "symbol": row.get("symbol", option_symbol),
-        "markPrice": row.get("markPrice"),
-        "bidIV": row.get("bidIV"),
-        "askIV": row.get("askIV"),
-        "markIV": row.get("markIV"),
-        "delta": row.get("delta"),
-        "gamma": row.get("gamma"),
-        "theta": row.get("theta"),
-        "vega": row.get("vega"),
-    }, None
 
 # ─── Binance FULL option chain (multi-strike, CE/PE grid) — WEBSOCKET LIVE ──
 # Stack View 1 bottom-bar "⛓ Chain" panel ke liye — jab top-left symbol BTC ho
@@ -818,7 +760,11 @@ def _bn_rebuild_payload_from_memory() -> dict:
         spot = _BN_SPOT_PRICE["price"]
     if spot is None:
         # WS spot abhi connect nahi hua (rare/startup) — ek-baar REST fallback
-        spot, _err = binance_get_spot_price("BTCUSDT")
+        try:
+            _r = requests.get(f"{BINANCE_BASE_URL}/api/v3/ticker/price?symbol=BTCUSDT", timeout=5)
+            spot = float(_r.json()["price"]) if _r.status_code == 200 else None
+        except Exception:
+            spot = None
     if spot is None:
         return {"error": "BTC spot price abhi available nahi (WebSocket connect ho raha hai)"}
 
@@ -3231,51 +3177,21 @@ else:
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
-    # ── Binance Login Card (BTC Options — Balance + Strike/Premium) ────────────
+    # ── Binance Login Card ────────────────────────────────────────────────────
     st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
     st.markdown('''<div class="login-title">🟡 Binance Login</div>''', unsafe_allow_html=True)
-    st.markdown('''<div class="login-sub">API Key/Secret daalo — spot balance + BTC option strike ka premium dikhega</div>''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-sub">API Key/Secret daalo — BTC option chain ke liye</div>''', unsafe_allow_html=True)
 
     _bn_api_key    = st.text_input("Binance API Key", type="password", key="binance_api_key")
     _bn_secret_key = st.text_input("Binance Secret Key", type="password", key="binance_secret_key")
 
-    if st.button("🔍 Binance Fetch Data", use_container_width=True, type="primary", key="binance_fetch_btn"):
+    if st.button("🔑 Binance Login", use_container_width=True, type="primary", key="binance_fetch_btn"):
         if not _bn_api_key or not _bn_secret_key:
             st.error("Pehle API Key aur Secret Key daalo")
         else:
-            # Stack View 1 ke live BTC option-chain background thread ke liye
-            # bhi yahi keys chahiye (wo alag se chalta hai) — isliye save kar do.
+            # Keys save karo taaki app ke andar BTC option chain background thread use kar sake
             save_creds({**load_creds(), "binance_api_key": _bn_api_key, "binance_secret_key": _bn_secret_key})
-            with st.spinner("Binance se data la rahe hain…"):
-                _ok_bspot, _bspot_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
-                _btc_price, _err_price = binance_get_spot_price("BTCUSDT")
-
-            if _ok_bspot:
-                st.success("✅ Binance login successful")
-                st.write("**Spot Balances:**")
-                if _bspot_result:
-                    st.json(_bspot_result)
-                else:
-                    st.write("Koi non-zero spot balance nahi mili")
-            else:
-                st.error(f"❌ Balance error: {_bspot_result}")
-
-            if _err_price:
-                st.error(f"❌ BTC price fetch error: {_err_price}")
-            else:
-                st.write(f"**BTC Spot Price:** {_btc_price}")
-                _nearest_opt, _err_opt = binance_get_nearest_option(_bn_api_key, _btc_price, side="CALL")
-                if _err_opt:
-                    st.error(f"❌ Strike fetch error: {_err_opt}")
-                else:
-                    st.write("**Nearest Strike:**")
-                    st.json(_nearest_opt)
-                    _premium, _err_prem = binance_get_option_premium(_bn_api_key, _nearest_opt["symbol"])
-                    if _err_prem:
-                        st.error(f"❌ Premium fetch error: {_err_prem}")
-                    else:
-                        st.write("**Premium:**")
-                        st.json(_premium)
+            st.success("✅ Binance Login Successful")
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
