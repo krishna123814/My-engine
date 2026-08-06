@@ -10,46 +10,15 @@ BASE_URL = "https://api.binance.com"
 EAPI_URL = "https://eapi.binance.com"
 
 # -------------------------
-# Proxy rotation (Webshare)
-# -------------------------
-RAW_PROXIES = [
-    "31.59.20.176:6754:pyzxofpu:iuwdubctq5qf",
-    "31.56.127.193:7684:pyzxofpu:iuwdubctq5qf",
-    "45.38.107.97:6014:pyzxofpu:iuwdubctq5qf",
-    "198.105.121.200:6462:pyzxofpu:iuwdubctq5qf",
-    "64.137.96.74:6641:pyzxofpu:iuwdubctq5qf",
-    "198.23.243.226:6361:pyzxofpu:iuwdubctq5qf",
-    "38.154.185.97:6370:pyzxofpu:iuwdubctq5qf",
-    "84.247.60.125:6095:pyzxofpu:iuwdubctq5qf",
-    "142.111.67.146:5611:pyzxofpu:iuwdubctq5qf",
-    "191.96.254.138:6185:pyzxofpu:iuwdubctq5qf",
-]
-
-def _proxy_dict(raw):
-    ip, port, user, pwd = raw.split(":")
-    url = f"http://{user}:{pwd}@{ip}:{port}"
-    return {"http": url, "https": url}
-
-def get_ordered_proxies():
-    """Sticky proxy first (if one already worked this session), then the rest."""
-    order = list(RAW_PROXIES)
-    working = st.session_state.get("working_proxy")
-    if working and working in order:
-        order.remove(working)
-        order.insert(0, working)
-    return order
-
-# -------------------------
 # Common helpers
 # -------------------------
 def get_server_time():
-    for raw in get_ordered_proxies():
-        try:
-            r = requests.get(f"{BASE_URL}/api/v3/time", timeout=10, proxies=_proxy_dict(raw))
-            if r.status_code == 200:
-                return r.json().get("serverTime", int(time.time() * 1000))
-        except Exception:
-            continue
+    try:
+        r = requests.get(f"{BASE_URL}/api/v3/time", timeout=10)
+        if r.status_code == 200:
+            return r.json().get("serverTime", int(time.time() * 1000))
+    except Exception:
+        pass
     return int(time.time() * 1000)
 
 def sign_request(params, secret_key):
@@ -62,60 +31,39 @@ def sign_request(params, secret_key):
 def call_api(base, path, params, api_key, signed=False, secret_key=None):
     headers = {"X-MBX-APIKEY": api_key} if api_key else {}
 
-    # Note: for signed requests, timestamp/signature is (re)computed fresh
-    # for EVERY proxy attempt below, so an old timestamp never gets reused
-    # against a different proxy/network path.
+    if signed:
+        qs = sign_request(params.copy(), secret_key)
+    else:
+        qs = urlencode(params, doseq=True)
 
-    last_error = "No proxies available"
+    url = f"{base}{path}"
+    if qs:
+        url = f"{url}?{qs}"
 
-    for raw_proxy in get_ordered_proxies():
-        if signed:
-            qs = sign_request(params.copy(), secret_key)
-        else:
-            qs = urlencode(params, doseq=True)
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        ct = r.headers.get("Content-Type", "")
 
-        url = f"{base}{path}"
-        if qs:
-            url = f"{url}?{qs}"
+        if "application/json" in ct:
+            data = r.json()
+            if r.status_code == 200:
+                return True, data
+            else:
+                code = data.get("code", r.status_code)
+                msg = data.get("msg", "Unknown error")
+                return False, f"Error {code}: {msg}"
 
-        try:
-            r = requests.get(url, headers=headers, timeout=20, proxies=_proxy_dict(raw_proxy))
-            ct = r.headers.get("Content-Type", "")
+        text = r.text.strip()
+        if "<html" in text.lower():
+            return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON (endpoint may be unavailable for your account/region)"
+        return False, f"HTTP {r.status_code}: {text[:500]}"
 
-            if "application/json" in ct:
-                data = r.json()
-                if r.status_code == 200:
-                    st.session_state["working_proxy"] = raw_proxy
-                    return True, data
-                else:
-                    code = data.get("code", r.status_code)
-                    msg = data.get("msg", "Unknown error")
-                    # Geo-block / restricted-location errors -> try next proxy
-                    if code in (0, -1, 451) or "restricted location" in str(msg).lower():
-                        last_error = f"Error {code}: {msg} (proxy {raw_proxy.split(':')[0]} blocked, trying next)"
-                        continue
-                    # Any other real API error (bad key, bad symbol, etc.) -> no point rotating
-                    st.session_state["working_proxy"] = raw_proxy
-                    return False, f"Error {code}: {msg}"
-
-            text = r.text.strip()
-            if "<html" in text.lower() or r.status_code in (451, 403):
-                last_error = f"HTTP {r.status_code}: blocked via proxy {raw_proxy.split(':')[0]}, trying next"
-                continue
-            last_error = f"HTTP {r.status_code}: {text[:500]}"
-            continue
-
-        except requests.exceptions.Timeout:
-            last_error = f"Timed out via proxy {raw_proxy.split(':')[0]}, trying next"
-            continue
-        except requests.exceptions.ConnectionError:
-            last_error = f"Connection error via proxy {raw_proxy.split(':')[0]}, trying next"
-            continue
-        except Exception as e:
-            last_error = f"{e} (proxy {raw_proxy.split(':')[0]}, trying next)"
-            continue
-
-    return False, f"All proxies failed. Last error: {last_error}"
+    except requests.exceptions.Timeout:
+        return False, "Request timed out"
+    except requests.exceptions.ConnectionError:
+        return False, "Connection error"
+    except Exception as e:
+        return False, str(e)
 
 # -------------------------
 # Spot account
@@ -260,11 +208,6 @@ def get_options_balance(api_key, secret_key):
 # -------------------------
 st.set_page_config(page_title="Binance Spot + Options Checker", layout="centered")
 st.title("Binance Login + Spot Balance + BTC Option Strike/Premium")
-
-if st.session_state.get("working_proxy"):
-    st.sidebar.success(f"Active proxy: {st.session_state['working_proxy'].split(':')[0]}")
-else:
-    st.sidebar.info("No proxy locked yet — will try all on first request")
 
 api_key = st.text_input("Binance API Key", type="password")
 secret_key = st.text_input("Binance Secret Key", type="password")
