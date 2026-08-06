@@ -4,12 +4,14 @@ import os
 import time
 import threading
 import hashlib
+import hmac
 import zipfile
 import requests
 import pyotp
 import streamlit as st
 import streamlit.components.v1 as components
 import datetime
+from urllib.parse import urlencode
 
 # ─── Fast2SMS API key ──────────────────────────────────────────────────────
 # HF Spaces: Settings → Variables and secrets (env vars).
@@ -2532,6 +2534,119 @@ if sess_active or _btc_only:
         _option_chain_pusher()
 
 else:
+    # ─── Binance (BTC Options) — manual API key/secret login ──────────────────
+    # Reference file (app.py user ne diya) ke pattern se hi ported — koi extra
+    # feature add nahi ki, sirf: spot balance + ek nearest strike + uska premium.
+    BINANCE_BASE_URL = "https://api.binance.com"
+    BINANCE_EAPI_URL = "https://eapi.binance.com"
+
+    def _binance_server_time() -> int:
+        try:
+            r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
+            if r.status_code == 200:
+                return r.json().get("serverTime", int(time.time() * 1000))
+        except Exception:
+            pass
+        return int(time.time() * 1000)
+
+    def _binance_sign(params: dict, secret_key: str) -> str:
+        params["timestamp"] = _binance_server_time()
+        params["recvWindow"] = 10000
+        qs = urlencode(params, doseq=True)
+        sig = hmac.new(secret_key.encode(), qs.encode(), hashlib.sha256).hexdigest()
+        return f"{qs}&signature={sig}"
+
+    def _binance_call(base: str, path: str, params: dict, api_key: str,
+                       signed: bool = False, secret_key: str = None):
+        headers = {"X-MBX-APIKEY": api_key} if api_key else {}
+        if signed:
+            qs = _binance_sign(params.copy(), secret_key)
+        else:
+            qs = urlencode(params, doseq=True)
+        url = f"{base}{path}"
+        if qs:
+            url = f"{url}?{qs}"
+        try:
+            r = requests.get(url, headers=headers, timeout=20)
+            ct = r.headers.get("Content-Type", "")
+            if "application/json" in ct:
+                data = r.json()
+                if r.status_code == 200:
+                    return True, data
+                code = data.get("code", r.status_code)
+                msg = data.get("msg", "Unknown error")
+                return False, f"Error {code}: {msg}"
+            text = r.text.strip()
+            if "<html" in text.lower():
+                return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON (endpoint may be unavailable for your account/region)"
+            return False, f"HTTP {r.status_code}: {text[:500]}"
+        except requests.exceptions.Timeout:
+            return False, "Request timed out"
+        except requests.exceptions.ConnectionError:
+            return False, "Connection error"
+        except Exception as e:
+            return False, str(e)
+
+    def binance_get_spot_balance(api_key: str, secret_key: str):
+        ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key)
+        if not ok:
+            return False, data
+        balances = [
+            b for b in data.get("balances", [])
+            if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0
+        ]
+        return True, balances
+
+    def binance_get_spot_price(symbol: str = "BTCUSDT"):
+        ok, data = _binance_call(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
+        if not ok:
+            return None, data
+        return float(data["price"]), None
+
+    def binance_get_nearest_option(api_key: str, btc_price: float, side: str = "CALL"):
+        ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
+        if not ok:
+            return None, data
+        symbols = data.get("optionSymbols", [])
+        candidates = []
+        for s in symbols:
+            if s.get("underlying", "") != "BTCUSDT":
+                continue
+            if s.get("side", "").upper() != side.upper():
+                continue
+            try:
+                strike = float(s.get("strikePrice"))
+            except Exception:
+                continue
+            candidates.append({
+                "symbol": s.get("symbol"),
+                "strikePrice": strike,
+                "expiryDate": s.get("expiryDate"),
+                "side": s.get("side"),
+                "distance": abs(strike - btc_price),
+            })
+        if not candidates:
+            return None, f"No BTCUSDT {side} option found"
+        candidates.sort(key=lambda x: x["distance"])
+        return candidates[0], None
+
+    def binance_get_option_premium(api_key: str, option_symbol: str):
+        ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/mark", {"symbol": option_symbol}, api_key, signed=False)
+        if not ok:
+            return None, data
+        row = data[0] if isinstance(data, list) and data else data
+        return {
+            "symbol": row.get("symbol", option_symbol),
+            "markPrice": row.get("markPrice"),
+            "bidIV": row.get("bidIV"),
+            "askIV": row.get("askIV"),
+            "markIV": row.get("markIV"),
+            "delta": row.get("delta"),
+            "gamma": row.get("gamma"),
+            "theta": row.get("theta"),
+            "vega": row.get("vega"),
+        }, None
+
     # ─── Main area inline Login Panel ─────────────────────────────────────────
     _creds_main = load_creds()
     _has_old    = bool(_creds_main.get("access_token"))
@@ -2665,6 +2780,51 @@ else:
                     st.code(json.dumps(_resp_u, indent=2), language="json")
         else:
             st.warning("URL ya auth_code paste karo pehle")
+
+    st.markdown('''</div>''', unsafe_allow_html=True)
+
+    # ── Binance Login Card (BTC Options — Balance + Strike/Premium) ────────────
+    st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-title">🟡 Binance Login</div>''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-sub">API Key/Secret daalo — spot balance + BTC option strike ka premium dikhega</div>''', unsafe_allow_html=True)
+
+    _bn_api_key    = st.text_input("Binance API Key", type="password", key="binance_api_key")
+    _bn_secret_key = st.text_input("Binance Secret Key", type="password", key="binance_secret_key")
+
+    if st.button("🔍 Binance Fetch Data", use_container_width=True, type="primary", key="binance_fetch_btn"):
+        if not _bn_api_key or not _bn_secret_key:
+            st.error("Pehle API Key aur Secret Key daalo")
+        else:
+            with st.spinner("Binance se data la rahe hain…"):
+                _ok_bspot, _bspot_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
+                _btc_price, _err_price = binance_get_spot_price("BTCUSDT")
+
+            if _ok_bspot:
+                st.success("✅ Binance login successful")
+                st.write("**Spot Balances:**")
+                if _bspot_result:
+                    st.json(_bspot_result)
+                else:
+                    st.write("Koi non-zero spot balance nahi mili")
+            else:
+                st.error(f"❌ Balance error: {_bspot_result}")
+
+            if _err_price:
+                st.error(f"❌ BTC price fetch error: {_err_price}")
+            else:
+                st.write(f"**BTC Spot Price:** {_btc_price}")
+                _nearest_opt, _err_opt = binance_get_nearest_option(_bn_api_key, _btc_price, side="CALL")
+                if _err_opt:
+                    st.error(f"❌ Strike fetch error: {_err_opt}")
+                else:
+                    st.write("**Nearest Strike:**")
+                    st.json(_nearest_opt)
+                    _premium, _err_prem = binance_get_option_premium(_bn_api_key, _nearest_opt["symbol"])
+                    if _err_prem:
+                        st.error(f"❌ Premium fetch error: {_err_prem}")
+                    else:
+                        st.write("**Premium:**")
+                        st.json(_premium)
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
