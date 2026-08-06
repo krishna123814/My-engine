@@ -561,8 +561,8 @@ _BN_OPT_WS_LOCK = threading.Lock()
 
 # Manager state — kaunse symbols/expiry par abhi connection subscribed hai
 _BN_OPT_WS_STATE = {
-    "symbols": frozenset(),   # currently-subscribed option symbols
-    "expiry_str": None,       # currently-subscribed openInterest expiry (YYMMDD)
+    "symbols": frozenset(),   # currently-TARGETED option symbols (connected ho ya connecting)
+    "expiry_str": None,       # currently-targeted openInterest expiry (YYMMDD)
     "generation": 0,          # badhta counter — purane thread ko khud band karne ka signal
     "app": None,
 }
@@ -622,12 +622,18 @@ def _binance_opt_ws_preflight(host: str = "nbstream.binance.com", port: int = 44
     if _WS_AVAILABLE:
         try:
             t0 = time.time()
-            test_url = f"wss://{host}/eoptions/ws"
+            # Diagnostic-only probe — असली connection ke jaisa hi base path
+            # use karte hain (query params ke bina). Server iske bina bhi
+            # TLS/WS handshake complete kar leta hai agar reachable hai;
+            # ismein 400-jaisa "bad request" bhi effectively OK hai (matlab
+            # server tak connectivity hai) — sirf DNS/TCP/timeout failures
+            # hi asli "unreachable" signal hain.
+            test_url = f"wss://{host}/eoptions/stream"
             probe = _ws_client.create_connection(test_url, timeout=8)
             probe.close()
             result["ws_handshake"] = f"OK in {time.time()-t0:.2f}s"
         except Exception as e:
-            result["ws_handshake"] = f"FAIL: {type(e).__name__}: {e}"
+            result["ws_handshake"] = f"{type(e).__name__}: {e} (reachable, but check message — 4xx yahan bhi 'server tak pahunch gaye' maana ja sakta hai)"
     with _BN_OPT_WS_DEBUG_LOCK:
         _BN_OPT_WS_DEBUG["preflight"] = result
     return result
@@ -635,21 +641,25 @@ def _binance_opt_ws_preflight(host: str = "nbstream.binance.com", port: int = 44
 def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
     """Ek combined-stream connection: N option symbols ka @ticker +
     ek hi @openInterest@<expiry> stream (jo us expiry ki saari strikes ka
-    OI ek saath deta hai — is se per-symbol OI poll karne ki zaroorat nahi)."""
+    OI ek saath deta hai — is se per-symbol OI poll karne ki zaroorat nahi).
+
+    BUG-FIX: pehle ye function sirf EK connect attempt karta tha, aur bahar
+    se (option-chain refresh cycle, har ~3 sec) baar-baar "ensure" call hota
+    tha jo — chahe symbol-set same ho — connection abhi "connecting" hi hota
+    (app abhi None hota, kyunki wo sirf on_open mein set hota hai) to use
+    "purana/dead" maan ke turant cancel karke naya thread shuru kar deta.
+    Isse connection kabhi bhi handshake complete karne se pehle hi mar jaata
+    tha — hamesha "connecting" par atka dikhta, network bilkul theek hote
+    hue bhi. Fix: (1) ensure() ab running attempt ko disturb nahi karta jab
+    tak symbol-set actually na badle; (2) retry/backoff loop yahan andar hi
+    hai, taaki connection drop hone par khud-ba-khud reconnect ho, bahar se
+    trigger karne ki zaroorat na pade."""
     if not _WS_AVAILABLE or not symbols:
         return
     streams = [f"{s.lower()}@ticker" for s in symbols]
     if expiry_str:
         streams.append(f"btcusdt@openInterest@{expiry_str}")
     url = f"{BINANCE_OPT_WS_BASE}?streams=" + "/".join(streams)
-    with _BN_OPT_WS_DEBUG_LOCK:
-        _BN_OPT_WS_DEBUG["status"] = "connecting"
-        _BN_OPT_WS_DEBUG["url_stream_count"] = len(streams)
-        _BN_OPT_WS_DEBUG["last_error"] = None
-
-    # Preflight — connect() ke silently hang hone se pehle hi exact wajah
-    # pakad lo (DNS / TCP / TLS-handshake mein se kahan atak raha hai).
-    _binance_opt_ws_preflight()
 
     def _still_current():
         with _BN_OPT_WS_STATE_LOCK:
@@ -729,30 +739,53 @@ def _binance_opt_ws_run(symbols: frozenset, expiry_str: str, generation: int):
             with _BN_OPT_WS_DEBUG_LOCK:
                 _BN_OPT_WS_DEBUG["last_error"] = f"parse: {e}"
 
-    try:
-        app = _ws_client.WebSocketApp(
-            url, on_message=on_message, on_open=on_open,
-            on_error=on_error, on_close=on_close,
-        )
-        # eoptions server har 5 min ping bhejta hai; websocket-client isko
-        # khud hi pong se jawab de deta hai (built-in), extra kaam nahi karna.
-        app.run_forever(ping_interval=0)
-    except Exception as e:
+    backoff = 1
+    first_attempt = True
+    while _still_current():
         with _BN_OPT_WS_DEBUG_LOCK:
-            _BN_OPT_WS_DEBUG["status"] = "exception"
-            _BN_OPT_WS_DEBUG["last_error"] = str(e)
+            _BN_OPT_WS_DEBUG["status"] = "connecting"
+            _BN_OPT_WS_DEBUG["url_stream_count"] = len(streams)
+            _BN_OPT_WS_DEBUG["last_error"] = None
+        if first_attempt:
+            # Preflight sirf pehli baar — DNS/TCP/handshake diagnostic,
+            # taaki panel mein turant pata chale network theek hai ya nahi.
+            _binance_opt_ws_preflight()
+            first_attempt = False
+        try:
+            app = _ws_client.WebSocketApp(
+                url, on_message=on_message, on_open=on_open,
+                on_error=on_error, on_close=on_close,
+            )
+            # eoptions server har 5 min ping bhejta hai; websocket-client isko
+            # khud hi pong se jawab de deta hai (built-in), extra kaam nahi karna.
+            app.run_forever(ping_interval=0)
+            backoff = 1  # ek successful run ke baad backoff reset
+        except Exception as e:
+            with _BN_OPT_WS_DEBUG_LOCK:
+                _BN_OPT_WS_DEBUG["status"] = "exception"
+                _BN_OPT_WS_DEBUG["last_error"] = str(e)
+        if not _still_current():
+            return
+        with _BN_OPT_WS_STATE_LOCK:
+            if _BN_OPT_WS_STATE["app"] is not None:
+                _BN_OPT_WS_STATE["app"] = None  # connection gir gaya, agla loop naya banayega
+        time.sleep(min(backoff, 30))
+        backoff = min(backoff * 2, 30)
 
 def _binance_opt_ws_ensure(symbols: set, expiry_str: str):
-    """Agar subscribed symbol-set/expiry badal gaya (ATM shift, naya
-    refresh) to purana connection band karke naya start karo. Same set ho
-    to kuch nahi karna — is wajah se ye function har 3-sec refresh cycle
-    mein safe call kiya ja sakta hai."""
+    """Agar subscribed symbol-set/expiry actually badal gaya (ATM shift) to
+    purana connection band karke naya start karo. SAME set ho to kuch mat
+    karo — chahe wo abhi connect ho chuka ho ya connect-in-progress ho.
+    Isliye ye function har 3-sec refresh cycle mein safe call kiya ja sakta
+    hai: real reconnect sirf tab hoga jab strikes/expiry actually shift ho."""
     if not _WS_AVAILABLE:
         return
     new_set = frozenset(symbols)
     with _BN_OPT_WS_STATE_LOCK:
-        same = (new_set == _BN_OPT_WS_STATE["symbols"] and expiry_str == _BN_OPT_WS_STATE["expiry_str"])
-        if same and _BN_OPT_WS_STATE["app"] is not None:
+        same_target = (new_set == _BN_OPT_WS_STATE["symbols"] and expiry_str == _BN_OPT_WS_STATE["expiry_str"])
+        if same_target:
+            # Ek attempt (connecting ya connected) already isi target ke
+            # liye chal raha hai — usse disturb mat karo.
             return
         _BN_OPT_WS_STATE["generation"] += 1
         gen = _BN_OPT_WS_STATE["generation"]
