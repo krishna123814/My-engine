@@ -3,6 +3,7 @@ import json
 import os
 import time
 import threading
+import traceback
 import hashlib
 import zipfile
 import requests
@@ -658,8 +659,6 @@ from urllib.parse import urlencode as _urlencode
 
 BINANCE_CREDS_FILE = ".binance_creds.json"
 BINANCE_BASE_URL   = "https://api.binance.com"
-BINANCE_EAPI_URL   = "https://eapi.binance.com"
-BTC_OC_FILE        = "binance_optionchain.json"
 
 def load_binance_creds() -> dict:
     if os.path.exists(BINANCE_CREDS_FILE):
@@ -733,278 +732,6 @@ def binance_test_login(api_key: str, secret_key: str) -> "tuple[bool, str]":
     if not ok:
         return False, data
     return True, "ok"
-
-def binance_get_spot_price(symbol: str = "BTCUSDT"):
-    ok, data = binance_call_api(BINANCE_BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
-    if not ok:
-        return None, data
-    return float(data["price"]), None
-
-# ── Full Option Chain builder ───────────────────────────────────────────────
-_BTC_OC_DEBUG = {
-    "last_error": "", "ts": 0.0,
-    "step": "idle",              # kis step par abhi hai: exchangeInfo/mark_bulk/mark_per_strike/ticker/done
-    "attempt_start_ts": 0.0,     # current attempt kab shuru hua (0 = koi attempt chal nahi raha)
-    "last_success_ts": 0.0,      # last successful fetch kab hua tha
-    "last_duration": 0.0,        # last attempt (success ya fail) kitni der chala
-}
-
-def binance_get_option_chain(api_key: str, underlying: str = "BTCUSDT") -> "dict | None":
-    """Binance ka poora option chain fetch karta hai — Fyers wale function
-    (fyers_get_option_chain) jaisa hi output-shape deta hai (spot/atm/rows/
-    expiries/expiry_label) taaki frontend dono chains ko same renderer se
-    dikha sake.
-
-    Steps (reference main.py ke exact pattern par, 1 strike ke baad dusri
-    isi tarah puri chain banti hai):
-      1) /eapi/v1/exchangeInfo (unsigned) — saare option symbols
-      2) underlying=BTCUSDT wale symbols nikaal ke nearest expiry chuno
-      3) /eapi/v1/mark (unsigned, bulk) — sab symbols ka premium/IV/greeks
-         ek call mein; agar bulk fail ho to har strike ke liye ALAG call
-         (reference ka get_option_premium() pattern — 1-1 karke)
-      4) /eapi/v1/ticker (unsigned, bulk) — 24hr volume/OI
-      5) Strike-wise CE/PE rows mein assemble karo
-    """
-    _BTC_OC_DEBUG["step"] = "exchangeInfo"
-    ok, info = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/exchangeInfo", {}, api_key, signed=False)
-    if not ok:
-        _BTC_OC_DEBUG.update({"last_error": f"exchangeInfo: {info}", "ts": time.time()})
-        return None
-
-    symbols = info.get("optionSymbols", []) if isinstance(info, dict) else []
-    by_expiry: dict = {}
-    for s in symbols:
-        if s.get("underlying", "") != underlying:
-            continue
-        exp = s.get("expiryDate")
-        if exp is None:
-            continue
-        by_expiry.setdefault(exp, []).append(s)
-
-    if not by_expiry:
-        _BTC_OC_DEBUG.update({"last_error": f"No option symbols found for {underlying}", "ts": time.time()})
-        return None
-
-    expiries_sorted = sorted(by_expiry.keys())
-    chosen_expiry   = expiries_sorted[0]          # nearest expiry (v1: sirf current)
-    chain_symbols   = by_expiry[chosen_expiry]
-
-    _BTC_OC_DEBUG["step"] = "spot_price"
-    spot, spot_err = binance_get_spot_price(underlying)
-
-    # Bulk mark-price snapshot (ek hi call mein saare symbols) — fail ho to
-    # per-strike fallback (reference get_option_premium() jaisa, 1-1 karke).
-    _BTC_OC_DEBUG["step"] = "mark_bulk"
-    mark_map: dict = {}
-    ok_bulk, bulk_data = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/mark", {}, api_key, signed=False)
-    if ok_bulk and isinstance(bulk_data, list):
-        for row in bulk_data:
-            mark_map[row.get("symbol")] = row
-
-    _BTC_OC_DEBUG["step"] = "ticker_bulk"
-    ticker_map: dict = {}
-    ok_tk, tk_data = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/ticker", {}, api_key, signed=False)
-    if ok_tk and isinstance(tk_data, list):
-        for row in tk_data:
-            ticker_map[row.get("symbol")] = row
-
-    # Kitne strikes ke liye bulk mark miss hua (in sab ke liye niche
-    # per-strike fallback call lagegi — yeh SABSE SLOW step ho sakta hai
-    # agar bulk fail ho gaya ho, kyunki ek-ek strike ke liye alag network
-    # call lagti hai).
-    _n_chain = len(chain_symbols)
-    _n_missing_mark = sum(1 for s in chain_symbols if mark_map.get(s.get("symbol")) is None)
-    _BTC_OC_DEBUG["step"] = f"mark_per_strike (0/{_n_missing_mark} of {_n_chain} symbols)"
-
-    rows_map: dict = {}
-    _done_per_strike = 0
-    for s in chain_symbols:
-        sym = s.get("symbol")
-        try:
-            strike = float(s.get("strikePrice"))
-        except (TypeError, ValueError):
-            continue
-        side = (s.get("side") or "").upper()   # CALL / PUT
-
-        mrow = mark_map.get(sym)
-        if mrow is None:
-            # per-strike fallback — reference get_option_premium() jaisa,
-            # ek-ek strike karke seedha /eapi/v1/mark?symbol=... call
-            _ok_m, _mdata = binance_call_api(BINANCE_EAPI_URL, "/eapi/v1/mark",
-                                              {"symbol": sym}, api_key, signed=False)
-            if _ok_m:
-                mrow = _mdata[0] if isinstance(_mdata, list) and _mdata else (_mdata if isinstance(_mdata, dict) else {})
-            else:
-                mrow = {}
-            _done_per_strike += 1
-            _BTC_OC_DEBUG["step"] = f"mark_per_strike ({_done_per_strike}/{_n_missing_mark} of {_n_chain} symbols)"
-
-        trow = ticker_map.get(sym, {})
-
-        def _f(v, default=0):
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                return default
-
-        leg = {
-            "ltp":    _f(mrow.get("markPrice")),
-            "chg":    _f(trow.get("priceChange")),
-            "chgp":   _f(trow.get("priceChangePercent")),
-            "oi":     _f(trow.get("openInterest")),
-            "oich":   0,
-            "oichp":  0,
-            "volume": _f(trow.get("volume")),
-            "bid":    _f(mrow.get("bidIV")),
-            "ask":    _f(mrow.get("askIV")),
-            "delta":  mrow.get("delta"),
-            "gamma":  mrow.get("gamma"),
-            "theta":  mrow.get("theta"),
-            "vega":   mrow.get("vega"),
-            "iv":     mrow.get("markIV"),
-            "symbol": sym,
-        }
-
-        row = rows_map.setdefault(strike, {"strike": strike, "ce": None, "pe": None})
-        if side == "CALL":
-            row["ce"] = leg
-        elif side == "PUT":
-            row["pe"] = leg
-
-    rows = sorted(rows_map.values(), key=lambda x: x["strike"])
-    if not rows:
-        _BTC_OC_DEBUG.update({"last_error": "No strikes assembled (mark/ticker fetch fail ho gaya)", "ts": time.time()})
-        return None
-
-    ref_strike = spot if spot is not None else rows[len(rows) // 2]["strike"]
-    atm = min((r["strike"] for r in rows), key=lambda k: abs(k - ref_strike))
-
-    expiry_dt    = datetime.datetime.utcfromtimestamp(chosen_expiry / 1000)
-    expiry_label = expiry_dt.strftime("%d %b %Y")
-    _BTC_OC_DEBUG["step"] = "done"
-
-    return {
-        "asset": "btc",
-        "spot": spot,
-        "atm": atm,
-        "rows": rows,
-        "call_oi": sum((r["ce"]["oi"] if r["ce"] else 0) for r in rows),
-        "put_oi":  sum((r["pe"]["oi"] if r["pe"] else 0) for r in rows),
-        "expiries": [
-            {"date": datetime.datetime.utcfromtimestamp(e / 1000).strftime("%d %b %Y"),
-             "expiry": str(int(e / 1000))}
-            for e in expiries_sorted
-        ],
-        "expiry_label": expiry_label,
-        "expiry_epoch": int(chosen_expiry / 1000),
-        "ts": time.time(),
-    }
-
-# ── Cache + background refresher (Fyers wale _option_chain_bg_loop jaisa) ──
-_BTC_OC_CACHE = {"data": None, "ts": 0.0}
-_BTC_OC_LOCK  = threading.Lock()
-_BTC_OC_TTL   = 5   # seconds — options ka bid/ask/mark itni fast nahi badalta
-
-def refresh_binance_option_chain_cache() -> dict:
-    """TTL ke andar cache use karta hai, warna Binance se dobara fetch karta
-    hai, aur binance_optionchain.json mein likh deta hai (iframe poll
-    fallback ke liye). Fyers wale refresh_option_chain_cache() jaisa hi
-    pattern — failure par bhi 'error' field ke saath JSON likhta hai."""
-    now = time.time()
-    with _BTC_OC_LOCK:
-        stale = (now - _BTC_OC_CACHE["ts"]) >= _BTC_OC_TTL
-        cached = _BTC_OC_CACHE["data"]
-    if not stale and cached:
-        return cached
-
-    creds = load_binance_creds()
-    if not creds.get("api_key"):
-        payload = {"asset": "btc", "error": "Binance login nahi mila — API key missing hai."}
-    else:
-        data = binance_get_option_chain(creds["api_key"])
-        if data:
-            payload = data
-        else:
-            payload = {
-                "asset": "btc",
-                "error": f"Binance Option Chain fetch fail ho gayi — {_BTC_OC_DEBUG.get('last_error', 'unknown error')}",
-            }
-
-    with _BTC_OC_LOCK:
-        _BTC_OC_CACHE.update({"data": payload, "ts": now})
-    try:
-        with open(BTC_OC_FILE, "w") as f:
-            json.dump(payload, f)
-    except Exception:
-        pass
-    return payload
-
-_BTC_OC_LAST_PAYLOAD: dict = {"data": None, "ts": 0.0}
-_BTC_OC_LAST_PAYLOAD_LOCK = threading.Lock()
-
-def _binance_option_chain_bg_loop():
-    while True:
-        _attempt_start = time.time()
-        _BTC_OC_DEBUG["attempt_start_ts"] = _attempt_start
-        _BTC_OC_DEBUG["step"] = "starting"
-        try:
-            payload = refresh_binance_option_chain_cache()
-        except Exception as e:
-            payload = {"asset": "btc", "error": f"bg loop exception: {e}"}
-        _now = time.time()
-        _BTC_OC_DEBUG["last_duration"] = round(_now - _attempt_start, 2)
-        _BTC_OC_DEBUG["attempt_start_ts"] = 0.0   # is attempt ka kaam khatam
-        if payload and not payload.get("error"):
-            _BTC_OC_DEBUG["last_success_ts"] = _now
-        with _BTC_OC_LAST_PAYLOAD_LOCK:
-            _BTC_OC_LAST_PAYLOAD.update({"data": payload, "ts": _now})
-        time.sleep(2)
-
-def get_cached_binance_option_chain_payload() -> dict:
-    with _BTC_OC_LAST_PAYLOAD_LOCK:
-        data = _BTC_OC_LAST_PAYLOAD["data"]
-        ts   = _BTC_OC_LAST_PAYLOAD["ts"]
-        age  = time.time() - ts
-
-    # ── DEBUG fields — sirf diagnose karne ke liye, taaki UI mein dikh
-    # sake ki bg thread chal raha hai ya nahi, connected hai ya nahi,
-    # kis step par atka hai, aur kitni der se atka hai. In fields ko
-    # chart.html abhi ek chhoti si debug line mein dikhata hai (BTC
-    # option chain panel ke upar). ──────────────────────────────────────
-    _now = time.time()
-    _thread_alive = any(t.name == "BinanceOptionChainBG" and t.is_alive()
-                         for t in threading.enumerate())
-    _attempt_start = _BTC_OC_DEBUG.get("attempt_start_ts", 0.0)
-    _dbg = {
-        "debug_thread_alive":     _thread_alive,
-        "debug_connected":        binance_is_connected(),
-        "debug_last_error":       _BTC_OC_DEBUG.get("last_error", ""),
-        "debug_step":             _BTC_OC_DEBUG.get("step", "idle"),
-        "debug_attempt_running_for": round(_now - _attempt_start, 1) if _attempt_start else None,
-        "debug_last_success_ago":    round(_now - _BTC_OC_DEBUG["last_success_ts"], 1) if _BTC_OC_DEBUG.get("last_success_ts") else None,
-        "debug_last_duration":       _BTC_OC_DEBUG.get("last_duration", 0.0),
-        "debug_server_now":       _now,
-    }
-
-    if data is None:
-        payload = {"asset": "btc", "error": "Binance option chain load ho raha hai… (pehli fetch abhi baaki hai)"}
-        payload.update(_dbg)
-        return payload
-    d = dict(data)
-    if age > 20:
-        d["stale_warning"] = f"Data {int(age)}s purana hai — background refresh check karo"
-    d.update(_dbg)
-    return d
-
-def _ensure_binance_oc_thread():
-    """Binance creds hone par hi background thread chalao — Fyers login se
-    poori tarah independent (isi liye is check ko _ensure_live_threads()
-    ke bahar rakha hai, taaki Fyers login na hone par bhi BTC chain chal sake)."""
-    if not binance_is_connected():
-        return
-    names = {t.name for t in threading.enumerate()}
-    if "BinanceOptionChainBG" not in names:
-        threading.Thread(target=_binance_option_chain_bg_loop, name="BinanceOptionChainBG", daemon=True).start()
 
 
 def _write_login_log(payload: dict, status_code: int, response: dict):
@@ -2402,12 +2129,6 @@ _entered_btc = st.session_state.get("_entered_dashboard_btc", False)
 if sess_active and banknifty_enabled:
     _ensure_live_threads()
 
-# Binance BTC option-chain background thread — Fyers session se poori tarah
-# independent, sirf Binance creds hone par chalta hai (Fyers login na ho
-# tab bhi BTC chain kaam karega). BTC toggle OFF ho to yeh bhi nahi chalta.
-if btc_enabled:
-    _ensure_binance_oc_thread()
-
 with st.sidebar:
     st.title("🔑 Fyers Login")
 
@@ -2970,37 +2691,6 @@ if _show_dashboard:
             components.html(_script3, height=0, scrolling=False)
 
         _option_chain_pusher()
-
-    # ── Binance BTC Option Chain → postMessage pusher ───────────────────────
-    # Fyers session se poori tarah independent (Binance apna alag login hai) —
-    # isliye 'if sess_active:' ke bahar, sirf Binance connected hone par chalta
-    # hai. Same background-cache pattern jaisa Fyers wala upar hai — koi
-    # blocking network call is fragment ke andar nahi hoti.
-    if binance_is_connected() and btc_enabled:
-        @st.fragment(run_every=1)
-        def _binance_option_chain_pusher():
-            boc = get_cached_binance_option_chain_payload()
-            if not boc:
-                boc = {"asset": "btc", "error": "Kuch data nahi mila (unknown reason)"}
-            _boc_json = json.dumps(boc)
-            _script4 = f"""
-<script>
-(function() {{
-  var boc = {_boc_json};
-  var frames = window.parent.document.querySelectorAll('iframe');
-  for (var i = 0; i < frames.length; i++) {{
-    try {{
-      frames[i].contentWindow.postMessage(
-        JSON.stringify({{ type: 'option_chain_btc', data: boc }}), '*'
-      );
-    }} catch(e) {{}}
-  }}
-}})();
-</script>
-"""
-            components.html(_script4, height=0, scrolling=False)
-
-        _binance_option_chain_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

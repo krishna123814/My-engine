@@ -4480,9 +4480,7 @@ function _hdrRelayout(){
       <span class="oc-legend-strike"></span>
       <span>LTP</span><span>Chg%</span><span>OI</span>
     </div>
-    <div id="oc-btc-debug" style="display:none;font-size:10px;color:#ffb300;background:#1a1300;
-         padding:6px 10px;border-bottom:1px solid #2a2e3e;font-family:monospace;white-space:pre-wrap;"></div>
-    <div id="oc-body">
+    <div id="oc-body"
       <div id="oc-loading">Data load ho raha hai…</div>
     </div>
     <div id="oc-ftr">
@@ -18646,20 +18644,14 @@ function switchAsset(name) {
   S.asset = name;
   _swingPresetOnAssetChange(name);  // auto-apply preset if locked
   const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
-  // SV1 real Option Chain panel (bottom-bar ⛓ Chain) ko naye asset ke hisaab
-  // se switch karo — BankNifty select karne par Fyers chain, BTC select
-  // karne par Binance chain (jo bhi data pehle se mila hua hai turant dikhta
-  // hai, phir turant fresh data ke liye poll bhi kar leta hai).
-  if (typeof _ocUpdateHeaderForAsset === 'function') {
-    _ocUpdateHeaderForAsset();
+  // SV1 real Option Chain panel (bottom-bar ⛓ Chain) hamesha BankNifty
+  // dikhata hai — asset switch se iska koi lena-dena nahi (BTC ke liye
+  // yeh panel exist hi nahi karta).
+  {
     const ocp = document.getElementById('oc-panel');
     if (ocp && ocp.classList.contains('open')) {
       _ocRenderChainFromCache();
-      if (typeof _ocCurrentAssetKey === 'function' && _ocCurrentAssetKey() === 'btc') {
-        if (typeof _pollOptionChainBTC === 'function') _pollOptionChainBTC();
-      } else if (typeof _pollOptionChain === 'function') {
-        _pollOptionChain();
-      }
+      if (typeof _pollOptionChain === 'function') _pollOptionChain();
     }
   }
   // Update LTP area label for non-BTC assets
@@ -19817,9 +19809,6 @@ let _bnGridDomCatchupTid = null;
 window.addEventListener('message', function(evt) {
   try {
     const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
-    if (msg && msg.type === 'option_chain_btc') {
-      console.log('[postMessage listener] option_chain_btc received');
-    }
     if (msg && msg.type === 'bn_live') {
       // Fallback only — skip if the fast 300ms poll already applied
       // something recently (normal case), to avoid processing the same
@@ -19834,10 +19823,6 @@ window.addEventListener('message', function(evt) {
     if (msg && msg.type === 'option_chain') {
       _applyOptionChain(msg.data);
     }
-    if (msg && msg.type === 'option_chain_btc') {
-      _applyOptionChainBTC(msg.data);
-    }
-    // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
 
@@ -19900,8 +19885,7 @@ function toggleOptionChain() {
   if (!p) return;
   p.classList.toggle('open');
   if (p.classList.contains('open')) {
-    _ocUpdateHeaderForAsset();
-    if (_ocCurrentAssetKey() === 'btc') _pollOptionChainBTC(); else _pollOptionChain();
+    _pollOptionChain();
     _ocSyncBalanceTab();
     var curBtn = document.getElementById('oc-expiry-mode-cur');
     var nextBtn = document.getElementById('oc-expiry-mode-next');
@@ -19948,10 +19932,6 @@ function _ocSelectStrike(el, strike) {
   } else {
     el.classList.add('oc-selected');
     _ocSelectedStrike = strike;
-    // BTC ke liye virtual Buy/Sell abhi enable nahi hai — sirf chain dikhani
-    // hai ("baaki baad mein"). BankNifty jaisa hi lot-size/₹ trade bar BTC
-    // strikes par galat hoga, isliye yahan sirf highlight tak seemit rakha hai.
-    if (_ocCurrentAssetKey() === 'btc') return;
     _ocShowTradeBar(strike);
   }
 }
@@ -20006,46 +19986,6 @@ function _applyOptionChain(data) {
   _ocRefreshHeaderBadge();
 }
 
-// ── Binance BTCUSDT option chain — same panel/renderer as Fyers BANKNIFTY
-// chain (_ocRenderChainFromCache reads whichever asset is active), bas apna
-// alag data-slot (_ocLastChainDataBTC) mein store hota hai taaki asset switch
-// karne par purana BANKNIFTY data overwrite na ho. Virtual trading (Buy/Sell)
-// abhi BTC ke liye enable nahi hai — sirf chain dikhana hai ("baaki baad
-// mein"), isliye strike-select yahan sirf highlight karta hai. ─────────────
-var _ocLastChainDataBTC = null;
-// ── DEBUG counters — BTC option chain postMessage kitni baar aur kab
-// mila, dikhane ke liye. Isse pata chalega ki message reach kar raha hai
-// ya nahi (chahe abhi BankNifty tab active ho). Console mein bhi log
-// hota hai. Diagnose ke baad yeh block hata dena. ───────────────────────
-window._ocBtcMsgCount = window._ocBtcMsgCount || 0;
-function _applyOptionChainBTC(data) {
-  window._ocBtcMsgCount++;
-  var _now = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  console.log('[BTC-OC #' + window._ocBtcMsgCount + ' @ ' + _now + ']', data);
-  var _dbgEl = document.getElementById('oc-btc-debug');
-  if (_dbgEl) {
-    _dbgEl.style.display = 'block';
-    var _runningFor = (data && data.debug_attempt_running_for != null) ? (data.debug_attempt_running_for + 's') : '—';
-    var _successAgo = (data && data.debug_last_success_ago != null) ? (data.debug_last_success_ago + 's ago') : 'kabhi nahi';
-    _dbgEl.textContent =
-      'DEBUG msg#' + window._ocBtcMsgCount + ' @ ' + _now +
-      ' | connected=' + (data ? data.debug_connected : '—') +
-      ' | thread_alive=' + (data ? data.debug_thread_alive : '—') +
-      '\n step=' + (data ? data.debug_step : '—') +
-      ' | is chal raha hai: ' + _runningFor +
-      ' | last success: ' + _successAgo +
-      ' | last duration=' + (data ? data.debug_last_duration : '—') + 's' +
-      '\n error=' + (data && data.error ? data.error : '(none)') +
-      (data && data.debug_last_error ? (' | last_error=' + data.debug_last_error) : '');
-  }
-  if (!data) return;
-  _ocLastChainDataBTC = data;
-  var assetKey = (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-  if (assetKey !== 'btc') return; // abhi BankNifty dekh rahe ho — silently store, render mat karo
-  _ocRenderChainFromCache();
-  _ocRefreshHeaderBadge();
-}
-
 // ── Renders the Chain tab from whatever is already in memory (current or
 // next month, per SV1OC.expiryMode) — no network call needed, so toggling
 // This-Month/Next-Month or Depth/Watchlist just re-paints instantly. ──────
@@ -20061,9 +20001,8 @@ function _ocRenderChainFromCache() {
     return;
   }
   if (!data.rows) return;
-  var _ocIsBtcNow = (_ocCurrentAssetKey() === 'btc');
   if (spotEl) spotEl.textContent = 'Spot: ' + _fmtNum(data.spot);
-  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—') + (!_ocIsBtcNow && SV1OC.expiryMode === 'next' ? ' (Next Month)' : '');
+  if (expEl)  expEl.textContent  = 'Expiry: ' + (data.expiry_label || '—') + (SV1OC.expiryMode === 'next' ? ' (Next Month)' : '');
   if (updEl) {
     const t = data.ts ? new Date(data.ts * 1000) : new Date();
     updEl.textContent = 'Last update: ' + t.toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -20126,31 +20065,12 @@ async function _pollOptionChain() {
     } catch(_) {}
   }
 }
-// Binance BTCUSDT chain — same idea, alag file. postMessage push miss ho
-// jaaye to yeh directly binance_optionchain.json read kar leta hai.
-async function _pollOptionChainBTC() {
-  const paths = ['./binance_optionchain.json', '/binance_optionchain.json', 'binance_optionchain.json'];
-  for (const p of paths) {
-    try {
-      const r = await fetch(p, { cache: 'no-store' });
-      console.log('[BTC-OC poll] ' + p + ' -> ' + r.status);
-      if (r.ok) {
-        const d = await r.json();
-        _applyOptionChainBTC(d);
-        return;
-      }
-    } catch(e) {
-      console.log('[BTC-OC poll] ' + p + ' -> failed: ' + e);
-    }
-  }
-}
 function _startOCPolling() {
   if (_ocPollIv) return;
   _ocPollIv = setInterval(() => {
     const p = document.getElementById('oc-panel');
     if (!p || !p.classList.contains('open')) return;
-    if (_ocCurrentAssetKey() === 'btc') _pollOptionChainBTC();
-    else _pollOptionChain();
+    _pollOptionChain();
   }, 6000);
 }
 _startOCPolling();
@@ -20209,29 +20129,10 @@ var SV1OC = {
 
 function _ocSK(name) { return 'sv1_oc_' + name + '_v1'; }
 
-// ── Which chain (BankNifty vs BTC, and current/next for BankNifty) is
-// being DISPLAYED right now — driven by the top-left asset switch. ────────
-function _ocCurrentAssetKey() {
-  return (typeof _stackKeyForAsset === 'function') ? _stackKeyForAsset(S.asset) : 'bn';
-}
+// SV1 Real Option Chain — BankNifty only (current/next expiry). ───────────
 function _ocActiveChainData() {
-  if (_ocCurrentAssetKey() === 'btc') return _ocLastChainDataBTC;
   return (SV1OC.expiryMode === 'next' && _ocLastChainDataNext && !_ocLastChainDataNext.error)
     ? _ocLastChainDataNext : _ocLastChainData;
-}
-// Panel header (title/spot/expiry) + expiry-mode toggle ko current asset ke
-// hisaab se dikhao/chhupao — BTC ke liye "This Month/Next Month" toggle abhi
-// nahi hai (sirf nearest expiry fetch hoti hai), isliye hide kar dete hain.
-function _ocUpdateHeaderForAsset() {
-  var isBtc = (_ocCurrentAssetKey() === 'btc');
-  var titleEl = document.getElementById('oc-hdr-title');
-  if (titleEl) titleEl.textContent = isBtc ? '⛓ Option Chain — BTCUSDT' : '⛓ Option Chain — BANKNIFTY';
-  var modeRow = document.getElementById('oc-expiry-mode-row');
-  if (modeRow) modeRow.style.display = isBtc ? 'none' : '';
-  _ocSelectedStrike = null;
-  var prevSel = document.querySelector('.oc-row.oc-selected');
-  if (prevSel) prevSel.classList.remove('oc-selected');
-  _ocHideTradeBar();
 }
 function _ocSetExpiryMode(mode) {
   if (mode !== 'current' && mode !== 'next') return;
