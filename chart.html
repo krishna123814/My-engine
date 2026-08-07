@@ -16120,28 +16120,10 @@ function _vlDrawCellGeneric(c) {
   //  isliye timeToCoordinate null deta tha aur line draw nahi hoti thi)
   let x = null;
 
-  // Step 0 (PRIMARY, sabse reliable): agar last-real-bar ka LOGICAL INDEX
-  // pata hai (c._vlBarIndex), toh seedha logicalToCoordinate(index+offset)
-  // use karo. Ye pixel-mapping hamesha chart ke CURRENT scroll/zoom state
-  // ke hisaab se live compute hoti hai — isliye screen ko left/right scroll
-  // karne par line bhi turant sahi jagah move ho jaati hai.
-  //   Purana Step 1 (neeche) exact TIME match par depend karta tha
-  //   (timeToCoordinate sirf tabhi kaam karta hai jab wo waqt series ke
-  //   kisi real ya whitespace point se HUBAHU match kare). Daily+ TFs
-  //   (3D/9D/27D) mein live-update wala bucket-time calc aur chart-build
-  //   wala resample calc kabhi-kabhi 1 bucket se off ho jaate the, isliye
-  //   match fail hota tha aur code seedha STATIC (scroll-independent)
-  //   fallback (purana Step 2) tak pahunch jaata tha — 8H/1D par ye
-  //   mismatch nahi hota tha isliye sirf unhi TFs par bug dikhta tha.
-  //   Index-based calc is poori tarah bypass kar deta hai.
-  if (c._vlBarIndex != null && Number.isFinite(c._vlBarIndex)) {
-    try { x = c.chart.timeScale().logicalToCoordinate(c._vlBarIndex + offset); } catch(_) { x = null; }
-  }
-
-  // Step 1 (fallback for cells/proxies jo abhi tak _vlBarIndex track nahi
-  // karte, jaise main 1x1 chart proxy): agar _vlTime hai toh timeToCoordinate
-  // try karo
-  if (x == null && c._vlTime) {
+  // Step 1 (PRIMARY — jo pehle se 8H/1D par sahi kaam kar raha tha, isliye
+  // usi ko pehli priority par rakha hai): agar _vlTime hai toh
+  // timeToCoordinate try karo (exact time-match).
+  if (c._vlTime) {
     const tfSec = (c.tf || 1) * 60;
     const futureTime = c._vlTime + offset * tfSec;
     x = c.chart.timeScale().timeToCoordinate(futureTime);
@@ -16155,7 +16137,19 @@ function _vlDrawCellGeneric(c) {
     }
   }
 
-  // Step 2 (last resort — ab bhi scroll-aware): agar upar dono fail ho gaye,
+  // Step 2 (fallback — sirf tab chalta hai jab Step 1 poori tarah fail ho
+  // jaaye, jo daily+ TFs (3D/9D/27D) par hota tha kyunki live-update wala
+  // bucket-time calc aur chart-build wala resample calc kabhi-kabhi 1
+  // bucket se off ho jaate the, isliye exact time-match fail hoti thi aur
+  // seedha STATIC (scroll-independent) fallback tak pahunch jaata tha).
+  // Yahan last-real-bar ke LOGICAL INDEX (c._vlBarIndex) se seedha
+  // logicalToCoordinate(index+offset) nikalte hain — time-match ki
+  // zaroorat nahi, aur scroll ke saath hamesha sahi rehta hai.
+  if (x == null && c._vlBarIndex != null && Number.isFinite(c._vlBarIndex)) {
+    try { x = c.chart.timeScale().logicalToCoordinate(c._vlBarIndex + offset); } catch(_) { x = null; }
+  }
+
+  // Step 3 (last resort — ab bhi scroll-aware): agar upar sab fail ho gaye,
   // getVisibleLogicalRange() se current scroll position nikal ke usi se
   // calculate karo, taaki ye bhi purane version ki tarah "static" na ho
   // jaaye.
