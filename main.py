@@ -2521,7 +2521,10 @@ if _qp.get("sv2_chunk_reset") == "1":
 
 creds      = load_creds()
 sess_active = is_session_active()
-_btc_only_early = st.session_state.get("_btc_only_mode", False)
+# "Replay Mode" (starting page ka naya button) BTC-only chart hi kholta hai,
+# bas SV2 replay data eagerly preload karta hai — isliye chart-render ke
+# liye ye bhi _btc_only jaisa treat hota hai.
+_btc_only_early = st.session_state.get("_btc_only_mode", False) or st.session_state.get("_replay_mode", False)
 
 # BinanceOptionChainBG thread BTC-only users ke liye bhi chahiye (Binance
 # option chain Fyers session se independent hai) — isliye sirf sess_active
@@ -2885,18 +2888,20 @@ def _build_chart_html(
 st.markdown("## 📊 BankNifty Live Chart")
 
 # ── BTC-only mode (no Fyers needed) ──────────────────────────────────────────
-_btc_only = st.session_state.get("_btc_only_mode", False)
+_replay_mode = st.session_state.get("_replay_mode", False)
+_btc_only = st.session_state.get("_btc_only_mode", False) or _replay_mode
 
-# Chart render hone se pehle SV2 data "requested" hona chahiye — lekin
-# SIRF Fyers-login (sess_active) flow ke liye. BTC skip-button flow
-# (_btc_only) ke liye jaan-boojh kar NAHI: replay data tabhi load hona
-# chahiye jab SV2 me user khud date select kare ya "Resume Last Replay"
-# dabaye. Agar in-chart calendar se date select/resume hota hai aur data
-# abhi tak load nahi hua, JS ka _sv2RequestDataLoad() ek ?sv2_load=1
-# reload trigger karta hai jise "Handler 3b" (_qp.get("sv2_load")) yahi
-# safely handle karta hai — isliye ye eager pre-load ab _btc_only ke liye
-# zaroori nahi hai.
-if sess_active and not st.session_state.get("_sv2_data_requested"):
+# Chart render hone se pehle SV2 (replay) data "requested" hona chahiye —
+# Fyers-login (sess_active) aur "Replay Mode" button (_replay_mode) dono
+# ke liye eagerly preload hota hai, taaki pehli date-selection par koi
+# full-page ?sv2_load=1 reload na ho. Plain BTC-only flow (_btc_only bina
+# _replay_mode ke — "BTC Chart Kholo (Fyers ke bina)" button) ke liye
+# jaan-boojh kar NAHI: replay data tabhi load hona chahiye jab SV2 me user
+# khud date select kare ya "Resume Last Replay" dabaye. Agar in-chart
+# calendar se date select/resume hota hai aur data abhi tak load nahi
+# hua, JS ka _sv2RequestDataLoad() ek ?sv2_load=1 reload trigger karta hai
+# jise "Handler 3b" (_qp.get("sv2_load")) safely handle karta hai.
+if (sess_active or _replay_mode) and not st.session_state.get("_sv2_data_requested"):
     st.session_state.setdefault("_sv2_anchor_date_bn",  _sv2_default_date("bn"))
     st.session_state["_sv2_anchor_date_btc"] = None
     st.session_state["_sv2_data_requested"]  = True
@@ -2904,6 +2909,8 @@ if sess_active and not st.session_state.get("_sv2_data_requested"):
 if sess_active or _btc_only:
     if sess_active:
         st.success("✅ Fyers connected — live data active")
+    elif _replay_mode:
+        st.success("📼 Replay Mode active — replay data preloaded")
     else:
         st.info("📊 BTC Chart mode — BankNifty data available nahi (Fyers login nahi hai)")
 
@@ -3291,7 +3298,14 @@ else:
         <div class="btc-access-icon">₿</div>
         <div class="btc-access-info">
             <div class="btc-access-title">Sirf BTCUSDT Chart dekhna hai?</div>
-            <div class="btc-access-sub">Fyers login ki zaroorat nahi — Binance se seedha data aata hai</div>
+            <div class="btc-access-sub">Fyers login ki zaroorat nahi — Binance se seedha data aata hai (replay data load NAHI hota)</div>
+        </div>
+    </div>
+    <div class="btc-access-card" style="margin-top:12px;">
+        <div class="btc-access-icon">📼</div>
+        <div class="btc-access-info">
+            <div class="btc-access-title">Replay Mode chahiye?</div>
+            <div class="btc-access-sub">Purana .gz replay data turant preload hoga — date select karte hi turant chalega, koi reload nahi</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -3305,6 +3319,15 @@ else:
         # ?sv2_load=1 reload trigger karega jise Handler 3b handle karta
         # hai).
         st.session_state["_btc_only_mode"] = True
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<div style='max-width:620px;margin:10px auto 0;'>", unsafe_allow_html=True)
+    if st.button("📼 Replay Mode Kholo", use_container_width=True, key="replay_mode_btn"):
+        # Replay Mode: SV2 (.gz) replay data ABHI eagerly preload karo
+        # (BTC-only ke ulat) — taaki chart khulte hi date select turant
+        # kaam kare, koi ?sv2_load=1 full-page reload na ho.
+        st.session_state["_replay_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
