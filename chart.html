@@ -19079,8 +19079,14 @@ function _applyBTCKline(k, opts) {
                      high:Math.max(_cLast.high,high),
                      low :Math.min(_cLast.low, low),
                      close};
+        // Forming bar REPLACES the last historical bar — base excludes it,
+        // the forming bar gets appended back on every live tick below.
+        c._btcHistBase = _cHist.slice(0, _cHist.length - 1);
       } else {
         c._btcBkt = {tf:c.tf, time:cBucket, open, high, low, close};
+        // Forming bar is a brand-new bucket — full history stays as-is,
+        // forming bar gets appended after it on every live tick below.
+        c._btcHistBase = _cHist;
       }
     } else {
       // Same bucket: sirf OHLC update karo — resample nahi
@@ -19118,7 +19124,33 @@ function _applyBTCKline(k, opts) {
            ].join(',')
          };
          try {
-           c.series.update({...c._btcBkt,value:c._btcBkt.close});
+           // FIX (price-scale stuck / UPDATE_ERROR): series.update() only
+           // ever touches the series' true LAST data point. SV1 grid cells
+           // always carry future-whitespace bars AFTER the forming candle
+           // (for the right-offset space), so the forming bar is never
+           // actually last — update()'s time lands "before" that whitespace
+           // tail and Lightweight Charts rejects it as "Cannot update
+           // oldest data". SV2 (Bar Replay) hit this exact bug earlier and
+           // was fixed by rebuilding with setData() instead of update() —
+           // same fix applied here.
+           const _fwLive = _buildFutureWhitespace(c._btcBkt.time, c.tf, false, (S.futureOffset || 30));
+           const _histBase = c._btcHistBase || [];
+           const _liveBar = {...c._btcBkt, value:c._btcBkt.close};
+           const _fullData = _fwLive.length ? _histBase.concat([_liveBar], _fwLive) : _histBase.concat([_liveBar]);
+           let _preRangeC = null;
+           if (!c._followLive) {
+             try { _preRangeC = c.chart ? c.chart.timeScale().getVisibleLogicalRange() : null; } catch(_e) {}
+           }
+           c.series.setData(_fullData);
+           if (_preRangeC && c.chart) {
+             try { c.chart.timeScale().setVisibleLogicalRange(_preRangeC); } catch(_e) {}
+           } else if (c._followLive && c.chart) {
+             try { c.chart.timeScale().scrollToRealTime(); } catch(_e) {}
+           }
+           // Keep SV1 debug index tracking in sync with the rebuilt array.
+           c._sv1RealDataLength = _histBase.length + 1;
+           c._sv1LiveIndex = _histBase.length;
+           c._sv1SeriesDataLength = _fullData.length;
            c._sv1LastUpdateOkAt = Date.now();
          } catch (e) {
            c._sv1LastUpdateError = e && e.message ? e.message : 'SERIES_UPDATE_ERROR';
