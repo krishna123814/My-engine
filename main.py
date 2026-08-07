@@ -285,6 +285,52 @@ def refresh_fyers_meta_cache() -> dict:
     return payload
 
 
+# ─── Binance USDT Balance (Real) — Option Chain "Balance" tab ke liye,
+# BTCUSDT chain active hone par Fyers ₹ ki jagah USDT balance dikhana hai ──
+BINANCE_META_FILE = "binance_meta.json"
+_BINANCE_META_CACHE = {"usdt_balance": None, "ts": 0.0}
+_BINANCE_META_LOCK = threading.Lock()
+_BINANCE_META_TTL = 20  # seconds — Fyers meta jaisa hi rate-limit-safe TTL
+
+def binance_get_usdt_balance(api_key: str, secret_key: str) -> tuple[bool, "float | str"]:
+    """Binance spot account se USDT ka free+locked balance nikalta hai."""
+    ok, balances = binance_get_spot_balance(api_key, secret_key)
+    if not ok:
+        return False, balances
+    for b in balances:
+        if b.get("asset") == "USDT":
+            return True, float(b.get("free", 0)) + float(b.get("locked", 0))
+    # USDT balance 0 ho to non-zero filter ki wajah se list mein hi nahi
+    # aata — is case mein bhi ye "success, 0" maana jaaye, error nahi.
+    return True, 0.0
+
+def refresh_binance_meta_cache() -> dict:
+    """USDT balance ko cache karta hai (TTL ke andar dobara fetch nahi karta),
+    aur binance_meta.json mein likh deta hai taaki chart iframe use poll kar sake."""
+    now = time.time()
+    with _BINANCE_META_LOCK:
+        stale = (now - _BINANCE_META_CACHE["ts"]) >= _BINANCE_META_TTL
+    if stale:
+        creds      = load_creds()
+        balance    = _BINANCE_META_CACHE["usdt_balance"]
+        api_key    = creds.get("binance_api_key", "")
+        secret_key = creds.get("binance_secret_key", "")
+        if api_key and secret_key:
+            ok, val = binance_get_usdt_balance(api_key, secret_key)
+            if ok:
+                balance = val
+        with _BINANCE_META_LOCK:
+            _BINANCE_META_CACHE.update({"usdt_balance": balance, "ts": now})
+    with _BINANCE_META_LOCK:
+        payload = dict(_BINANCE_META_CACHE)
+    try:
+        with open(BINANCE_META_FILE, "w") as f:
+            json.dump(payload, f)
+    except Exception:
+        pass
+    return payload
+
+
 # ─── Real Option Chain (CE/PE, LTP, OI, Chg%) — jaisa broker app mein hota hai ──
 OC_FILE   = "fyers_optionchain.json"
 _OC_CACHE = {"data": None, "ts": 0.0}
@@ -3100,6 +3146,34 @@ if sess_active or _btc_only:
             components.html(_script5, height=0, scrolling=False)
 
         _binance_option_chain_pusher()
+
+    # ── Binance USDT Balance → postMessage pusher ───────────────────────────
+    # Same pattern as _fyers_meta_pusher, alag message type ('binance_meta')
+    # se — Balance tab (Stack View 1 Option Chain) BTCUSDT active hone par
+    # isi USDT balance ko dikhata hai, Fyers ₹ balance ki jagah.
+    if sess_active or _btc_only:
+        @st.fragment(run_every=5)
+        def _binance_meta_pusher():
+            bmeta = refresh_binance_meta_cache()
+            _bmeta_json = json.dumps(bmeta)
+            _script6 = f"""
+<script>
+(function() {{
+  var meta = {_bmeta_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'binance_meta', data: meta }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_script6, height=0, scrolling=False)
+
+        _binance_meta_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

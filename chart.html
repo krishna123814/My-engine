@@ -4641,7 +4641,7 @@ function _hdrRelayout(){
       <div id="oc-vbal-sub"></div>
       <div id="oc-vbal-actions">
         <button class="oc-vbal-btn" onclick="_ocVBalStartEdit()">✏️ Set Amount</button>
-        <button class="oc-vbal-btn" onclick="_ocVBalReset()">↺ Reset to ₹25,000</button>
+        <button class="oc-vbal-btn" id="oc-vbal-reset-btn" onclick="_ocVBalReset()">↺ Reset to ₹25,000</button>
       </div>
       <div id="oc-vbal-edit-row">
         <input type="number" id="oc-vbal-input" inputmode="decimal" placeholder="Enter amount">
@@ -18654,6 +18654,7 @@ function switchAsset(name) {
   // Marker state samet) save kar lo, taaki baad me wapas aane par resume ho sake.
   try { if (typeof _sv2SaveSnapshotForCurrentAsset === 'function') _sv2SaveSnapshotForCurrentAsset(); } catch(_) {}
   S.asset = name;
+  try { if (typeof _ocSyncAssetContext === 'function') _ocSyncAssetContext(); } catch(_) {}
   _swingPresetOnAssetChange(name);  // auto-apply preset if locked
   const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
   // Update LTP area label for non-BTC assets
@@ -19841,6 +19842,9 @@ window.addEventListener('message', function(evt) {
     if (msg && msg.type === 'binance_option_chain') {
       _applyBinanceOptionChain(msg.data);
     }
+    if (msg && msg.type === 'binance_meta') {
+      _applyBinanceMeta(msg.data);
+    }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
 });
@@ -19897,6 +19901,39 @@ function _startFyersMetaPolling() {
   _fyersMetaPollIv = setInterval(_pollFyersMeta, 15000);
 }
 _startFyersMetaPolling();
+
+// ── Binance USDT Balance (Real) — Balance tab BTCUSDT active hone par
+// isi ko dikhata hai (Fyers ₹ balance ki jagah). ────────────────────────────
+let _ocBinanceMeta = null;
+function _applyBinanceMeta(data) {
+  if (!data) return;
+  _ocBinanceMeta = data;
+  const ocPanel = document.getElementById('oc-panel');
+  if (ocPanel && ocPanel.classList.contains('open') && typeof _ocSyncBalanceTab === 'function') {
+    _ocSyncBalanceTab();
+  }
+}
+
+let _binanceMetaPollIv = null;
+async function _pollBinanceMeta() {
+  const paths = ['./binance_meta.json', '/binance_meta.json', 'binance_meta.json'];
+  for (const p of paths) {
+    try {
+      const r = await fetch(p, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        _applyBinanceMeta(d);
+        return;
+      }
+    } catch(_) {}
+  }
+}
+function _startBinanceMetaPolling() {
+  if (_binanceMetaPollIv) return;
+  _pollBinanceMeta();
+  _binanceMetaPollIv = setInterval(_pollBinanceMeta, 15000);
+}
+_startBinanceMetaPolling();
 
 // ── Real Option Chain (Fyers live data) — panel toggle + render ───────────
 function toggleOptionChain() {
@@ -19970,16 +20007,45 @@ function _ocSelectStrike(el, strike) {
 // Balance tab reuses the same real Fyers balance data that already flows
 // via _applyFyersMeta (💰 Balance panel) — same live number, own display.
 function _ocSyncBalanceTab() {
-  const bEl = document.getElementById('fm-balance');
-  const sEl = document.getElementById('fm-strike');
-  const uEl = document.getElementById('fm-updated');
-  const obEl = document.getElementById('oc-balance-value');
-  const osEl = document.getElementById('oc-balance-strike');
-  const ouEl = document.getElementById('oc-balance-updated');
-  if (obEl && bEl) obEl.textContent = bEl.textContent;
-  if (osEl && sEl) osEl.textContent = sEl.textContent;
-  if (ouEl && uEl) ouEl.textContent = uEl.textContent;
-  _ocSyncVBalCard(); // virtual wallet card (alag se, real balance ke niche)
+  if (typeof _ocSyncAssetContext === 'function') _ocSyncAssetContext();
+  const labelEl = document.getElementById('oc-balance-label');
+  const obEl    = document.getElementById('oc-balance-value');
+  const strikeRow = document.getElementById('oc-balance-strike-row');
+  const ouEl    = document.getElementById('oc-balance-updated');
+
+  const isBTC = (typeof _ocIsBinanceAsset === 'function') && _ocIsBinanceAsset();
+
+  if (isBTC) {
+    // ── BTCUSDT active — Binance USDT balance dikhao, Fyers-only "Nearest
+    // Strike (BANKNIFTY)" row hide kar do (BTC ke liye ye concept nahi hai). ──
+    if (labelEl) labelEl.textContent = 'Binance USDT Balance (Real)';
+    if (obEl) {
+      const v = _ocBinanceMeta && _ocBinanceMeta.usdt_balance != null ? _ocBinanceMeta.usdt_balance : null;
+      obEl.textContent = (v != null)
+        ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 2}) + ' USDT'
+        : '—';
+    }
+    if (strikeRow) strikeRow.style.display = 'none';
+    if (ouEl) {
+      const t = (_ocBinanceMeta && _ocBinanceMeta.ts) ? new Date(_ocBinanceMeta.ts * 1000) : null;
+      ouEl.textContent = t
+        ? 'Last update: ' + t.toLocaleTimeString('en-IN', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
+        : 'Update ka wait ho raha hai…';
+    }
+  } else {
+    // ── BankNifty active — jaisa pehle tha: Fyers ₹ balance + nearest strike ──
+    const bEl = document.getElementById('fm-balance');
+    const sEl = document.getElementById('fm-strike');
+    const uEl = document.getElementById('fm-updated');
+    const osEl = document.getElementById('oc-balance-strike');
+    if (labelEl) labelEl.textContent = 'Fyers Available Balance (Real)';
+    if (obEl && bEl) obEl.textContent = bEl.textContent;
+    if (osEl && sEl) osEl.textContent = sEl.textContent;
+    if (strikeRow) strikeRow.style.display = '';
+    if (ouEl && uEl) ouEl.textContent = uEl.textContent;
+  }
+
+  _ocSyncVBalCard(); // virtual wallet card (alag se, real balance ke niche) — abhi dono asset ke liye ₹ hi
 }
 
 function _fmtNum(n) {
@@ -20038,6 +20104,7 @@ function _ocRenderChainFromCache() {
   const updEl  = document.getElementById('oc-updated');
   const titleEl = document.getElementById('oc-hdr-title');
   if (titleEl) titleEl.textContent = isBTC ? '⛓ Option Chain — BTCUSDT' : '⛓ Option Chain — BANKNIFTY';
+  if (typeof _ocSyncBalanceTab === 'function') _ocSyncBalanceTab();
   const expModeRow = document.getElementById('oc-expiry-mode-row');
   if (expModeRow) expModeRow.style.display = isBTC ? 'none' : '';
   const btcExpRow = document.getElementById('oc-btc-expiry-row');
@@ -20157,6 +20224,7 @@ var _ocLastChainDataNext = null; // NEXT-month live chain payload (This Month / 
 var _ocBinanceChainData = null;  // Live BTCUSDT option-chain payload (Binance) — jab top-left symbol BTC ho
 
 var SV1OC = {
+  currentAssetKey: 'bn',        // 'bn' | 'btc' — _ocSyncAssetContext() isse sync karta hai
   strikeStep: 100,
   lotSize: 30,                 // BankNifty lot size
   startingBalance: 25000,      // ₹25,000 virtual starting balance
@@ -20164,7 +20232,7 @@ var SV1OC = {
   brokeragePerOrder: 20,       // flat ₹ per executed leg
   sttRate: 0.001,              // ~0.1% STT on SELL-side premium turnover
   miscChargeRate: 0.0005,      // exchange + SEBI + stamp + GST bundle (rough)
-  cur: '₹', locale: 'en-IN',
+  cur: '₹', curSuffix: '', curDecimals: 0, locale: 'en-IN',
   balance: 25000,
   // {id, strike, type:'CE'|'PE', side:'buy'|'sell', qtyLots, entryPrice, entryTime,
   //  marginBlocked, sl, tp, trailPoints, trailBest}
@@ -20202,7 +20270,58 @@ var SV1OC = {
   })()
 };
 
-function _ocSK(name) { return 'sv1_oc_' + name + '_v1'; }
+// ── Per-asset settings — SV2OC (replay) mein pehle se yehi pattern hai,
+// isi ko SV1OC (live/real trading) ke liye bhi mirror kar rahe hain. BTC
+// balance/margin/lot-size Binance/USDT-style, BankNifty jaisa hi rehta
+// hai (existing users ki purani balance/positions un-affected — neeche
+// _ocSK() dekho). ───────────────────────────────────────────────────────
+var SV1OC_ASSET_CFG = {
+  bn: {
+    strikeStep: 100, lotSize: 30, startingBalance: 25000,
+    marginPct: 0.12, brokeragePerOrder: 20, sttRate: 0.001, miscChargeRate: 0.0005,
+    cur: '₹', curSuffix: '', curDecimals: 0, locale: 'en-IN'
+  },
+  btc: {
+    strikeStep: 500, lotSize: 0.1, startingBalance: 10000,
+    marginPct: 0.15, brokeragePerOrder: 0.5, sttRate: 0, miscChargeRate: 0.0003,
+    cur: '', curSuffix: ' USDT', curDecimals: 2, locale: 'en-US'
+  }
+};
+
+// ── Balance/Positions/Pending/History ke liye asset-specific storage
+// keys — BTC aur BankNifty ka paisa/trades kabhi mix nahi honge. BankNifty
+// ('bn') purani (bina-suffix) keys hi use karta hai, taaki existing
+// users ki balance/history reset na ho. ─────────────────────────────────
+function _ocSK(name) {
+  var ak = (typeof SV1OC !== 'undefined' && SV1OC.currentAssetKey) || 'bn';
+  return (ak === 'bn') ? ('sv1_oc_' + name + '_v1') : ('sv1_oc_' + name + '_' + ak + '_v1');
+}
+
+// ── Jab chart ka active asset (S.asset) BTC↔BankNifty switch ho, SV1OC ke
+// flat config fields (lotSize/cur/margin%/etc.) ko us asset ki apni
+// settings se sync karo, aur uski apni balance/positions/pending/history
+// load karo. No-op agar asset already same hai (cheap, har render pe
+// safely call kiya ja sakta hai). ────────────────────────────────────────
+function _ocSyncAssetContext() {
+  if (typeof SV1OC === 'undefined') return;
+  var ak = (typeof _ocIsBinanceAsset === 'function' && _ocIsBinanceAsset()) ? 'btc' : 'bn';
+  if (SV1OC.currentAssetKey === ak) return;
+  var cfg = SV1OC_ASSET_CFG[ak];
+  SV1OC.currentAssetKey   = ak;
+  SV1OC.strikeStep        = cfg.strikeStep;
+  SV1OC.lotSize           = cfg.lotSize;
+  SV1OC.startingBalance   = cfg.startingBalance;
+  SV1OC.marginPct         = cfg.marginPct;
+  SV1OC.brokeragePerOrder = cfg.brokeragePerOrder;
+  SV1OC.sttRate           = cfg.sttRate;
+  SV1OC.miscChargeRate    = cfg.miscChargeRate;
+  SV1OC.cur               = cfg.cur;
+  SV1OC.curSuffix         = cfg.curSuffix;
+  SV1OC.curDecimals       = cfg.curDecimals;
+  SV1OC.locale            = cfg.locale;
+  _ocLoadBalance(); _ocLoadPositions(); _ocLoadPendingOrders(); _ocLoadHistory();
+  if (typeof _ocRenderPositions === 'function') _ocRenderPositions();
+}
 
 // ── Which chain is being DISPLAYED right now — asset (BTC/BankNifty) ke
 // hisaab se source pehle decide hota hai, phir BankNifty ke liye current/next
@@ -20334,7 +20453,10 @@ _ocLoadBalance(); _ocLoadPositions(); _ocLoadPendingOrders(); _ocLoadHistory();
   if (b) b.classList.toggle('on', SV1OC.pnlOverlayOn);
 })();
 
-function _ocFmtMoney(v) { return SV1OC.cur + (v || 0).toLocaleString(SV1OC.locale, { maximumFractionDigits: 0 }); }
+function _ocFmtMoney(v) {
+  var dp = (SV1OC.curDecimals != null) ? SV1OC.curDecimals : 0;
+  return SV1OC.cur + (v || 0).toLocaleString(SV1OC.locale, { maximumFractionDigits: dp }) + (SV1OC.curSuffix || '');
+}
 
 // ══════════════════════════════════════════════════════════════════════
 // ── SOUND ALERTS — tiny WebAudio beeps, no external files needed. One
@@ -21913,7 +22035,9 @@ function _ocDrawEquityCurve(points) {
 function _ocSyncVBalCard() {
   var el = document.getElementById('oc-vbal-value');
   var subEl = document.getElementById('oc-vbal-sub');
+  var resetBtn = document.getElementById('oc-vbal-reset-btn');
   if (el) el.textContent = _ocFmtMoney(SV1OC.balance);
+  if (resetBtn) resetBtn.textContent = '↺ Reset to ' + _ocFmtMoney(SV1OC.startingBalance);
   var blocked = _ocTotalBlockedMargin();
   if (subEl) {
     if (blocked > 0) {
