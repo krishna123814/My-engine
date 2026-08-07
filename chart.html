@@ -19126,6 +19126,9 @@ let _sv1DebugTickAt = 0;
 let _sv1DebugCandleAt = 0;
 let _sv1DebugCandleBucket = null;
 let _sv1DebugTickPrice = null;
+let _sv1DebugRenderedPrice = null;
+let _sv1DebugPriceLag = null;
+let _sv1DebugPriceAligned = null;
 const _SV1_DEBUG_STALE_MS = 10000;
 
 function _sv1DebugRefresh() {
@@ -19156,6 +19159,13 @@ function _sv1DebugRefresh() {
     Number.isFinite(renderedPrice) &&
     Math.abs(_sv1DebugTickPrice - renderedPrice) <= 0.01;
   const candleOk = candleFeedOk && priceAligned;
+
+  // ── Debug popup ke liye exact lag amount aur rendered price save karo ──
+  _sv1DebugRenderedPrice = Number.isFinite(renderedPrice) ? renderedPrice : null;
+  _sv1DebugPriceLag = (Number.isFinite(_sv1DebugTickPrice) && Number.isFinite(renderedPrice))
+    ? Math.abs(_sv1DebugTickPrice - renderedPrice)
+    : null;
+  _sv1DebugPriceAligned = priceAligned;
 
   const tickRow = document.getElementById('sv1-debug-tick-row');
   const tickDot = document.getElementById('sv1-debug-tick-dot');
@@ -19231,6 +19241,8 @@ function _sv1DebugPopupRefreshLog() {
     { ok: candleFeedOk,text: '● Candle Feed : ' + candleStatus },
     { ok: null,        text: '  Last candle : ' + candleAge },
     { ok: null,        text: '  Bucket      : ' + (_sv1DebugCandleBucket != null ? _sv1DebugCandleBucket : '-') },
+    { ok: null,        text: '  Rendered px : ' + (_sv1DebugRenderedPrice != null ? _sv1DebugRenderedPrice : '-') },
+    { ok: _sv1DebugPriceAligned, text: '  Price lag   : ' + (_sv1DebugPriceLag != null ? _sv1DebugPriceLag.toFixed(2) : '-') },
     { ok: null,        text: '  BTC WS      : ' + (typeof _btcWsOk !== 'undefined' ? (_btcWsOk ? 'OK' : 'DOWN') : '-') },
     { ok: null,        text: '  Trade WS    : ' + (typeof _btcTradeWsOk !== 'undefined' ? (_btcTradeWsOk ? 'OK' : 'DOWN') : '-') },
     { ok: null,        text: '  Stale limit : ' + (_SV1_DEBUG_STALE_MS / 1000) + 's' },
