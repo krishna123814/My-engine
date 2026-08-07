@@ -21046,9 +21046,26 @@ function _applyOptionChain(data) {
 // ── Live Binance BTC option-chain push/poll handler — sirf Chain-view render
 // karta hai (Positions/Balance/History/P&L virtual-trading tabs abhi BankNifty
 // (Fyers) tak hi seemit hain, isko touch nahi karta). ──────────────────────
+var _ocBinanceRowsFingerprint  = null;  // last seen CE/PE LTP snapshot (nearest expiry)
+var _ocBinanceRowsLastChangeTs = 0;     // jab last baar in numbers mein SACH mein farak aaya
+
+// Halka fingerprint — sirf LTP values, taaki compare fast ho aur greeks/oi ke
+// chhote-chhote noise se false-positive "changed" na mile.
+function _ocBinanceRowsFp(data) {
+  try {
+    const rows = (data && data.rows) || [];
+    return rows.map(r => (r.ce && r.ce.ltp) + '|' + (r.pe && r.pe.ltp)).join(',');
+  } catch(_) { return ''; }
+}
+
 function _applyBinanceOptionChain(data) {
   if (!data) return;
   _ocBinanceLastAppliedTs = Date.now();  // postMessage (1s) ya poll — dono se yahan aata hai
+  const _fp = _ocBinanceRowsFp(data);
+  if (_ocBinanceRowsFingerprint === null || _fp !== _ocBinanceRowsFingerprint) {
+    _ocBinanceRowsLastChangeTs = Date.now();
+    _ocBinanceRowsFingerprint = _fp;
+  }
   _ocBinanceChainData = data;
   if (_ocIsBinanceAsset()) _ocRenderChainFromCache();
 }
@@ -21236,6 +21253,10 @@ function _ocDebugPopupRefreshLog() {
       text: '  Data channel   : ' + (_ocBinanceDataFresh
               ? ('postMessage OK, last update ' + _ocDebugAgeText((Date.now() - _ocBinanceLastAppliedTs) / 1000))
               : 'NOT receiving updates (postMessage bridge se bhi data nahi aa raha)') },
+    { ok: (Date.now() - _ocBinanceRowsLastChangeTs) < 10000,
+      text: '  LTP values      : ' + (_ocBinanceRowsLastChangeTs
+              ? ('last actually changed ' + _ocDebugAgeText((Date.now() - _ocBinanceRowsLastChangeTs) / 1000) + ' ago')
+              : 'no data yet') },
     { ok: null,
       text: '  Poll (backup)  : ' + (_ocBinancePollLastErr
               ? (_ocBinanceDataFresh ? 'failing (harmless — postMessage primary hai)' : ('FAILING — ' + _ocBinancePollLastErr))
