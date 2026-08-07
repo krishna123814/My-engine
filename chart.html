@@ -16120,8 +16120,28 @@ function _vlDrawCellGeneric(c) {
   //  isliye timeToCoordinate null deta tha aur line draw nahi hoti thi)
   let x = null;
 
-  // Step 1: agar _vlTime hai toh timeToCoordinate try karo
-  if (c._vlTime) {
+  // Step 0 (PRIMARY, sabse reliable): agar last-real-bar ka LOGICAL INDEX
+  // pata hai (c._vlBarIndex), toh seedha logicalToCoordinate(index+offset)
+  // use karo. Ye pixel-mapping hamesha chart ke CURRENT scroll/zoom state
+  // ke hisaab se live compute hoti hai — isliye screen ko left/right scroll
+  // karne par line bhi turant sahi jagah move ho jaati hai.
+  //   Purana Step 1 (neeche) exact TIME match par depend karta tha
+  //   (timeToCoordinate sirf tabhi kaam karta hai jab wo waqt series ke
+  //   kisi real ya whitespace point se HUBAHU match kare). Daily+ TFs
+  //   (3D/9D/27D) mein live-update wala bucket-time calc aur chart-build
+  //   wala resample calc kabhi-kabhi 1 bucket se off ho jaate the, isliye
+  //   match fail hota tha aur code seedha STATIC (scroll-independent)
+  //   fallback (purana Step 2) tak pahunch jaata tha — 8H/1D par ye
+  //   mismatch nahi hota tha isliye sirf unhi TFs par bug dikhta tha.
+  //   Index-based calc is poori tarah bypass kar deta hai.
+  if (c._vlBarIndex != null && Number.isFinite(c._vlBarIndex)) {
+    try { x = c.chart.timeScale().logicalToCoordinate(c._vlBarIndex + offset); } catch(_) { x = null; }
+  }
+
+  // Step 1 (fallback for cells/proxies jo abhi tak _vlBarIndex track nahi
+  // karte, jaise main 1x1 chart proxy): agar _vlTime hai toh timeToCoordinate
+  // try karo
+  if (x == null && c._vlTime) {
     const tfSec = (c.tf || 1) * 60;
     const futureTime = c._vlTime + offset * tfSec;
     x = c.chart.timeScale().timeToCoordinate(futureTime);
@@ -16135,15 +16155,23 @@ function _vlDrawCellGeneric(c) {
     }
   }
 
-  // Step 2: agar abhi bhi null hai — rightOffset se seedha calculate karo
-  // rightOffset = chart ke right side mein kitne empty bars hain
-  // vline hamesha rightOffset bars se pehle draw hoti hai = cssW - rightOffset*barPx
+  // Step 2 (last resort — ab bhi scroll-aware): agar upar dono fail ho gaye,
+  // getVisibleLogicalRange() se current scroll position nikal ke usi se
+  // calculate karo, taaki ye bhi purane version ki tarah "static" na ho
+  // jaaye.
   if (x == null) {
     try {
       let barPx = 4;
       try { const bs = c.chart.timeScale().options().barSpacing; if (bs > 0) barPx = bs; } catch(_) {}
-      const rightOff = c.chart.timeScale().options().rightOffset || offset;
-      x = cssW - (rightOff - offset) * barPx;
+      const lr = c.chart.timeScale().getVisibleLogicalRange();
+      if (lr) {
+        const rightOff = c.chart.timeScale().options().rightOffset || offset;
+        const lastBarLogical = lr.to - rightOff;
+        x = (lastBarLogical + offset - lr.from) * barPx;
+      } else {
+        const rightOff = c.chart.timeScale().options().rightOffset || offset;
+        x = cssW - (rightOff - offset) * barPx;
+      }
     } catch(_) { return; }
   }
 
@@ -17512,6 +17540,15 @@ async function buildCellChart(idx) {
   if (!c.vLine) c.vLine = { ..._activeVLineDefaults() };
   _applyVLineColor(c.asset, c.tf, c.vLine);
   c._vlTime = data.length ? data[data.length - 1].time : null;
+  // Future-line ka logical bar-index bhi save karo (data ke real portion ka
+  // aakhri index — whitespace tail concat hone SE PEHLE ka `data.length-1`).
+  // Ye time-matching se independent hai, isliye daily+ TFs (3D/9D/27D) par
+  // agar live-update wale bucket-time calc mein thodi si mismatch ho (jo
+  // future-timestamp ko series ke kisi exact whitespace point se match hone
+  // se rok deti hai), tab bhi line sahi (aur scroll ke saath dynamically)
+  // draw hoti rahe — neeche _vlDrawCellGeneric isi index+offset ko
+  // logicalToCoordinate() se seedha pixel mein convert karta hai.
+  c._vlBarIndex = data.length ? data.length - 1 : null;
   _vlCreateCellCanvas(idx);
   c.chart.timeScale().subscribeVisibleLogicalRangeChange(() => _vlDrawCell(idx));
   // RAF-throttle vl draw on crosshair move for grid cells
@@ -18898,7 +18935,15 @@ function _applyBTCKline(k) {
         if ((c.tf||1)>=1440 && c.chart && c._followLive) {
           try{c.chart.timeScale().scrollToRealTime();}catch(_){}
         }
-        const _ci = CELLS.indexOf(c); c._vlTime = c._btcBkt.time; _vlDrawCell(_ci);
+        const _ci = CELLS.indexOf(c);
+        // Naya bucket shuru hua (time badla) toh bar-index +1 karo — same
+        // bucket ke andar sirf OHLC update ho raha ho toh index waisa hi
+        // rehta hai. Isse future-line ka index-based positioning (scroll-
+        // aware) hamesha sahi rehta hai, chahe daily+ (3D/9D/27D) TF ho.
+        if (c._vlTime !== c._btcBkt.time) {
+          c._vlBarIndex = (c._vlBarIndex == null) ? 0 : c._vlBarIndex + 1;
+        }
+        c._vlTime = c._btcBkt.time; _vlDrawCell(_ci);
         _pdotDraw(_ci);
         c._lastLTP=c._btcBkt.close;
         c._candleOpen=c._btcBkt.open;
@@ -19286,6 +19331,9 @@ async function _loadBNHistory(tfMin) {
         c.series.setData(data2.map(b=>({time:b.time,value:b.close})));
       else
         c.series.setData(data2);
+      // Future-line index/time ko poori series-reset ke saath resync karo.
+      c._vlTime = data2.length ? data2[data2.length - 1].time : c._vlTime;
+      c._vlBarIndex = data2.length ? data2.length - 1 : c._vlBarIndex;
       updateCellPrice(i, data2);
     });
   } catch(_) {}
@@ -19467,6 +19515,11 @@ async function _extendBNHistory(tfMin, seriesRef, chartRef) {
         else
           c.series.setData(rd);
         if (ctr) { try { c.chart.timeScale().setVisibleRange(ctr); } catch(_) {} }
+        // Series poori tarah re-set hui (lazy-history extend) — future-line
+        // ka bar-index bhi turant resync karo, warna purana index naye data
+        // se mismatch ho ke line galat jagah draw ho sakti thi.
+        c._vlTime = rd.length ? rd[rd.length - 1].time : c._vlTime;
+        c._vlBarIndex = rd.length ? rd.length - 1 : c._vlBarIndex;
         updateCellPrice(i, rd);
       } catch(_) {}
     });
@@ -19817,6 +19870,10 @@ function _flushBnGridPending() {
       try { c.chart.timeScale().scrollToRealTime(); } catch(_) {}
     }
     const _ci2 = CELLS.indexOf(c);
+    // BTC grid-cell fix jaisa hi — naya bucket shuru hone par index +1.
+    if (c._vlTime !== cellBar.time) {
+      c._vlBarIndex = (c._vlBarIndex == null) ? 0 : c._vlBarIndex + 1;
+    }
     c._vlTime = cellBar.time; _vlDrawCell(_ci2);
     _pdotDraw(_ci2);
     c._lastLTP = cellBar.close;
