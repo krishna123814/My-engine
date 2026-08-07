@@ -6908,6 +6908,20 @@ function _activeVLineDefaults() {
   return (S.layout === 'stack2') ? S.vLineSV2 : S.vLineSV1;
 }
 
+// ── Sanitize a vLine settings object in-place ────────────────────────────
+// Guards against corrupted/legacy saved offset values (NaN, 0, negative,
+// out-of-range) that used to make the future-line render too far away or
+// appear stuck/static on some timeframes after loading old localStorage
+// state. Called on every load path (global defaults, per-cell, saved
+// slots) so corrupted data self-heals back to the sane default (5)
+// instead of silently persisting forever.
+function _sanitizeVLine(vl) {
+  if (!vl || typeof vl !== 'object') return vl;
+  if (!(Number.isFinite(vl.offset) && vl.offset >= 1 && vl.offset <= 50)) vl.offset = 5;
+  if (!(Number.isFinite(vl.width) && vl.width >= 1 && vl.width <= 5)) vl.width = 1;
+  return vl;
+}
+
 // ── Timezone-aware time formatting for crosshair label ──────────────────────
 // Binance candle timestamps are epoch/UTC; we render them in the chosen zone.
 const TZ_MAP = {
@@ -7244,6 +7258,7 @@ function loadFromSlot(idx) {
     Object.assign(S.vLineSV1, slot.vLine);
     Object.assign(S.vLineSV2, slot.vLine);
   }
+  _sanitizeVLine(S.vLineSV1); _sanitizeVLine(S.vLineSV2);
 
   // Restore favourite TFs
   if (slot.favTFs && Array.isArray(slot.favTFs)) {
@@ -14774,7 +14789,7 @@ function buildStack() {
     const priorTfMatches = priorOk && prior.vLine && prior.tf === tfMins[i];
     const cellObj = {
       asset: assets[i], tf: tfMins[i], chart:null, series:null, el:null,
-      vLine: priorTfMatches ? { ...prior.vLine } : null,
+      vLine: priorTfMatches ? _sanitizeVLine({ ...prior.vLine }) : null,
     };
     STACK_CELLS.push(cellObj);
     CELLS.push(cellObj);   // buildCellChart/wireSync/selectCell all key off CELLS[idx]
@@ -16088,7 +16103,17 @@ function _vlDrawCellGeneric(c) {
   // offset alag — dono ko mix nahi karna. c._vlTime bhi hamesha REAL last
   // candle (ya forming candle) ke time par set rehta hai (build/tick/reset
   // sab jagah), isliye yahan sirf fixed 5 lagana kaafi hai.
-  const offset = c._stack2 ? 5 : (vl.offset || 5);
+  // SV2 ki tarah offset hamesha ek RELIABLE, sane number honi chahiye —
+  // SV2 hardcoded 5 use karta hai isliye kabhi corrupt nahi hota. SV1 mein
+  // per-cell customizable offset hai (Cell Settings se 1-50), jo legacy/
+  // inherited saved-state se kabhi NaN/0/negative/bahut bada corrupt ho
+  // sakta tha aur seedha future-time math mein chala jaata tha — isi se
+  // kisi TF mein line bahut door aur kisi mein galat/static dikhti thi.
+  // Ab SV1 bhi SV2 jaisa hi sanitize karta hai: customization intact
+  // rehti hai, bas value hamesha 1-50 ke range ke andar honi chahiye,
+  // warna default 5 par fallback.
+  const _rawOffset = c._stack2 ? 5 : vl.offset;
+  const offset = (Number.isFinite(_rawOffset) && _rawOffset >= 1 && _rawOffset <= 50) ? _rawOffset : 5;
 
   // Bar spacing se x calculate karo — timeToCoordinate pe depend mat karo
   // (1D/3D jaise large TF par future timestamps visible range mein nahi hote
@@ -22266,6 +22291,7 @@ document.addEventListener('DOMContentLoaded', () => {
         Object.assign(S.vLineSV1, st.vLine);
         Object.assign(S.vLineSV2, st.vLine);
       }
+      _sanitizeVLine(S.vLineSV1); _sanitizeVLine(S.vLineSV2);
       S.chartType='candle';   // always candle; type switcher removed
       if (Array.isArray(st.cells)&&st.cells.length) { _savedCells=st.cells; _savedCellsLayout = st.layout||'1x1'; }
       _applyRestoredUI(st);
@@ -22293,6 +22319,7 @@ document.addEventListener('DOMContentLoaded', () => {
           Object.assign(S.vLineSV1, slotToLoad.vLine);
           Object.assign(S.vLineSV2, slotToLoad.vLine);
         }
+        _sanitizeVLine(S.vLineSV1); _sanitizeVLine(S.vLineSV2);
         if (slotToLoad.favTFs && Array.isArray(slotToLoad.favTFs)) {
           _favTFs = [...slotToLoad.favTFs];
           try { _LS.setItem(_FAV_KEY, JSON.stringify(_favTFs)); } catch(_) {}
