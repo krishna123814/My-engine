@@ -3550,6 +3550,95 @@ select.s-select, input.s-select{
 #oc-btc-ws-dot.live{background:#26a69a;box-shadow:0 0 4px #26a69a}
 #oc-btc-ws-text.oc-ws-live{color:#26a69a}
 #oc-btc-ws-text.oc-ws-reconnecting{color:#ef5350}
+/* ── BTC Option Chain — LTP WebSocket Debug Tracker (mirrors SV1 header
+   debug: icon-only, tap karo to popup khulta hai). Sirf BTC chain ke liye
+   dikhta hai — BankNifty (Fyers) chain mein is websocket concept ka
+   matlab nahi, isliye JS mein hide rehta hai. ── */
+#oc-debug-tracker{
+  display:none;
+  align-items:center;
+  justify-content:center;
+  flex-shrink:0;
+  width:22px;
+  height:22px;
+  cursor:pointer;
+  position:relative;
+  border:1px solid #2a2e39;
+  border-radius:5px;
+  box-sizing:border-box;
+}
+#oc-debug-icon{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:2px;
+  width:16px;
+  height:16px;
+}
+.oc-debug-dot{
+  display:inline-block;
+  width:5px;
+  height:5px;
+  flex:0 0 5px;
+  border-radius:50%;
+  border:1px solid #555;
+  background:transparent;
+  transition:background .3s,box-shadow .3s,border-color .3s;
+}
+.oc-debug-dot.ok{
+  border-color:#26a69a;
+  background:#26a69a;
+  box-shadow:0 0 4px #26a69a;
+}
+#oc-debug-popup{
+  display:none;
+  position:fixed;
+  top:calc(6vh + 50px);
+  left:50%;
+  transform:translateX(-50%);
+  z-index:10050;
+  background:#1a1d27;
+  border:1px solid #363c4e;
+  border-radius:6px;
+  padding:8px 10px;
+  min-width:260px;
+  max-width:420px;
+  max-height:70vh;
+  overflow:auto;
+  box-shadow:0 4px 20px rgba(0,0,0,.7);
+}
+#oc-debug-popup.open{ display:block; }
+#oc-debug-popup-title{
+  font-size:9px;
+  font-weight:700;
+  color:#9598a1;
+  margin-bottom:6px;
+  letter-spacing:.4px;
+  text-transform:uppercase;
+}
+#oc-debug-popup-log{
+  font-size:9px;
+  color:#c0c0c0;
+  line-height:16px;
+  white-space:pre-wrap;
+  word-break:break-all;
+}
+#oc-debug-popup-log .log-ok  { color:#26a69a; }
+#oc-debug-popup-log .log-err { color:#ef5350; }
+#oc-debug-popup-copy{
+  margin-top:8px;
+  width:100%;
+  height:26px;
+  background:#363c4e;
+  border:none;
+  border-radius:4px;
+  color:#e0e0e0;
+  font-size:10px;
+  cursor:pointer;
+  letter-spacing:.3px;
+}
+#oc-debug-popup-copy:active{ background:#26a69a; color:#fff; }
 #oc-toggle-rows{padding:8px 12px 0}
 .oc-toggle-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#787b86;padding:0 2px 8px}
 .oc-toggle-btn{width:38px;height:22px;border-radius:11px;border:none;cursor:pointer;background:#2a2e39;position:relative}
@@ -4558,8 +4647,22 @@ function _hdrRelayout(){
     <button id="oc-pnl-btn" onclick="_ocPnlOverlayToggle()" title="Position P&amp;L (strike ke saath) chart par Show/Hide karo">P&amp;L</button>
     <button id="oc-greeks-btn" onclick="_ocToggleGreeks()" title="Greeks (Delta/IV/Theta/Vega) trade bar mein dikhao">Ⓖ</button>
     <button id="oc-sound-btn" onclick="_ocToggleSound()" title="Sound alerts on/off">🔊</button>
+    <div id="oc-debug-tracker" title="BTC Option LTP Debug — tap to view log" onclick="_ocDebugPopupToggle()">
+      <div id="oc-debug-icon">
+        <span class="oc-debug-dot" id="oc-debug-mark-dot"></span>
+        <span class="oc-debug-dot" id="oc-debug-trade-dot"></span>
+      </div>
+    </div>
     <button id="oc-close" onclick="toggleOptionChain()">✕</button>
   </div>
+
+  <!-- ── BTC Option Chain — LTP WebSocket Debug Popup ── -->
+  <div id="oc-debug-popup">
+    <div id="oc-debug-popup-title">📡 BTC Option LTP Feed Log</div>
+    <div id="oc-debug-popup-log"></div>
+    <button id="oc-debug-popup-copy" onclick="_ocDebugPopupCopy()">📋 Copy Log</button>
+  </div>
+
   <div id="oc-sub">
     <span id="oc-spot">Spot: —</span>
     <span id="oc-expiry">Expiry: —</span>
@@ -20965,7 +21068,17 @@ function _ocRenderChainFromCache() {
   if (expModeRow) expModeRow.style.display = isBTC ? 'none' : '';
   const btcExpRow = document.getElementById('oc-btc-expiry-row');
   if (btcExpRow) btcExpRow.style.display = isBTC ? '' : 'none';
-  if (isBTC) _ocPopulateBtcExpiries(_ocBinanceChainData);
+  const dbgTracker = document.getElementById('oc-debug-tracker');
+  if (dbgTracker) dbgTracker.style.display = isBTC ? 'flex' : 'none';
+  if (isBTC) {
+    _ocPopulateBtcExpiries(_ocBinanceChainData);
+    if (typeof _ocDebugRefresh === 'function') _ocDebugRefresh();
+  } else {
+    // BankNifty (Fyers) par debug popup khula reh gaya ho to band kar do —
+    // ye websocket concept BTC-specific hai, BankNifty data par apply nahi hota.
+    const dbgPopup = document.getElementById('oc-debug-popup');
+    if (dbgPopup) dbgPopup.classList.remove('open');
+  }
   if (!data) {
     if (body) body.innerHTML = '<div id="oc-loading">Data load ho raha hai…</div>';
     if (spotEl) spotEl.textContent = 'Spot: —';
@@ -21026,6 +21139,140 @@ function _ocRenderChainFromCache() {
   body.innerHTML = html || '<div id="oc-loading">Data nahi mila</div>';
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// BTC Option Chain — LTP WebSocket Debug Tracker
+// Backend (main.py, _bn_rebuild_payload_from_memory) har 1 second option
+// chain payload ke saath ek `ws` object bhejta hai jisme mark/trade/spot
+// teeno streams ka pehle-se-stale-aware status hota hai (mark_live,
+// trade_live, *_age_sec, spot_source, last_error). Isliye yahan koi naya
+// polling/timer nahi chahiye — jab bhi naya data aata hai (_ocRenderChain
+// FromCache se), sirf usi `ws` object ko padh kar icon/popup update kar
+// dete hain. Sirf BTC ke liye chalta hai (BankNifty/Fyers chain ka ye
+// concept hi nahi hai). ──────────────────────────────────────────────────
+function _ocDebugAgeText(sec) {
+  return (typeof sec === 'number' && isFinite(sec)) ? (Math.round(sec) + 's ago') : 'never';
+}
+
+function _ocDebugRefresh() {
+  const tracker = document.getElementById('oc-debug-tracker');
+  if (!tracker) return;
+  const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
+  const ws = (data && data.ws) || {};
+  const markDot  = document.getElementById('oc-debug-mark-dot');
+  const tradeDot = document.getElementById('oc-debug-trade-dot');
+  if (markDot)  markDot.classList.toggle('ok', !!ws.mark_live);
+  if (tradeDot) tradeDot.classList.toggle('ok', !!ws.trade_live);
+  if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
+    _ocDebugPopupRefreshLog();
+  }
+}
+
+// ── Debug Popup: toggle open/close ────────────────────────────────────────
+function _ocDebugPopupToggle() {
+  const popup = document.getElementById('oc-debug-popup');
+  if (!popup) return;
+  const isOpen = popup.classList.contains('open');
+  if (isOpen) {
+    popup.classList.remove('open');
+  } else {
+    _ocDebugPopupRefreshLog();
+    popup.classList.add('open');
+  }
+}
+
+// ── Debug Popup: build log text from the latest `ws` status ───────────────
+function _ocDebugPopupRefreshLog() {
+  const logEl = document.getElementById('oc-debug-popup-log');
+  if (!logEl) return;
+  const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
+  if (!data || data.error) {
+    logEl.innerHTML = '<span class="log-err">Koi option chain data abhi available nahi hai.</span>';
+    return;
+  }
+  const ws = data.ws || {};
+  const markLive     = !!ws.mark_live;
+  const tradeLive    = !!ws.trade_live;
+  const spotSource   = ws.spot_source;                                  // "ws" | "rest" | null
+  const spotPushLive = !!ws.spot_connected && spotSource === 'ws';
+
+  // ── Verdict: trade prints thin/liquidity-dependent hote hain (kam-volume
+  // strikes par kaafi der tak koi trade na ho, ye normal hai) — isliye
+  // "not live" sirf tab jab DONO streams stale/disconnected hon. Ek hi
+  // stream live ho to bhi LTP effectively live hi hai (jo bhi source
+  // us strike ka LTP feed kar raha hai). ──
+  let verdictOk, verdictText;
+  if (markLive && tradeLive) {
+    verdictOk = true;
+    verdictText = '✅ LTP LIVE — mark + trade dono WebSocket se real-time aa rahe hain';
+  } else if (markLive || tradeLive) {
+    verdictOk = true;
+    verdictText = '🟡 LTP LIVE (partial) — ' +
+      (markLive ? 'mark price WS live hai, trade prints abhi quiet hain (kam-liquidity strikes ke liye normal)'
+                : 'trade prints aa rahe hain, mark price feed stale hai');
+  } else {
+    verdictOk = false;
+    verdictText = '⚠️ LTP LIVE NAHI — WebSocket disconnected/stale hai, dikh raha price purana ho sakta hai';
+  }
+
+  const payloadAge = data.ts ? _ocDebugAgeText(Date.now() / 1000 - data.ts) : 'never';
+
+  const lines = [
+    { ok: markLive,  text: '● Mark price WS : ' + (markLive ? 'LIVE' : (ws.mark_connected ? 'STALE' : 'DISCONNECTED')) },
+    { ok: null,      text: '  Last mark tick : ' + _ocDebugAgeText(ws.mark_age_sec) },
+    { ok: tradeLive, text: '● Trade WS      : ' + (tradeLive ? 'LIVE' : (ws.trade_connected ? 'STALE' : 'DISCONNECTED')) },
+    { ok: null,      text: '  Last trade     : ' + _ocDebugAgeText(ws.trade_age_sec) },
+    { ok: spotPushLive, text: '● Spot price    : ' + (spotSource === 'ws' ? (spotPushLive ? 'LIVE (WS)' : 'STALE (WS)') : (spotSource === 'rest' ? 'REST fallback' : '—')) },
+    { ok: null,      text: '  Spot age       : ' + _ocDebugAgeText(ws.spot_age_sec) },
+    { ok: null,      text: '  Expiry shown   : ' + (data.expiry_label || '—') },
+    { ok: null,      text: '  Payload age    : ' + payloadAge },
+    { ok: !data.stale_warning, text: '  Payload status : ' + (data.stale_warning || 'fresh') },
+    { ok: null,      text: '  Last error     : ' + (ws.last_error || 'none') },
+    { ok: verdictOk, text: verdictText },
+    { ok: null,      text: '  Log time       : ' + new Date().toLocaleTimeString() },
+  ];
+
+  logEl.innerHTML = lines.map(l => {
+    if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+    if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+    return '<span>' + l.text + '</span>';
+  }).join('\n');
+}
+
+// ── Debug Popup: copy log to clipboard (reuses SV1's generic fallback) ────
+function _ocDebugPopupCopy() {
+  const logEl = document.getElementById('oc-debug-popup-log');
+  const copyBtn = document.getElementById('oc-debug-popup-copy');
+  if (!logEl) return;
+  const text = logEl.innerText || logEl.textContent;
+  try {
+    navigator.clipboard.writeText(text).then(() => {
+      if (copyBtn) { copyBtn.textContent = '✅ Copied!'; setTimeout(() => { copyBtn.textContent = '📋 Copy Log'; }, 1800); }
+    }).catch(() => {
+      _sv1DebugFallbackCopy(text, copyBtn);
+    });
+  } catch(_) {
+    _sv1DebugFallbackCopy(text, copyBtn);
+  }
+}
+
+// ── Close popup on outside tap ────────────────────────────────────────────
+document.addEventListener('touchstart', function(e) {
+  const popup = document.getElementById('oc-debug-popup');
+  const tracker = document.getElementById('oc-debug-tracker');
+  if (!popup || !popup.classList.contains('open')) return;
+  if (!popup.contains(e.target) && tracker && !tracker.contains(e.target)) {
+    popup.classList.remove('open');
+  }
+}, { passive: true });
+document.addEventListener('click', function(e) {
+  const popup = document.getElementById('oc-debug-popup');
+  const tracker = document.getElementById('oc-debug-tracker');
+  if (!popup || !popup.classList.contains('open')) return;
+  if (!popup.contains(e.target) && tracker && !tracker.contains(e.target)) {
+    popup.classList.remove('open');
+  }
+});
+
 // ── Polling health tracking (FIX: polling used to fail silently — agar
 // backend down ho jaaye, network toot jaaye, ya JSON file fetch fail ho
 // jaaye, code chupchaap kuch nahi karta tha aur dot/UI apni AKHRI
@@ -21064,6 +21311,19 @@ function _ocMarkBinanceDotStale(reason) {
     txt.classList.remove('oc-ws-live');
     txt.classList.add('oc-ws-reconnecting');
     txt.textContent = '● Stale (poll failed)';
+  }
+  // Debug tracker ko bhi purani "live" state par freeze nahi hone dena —
+  // dono dots off, aur popup khula ho to ek clear poll-fail note dikhao.
+  const markDot  = document.getElementById('oc-debug-mark-dot');
+  const tradeDot = document.getElementById('oc-debug-trade-dot');
+  if (markDot)  markDot.classList.remove('ok');
+  if (tradeDot) tradeDot.classList.remove('ok');
+  const dbgPopup = document.getElementById('oc-debug-popup');
+  const dbgLogEl = document.getElementById('oc-debug-popup-log');
+  if (dbgPopup && dbgPopup.classList.contains('open') && dbgLogEl) {
+    dbgLogEl.innerHTML = '<span class="log-err">⚠️ LTP LIVE NAHI — '
+      + (reason || 'polling failed, backend/network unreachable')
+      + '</span>\n<span>  Log time       : ' + new Date().toLocaleTimeString() + '</span>';
   }
 }
 
