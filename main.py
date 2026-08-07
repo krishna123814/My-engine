@@ -585,6 +585,8 @@ BINANCE_OC_STRIKE_WINDOW = 10     # ATM ke dono taraf, HAR expiry ke liye itni s
 BINANCE_OC_META_TTL      = 600    # exchangeInfo (strikes/expiries) refresh — 10 min
 BINANCE_OC_TICKER_TTL    = 5      # 24hr ticker snapshot (OI/vol/chg%) refresh — 5 sec
 BINANCE_SPOT_STALE_SEC   = 10     # spot WS tick se purana ho to REST se fresh price lo
+BINANCE_MARK_STALE_SEC   = 15     # mark-price stream se 15 sec tak koi bhi tick na aaye to stale
+BINANCE_TRADE_STALE_SEC  = 30     # trade stream sparse hoti hai, isliye thoda zyada margin
 
 BINANCE_WS_MARK_URL  = "wss://fstream.binance.com/market/stream?streams=btcusdt@optionMarkPrice"
 BINANCE_WS_TRADE_URL = "wss://fstream.binance.com/public/stream?streams=btcusdt@optionTrade"
@@ -594,7 +596,7 @@ BINANCE_WS_SPOT_URL  = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
 _BN_LIVE_QUOTES = {}
 _BN_LIVE_LOCK   = threading.Lock()
 
-_BN_SPOT_PRICE = {"price": None, "ts": 0.0}
+_BN_SPOT_PRICE = {"price": None, "ts": 0.0, "source": None}   # source: "ws" | "rest"
 _BN_SPOT_LOCK  = threading.Lock()
 
 # exchangeInfo se banaya gaya static-ish structure: expiry_epoch(ms) -> [{strike, ce_symbol, pe_symbol}]
@@ -603,7 +605,83 @@ _BN_CHAIN_META_LOCK = threading.Lock()
 
 _BN_TICKER_LAST = {"ts": 0.0}
 
-_BN_WS_STATE = {"mark_connected": False, "trade_connected": False, "spot_connected": False, "last_error": None}
+_BN_WS_STATE = {
+    "mark_connected":  False,
+    "trade_connected": False,
+    "spot_connected":  False,
+    "last_error":      None,
+    # Global "last message received" timestamps — per-symbol staleness track
+    # karna mehenga hai (dozens of visible symbols), isliye jaisa Binance khud
+    # push karta hai (koi bhi symbol ka tick isi ek stream par aata hai),
+    # hum poori stream ki freshness ek hi global timestamp se maapte hain.
+    # Agar TCP connection technically open hai par koi tick 15/30 sec tak
+    # na aaye, us stream ko "stale" maante hain — connected hone se yeh
+    # alag baat hai (jaisa spot ke saath pehle fix kiya).
+    "mark_last_msg_ts":  0.0,
+    "trade_last_msg_ts": 0.0,
+}
+
+# ── Watchdog support: live wsapp handles + force-reconnect on stale stream ──
+# ping_interval/ping_timeout library ke bharose hain — kuch network/proxy
+# setups mein TCP half-open ho sakta hai jahan ping bhi silently drop ho
+# jaaye (socket "open" dikhta hai par data flow ruka hota hai). Independent
+# watchdog thread yahan _*_last_msg_ts ko baahar se check karke, agar bahut
+# zyada stale ho jaaye, socket ko force-close karta hai — jisse wsapp ka
+# apna while-loop backoff ke saath reconnect kar leta hai.
+_BN_WS_APPS = {"mark": None, "trade": None, "spot": None}
+_BN_WS_APPS_LOCK = threading.Lock()
+BINANCE_WATCHDOG_CHECK_SEC   = 5     # kitni baar check karein
+BINANCE_WATCHDOG_MARK_MULT   = 2.0   # mark: stale-threshold ka itna guna age ho to force-reconnect
+BINANCE_WATCHDOG_TRADE_MULT  = 2.0
+BINANCE_WATCHDOG_SPOT_SEC    = 20    # spot ke liye seedha seconds (agg trade sparse ho sakta hai)
+
+def _bn_watchdog_loop():
+    """Independent watchdog — ping/pong se bhi zyada bharosemand. Har
+    BINANCE_WATCHDOG_CHECK_SEC par teeno streams ki last_msg_ts age check
+    karta hai; agar koi stream apne stale-threshold se kaafi zyada purani ho
+    chuki hai (par "connected" flag abhi bhi True hai — half-open TCP ka
+    lakshan), us stream ka socket force-close kar deta hai taaki uska apna
+    reconnect-loop turant naya connection try kare."""
+    while True:
+        try:
+            now = time.time()
+            with _BN_WS_APPS_LOCK:
+                apps = dict(_BN_WS_APPS)
+
+            mark_ts = _BN_WS_STATE.get("mark_last_msg_ts") or 0.0
+            if mark_ts and (now - mark_ts) > (BINANCE_MARK_STALE_SEC * BINANCE_WATCHDOG_MARK_MULT):
+                ws = apps.get("mark")
+                if ws is not None:
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    _BN_WS_STATE["last_error"] = "watchdog: mark stream stale, force-reconnecting"
+
+            trade_ts = _BN_WS_STATE.get("trade_last_msg_ts") or 0.0
+            if trade_ts and (now - trade_ts) > (BINANCE_TRADE_STALE_SEC * BINANCE_WATCHDOG_TRADE_MULT):
+                ws = apps.get("trade")
+                if ws is not None:
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    _BN_WS_STATE["last_error"] = "watchdog: trade stream stale, force-reconnecting"
+
+            with _BN_SPOT_LOCK:
+                spot_ts = _BN_SPOT_PRICE.get("ts") or 0.0
+                spot_source = _BN_SPOT_PRICE.get("source")
+            if spot_source == "ws" and spot_ts and (now - spot_ts) > BINANCE_WATCHDOG_SPOT_SEC:
+                ws = apps.get("spot")
+                if ws is not None:
+                    try:
+                        ws.close()
+                    except Exception:
+                        pass
+                    _BN_WS_STATE["last_error"] = "watchdog: spot stream stale, force-reconnecting"
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = f"watchdog loop: {e}"
+        time.sleep(BINANCE_WATCHDOG_CHECK_SEC)
 
 # ── Step 1: exchangeInfo — strikes/expiries ka structure (rarely changes) ──
 def _bn_refresh_option_meta(force: bool = False) -> tuple[bool, str]:
@@ -688,6 +766,86 @@ def _binance_oc_ticker_bg_loop():
             _BN_WS_STATE["last_error"] = f"ticker loop: {e}"
         time.sleep(BINANCE_OC_TICKER_TTL)
 
+# ── Reconnect backoff helper — exponential + jitter (TradingView jaisa) ──
+# Flat "time.sleep(3)" har baar same gap deta hai chahe server baar-baar
+# turant disconnect kare — isse retry storm ban sakta hai. Exponential
+# backoff har consecutive failure par gap double karta hai (1s→2s→4s...),
+# jitter (chhota random add) isliye taaki agar kabhi multiple threads/users
+# same waqt reconnect try karein to sab ek saath thundering-herd na banayein.
+# Success (on_open) par caller apna fail-counter reset kar deta hai.
+import random as _bn_random
+
+BINANCE_WS_BACKOFF_BASE = 1     # sec — pehla retry
+BINANCE_WS_BACKOFF_MAX  = 30    # sec — is se zyada kabhi nahi rukna
+
+def _bn_ws_backoff_sleep(fail_count: int) -> None:
+    delay = min(BINANCE_WS_BACKOFF_BASE * (2 ** max(0, fail_count - 1)), BINANCE_WS_BACKOFF_MAX)
+    jitter = _bn_random.uniform(0, delay * 0.3)
+    time.sleep(delay + jitter)
+
+# ── Reconnect gap-fill — jab mark WS reconnect hoti hai (disconnect ke
+# baad), turant REST se fresh data le lo, taaki naye WS ticks ka wait na
+# karna pade aur reconnect ke turant baad bhi screen par purana data na
+# dikhe.
+#
+# FIX (rate-limit + coverage): pehle yeh function sirf NEAREST expiry ki
+# ATM-window strikes ke liye, HAR symbol ka ALAG REST call karta tha
+# (~42 individual calls, 0.05s gap ke saath ~2 sec). Flaky network par
+# baar-baar reconnect hone se yeh burst multiple baar overlap ho sakta
+# tha aur Binance ka 400 req/min limit tod sakta tha.
+#
+# Ab /eapi/v1/mark ko bina `symbol` param ke call karte hain — yeh
+# poore market ka mark/IV/greeks data EK HI REST call mein deta hai
+# (bilkul waisa hi jaisa /eapi/v1/ticker already karta hai). Isse:
+#   • Call count 42 → 1 ho jaata hai (rate-limit-safe).
+#   • Sirf nearest expiry tak simit rehne ki zaroorat nahi rahi — jo
+#     bhi data mila, saari expiries/strikes ke liye apply ho jaata hai.
+_BN_GAPFILL_LOCK    = threading.Lock()  # non-blocking — chalu gap-fill ke upar dusra spawn na ho
+_BN_GAPFILL_RUNNING = False
+
+def _bn_gapfill_visible_quotes():
+    global _BN_GAPFILL_RUNNING
+    # ── Dedupe: agar ek gap-fill already chal raha hai to naya spawn na ho
+    # (flaky network mein baar-baar reconnect se REST burst na lage). ──
+    if not _BN_GAPFILL_LOCK.acquire(blocking=False):
+        return
+    try:
+        _BN_GAPFILL_RUNNING = True
+        with _BN_CHAIN_META_LOCK:
+            expiries = list(_BN_CHAIN_META["expiries"])
+        if not expiries:
+            return
+        try:
+            ok, data = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/mark", {}, "", signed=False)
+        except Exception as e:
+            _BN_WS_STATE["last_error"] = f"gapfill: {e}"
+            return
+        if not ok or not isinstance(data, list):
+            return
+        now = time.time()
+        with _BN_LIVE_LOCK:
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                sym = item.get("symbol")
+                if not sym:
+                    continue
+                row = _BN_LIVE_QUOTES.setdefault(sym, {})
+                if item.get("markPrice") not in (None, ""): row["mark"]    = item["markPrice"]
+                if item.get("bidIV")     is not None:       row["buy_iv"]  = item["bidIV"]
+                if item.get("askIV")     is not None:       row["sell_iv"] = item["askIV"]
+                if item.get("markIV")    is not None:       row["iv"]      = item["markIV"]
+                if item.get("delta")     is not None:       row["delta"]   = item["delta"]
+                if item.get("gamma")     is not None:       row["gamma"]   = item["gamma"]
+                if item.get("theta")     is not None:       row["theta"]   = item["theta"]
+                if item.get("vega")      is not None:       row["vega"]    = item["vega"]
+                row["ts"] = now
+    except Exception:
+        pass
+    finally:
+        _BN_GAPFILL_RUNNING = False
+        _BN_GAPFILL_LOCK.release()
+
 # ── Step 3: WebSocket #1 — Option Mark Price (mark/bid/ask/greeks/IV), LIVE ──
 # Single connection, underlying-level ("btcusdt") — sabhi strikes/expiries ka
 # data isi ek stream mein aata hai (array push), per-symbol subscribe nahi
@@ -734,6 +892,7 @@ def _bn_ws_mark_on_message(ws, message):
         elif isinstance(payload, dict):
             _bn_apply_mark_msg(payload)
         _BN_WS_STATE["last_error"] = None
+        _BN_WS_STATE["mark_last_msg_ts"] = time.time()
     except Exception as e:
         _BN_WS_STATE["last_error"] = str(e)
 
@@ -741,20 +900,36 @@ def _bn_ws_mark_loop():
     if websocket is None:
         _BN_WS_STATE["last_error"] = "websocket-client package missing — pip install websocket-client"
         return
+    fail_count = 0
+    ever_connected = False
     while True:
         try:
+            def _on_open(ws):
+                nonlocal ever_connected, fail_count
+                _BN_WS_STATE.update({"mark_connected": True, "mark_last_msg_ts": time.time()})
+                fail_count = 0
+                if ever_connected:
+                    # Pehli baar connect nahi, yeh ek RECONNECT hai — turant
+                    # visible symbols REST se gap-fill karo (disconnect ke
+                    # dauraan jo miss hua, naye WS ticks ka wait na karna
+                    # pade).
+                    threading.Thread(target=_bn_gapfill_visible_quotes, daemon=True).start()
+                ever_connected = True
             wsapp = websocket.WebSocketApp(
                 BINANCE_WS_MARK_URL,
-                on_open=lambda ws: _BN_WS_STATE.update({"mark_connected": True}),
+                on_open=_on_open,
                 on_message=_bn_ws_mark_on_message,
                 on_error=lambda ws, e: _BN_WS_STATE.update({"mark_connected": False, "last_error": str(e)}),
                 on_close=lambda ws, c, m: _BN_WS_STATE.update({"mark_connected": False}),
             )
+            with _BN_WS_APPS_LOCK:
+                _BN_WS_APPS["mark"] = wsapp
             wsapp.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
             _BN_WS_STATE["last_error"] = str(e)
         _BN_WS_STATE["mark_connected"] = False
-        time.sleep(3)   # reconnect backoff
+        fail_count += 1
+        _bn_ws_backoff_sleep(fail_count)   # exponential backoff + jitter
 
 # ── Step 4: WebSocket #2 — Option Trade stream (last price + cumulative volume) ──
 def _bn_apply_trade_msg(msg: dict):
@@ -786,26 +961,35 @@ def _bn_ws_trade_on_message(ws, message):
                     _bn_apply_trade_msg(item)
         elif isinstance(payload, dict):
             _bn_apply_trade_msg(payload)
+        _BN_WS_STATE["trade_last_msg_ts"] = time.time()
     except Exception:
         pass
 
 def _bn_ws_trade_loop():
     if websocket is None:
         return
+    fail_count = 0
     while True:
         try:
+            def _on_open(ws):
+                nonlocal fail_count
+                _BN_WS_STATE.update({"trade_connected": True, "trade_last_msg_ts": time.time()})
+                fail_count = 0
             wsapp = websocket.WebSocketApp(
                 BINANCE_WS_TRADE_URL,
-                on_open=lambda ws: _BN_WS_STATE.update({"trade_connected": True}),
+                on_open=_on_open,
                 on_message=_bn_ws_trade_on_message,
                 on_error=lambda ws, e: _BN_WS_STATE.update({"trade_connected": False, "last_error": str(e)}),
                 on_close=lambda ws, c, m: _BN_WS_STATE.update({"trade_connected": False}),
             )
+            with _BN_WS_APPS_LOCK:
+                _BN_WS_APPS["trade"] = wsapp
             wsapp.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
             _BN_WS_STATE["last_error"] = str(e)
         _BN_WS_STATE["trade_connected"] = False
-        time.sleep(3)
+        fail_count += 1
+        _bn_ws_backoff_sleep(fail_count)
 
 # ── Step 5: WebSocket #3 — BTCUSDT spot price (agg trade), REST price-poll ki
 # jagah — pehle har second ek REST call lagti thi, ab bilkul nahi. ──────────
@@ -815,28 +999,37 @@ def _bn_ws_spot_on_message(ws, message):
         price = data.get("p")
         if price not in (None, ""):
             with _BN_SPOT_LOCK:
-                _BN_SPOT_PRICE["price"] = float(price)
-                _BN_SPOT_PRICE["ts"] = time.time()
+                _BN_SPOT_PRICE["price"]  = float(price)
+                _BN_SPOT_PRICE["ts"]     = time.time()
+                _BN_SPOT_PRICE["source"] = "ws"
     except Exception:
         pass
 
 def _bn_ws_spot_loop():
     if websocket is None:
         return
+    fail_count = 0
     while True:
         try:
+            def _on_open(ws):
+                nonlocal fail_count
+                _BN_WS_STATE.update({"spot_connected": True})
+                fail_count = 0
             wsapp = websocket.WebSocketApp(
                 BINANCE_WS_SPOT_URL,
-                on_open=lambda ws: _BN_WS_STATE.update({"spot_connected": True}),
+                on_open=_on_open,
                 on_message=_bn_ws_spot_on_message,
                 on_error=lambda ws, e: _BN_WS_STATE.update({"spot_connected": False, "last_error": str(e)}),
                 on_close=lambda ws, c, m: _BN_WS_STATE.update({"spot_connected": False}),
             )
+            with _BN_WS_APPS_LOCK:
+                _BN_WS_APPS["spot"] = wsapp
             wsapp.run_forever(ping_interval=20, ping_timeout=10)
         except Exception as e:
             _BN_WS_STATE["last_error"] = str(e)
         _BN_WS_STATE["spot_connected"] = False
-        time.sleep(3)
+        fail_count += 1
+        _bn_ws_backoff_sleep(fail_count)
 
 def _ensure_binance_ws_threads():
     """Idempotent — Streamlit rerun par dobara call hone par bhi duplicate
@@ -846,6 +1039,8 @@ def _ensure_binance_ws_threads():
         threading.Thread(target=_bn_ws_mark_loop, name="BinanceOptMarkWS", daemon=True).start()
     if "BinanceOptTradeWS" not in names:
         threading.Thread(target=_bn_ws_trade_loop, name="BinanceOptTradeWS", daemon=True).start()
+    if "BinanceWSWatchdog" not in names:
+        threading.Thread(target=_bn_watchdog_loop, name="BinanceWSWatchdog", daemon=True).start()
     if "BinanceSpotWS" not in names:
         threading.Thread(target=_bn_ws_spot_loop, name="BinanceSpotWS", daemon=True).start()
     if "BinanceOptMetaBG" not in names:
@@ -862,20 +1057,25 @@ def _bn_rebuild_payload_from_memory() -> dict:
         return {"error": "Option chain metadata load ho raha hai… (exchangeInfo abhi fetch nahi hui, thodi der ruko)"}
 
     with _BN_SPOT_LOCK:
-        spot    = _BN_SPOT_PRICE["price"]
-        spot_ts = _BN_SPOT_PRICE["ts"]
+        spot        = _BN_SPOT_PRICE["price"]
+        spot_ts     = _BN_SPOT_PRICE["ts"]
+        spot_source = _BN_SPOT_PRICE["source"]
     spot_age = (time.time() - spot_ts) if spot_ts else None
     if spot is None or spot_age is None or spot_age > BINANCE_SPOT_STALE_SEC:
         # WS spot ya to abhi connect nahi hua (startup) YA silently mar chuki
         # hai (BINANCE_SPOT_STALE_SEC se koi naya tick nahi aaya) — dono
-        # cases mein REST se fresh price le lo, taaki frozen number kabhi
-        # permanently serve na ho.
+        # cases mein REST se fresh price le lo (gap-fill), taaki frozen
+        # number kabhi permanently serve na ho. Source ko "rest" tag karte
+        # hain taaki frontend ko pata chale ye push-live tick nahi hai.
         _fresh_spot, _err = binance_get_spot_price("BTCUSDT")
         if _fresh_spot is not None:
-            spot = _fresh_spot
+            spot        = _fresh_spot
+            spot_source = "rest"
+            spot_age    = 0.0
             with _BN_SPOT_LOCK:
-                _BN_SPOT_PRICE["price"] = _fresh_spot
-                _BN_SPOT_PRICE["ts"]    = time.time()
+                _BN_SPOT_PRICE["price"]  = _fresh_spot
+                _BN_SPOT_PRICE["ts"]     = time.time()
+                _BN_SPOT_PRICE["source"] = "rest"
     if spot is None:
         return {"error": "BTC spot price abhi available nahi (WebSocket connect ho raha hai)"}
 
@@ -886,18 +1086,29 @@ def _bn_rebuild_payload_from_memory() -> dict:
         if not sym:
             return None
         q = live_snapshot.get(sym, {})
+        # FIX: pehle "koi data nahi mila" cases mein ltp/mark/bid/ask
+        # silently 0 bhej diya jaata tha — jo real "₹0 price" (genuinely
+        # illiquid/worthless strike) se bilkul indistinguishable tha,
+        # user ko pata hi nahi chal sakta tha ki ye asli quote hai ya
+        # sirf missing-data placeholder. Ab jab data hi available nahi
+        # hai to None bhejte hain — frontend (_fmtNum) None ko "—" dikhata
+        # hai, jo "abhi data nahi mila" ko saaf tarike se signal karta hai.
+        _last = q.get("last")
+        _mark = q.get("mark")
+        _bid  = q.get("bid")
+        _ask  = q.get("ask")
         return {
             "symbol": sym,
-            "ltp":    float(q.get("last") or q.get("mark") or 0),
-            "mark":   float(q.get("mark") or 0),
+            "ltp":    float(_last if _last is not None else _mark) if (_last is not None or _mark is not None) else None,
+            "mark":   float(_mark) if _mark is not None else None,
             "chg":    float(q.get("chg") or 0),
             "chgp":   float(q.get("chgp") or 0),
             "oi":     float(q.get("oi") or 0),
             "oich":   0,
             "oichp":  0,
             "volume": float(q.get("volume") or q.get("vol_cum") or 0),
-            "bid":    float(q.get("bid") or 0),
-            "ask":    float(q.get("ask") or 0),
+            "bid":    float(_bid) if _bid is not None else None,
+            "ask":    float(_ask) if _ask is not None else None,
             "iv":     q.get("iv"),
             "delta":  q.get("delta"),
             "gamma":  q.get("gamma"),
@@ -928,6 +1139,27 @@ def _bn_rebuild_payload_from_memory() -> dict:
 
     default_epoch = expiries[0]  # nearest expiry
     nearest = chains[str(default_epoch)]
+
+    # ── Honest "live" status — sirf TCP connected hona kaafi nahi, agar
+    # stream se koi tick 15/30 sec tak na aaya to us stream ko bhi "stale"
+    # maano, chahe socket technically khula ho (jaisa spot ke saath pehle
+    # fix kiya, ab mark/trade ke saath bhi wahi pattern). ──
+    now = time.time()
+    mark_age  = (now - _BN_WS_STATE["mark_last_msg_ts"])  if _BN_WS_STATE["mark_last_msg_ts"]  else None
+    trade_age = (now - _BN_WS_STATE["trade_last_msg_ts"]) if _BN_WS_STATE["trade_last_msg_ts"] else None
+    mark_live  = bool(_BN_WS_STATE["mark_connected"])  and mark_age  is not None and mark_age  <= BINANCE_MARK_STALE_SEC
+    trade_live = bool(_BN_WS_STATE["trade_connected"]) and trade_age is not None and trade_age <= BINANCE_TRADE_STALE_SEC
+
+    ws_status = dict(
+        _BN_WS_STATE,
+        mark_live=mark_live,
+        trade_live=trade_live,
+        mark_age_sec=round(mark_age, 1) if mark_age is not None else None,
+        trade_age_sec=round(trade_age, 1) if trade_age is not None else None,
+        spot_source=spot_source,
+        spot_age_sec=round(spot_age, 1) if spot_age is not None else None,
+    )
+
     return {
         "spot": spot,
         "expiries": expiry_meta_list,               # SABHI expiries — frontend dropdown ke liye
@@ -938,7 +1170,7 @@ def _bn_rebuild_payload_from_memory() -> dict:
         "rows": nearest["rows"],
         "expiry_label": nearest["expiry_label"],
         "expiry_epoch": int(default_epoch / 1000),
-        "ws": dict(_BN_WS_STATE),
+        "ws": ws_status,
         "ts": time.time(),
     }
 

@@ -3455,6 +3455,8 @@ select.s-select, input.s-select{
 #oc-btc-expiry-select{flex:1;height:28px;border-radius:7px;border:1px solid #2a2e39;background:#1e222d;color:#d1d4dc;font-size:11px;font-weight:600;padding:0 8px;cursor:pointer}
 #oc-btc-ws-dot{width:7px;height:7px;border-radius:50%;background:#787b86;flex-shrink:0}
 #oc-btc-ws-dot.live{background:#26a69a;box-shadow:0 0 4px #26a69a}
+#oc-btc-ws-text.oc-ws-live{color:#26a69a}
+#oc-btc-ws-text.oc-ws-reconnecting{color:#ef5350}
 #oc-toggle-rows{padding:8px 12px 0}
 .oc-toggle-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#787b86;padding:0 2px 8px}
 .oc-toggle-btn{width:38px;height:22px;border-radius:11px;border:none;cursor:pointer;background:#2a2e39;position:relative}
@@ -4468,6 +4470,7 @@ function _hdrRelayout(){
     </div>
     <div id="oc-btc-expiry-row" style="display:none">
       <span id="oc-btc-ws-dot" title="Live WebSocket status"></span>
+      <span id="oc-btc-ws-text" style="font-size:10px;color:#787b86;margin-right:6px;"></span>
       <label for="oc-btc-expiry-select">Expiry</label>
       <select id="oc-btc-expiry-select" onchange="_ocSetBtcExpiry(this.value)"></select>
     </div>
@@ -20258,8 +20261,48 @@ function _ocRenderChainFromCache() {
   body.innerHTML = html || '<div id="oc-loading">Data nahi mila</div>';
 }
 
-// Direct poll fallback — fyers_optionchain.json seedha read karta hai
+// ── Polling health tracking (FIX: polling used to fail silently — agar
+// backend down ho jaaye, network toot jaaye, ya JSON file fetch fail ho
+// jaaye, code chupchaap kuch nahi karta tha aur dot/UI apni AKHRI
+// successful state par hamesha ke liye freeze ho jaate the — jaisa "Live"
+// dot bhi galat tarike se "Live" dikhata reh sakta tha). Ab har poll cycle
+// apna success/failure track karta hai; consecutive failures ke baad UI ko
+// explicitly "stale/disconnected" maar diya jaata hai, taaki user ko pata
+// chale ki data purana ho chuka hai — freeze na ho. ─────────────────────
 let _ocPollIv = null;
+let _ocFyersFailStreak   = 0;
+let _ocBinanceFailStreak = 0;
+const _OC_POLL_FAIL_THRESHOLD = 2;   // ~2 poll cycles (≈12s @ 6s interval) tak fail ho to stale maano
+
+function _ocMarkFyersStale(reason) {
+  const body = document.getElementById('oc-body');
+  if (body && !body.querySelector('#oc-stale-banner')) {
+    const banner = document.createElement('div');
+    banner.id = 'oc-stale-banner';
+    banner.style.cssText = 'color:#f0b429;background:#2a1f0d;padding:6px 10px;font-size:11px;text-align:center;';
+    banner.textContent = '⚠️ Data stale — ' + (reason || 'connection lost, retrying…');
+    body.prepend(banner);
+  }
+}
+function _ocClearFyersStale() {
+  const banner = document.getElementById('oc-stale-banner');
+  if (banner) banner.remove();
+}
+function _ocMarkBinanceDotStale(reason) {
+  const dot = document.getElementById('oc-btc-ws-dot');
+  const txt = document.getElementById('oc-btc-ws-text');
+  if (dot) {
+    dot.classList.remove('live');
+    dot.title = reason || 'Polling failed — data stale, retrying…';
+  }
+  if (txt) {
+    txt.classList.remove('oc-ws-live');
+    txt.classList.add('oc-ws-reconnecting');
+    txt.textContent = '● Stale (poll failed)';
+  }
+}
+
+// Direct poll fallback — fyers_optionchain.json seedha read karta hai
 async function _pollOptionChain() {
   const paths = ['./fyers_optionchain.json', '/fyers_optionchain.json', 'fyers_optionchain.json'];
   for (const p of paths) {
@@ -20267,10 +20310,18 @@ async function _pollOptionChain() {
       const r = await fetch(p, { cache: 'no-store' });
       if (r.ok) {
         const d = await r.json();
+        _ocFyersFailStreak = 0;
+        _ocClearFyersStale();
         _applyOptionChain(d);
         return;
       }
     } catch(_) {}
+  }
+  // Sab paths fail ho gaye — silently freeze mat ho, streak badhao aur
+  // threshold cross hone par explicitly stale dikhao.
+  _ocFyersFailStreak++;
+  if (_ocFyersFailStreak >= _OC_POLL_FAIL_THRESHOLD) {
+    _ocMarkFyersStale('backend/network unreachable');
   }
 }
 // Direct poll fallback — binance_optionchain.json seedha read karta hai
@@ -20281,10 +20332,17 @@ async function _pollBinanceOptionChain() {
       const r = await fetch(p, { cache: 'no-store' });
       if (r.ok) {
         const d = await r.json();
+        _ocBinanceFailStreak = 0;
         _applyBinanceOptionChain(d);
         return;
       }
     } catch(_) {}
+  }
+  // Sab paths fail ho gaye — dot ko purani "Live" state par freeze mat hone
+  // do, explicitly stale/disconnected maaro.
+  _ocBinanceFailStreak++;
+  if (_ocBinanceFailStreak >= _OC_POLL_FAIL_THRESHOLD) {
+    _ocMarkBinanceDotStale('polling failed — backend/network unreachable');
   }
 }
 function _startOCPolling() {
@@ -20458,22 +20516,52 @@ function _ocPopulateBtcExpiries(data) {
   }
   if (sel.value !== String(SV1OC.btcExpiryEpoch)) sel.value = SV1OC.btcExpiryEpoch;
   var dot = document.getElementById('oc-btc-ws-dot');
+  var txt = document.getElementById('oc-btc-ws-text');
   if (dot) {
-    // Mark-price WS aur Spot WS — dono connected hone par hi "Live" dikhao.
-    // Pehle sirf mark_connected check hota tha, isliye spot feed silently
-    // mar jaaye to bhi dot green rehta tha — ab dono zaroori hain.
-    var markLive = !!(data.ws && data.ws.mark_connected);
-    var spotLive = !!(data.ws && data.ws.spot_connected);
-    var live = markLive && spotLive;
+    // "Live" ab sirf TCP-connected hona nahi maanta — backend ne khud
+    // staleness check kiya hai (agar 15/30 sec tak koi tick na aaye to
+    // mark_live/spot bhi false ho jaate hain, chahe socket khula ho).
+    // mark_live backend se pehle se stale-aware aata hai; spot ke liye
+    // hum "asli push-live" ko spot_connected + spot_source==='ws' se
+    // check karte hain (REST gap-fill ko push-live nahi maante).
+    var markLive   = !!(data.ws && data.ws.mark_live);
+    var spotSource = data.ws && data.ws.spot_source;   // "ws" | "rest" | null
+    var spotPushLive = !!(data.ws && data.ws.spot_connected) && spotSource === 'ws';
+    var live = markLive && spotPushLive;
     dot.classList.toggle('live', live);
+
+    var markAge = data.ws && data.ws.mark_age_sec;
+    var spotAge = data.ws && data.ws.spot_age_sec;
+
     if (live) {
       dot.title = 'Live WebSocket connected';
-    } else if (!markLive && !spotLive) {
-      dot.title = 'WebSocket connecting… (mark + spot dono disconnected)';
-    } else if (!spotLive) {
-      dot.title = 'Spot price WebSocket disconnected';
+    } else if (!markLive && !spotPushLive) {
+      dot.title = 'WebSocket connecting… (mark + spot dono disconnected/stale)';
+    } else if (!spotPushLive) {
+      dot.title = 'Spot price WebSocket disconnected — reconnecting…';
     } else {
-      dot.title = 'Mark price WebSocket disconnected';
+      dot.title = 'Mark price WebSocket disconnected/stale — reconnecting…';
+    }
+
+    if (txt) {
+      txt.classList.remove('oc-ws-live', 'oc-ws-reconnecting');
+      if (live) {
+        txt.textContent = '● Live';
+        txt.classList.add('oc-ws-live');
+      } else {
+        // Exact delay dikhao (TradingView jaisa "Xs delayed") — jo bhi
+        // stream sabse zyada stale hai, uska age dikhao taaki user ko
+        // andaza ho data kitna purana hai.
+        var worstAge = null;
+        if (!markLive && typeof markAge === 'number') worstAge = markAge;
+        if (!spotPushLive && typeof spotAge === 'number') {
+          if (worstAge === null || spotAge > worstAge) worstAge = spotAge;
+        }
+        var ageTxt = (typeof worstAge === 'number') ? (Math.round(worstAge) + 's delayed') : 'connecting…';
+        var srcNote = (spotSource === 'rest' && !spotPushLive) ? ' (spot via REST)' : '';
+        txt.textContent = '○ Reconnecting… ' + ageTxt + srcNote;
+        txt.classList.add('oc-ws-reconnecting');
+      }
     }
   }
 }
