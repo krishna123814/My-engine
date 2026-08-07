@@ -892,6 +892,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   letter-spacing:.3px;
 }
 #sv1-debug-popup-copy:active{ background:#26a69a; color:#fff; }
+/* ── Debug Start/Stop/Autostart controls ── */
+#sv1-debug-ctrl-row{display:flex;gap:4px;margin-bottom:7px}
+.sv1-debug-ctrl-btn{
+  flex:1;background:#232733;border:1px solid #363c4e;border-radius:4px;
+  color:#9598a1;font-size:9px;font-weight:700;padding:6px 2px;cursor:pointer;
+  letter-spacing:.2px;white-space:nowrap;
+}
+.sv1-debug-ctrl-btn:active{ transform:scale(.96); }
+#sv1-debug-start-btn.sv1-debug-ctrl-active{ background:#26a69a33; border-color:#26a69a; color:#26a69a; }
+#sv1-debug-stop-btn.sv1-debug-ctrl-active{ background:#ef535033; border-color:#ef5350; color:#ef5350; }
+#sv1-debug-autostart-btn.sv1-debug-ctrl-active{ background:#2962ff33; border-color:#2962ff; color:#2962ff; }
 #hdr-ohlc{
   display:none;font-size:9px;color:#787b86;flex:2;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
@@ -3639,6 +3650,17 @@ select.s-select, input.s-select{
   letter-spacing:.3px;
 }
 #oc-debug-popup-copy:active{ background:#26a69a; color:#fff; }
+/* ── Debug Start/Stop/Autostart controls ── */
+#oc-debug-ctrl-row{display:flex;gap:4px;margin-bottom:7px}
+.oc-debug-ctrl-btn{
+  flex:1;background:#232733;border:1px solid #363c4e;border-radius:4px;
+  color:#9598a1;font-size:9px;font-weight:700;padding:6px 2px;cursor:pointer;
+  letter-spacing:.2px;white-space:nowrap;
+}
+.oc-debug-ctrl-btn:active{ transform:scale(.96); }
+#oc-debug-start-btn.oc-debug-ctrl-active{ background:#26a69a33; border-color:#26a69a; color:#26a69a; }
+#oc-debug-stop-btn.oc-debug-ctrl-active{ background:#ef535033; border-color:#ef5350; color:#ef5350; }
+#oc-debug-autostart-btn.oc-debug-ctrl-active{ background:#2962ff33; border-color:#2962ff; color:#2962ff; }
 #oc-toggle-rows{padding:8px 12px 0}
 .oc-toggle-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#787b86;padding:0 2px 8px}
 .oc-toggle-btn{width:38px;height:22px;border-radius:11px;border:none;cursor:pointer;background:#2a2e39;position:relative}
@@ -4297,6 +4319,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
   <!-- ── Debug Log Popup ── -->
   <div id="sv1-debug-popup">
     <div id="sv1-debug-popup-title">📡 BTC Live Feed Log</div>
+    <div id="sv1-debug-ctrl-row">
+      <button id="sv1-debug-start-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugEnable()" title="Debug chalu karo">▶ Start</button>
+      <button id="sv1-debug-stop-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugDisable()" title="Debug band karo">■ Stop</button>
+      <button id="sv1-debug-autostart-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugToggleAutostart()" title="App khulte hi debug apne aap chalu ho jaaye">⏻ Autostart: OFF</button>
+    </div>
     <div id="sv1-debug-popup-log"></div>
     <button id="sv1-debug-popup-copy" onclick="_sv1DebugPopupCopy()">📋 Copy Log</button>
   </div>
@@ -4659,6 +4686,11 @@ function _hdrRelayout(){
   <!-- ── BTC Option Chain — LTP WebSocket Debug Popup ── -->
   <div id="oc-debug-popup">
     <div id="oc-debug-popup-title">📡 BTC Option LTP Feed Log</div>
+    <div id="oc-debug-ctrl-row">
+      <button id="oc-debug-start-btn" class="oc-debug-ctrl-btn" onclick="_ocDebugEnable()" title="Debug chalu karo">▶ Start</button>
+      <button id="oc-debug-stop-btn" class="oc-debug-ctrl-btn" onclick="_ocDebugDisable()" title="Debug band karo">■ Stop</button>
+      <button id="oc-debug-autostart-btn" class="oc-debug-ctrl-btn" onclick="_ocDebugToggleAutostart()" title="Option chain khulte hi debug apne aap chalu ho jaaye">⏻ Autostart: OFF</button>
+    </div>
     <div id="oc-debug-popup-log"></div>
     <button id="oc-debug-popup-copy" onclick="_ocDebugPopupCopy()">📋 Copy Log</button>
   </div>
@@ -19454,6 +19486,11 @@ function _sv1DebugRefresh() {
     S.layout === 'stack' && S.asset === BTC_ASSET;
   tracker.style.display = isStack1 ? 'flex' : 'none';
   if (!isStack1) return;
+  // ── Start/Stop control: jab tak user Start na dabaye (ya Autostart on na
+  // ho), yahan se aage ka bhaari kaam (saare cells scan karna, popup log
+  // banana) skip ho jaata hai — icon dikhta rehta hai, bas dots update nahi
+  // hote. Isse debug sirf jarurat ke samay hi actively chalta hai. ──
+  if (!_sv1DebugEnabled) return;
 
   const now = Date.now();
   const tickOk = _sv1DebugTickAt > 0 && (now - _sv1DebugTickAt) <= _SV1_DEBUG_STALE_MS;
@@ -19599,13 +19636,72 @@ function _sv1DebugRefresh() {
   }
 }
 
+// ── Debug Start/Stop/Autostart state ───────────────────────────────────────
+// _sv1DebugEnabled=false by default → tracker icon dikhta hai (jab BTC Stack
+// View 1 par ho) lekin bhaari per-cell scan/log work band rehta hai, jab tak
+// user popup mein "Start" na dabaye. "Autostart" on ho to page load hote hi
+// apne aap Start ho jaata hai (localStorage mein yaad rehta hai).
+let _sv1DebugEnabled = false;
+let _sv1DebugAutostart = false;
+const _SV1_DEBUG_AUTOSTART_KEY = 'sv1DebugAutostart';
+
 function _sv1DebugStart() {
+  // Timer hamesha chalu rehta hai — sirf tracker ki visibility (BTC Stack
+  // View 1 par hai ya nahi) update karta rehta hai, jo sasta kaam hai.
+  // Bhaari computation ke liye _sv1DebugEnabled dekha jaata hai (upar
+  // _sv1DebugRefresh ke andar).
   _sv1DebugRefresh();
   if (!_sv1DebugTimer) {
     _sv1DebugTimer = setInterval(_sv1DebugRefresh, 1000);
   }
 }
 let _sv1DebugTimer = null;
+
+function _sv1DebugInit() {
+  try { _sv1DebugAutostart = _LS.getItem(_SV1_DEBUG_AUTOSTART_KEY) === '1'; } catch(_) {}
+  _sv1DebugStart();
+  if (_sv1DebugAutostart) _sv1DebugEnable();
+  else _sv1DebugUpdateButtons();
+}
+
+function _sv1DebugEnable() {
+  _sv1DebugEnabled = true;
+  _sv1DebugRefresh();
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+    _sv1DebugPopupRefreshLog();
+  }
+  _sv1DebugUpdateButtons();
+}
+
+function _sv1DebugDisable() {
+  _sv1DebugEnabled = false;
+  const tickDot = document.getElementById('sv1-debug-tick-dot');
+  const candleDot = document.getElementById('sv1-debug-candle-dot');
+  if (tickDot) tickDot.classList.remove('ok');
+  if (candleDot) candleDot.classList.remove('ok');
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+    _sv1DebugPopupRefreshLog();
+  }
+  _sv1DebugUpdateButtons();
+}
+
+function _sv1DebugToggleAutostart() {
+  _sv1DebugAutostart = !_sv1DebugAutostart;
+  try { _LS.setItem(_SV1_DEBUG_AUTOSTART_KEY, _sv1DebugAutostart ? '1' : '0'); } catch(_) {}
+  _sv1DebugUpdateButtons();
+}
+
+function _sv1DebugUpdateButtons() {
+  const startBtn = document.getElementById('sv1-debug-start-btn');
+  const stopBtn  = document.getElementById('sv1-debug-stop-btn');
+  const autoBtn  = document.getElementById('sv1-debug-autostart-btn');
+  if (startBtn) startBtn.classList.toggle('sv1-debug-ctrl-active', _sv1DebugEnabled);
+  if (stopBtn)  stopBtn.classList.toggle('sv1-debug-ctrl-active', !_sv1DebugEnabled);
+  if (autoBtn) {
+    autoBtn.classList.toggle('sv1-debug-ctrl-active', _sv1DebugAutostart);
+    autoBtn.textContent = _sv1DebugAutostart ? '⏻ Autostart: ON' : '⏻ Autostart: OFF';
+  }
+}
 
 // ── Debug Popup: toggle open/close ────────────────────────────────────────
 function _sv1DebugPopupToggle() {
@@ -19615,6 +19711,7 @@ function _sv1DebugPopupToggle() {
   if (isOpen) {
     popup.classList.remove('open');
   } else {
+    _sv1DebugUpdateButtons();
     _sv1DebugPopupRefreshLog();
     popup.classList.add('open');
   }
@@ -19624,6 +19721,10 @@ function _sv1DebugPopupToggle() {
 function _sv1DebugPopupRefreshLog() {
   const logEl = document.getElementById('sv1-debug-popup-log');
   if (!logEl) return;
+  if (!_sv1DebugEnabled) {
+    logEl.innerHTML = '<span>⏸ Debug is stopped. Tap ▶ Start (or turn on Autostart) to begin monitoring.</span>';
+    return;
+  }
   const now = Date.now();
   const tickOk = _sv1DebugTickAt > 0 && (now - _sv1DebugTickAt) <= _SV1_DEBUG_STALE_MS;
   const candleFeedOk = _sv1DebugCandleAt > 0 &&
@@ -21046,29 +21147,53 @@ function _applyOptionChain(data) {
 // ── Live Binance BTC option-chain push/poll handler — sirf Chain-view render
 // karta hai (Positions/Balance/History/P&L virtual-trading tabs abhi BankNifty
 // (Fyers) tak hi seemit hain, isko touch nahi karta). ──────────────────────
-var _ocBinanceRowsFingerprint  = null;  // last seen CE/PE LTP snapshot (nearest expiry)
-var _ocBinanceRowsLastChangeTs = 0;     // jab last baar in numbers mein SACH mein farak aaya
+// Generic per-field freshness tracker — LTP ke alawa OI/Volume/Bid-Ask/Greeks
+// mein bhi wahi "silent freeze" bug ho sakta hai (data jaisa mila waisa
+// permanently atak jaaye, chahe naye ticks aate rahein) — isliye har group
+// ka apna fingerprint + last-change timestamp rakhte hain. ─────────────────
+var _ocBinanceFp = { ltp: null, oi: null, vol: null, bidask: null, greeks: null };
+var _ocBinanceFpChangedTs = { ltp: 0, oi: 0, vol: 0, bidask: 0, greeks: 0 };
 
-// Halka fingerprint — sirf LTP values, taaki compare fast ho aur greeks/oi ke
-// chhote-chhote noise se false-positive "changed" na mile.
-function _ocBinanceRowsFp(data) {
+function _ocBinanceFieldFp(data, pick) {
   try {
     const rows = (data && data.rows) || [];
-    return rows.map(r => (r.ce && r.ce.ltp) + '|' + (r.pe && r.pe.ltp)).join(',');
+    return rows.map(r => {
+      const ce = r.ce || {}, pe = r.pe || {};
+      return pick(ce) + '/' + pick(pe);
+    }).join(',');
   } catch(_) { return ''; }
 }
+
+function _ocBinanceUpdateFingerprints(data) {
+  const groups = {
+    ltp:    leg => leg.ltp,
+    oi:     leg => leg.oi,
+    vol:    leg => leg.volume,
+    bidask: leg => leg.bid + '-' + leg.ask,
+    greeks: leg => leg.iv + '-' + leg.delta + '-' + leg.gamma + '-' + leg.theta + '-' + leg.vega,
+  };
+  const now = Date.now();
+  for (const key in groups) {
+    const fp = _ocBinanceFieldFp(data, groups[key]);
+    if (_ocBinanceFp[key] === null || fp !== _ocBinanceFp[key]) {
+      _ocBinanceFpChangedTs[key] = now;
+      _ocBinanceFp[key] = fp;
+    }
+  }
+}
+
+// Backward-compat alias (purani debug-icon dot-refresh code isko reference
+// kar sakta hai) — LTP ka change-timestamp seedha fingerprint store se.
+Object.defineProperty(window, '_ocBinanceRowsLastChangeTs', { get: () => _ocBinanceFpChangedTs.ltp });
 
 function _applyBinanceOptionChain(data) {
   if (!data) return;
   _ocBinanceLastAppliedTs = Date.now();  // postMessage (1s) ya poll — dono se yahan aata hai
-  const _fp = _ocBinanceRowsFp(data);
-  if (_ocBinanceRowsFingerprint === null || _fp !== _ocBinanceRowsFingerprint) {
-    _ocBinanceRowsLastChangeTs = Date.now();
-    _ocBinanceRowsFingerprint = _fp;
-  }
+  _ocBinanceUpdateFingerprints(data);
   _ocBinanceChainData = data;
   if (_ocIsBinanceAsset()) _ocRenderChainFromCache();
 }
+
 
 // ── Renders the Chain tab from whatever is already in memory (current or
 // next month, per SV1OC.expiryMode) — no network call needed, so toggling
@@ -21172,13 +21297,73 @@ function _ocDebugAgeText(sec) {
   return (typeof sec === 'number' && isFinite(sec)) ? (Math.round(sec) + 's ago') : 'never';
 }
 
+// ── Debug Start/Stop/Autostart state ───────────────────────────────────────
+// _ocDebugEnabled=false by default → tracker icon dikhta hai (jab BTC option
+// chain khula ho) lekin ws-status scan/log build band rehta hai, jab tak
+// user popup mein "Start" na dabaye. "Autostart" on ho to option chain khulte
+// hi apne aap Start ho jaata hai (localStorage mein yaad rehta hai).
+let _ocDebugEnabled = false;
+let _ocDebugAutostart = false;
+const _OC_DEBUG_AUTOSTART_KEY = 'ocDebugAutostart';
+
+function _ocDebugInit() {
+  try { _ocDebugAutostart = _LS.getItem(_OC_DEBUG_AUTOSTART_KEY) === '1'; } catch(_) {}
+  if (_ocDebugAutostart) _ocDebugEnabled = true;
+  _ocDebugUpdateButtons();
+}
+
+function _ocDebugEnable() {
+  _ocDebugEnabled = true;
+  if (typeof _ocDebugRefresh === 'function') _ocDebugRefresh();
+  if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
+    _ocDebugPopupRefreshLog();
+  }
+  _ocDebugUpdateButtons();
+}
+
+function _ocDebugDisable() {
+  _ocDebugEnabled = false;
+  const markDot  = document.getElementById('oc-debug-mark-dot');
+  const tradeDot = document.getElementById('oc-debug-trade-dot');
+  if (markDot)  markDot.classList.remove('ok');
+  if (tradeDot) tradeDot.classList.remove('ok');
+  if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
+    _ocDebugPopupRefreshLog();
+  }
+  _ocDebugUpdateButtons();
+}
+
+function _ocDebugToggleAutostart() {
+  _ocDebugAutostart = !_ocDebugAutostart;
+  try { _LS.setItem(_OC_DEBUG_AUTOSTART_KEY, _ocDebugAutostart ? '1' : '0'); } catch(_) {}
+  _ocDebugUpdateButtons();
+}
+
+function _ocDebugUpdateButtons() {
+  const startBtn = document.getElementById('oc-debug-start-btn');
+  const stopBtn  = document.getElementById('oc-debug-stop-btn');
+  const autoBtn  = document.getElementById('oc-debug-autostart-btn');
+  if (startBtn) startBtn.classList.toggle('oc-debug-ctrl-active', _ocDebugEnabled);
+  if (stopBtn)  stopBtn.classList.toggle('oc-debug-ctrl-active', !_ocDebugEnabled);
+  if (autoBtn) {
+    autoBtn.classList.toggle('oc-debug-ctrl-active', _ocDebugAutostart);
+    autoBtn.textContent = _ocDebugAutostart ? '⏻ Autostart: ON' : '⏻ Autostart: OFF';
+  }
+}
+
 function _ocDebugRefresh() {
   const tracker = document.getElementById('oc-debug-tracker');
   if (!tracker) return;
-  const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
-  const ws = (data && data.ws) || {};
   const markDot  = document.getElementById('oc-debug-mark-dot');
   const tradeDot = document.getElementById('oc-debug-trade-dot');
+  if (!_ocDebugEnabled) {
+    // Stopped: dots idle rakho, koi scan/compute mat karo.
+    if (markDot)  markDot.classList.remove('ok');
+    if (tradeDot) tradeDot.classList.remove('ok');
+    return;
+  }
+  const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
+  const ws = (data && data.ws) || {};
   if (markDot)  markDot.classList.toggle('ok', !!ws.mark_live);
   if (tradeDot) tradeDot.classList.toggle('ok', !!ws.trade_live);
   if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
@@ -21194,6 +21379,7 @@ function _ocDebugPopupToggle() {
   if (isOpen) {
     popup.classList.remove('open');
   } else {
+    _ocDebugUpdateButtons();
     _ocDebugPopupRefreshLog();
     popup.classList.add('open');
   }
@@ -21203,6 +21389,10 @@ function _ocDebugPopupToggle() {
 function _ocDebugPopupRefreshLog() {
   const logEl = document.getElementById('oc-debug-popup-log');
   if (!logEl) return;
+  if (!_ocDebugEnabled) {
+    logEl.innerHTML = '<span>⏸ Debug is stopped. Tap ▶ Start (or turn on Autostart) to begin monitoring.</span>';
+    return;
+  }
   const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
   if (!data || data.error) {
     logEl.innerHTML = '<span class="log-err">Koi option chain data abhi available nahi hai.</span>';
@@ -21236,6 +21426,21 @@ function _ocDebugPopupRefreshLog() {
   const payloadAge = data.ts ? _ocDebugAgeText(Date.now() / 1000 - data.ts) : 'never';
   const _ocBinanceDataFresh = (Date.now() - _ocBinanceLastAppliedTs) < _OC_DATA_STALE_MS;
 
+  // ── Per-field freshness — LTP jaisa hi "silent freeze" bug OI/Volume/
+  // Bid-Ask/Greeks mein bhi ho sakta hai. Threshold field-type ke hisaab se
+  // alag rakha hai: WS-driven fields (LTP/bid-ask) fast update hone chahiye,
+  // REST-driven fields (OI/Volume, ticker se, 5s TTL) thoda slow ho sakte
+  // hain normally bhi — isliye unka threshold zyada loose hai taaki normal
+  // "abhi genuinely nahi badla" ko galti se "frozen" na keh de. ───────────
+  function _fpLine(label, key, thresholdMs) {
+    const ts = _ocBinanceFpChangedTs[key];
+    const age = ts ? (Date.now() - ts) : null;
+    return {
+      ok: (age !== null && age < thresholdMs),
+      text: '  ' + label + (age !== null ? ('changed ' + _ocDebugAgeText(age / 1000)) : 'no data yet')
+    };
+  }
+
   const lines = [
     { ok: markLive,  text: '● Mark price WS : ' + (markLive ? 'LIVE' : (ws.mark_connected ? 'STALE' : 'DISCONNECTED')) },
     { ok: null,      text: '  Last mark tick : ' + _ocDebugAgeText(ws.mark_age_sec) },
@@ -21253,10 +21458,21 @@ function _ocDebugPopupRefreshLog() {
       text: '  Data channel   : ' + (_ocBinanceDataFresh
               ? ('postMessage OK, last update ' + _ocDebugAgeText((Date.now() - _ocBinanceLastAppliedTs) / 1000))
               : 'NOT receiving updates (postMessage bridge se bhi data nahi aa raha)') },
-    { ok: (Date.now() - _ocBinanceRowsLastChangeTs) < 10000,
-      text: '  LTP values      : ' + (_ocBinanceRowsLastChangeTs
-              ? ('last actually changed ' + _ocDebugAgeText((Date.now() - _ocBinanceRowsLastChangeTs) / 1000) + ' ago')
-              : 'no data yet') },
+    { ok: null,      text: '  ── Row data — actually changing ya frozen? ──' },
+    _fpLine('LTP     : ', 'ltp', 10000),
+    _fpLine('Bid/Ask : ', 'bidask', 15000),
+    _fpLine('Greeks  : ', 'greeks', 20000),
+    _fpLine('OI      : ', 'oi', 30000),
+    _fpLine('Volume  : ', 'vol', 30000),
+    { ok: null,      text: '' },
+    { ok: null,      text: '  ── Backend threads (crash hote hi yahan freeze dikhega) ──' },
+    { ok: (ws.payload_thread_age_sec != null && ws.payload_thread_age_sec < 5),
+      text: '  Payload loop    : ' + (ws.payload_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.payload_thread_age_sec) + ' ago') : 'never started') },
+    { ok: (ws.ticker_thread_age_sec != null && ws.ticker_thread_age_sec < 20),
+      text: '  Ticker loop     : ' + (ws.ticker_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.ticker_thread_age_sec) + ' ago') : 'never started') },
+    { ok: (ws.meta_thread_age_sec != null && ws.meta_thread_age_sec < 90),
+      text: '  Meta loop       : ' + (ws.meta_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.meta_thread_age_sec) + ' ago') : 'never started') },
+    { ok: null,      text: '' },
     { ok: null,
       text: '  Poll (backup)  : ' + (_ocBinancePollLastErr
               ? (_ocBinanceDataFresh ? 'failing (harmless — postMessage primary hai)' : ('FAILING — ' + _ocBinancePollLastErr))
@@ -21287,6 +21503,8 @@ function _ocDebugPopupCopy() {
     _sv1DebugFallbackCopy(text, copyBtn);
   }
 }
+
+document.addEventListener('DOMContentLoaded', _ocDebugInit);
 
 // ── Close popup on outside tap ────────────────────────────────────────────
 document.addEventListener('touchstart', function(e) {
@@ -23535,7 +23753,7 @@ function _startBNPolling() {
 // INIT
 // ════════════════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-  _sv1DebugStart();
+  _sv1DebugInit();
   // Load custom TFs first so rebuildTfBar has correct data
   loadTFPrefs();
 

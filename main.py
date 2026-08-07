@@ -606,6 +606,14 @@ _BN_CHAIN_META_LOCK = threading.Lock()
 
 _BN_TICKER_LAST = {"ts": 0.0}
 
+# ── Background-thread heartbeats — agar in mein se koi thread kisi
+# unhandled exception se silently mar jaaye (Python thread crash ho jaaye
+# to koi global alert nahi milta), to bhi frontend debug turant flag kar
+# sake ki fulaan loop ruk gaya hai. Har loop apni iteration ke saath yahan
+# apna timestamp likhta rehta hai — agar wo bahut purana ho jaaye, thread
+# dead maano. ────────────────────────────────────────────────────────────
+_BN_THREAD_HEARTBEAT = {"meta": 0.0, "ticker": 0.0, "payload": 0.0}
+
 _BN_WS_STATE = {
     "mark_connected":  False,
     "trade_connected": False,
@@ -729,6 +737,7 @@ def _binance_oc_meta_bg_loop():
             _bn_refresh_option_meta()
         except Exception as e:
             _BN_WS_STATE["last_error"] = f"meta loop: {e}"
+        _BN_THREAD_HEARTBEAT["meta"] = time.time()
         time.sleep(30)  # TTL check ke liye baar-baar wake, actual REST call sirf TTL cross hone par
 
 # ── Step 2: 24hr ticker snapshot — OI/Volume/Change% (WS pe available nahi) ─
@@ -765,6 +774,7 @@ def _binance_oc_ticker_bg_loop():
             _bn_refresh_ticker_snapshot()
         except Exception as e:
             _BN_WS_STATE["last_error"] = f"ticker loop: {e}"
+        _BN_THREAD_HEARTBEAT["ticker"] = time.time()
         time.sleep(BINANCE_OC_TICKER_TTL)
 
 # ── Reconnect backoff helper — exponential + jitter (TradingView jaisa) ──
@@ -1187,6 +1197,12 @@ def _bn_rebuild_payload_from_memory() -> dict:
         trade_age_sec=round(trade_age, 1) if trade_age is not None else None,
         spot_source=spot_source,
         spot_age_sec=round(spot_age, 1) if spot_age is not None else None,
+        # Background thread heartbeats — 0 ka matlab hai thread ne abhi tak
+        # ek baar bhi iteration complete nahi ki (startup), warna age jitni
+        # zyada, thread utni der se "chup" hai.
+        meta_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["meta"], 1) if _BN_THREAD_HEARTBEAT["meta"] else None,
+        ticker_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["ticker"], 1) if _BN_THREAD_HEARTBEAT["ticker"] else None,
+        payload_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["payload"], 1) if _BN_THREAD_HEARTBEAT["payload"] else None,
     )
 
     return {
@@ -1215,6 +1231,7 @@ def _binance_oc_bg_loop():
             payload = _bn_rebuild_payload_from_memory()
         except Exception as e:
             payload = {"error": f"binance bg loop exception: {e}"}
+        _BN_THREAD_HEARTBEAT["payload"] = time.time()
         with _BINANCE_OC_LAST_PAYLOAD_LOCK:
             _BINANCE_OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
         try:
