@@ -18774,11 +18774,22 @@ function switchAsset(name) {
     // lekin REST polling CPU waste karti hai — isliye band karo
     _btcStopRest();
     _startBNPolling();
+    // FIX: BTC ka WS background mein chalta rehta hai aur header dot ko
+    // "Live" bana sakta tha even jab BankNifty ka koi real data na ho
+    // (jaisa Fyers login hi na kiya ho). Ab asset switch hote hi dot ko
+    // turant neutral kar do — jab tak asli BankNifty tick (WS ya REST
+    // fallback) na aaye, purana BTC-driven "Live" state leak nahi hogi.
+    const _wsSt = document.getElementById('ws-status');
+    if (_wsSt) _wsSt.innerHTML = '<span id="ws-dot"></span>Connecting…';
   } else {
     // BTC mode: BN polling band karo, BTC start karo
     _stopBNPolling();
     if (!_btcWsOk && !_btcPollTimer) _connectBTCWS();
     else _btcStartRest();
+    // BTC mode mein switch karte hi turant BTC ka apna current status sync
+    // kar do (pehle jab tak agla WS/REST event na aaye, purana BN-driven
+    // state dikhti reh sakti thi).
+    _btcSetStatus(_btcWsOk);
   }
   // ── Real Option Chain panel (Stack View 1) — agar khula hai to turant
   // sahi asset ka data dikhao (title + spot + rows), 1s push/6s poll ka
@@ -18980,7 +18991,19 @@ let _btcLastTickMs   = 0;
 let _btcWsRetryDelay = 1000;
 let _btcWsUrlIdx     = 0;
 
+// FIX: pehle yeh function `#ws-status`/`#ws-dot` ko unconditionally chhed
+// deta tha — chahe user BankNifty dekh raha ho. BTC ka WebSocket background
+// mein hamesha chalta rehta hai (BN mode mein bhi, sirf REST poll band hoti
+// hai — comment "WS band mat karo, reconnect costly" dekho), isliye BTC WS
+// connect/reconnect hote hi yeh shared header dot ko "Live" bana deta tha
+// — result: BankNifty screen par, Fyers login kiye bina bhi, green "Live"
+// dikhta tha (asal mein wo BTC ka status tha, BankNifty ka nahi).
+// Ab yeh sirf tabhi DOM chhedta hai jab BTC hi currently active asset ho.
 function _btcSetStatus(live) {
+  if (typeof S === 'undefined' || S.asset !== BTC_ASSET) {
+    setLiveStatus(live);   // global flag update rahe, par header DOM na chhedo
+    return;
+  }
   const dot = document.getElementById('ws-dot');
   const st  = document.getElementById('ws-status');
   if (live) {
