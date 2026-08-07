@@ -799,31 +799,35 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #hdr-ltp{font-size:11px;font-weight:700;color:#d1d4dc;white-space:nowrap}
 #hdr-chg{font-size:9px;font-weight:600;white-space:nowrap}
 .up{color:#26a69a} .dn{color:#ef5350}
+/* ── SV1 Debug Tracker — icon-only, no expand ── */
 #sv1-debug-tracker{
   display:none;
-  flex-direction:column;
+  align-items:center;
   justify-content:center;
-  gap:0;
   flex-shrink:0;
-  min-width:0;
-  max-width:220px;
-  padding:0 3px;
+  width:22px;
+  height:22px;
+  cursor:pointer;
+  position:relative;
   border-left:1px solid #363c4e;
   border-right:1px solid #363c4e;
-  line-height:9px;
+  padding:0 3px;
+  box-sizing:border-box;
 }
-.sv1-debug-row{
+/* Combined status icon: 2 stacked dots */
+#sv1-debug-icon{
   display:flex;
+  flex-direction:column;
   align-items:center;
-  gap:3px;
-  min-width:0;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  font-size:7px;
-  color:#ef5350;
+  justify-content:center;
+  gap:2px;
+  width:16px;
+  height:16px;
+  border-radius:3px;
+  background:rgba(30,34,45,0.7);
 }
-.sv1-debug-row.ok{color:#26a69a}
+/* hide text rows completely */
+.sv1-debug-row{ display:none !important; }
 .sv1-debug-dot{
   display:inline-block;
   width:5px;
@@ -832,12 +836,60 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-radius:50%;
   border:1px solid #555;
   background:transparent;
+  transition:background .3s,box-shadow .3s,border-color .3s;
 }
 .sv1-debug-dot.ok{
   border-color:#26a69a;
   background:#26a69a;
   box-shadow:0 0 4px #26a69a;
 }
+/* ── Debug Log Popup ── */
+#sv1-debug-popup{
+  display:none;
+  position:fixed;
+  top:30px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:9999;
+  background:#1a1d27;
+  border:1px solid #363c4e;
+  border-radius:6px;
+  padding:8px 10px;
+  min-width:260px;
+  max-width:320px;
+  box-shadow:0 4px 20px rgba(0,0,0,.7);
+}
+#sv1-debug-popup.open{ display:block; }
+#sv1-debug-popup-title{
+  font-size:9px;
+  font-weight:700;
+  color:#9598a1;
+  margin-bottom:6px;
+  letter-spacing:.4px;
+  text-transform:uppercase;
+}
+#sv1-debug-popup-log{
+  font-size:9px;
+  color:#c0c0c0;
+  line-height:16px;
+  white-space:pre-wrap;
+  word-break:break-all;
+}
+#sv1-debug-popup-log .log-ok  { color:#26a69a; }
+#sv1-debug-popup-log .log-err { color:#ef5350; }
+#sv1-debug-popup-copy{
+  margin-top:8px;
+  width:100%;
+  height:26px;
+  background:#363c4e;
+  border:none;
+  border-radius:4px;
+  color:#e0e0e0;
+  font-size:10px;
+  cursor:pointer;
+  letter-spacing:.3px;
+}
+#sv1-debug-popup-copy:active{ background:#26a69a; color:#fff; }
 #hdr-ohlc{
   display:none;font-size:9px;color:#787b86;flex:2;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
@@ -4137,15 +4189,25 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </button>
   </div>
 
-  <div id="sv1-debug-tracker" aria-live="polite" title="Stack View 1 BTC live-feed tracker">
-    <div class="sv1-debug-row" id="sv1-debug-tick-row">
+  <div id="sv1-debug-tracker" title="BTC Live Debug — tap to view log" onclick="_sv1DebugPopupToggle()">
+    <div id="sv1-debug-icon">
       <span class="sv1-debug-dot" id="sv1-debug-tick-dot"></span>
+      <span class="sv1-debug-dot" id="sv1-debug-candle-dot"></span>
+    </div>
+    <!-- text rows kept hidden for JS compat -->
+    <div class="sv1-debug-row" id="sv1-debug-tick-row" style="display:none!important">
       <span id="sv1-debug-tick-text">BTC live data - Problem: waiting for feed</span>
     </div>
-    <div class="sv1-debug-row" id="sv1-debug-candle-row">
-      <span class="sv1-debug-dot" id="sv1-debug-candle-dot"></span>
+    <div class="sv1-debug-row" id="sv1-debug-candle-row" style="display:none!important">
       <span id="sv1-debug-candle-text">BTC live candle forming - Problem: waiting for feed</span>
     </div>
+  </div>
+
+  <!-- ── Debug Log Popup ── -->
+  <div id="sv1-debug-popup">
+    <div id="sv1-debug-popup-title">📡 BTC Live Feed Log</div>
+    <div id="sv1-debug-popup-log"></div>
+    <button id="sv1-debug-popup-copy" onclick="_sv1DebugPopupCopy()">📋 Copy Log</button>
   </div>
 
   <div id="hdr-price">
@@ -19131,6 +19193,99 @@ function _sv1DebugStart() {
   }
 }
 let _sv1DebugTimer = null;
+
+// ── Debug Popup: toggle open/close ────────────────────────────────────────
+function _sv1DebugPopupToggle() {
+  const popup = document.getElementById('sv1-debug-popup');
+  if (!popup) return;
+  const isOpen = popup.classList.contains('open');
+  if (isOpen) {
+    popup.classList.remove('open');
+  } else {
+    _sv1DebugPopupRefreshLog();
+    popup.classList.add('open');
+  }
+}
+
+// ── Debug Popup: build log text from current state ────────────────────────
+function _sv1DebugPopupRefreshLog() {
+  const logEl = document.getElementById('sv1-debug-popup-log');
+  if (!logEl) return;
+  const now = Date.now();
+  const tickOk = _sv1DebugTickAt > 0 && (now - _sv1DebugTickAt) <= _SV1_DEBUG_STALE_MS;
+  const candleFeedOk = _sv1DebugCandleAt > 0 &&
+    _sv1DebugCandleBucket !== null &&
+    (now - _sv1DebugCandleAt) <= _SV1_DEBUG_STALE_MS;
+
+  const tickAge = _sv1DebugTickAt ? Math.round((now - _sv1DebugTickAt) / 1000) + 's ago' : 'never';
+  const candleAge = _sv1DebugCandleAt ? Math.round((now - _sv1DebugCandleAt) / 1000) + 's ago' : 'never';
+  const tickStatus = document.getElementById('sv1-debug-tick-text') ?
+    document.getElementById('sv1-debug-tick-text').textContent : '-';
+  const candleStatus = document.getElementById('sv1-debug-candle-text') ?
+    document.getElementById('sv1-debug-candle-text').textContent : '-';
+
+  const lines = [
+    { ok: tickOk,      text: '● Tick Feed   : ' + tickStatus },
+    { ok: null,        text: '  Last tick   : ' + tickAge },
+    { ok: null,        text: '  Tick price  : ' + (_sv1DebugTickPrice != null ? _sv1DebugTickPrice : '-') },
+    { ok: candleFeedOk,text: '● Candle Feed : ' + candleStatus },
+    { ok: null,        text: '  Last candle : ' + candleAge },
+    { ok: null,        text: '  Bucket      : ' + (_sv1DebugCandleBucket != null ? _sv1DebugCandleBucket : '-') },
+    { ok: null,        text: '  BTC WS      : ' + (typeof _btcWsOk !== 'undefined' ? (_btcWsOk ? 'OK' : 'DOWN') : '-') },
+    { ok: null,        text: '  Trade WS    : ' + (typeof _btcTradeWsOk !== 'undefined' ? (_btcTradeWsOk ? 'OK' : 'DOWN') : '-') },
+    { ok: null,        text: '  Stale limit : ' + (_SV1_DEBUG_STALE_MS / 1000) + 's' },
+    { ok: null,        text: '  Log time    : ' + new Date().toLocaleTimeString() },
+  ];
+
+  logEl.innerHTML = lines.map(l => {
+    if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+    if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+    return '<span>' + l.text + '</span>';
+  }).join('\n');
+}
+
+// ── Debug Popup: copy log to clipboard ────────────────────────────────────
+function _sv1DebugPopupCopy() {
+  const logEl = document.getElementById('sv1-debug-popup-log');
+  const copyBtn = document.getElementById('sv1-debug-popup-copy');
+  if (!logEl) return;
+  const text = logEl.innerText || logEl.textContent;
+  try {
+    navigator.clipboard.writeText(text).then(() => {
+      if (copyBtn) { copyBtn.textContent = '✅ Copied!'; setTimeout(() => { copyBtn.textContent = '📋 Copy Log'; }, 1800); }
+    }).catch(() => {
+      _sv1DebugFallbackCopy(text, copyBtn);
+    });
+  } catch(_) {
+    _sv1DebugFallbackCopy(text, copyBtn);
+  }
+}
+function _sv1DebugFallbackCopy(text, btn) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); if (btn) { btn.textContent = '✅ Copied!'; setTimeout(() => { btn.textContent = '📋 Copy Log'; }, 1800); } }
+  catch(_) { if (btn) { btn.textContent = '❌ Failed'; setTimeout(() => { btn.textContent = '📋 Copy Log'; }, 1800); } }
+  ta.remove();
+}
+
+// ── Close popup on outside tap ────────────────────────────────────────────
+document.addEventListener('touchstart', function(e) {
+  const popup = document.getElementById('sv1-debug-popup');
+  const tracker = document.getElementById('sv1-debug-tracker');
+  if (!popup || !popup.classList.contains('open')) return;
+  if (!popup.contains(e.target) && !tracker.contains(e.target)) {
+    popup.classList.remove('open');
+  }
+}, { passive: true });
+document.addEventListener('click', function(e) {
+  const popup = document.getElementById('sv1-debug-popup');
+  const tracker = document.getElementById('sv1-debug-tracker');
+  if (!popup || !popup.classList.contains('open')) return;
+  if (!popup.contains(e.target) && !tracker.contains(e.target)) {
+    popup.classList.remove('open');
+  }
+});
 
 // FIX: pehle yeh function `#ws-status`/`#ws-dot` ko unconditionally chhed
 // deta tha — chahe user BankNifty dekh raha ho. BTC ka WebSocket background
