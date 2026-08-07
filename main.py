@@ -77,6 +77,7 @@ _LIVE: dict = {
     "ltp":       None,
     "prev_close": None,
     "ts":        0,
+    "source":    None,   # "ws" (Fyers WebSocket push) | "rest" (1s REST-poll fallback)
 }
 _LIVE_LOCK = threading.Lock()
 
@@ -2380,6 +2381,7 @@ def _on_ws_message(msg):
                 _LIVE["ltp"]        = ltp
                 _LIVE["prev_close"] = float(tick.get("prev_close_price") or tick.get("prev_close") or _LIVE.get("prev_close") or ltp)
                 _LIVE["ts"]         = int(time.time())
+                _LIVE["source"]     = "ws"
             # Build running 1-minute candle from raw LTP ticks
             _update_candle_ltp(ltp)
             # Write bn_live.json so JS chart can poll it
@@ -2423,9 +2425,16 @@ def _get_live_payload():
             l = _CANDLE["low"]
         else:
             o = h = l = ltp
+    # FIX: pehle koi indication nahi tha ki ye ltp Fyers WebSocket push se
+    # aayi hai ya 1s REST-poll fallback se — user ke liye "Live" claim
+    # verify karna namumkin tha. Ab source + age explicitly bhejte hain,
+    # jaisa Binance/BTC side pehle se karta hai (spot_source/spot_age_sec).
+    tick_age = (now - snap["ts"]) if snap["ts"] else None
     return {
-        "ts":  now,
-        "ltp": ltp,
+        "ts":     now,
+        "ltp":    ltp,
+        "source": snap.get("source"),      # "ws" | "rest" | None
+        "age_sec": round(tick_age, 1) if tick_age is not None else None,
         "candle": {
             "time":  minute_epoch,
             "open":  o,
@@ -2504,8 +2513,9 @@ def _rest_live_loop():
                             o, h, l, c = float(last[1]), float(last[2]), float(last[3]), float(last[4])
                             with _LIVE_LOCK:
                                 if time.time() - _LIVE["ts"] > 5:
-                                    _LIVE["ltp"] = c
-                                    _LIVE["ts"]  = int(time.time())
+                                    _LIVE["ltp"]    = c
+                                    _LIVE["ts"]     = int(time.time())
+                                    _LIVE["source"] = "rest"
                             _set_candle_from_bar(bar_epoch, o, h, l, c)
                             _write_live_json()
                 except Exception:

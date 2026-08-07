@@ -19843,10 +19843,28 @@ function _applyBNLiveTick(d) {
   }
 
   // ── Step 5: Live indicator ────────────────────────────────────────────────
+  // FIX: pehle yahan har tick par bina check kiye seedha "Live" (green dot)
+  // dikha diya jaata tha — chahe tick asli Fyers WebSocket push se aayi ho
+  // ya 1s REST-poll fallback se (jab WS disconnect/stale ho). User ke liye
+  // in dono cases mein koi visual farak nahi tha, isliye "Live" claim ko
+  // verify karna namumkin tha. Ab backend jo `source` bhejta hai ("ws" /
+  // "rest") usi ke hisaab se dot/label decide hota hai.
   if (S.asset === BN_ASSET || CELLS.some(c=>c.asset===BN_ASSET)) {
     const st = document.getElementById('ws-status');
-    if (st && S.asset === BN_ASSET)
-      st.innerHTML = '<span id="ws-dot" class="live"></span>Live';
+    if (st && S.asset === BN_ASSET) {
+      if (d.source === 'ws') {
+        st.innerHTML = '<span id="ws-dot" class="live"></span>Live';
+        st.title = 'Fyers WebSocket — live push';
+      } else if (d.source === 'rest') {
+        st.innerHTML = '<span id="ws-dot"></span>Delayed';
+        st.title = 'WebSocket disconnected — showing REST poll fallback (~1s delay)';
+      } else {
+        // source missing (purana backend / edge case) — purana default
+        // "Live" maan lena galat hoga, isliye neutral/unknown dikhao.
+        st.innerHTML = '<span id="ws-dot"></span>Connecting…';
+        st.title = 'Source unknown';
+      }
+    }
   }
   // ── Parent dot live update (throttled — only on new candle) ──────────────
   if (isNewCandle) _pdotOnLiveTick();
