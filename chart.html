@@ -19084,6 +19084,7 @@ function _applyBTCKline(k, opts) {
         c._vlTime = c._btcBkt.time; _vlDrawCell(_ci);
         _pdotDraw(_ci);
         c._lastLTP=c._btcBkt.close;
+        c._lastLTPAt=Date.now();
         c._candleOpen=c._btcBkt.open;
         const cell=document.querySelector('.grid-cell[data-idx="'+_ci+'"]');
         if (cell) {
@@ -19129,7 +19130,9 @@ let _sv1DebugTickPrice = null;
 let _sv1DebugRenderedPrice = null;
 let _sv1DebugPriceLag = null;
 let _sv1DebugPriceAligned = null;
+let _sv1DebugCellIssues = [];   // per-cell price-scale problems (stuck / mismatched)
 const _SV1_DEBUG_STALE_MS = 10000;
+const _SV1_DEBUG_LAG_TOL = 0.02; // thoda float-rounding tolerance ke liye (0.01 se thoda zyada)
 
 function _sv1DebugRefresh() {
   const tracker = document.getElementById('sv1-debug-tracker');
@@ -19145,19 +19148,38 @@ function _sv1DebugRefresh() {
     _sv1DebugCandleBucket !== null &&
     (now - _sv1DebugCandleAt) <= _SV1_DEBUG_STALE_MS;
 
-  // Feed activity alone is not enough: the native right-side candle price
-  // must agree with the latest trade price that the header shows. This
-  // catches a live overlay moving while the chart series remains stale.
+  // Feed activity alone is not enough: HAR ek stack cell (A/B/C/D/E) ka
+  // right-side price-scale label us cell ke apne series.update() call se
+  // aata hai — feed ok hone ka matlab ye nahi ki har cell update ho raha
+  // hai. Isliye ab sirf "pehla mila cell" nahi, BALKI SAARE BTC cells check
+  // karte hain — jo bhi cell stale ya price-mismatch nikle, use flag karo.
   let renderedPrice = null;
+  _sv1DebugCellIssues = [];
   if (isStack1 && typeof CELLS !== 'undefined') {
-    const renderedCell = CELLS.find(c =>
-      c && c.asset === BTC_ASSET && Number.isFinite(c._lastLTP)
-    );
-    if (renderedCell) renderedPrice = Number(renderedCell._lastLTP);
+    CELLS.forEach((c, i) => {
+      if (!c || c.asset !== BTC_ASSET || !Number.isFinite(c._lastLTP)) return;
+      if (renderedPrice === null) renderedPrice = Number(c._lastLTP); // summary line ke liye pehla valid
+      const cAgeMs = c._lastLTPAt ? (now - c._lastLTPAt) : null;
+      const cStale = cAgeMs === null || cAgeMs > _SV1_DEBUG_STALE_MS;
+      const cLag = Number.isFinite(_sv1DebugTickPrice)
+        ? Math.abs(_sv1DebugTickPrice - Number(c._lastLTP)) : null;
+      const cLagBad = cLag !== null && cLag > _SV1_DEBUG_LAG_TOL;
+      if (cStale || cLagBad) {
+        const label = '· ' + (_cellTfLabel ? _cellTfLabel(c.tf) : (c.tf + 'm')) + ' (cell ' + i + ')';
+        const ageTxt = cAgeMs !== null ? Math.round(cAgeMs / 1000) + 's ago' : 'never updated';
+        const lagTxt = cLag !== null ? cLag.toFixed(2) : '-';
+        _sv1DebugCellIssues.push(
+          label + ' — px ' + Number(c._lastLTP).toFixed(2) +
+          ', lag ' + lagTxt + ', updated ' + ageTxt +
+          (cStale ? ' [STUCK]' : '')
+        );
+      }
+    });
   }
   const priceAligned = Number.isFinite(_sv1DebugTickPrice) &&
     Number.isFinite(renderedPrice) &&
-    Math.abs(_sv1DebugTickPrice - renderedPrice) <= 0.01;
+    Math.abs(_sv1DebugTickPrice - renderedPrice) <= _SV1_DEBUG_LAG_TOL &&
+    _sv1DebugCellIssues.length === 0;
   const candleOk = candleFeedOk && priceAligned;
 
   // ── Debug popup ke liye exact lag amount aur rendered price save karo ──
@@ -19192,7 +19214,9 @@ function _sv1DebugRefresh() {
             : 'BTC live candle forming - Problem: waiting for candle feed'))
         : (!Number.isFinite(renderedPrice)
           ? 'BTC live candle forming - Problem: chart price not rendered'
-          : 'BTC live candle forming - Problem: candle price lagging'));
+          : (_sv1DebugCellIssues.length > 0
+            ? 'BTC live candle forming - Problem: price scale stuck on ' + _sv1DebugCellIssues.length + ' cell(s)'
+            : 'BTC live candle forming - Problem: candle price lagging')));
   }
 }
 
@@ -19245,6 +19269,8 @@ function _sv1DebugPopupRefreshLog() {
     { ok: _sv1DebugPriceAligned, text: '  Price lag   : ' + (_sv1DebugPriceLag != null ? _sv1DebugPriceLag.toFixed(2) : '-') },
     { ok: null,        text: '  BTC WS      : ' + (typeof _btcWsOk !== 'undefined' ? (_btcWsOk ? 'OK' : 'DOWN') : '-') },
     { ok: null,        text: '  Trade WS    : ' + (typeof _btcTradeWsOk !== 'undefined' ? (_btcTradeWsOk ? 'OK' : 'DOWN') : '-') },
+    { ok: (_sv1DebugCellIssues.length === 0), text: '● Price Scale : ' + (_sv1DebugCellIssues.length === 0 ? 'All cells OK' : (_sv1DebugCellIssues.length + ' cell(s) stuck/mismatched')) },
+    ..._sv1DebugCellIssues.map(t => ({ ok: false, text: '  ' + t })),
     { ok: null,        text: '  Stale limit : ' + (_SV1_DEBUG_STALE_MS / 1000) + 's' },
     { ok: null,        text: '  Log time    : ' + new Date().toLocaleTimeString() },
   ];
