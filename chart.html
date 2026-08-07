@@ -21014,6 +21014,7 @@ function _fmtNum(n) {
 
 function _applyOptionChain(data) {
   if (!data) return;
+  _ocFyersLastAppliedTs = Date.now();   // postMessage (1s) ya poll — dono se yahan aata hai
   const body = document.getElementById('oc-body');
   if (data.error) {
     if (body) body.innerHTML = `<div id="oc-loading" style="color:#ef5350;padding:16px;">⚠️ ${data.error}</div>`;
@@ -21047,6 +21048,7 @@ function _applyOptionChain(data) {
 // (Fyers) tak hi seemit hain, isko touch nahi karta). ──────────────────────
 function _applyBinanceOptionChain(data) {
   if (!data) return;
+  _ocBinanceLastAppliedTs = Date.now();  // postMessage (1s) ya poll — dono se yahan aata hai
   _ocBinanceChainData = data;
   if (_ocIsBinanceAsset()) _ocRenderChainFromCache();
 }
@@ -21215,6 +21217,7 @@ function _ocDebugPopupRefreshLog() {
   }
 
   const payloadAge = data.ts ? _ocDebugAgeText(Date.now() / 1000 - data.ts) : 'never';
+  const _ocBinanceDataFresh = (Date.now() - _ocBinanceLastAppliedTs) < _OC_DATA_STALE_MS;
 
   const lines = [
     { ok: markLive,  text: '● Mark price WS : ' + (markLive ? 'LIVE' : (ws.mark_connected ? 'STALE' : 'DISCONNECTED')) },
@@ -21229,9 +21232,13 @@ function _ocDebugPopupRefreshLog() {
     { ok: null,      text: '  Last error     : ' + (ws.last_error || 'none') },
     { ok: verdictOk, text: verdictText },
     { ok: null,      text: '' },
-    { ok: _ocBinancePollLastErr ? false : true,
-      text: '  Chain poll     : ' + (_ocBinancePollLastErr
-              ? ('FAILING — ' + _ocBinancePollLastErr)
+    { ok: _ocBinanceDataFresh ? true : false,
+      text: '  Data channel   : ' + (_ocBinanceDataFresh
+              ? ('postMessage OK, last update ' + _ocDebugAgeText((Date.now() - _ocBinanceLastAppliedTs) / 1000))
+              : 'NOT receiving updates (postMessage bridge se bhi data nahi aa raha)') },
+    { ok: null,
+      text: '  Poll (backup)  : ' + (_ocBinancePollLastErr
+              ? (_ocBinanceDataFresh ? 'failing (harmless — postMessage primary hai)' : ('FAILING — ' + _ocBinancePollLastErr))
               : ('OK, last success ' + (_ocBinancePollLastOk ? _ocDebugAgeText((Date.now() - _ocBinancePollLastOk) / 1000) : 'never'))) },
     { ok: null,      text: '  Log time       : ' + new Date().toLocaleTimeString() },
   ];
@@ -21291,7 +21298,23 @@ let _ocFyersFailStreak   = 0;
 let _ocBinanceFailStreak = 0;
 const _OC_POLL_FAIL_THRESHOLD = 2;   // ~2 poll cycles (≈12s @ 6s interval) tak fail ho to stale maano
 
+// ── Data-freshness tracking (source-agnostic) ─────────────────────────────
+// Render/Streamlit Cloud/HF Spaces par side-port poll (/api/*_optionchain)
+// browser se pahunchta hi nahi (sirf ek hi port internet ke liye expose
+// hota hai) — ye request hamesha "Failed to fetch" dega, chahe backend
+// bilkul theek chal raha ho. Data ka ASLI, reliable path Streamlit ka
+// postMessage bridge hai (_option_chain_pusher / _binance_option_chain_pusher
+// in main.py, har 1s), jo _applyOptionChain/_applyBinanceOptionChain ko call
+// karke in timestamps ko already update kar raha hota hai. Isliye poll fail
+// hone par turant "stale" mat maano — sirf tab maano jab data khud bhi
+// (postMessage se bhi) taaza na aaya ho. Poll sirf ek best-effort backup hai,
+// primary channel nahi. ────────────────────────────────────────────────────
+let _ocFyersLastAppliedTs   = 0;
+let _ocBinanceLastAppliedTs = 0;
+const _OC_DATA_STALE_MS = 5000;   // agar postMessage se bhi 5s tak kuch na aaya ho tabhi stale
+
 function _ocMarkFyersStale(reason) {
+  if (Date.now() - _ocFyersLastAppliedTs < _OC_DATA_STALE_MS) return;  // data khud taaza hai — poll fail ignore karo
   const body = document.getElementById('oc-body');
   if (body && !body.querySelector('#oc-stale-banner')) {
     const banner = document.createElement('div');
@@ -21306,6 +21329,7 @@ function _ocClearFyersStale() {
   if (banner) banner.remove();
 }
 function _ocMarkBinanceDotStale(reason) {
+  if (Date.now() - _ocBinanceLastAppliedTs < _OC_DATA_STALE_MS) return;  // postMessage se data taaza hai — poll fail ignore karo
   const dot = document.getElementById('oc-btc-ws-dot');
   const txt = document.getElementById('oc-btc-ws-text');
   if (dot) {
