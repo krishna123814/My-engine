@@ -12662,9 +12662,10 @@ function ss2ApplyAndClose() {
     }, {passive:false});
 
     _fab.addEventListener('touchend', function(e){
+      e.preventDefault();   // browser ko fake mouse-click bhejne se roko — warna toggle 2 baar chal jata hai
       var t = e.changedTouches[0];
       _onEnd(t ? t.clientX : 0, t ? t.clientY : 0);
-    }, {passive:true});
+    }, {passive:false});
 
     // Mouse fallback
     _fab.addEventListener('mousedown', function(e){
@@ -14597,7 +14598,10 @@ document.addEventListener('visibilitychange', function(){
       e.preventDefault();
       _onMove(e.touches[0].clientX, e.touches[0].clientY);
     }, {passive:false});
-    _fab.addEventListener('touchend', function(){ _onEnd(); }, {passive:true});
+    _fab.addEventListener('touchend', function(e){
+      e.preventDefault();   // browser ko fake mouse-click bhejne se roko — warna toggle 2 baar chal jata hai (hide + turant wapas show)
+      _onEnd();
+    }, {passive:false});
 
     _fab.addEventListener('mousedown', function(e){
       _onStart(e.clientX, e.clientY);
