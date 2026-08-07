@@ -799,6 +799,45 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #hdr-ltp{font-size:11px;font-weight:700;color:#d1d4dc;white-space:nowrap}
 #hdr-chg{font-size:9px;font-weight:600;white-space:nowrap}
 .up{color:#26a69a} .dn{color:#ef5350}
+#sv1-debug-tracker{
+  display:none;
+  flex-direction:column;
+  justify-content:center;
+  gap:0;
+  flex-shrink:0;
+  min-width:0;
+  max-width:220px;
+  padding:0 3px;
+  border-left:1px solid #363c4e;
+  border-right:1px solid #363c4e;
+  line-height:9px;
+}
+.sv1-debug-row{
+  display:flex;
+  align-items:center;
+  gap:3px;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  font-size:7px;
+  color:#ef5350;
+}
+.sv1-debug-row.ok{color:#26a69a}
+.sv1-debug-dot{
+  display:inline-block;
+  width:5px;
+  height:5px;
+  flex:0 0 5px;
+  border-radius:50%;
+  border:1px solid #555;
+  background:transparent;
+}
+.sv1-debug-dot.ok{
+  border-color:#26a69a;
+  background:#26a69a;
+  box-shadow:0 0 4px #26a69a;
+}
 #hdr-ohlc{
   display:none;font-size:9px;color:#787b86;flex:2;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
@@ -4096,6 +4135,17 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="sym-btn" onclick="_openAssetPicker(this)">
       <span id="sym-label">📊 BANKNIFTY</span>
     </button>
+  </div>
+
+  <div id="sv1-debug-tracker" aria-live="polite" title="Stack View 1 BTC live-feed tracker">
+    <div class="sv1-debug-row" id="sv1-debug-tick-row">
+      <span class="sv1-debug-dot" id="sv1-debug-tick-dot"></span>
+      <span id="sv1-debug-tick-text">BTC live data - Problem: waiting for feed</span>
+    </div>
+    <div class="sv1-debug-row" id="sv1-debug-candle-row">
+      <span class="sv1-debug-dot" id="sv1-debug-candle-dot"></span>
+      <span id="sv1-debug-candle-text">BTC live candle forming - Problem: waiting for feed</span>
+    </div>
   </div>
 
   <div id="hdr-price">
@@ -11678,6 +11728,7 @@ function selectStack2View() {
   _saveStack2OnOff(true);
   _renderStack2Switch();
   S.layout = 'stack2';
+  _sv1DebugRefresh();
   try { _LS.setItem('tvLayout', 'stack2'); } catch(_) {}
 
   const wsEl = document.getElementById('workspace');
@@ -14684,6 +14735,7 @@ function selectStackView() {
   _saveStackOnOff(true);
   _renderStackSwitch();
   S.layout = 'stack';
+  _sv1DebugRefresh();
   try { _LS.setItem('tvLayout', 'stack'); } catch(_) {}
 
   const wsEl = document.getElementById('workspace');
@@ -17131,6 +17183,7 @@ function setLayout(key, btn) {
   // Also deactivate Stack View 2 if active
   if (_stack2Active) _deactivateStack2();
   S.layout = key;
+  _sv1DebugRefresh();
   try{_LS.setItem('tvLayout',key);}catch(_){}
   const ws=document.getElementById('workspace');
   const gv=document.getElementById('grid-view');
@@ -18728,6 +18781,7 @@ function switchAsset(name) {
   try { if (typeof _ocSyncAssetContext === 'function') _ocSyncAssetContext(); } catch(_) {}
   _swingPresetOnAssetChange(name);  // auto-apply preset if locked
   const lb = document.getElementById('sym-label'); if (lb) lb.textContent = name;
+  _sv1DebugRefresh();
   // Update LTP area label for non-BTC assets
   const ltpEl = document.getElementById('hdr-ltp'); if (ltpEl && name !== BTC_ASSET) ltpEl.textContent = '--';
   const chgEl = document.getElementById('hdr-chg'); if (chgEl && name !== BTC_ASSET) chgEl.textContent = '--';
@@ -18806,7 +18860,8 @@ function switchAsset(name) {
   } catch(_) {}
 }
 
-function _applyBTCKline(k) {
+function _applyBTCKline(k, opts) {
+  const _fromTrade = !!(opts && opts.fromTrade);
   const close=parseFloat(k.c), high=parseFloat(k.h),
         low  =parseFloat(k.l), open=parseFloat(k.o);
   const kOpenSec=Math.floor(parseInt(k.t)/1000);
@@ -18875,6 +18930,15 @@ function _applyBTCKline(k) {
 
   const bar={time:bucket, open:_btcBucket.open, high:_btcBucket.high,
              low:_btcBucket.low, close:_btcBucket.close, value:_btcBucket.close};
+
+  // Stack View 1 debug tracker: only the real kline stream is allowed to
+  // declare the candle feed healthy. Trade ticks may refresh the displayed
+  // forming close, but they must not hide a stopped kline feed.
+  if (!_fromTrade) {
+    _sv1DebugCandleAt = Date.now();
+    _sv1DebugCandleBucket = bucket;
+  }
+  _sv1DebugRefresh();
 
   // Header LTP/% — update on every tick regardless of layout (1x1 or grid),
   // so it doesn't stay stuck on '--' while viewing the grid.
@@ -18988,8 +19052,85 @@ let _btcPollTimer    = null;
 let _btcRestBusy     = false;
 let _btcWsOk         = false;
 let _btcLastTickMs   = 0;
+let _btcTradeWs      = null;
+let _btcTradeWsOk    = false;
+let _btcTradeRetryDelay = 1000;
+let _btcTradeUrlIdx  = 0;
 let _btcWsRetryDelay = 1000;
 let _btcWsUrlIdx     = 0;
+
+// ── Stack View 1 — BTC live-feed debug tracker ────────────────────────────
+let _sv1DebugTickAt = 0;
+let _sv1DebugCandleAt = 0;
+let _sv1DebugCandleBucket = null;
+let _sv1DebugTickPrice = null;
+const _SV1_DEBUG_STALE_MS = 10000;
+
+function _sv1DebugRefresh() {
+  const tracker = document.getElementById('sv1-debug-tracker');
+  if (!tracker) return;
+  const isStack1 = typeof S !== 'undefined' &&
+    S.layout === 'stack' && S.asset === BTC_ASSET;
+  tracker.style.display = isStack1 ? 'flex' : 'none';
+  if (!isStack1) return;
+
+  const now = Date.now();
+  const tickOk = _sv1DebugTickAt > 0 && (now - _sv1DebugTickAt) <= _SV1_DEBUG_STALE_MS;
+  const candleFeedOk = _sv1DebugCandleAt > 0 &&
+    _sv1DebugCandleBucket !== null &&
+    (now - _sv1DebugCandleAt) <= _SV1_DEBUG_STALE_MS;
+
+  // Feed activity alone is not enough: the native right-side candle price
+  // must agree with the latest trade price that the header shows. This
+  // catches a live overlay moving while the chart series remains stale.
+  let renderedPrice = null;
+  if (isStack1 && typeof CELLS !== 'undefined') {
+    const renderedCell = CELLS.find(c =>
+      c && c.asset === BTC_ASSET && Number.isFinite(c._lastLTP)
+    );
+    if (renderedCell) renderedPrice = Number(renderedCell._lastLTP);
+  }
+  const priceAligned = Number.isFinite(_sv1DebugTickPrice) &&
+    Number.isFinite(renderedPrice) &&
+    Math.abs(_sv1DebugTickPrice - renderedPrice) <= 0.01;
+  const candleOk = candleFeedOk && priceAligned;
+
+  const tickRow = document.getElementById('sv1-debug-tick-row');
+  const tickDot = document.getElementById('sv1-debug-tick-dot');
+  const tickText = document.getElementById('sv1-debug-tick-text');
+  if (tickRow) tickRow.classList.toggle('ok', tickOk);
+  if (tickDot) tickDot.classList.toggle('ok', tickOk);
+  if (tickText) {
+    tickText.textContent = tickOk ? 'BTC live data - OK'
+      : (_btcTradeWsOk ? 'BTC live data - Problem: tick stopped'
+        : (_sv1DebugTickAt ? 'BTC live data - Problem: tick feed disconnected'
+          : 'BTC live data - Problem: waiting for tick feed'));
+  }
+
+  const candleRow = document.getElementById('sv1-debug-candle-row');
+  const candleDot = document.getElementById('sv1-debug-candle-dot');
+  const candleText = document.getElementById('sv1-debug-candle-text');
+  if (candleRow) candleRow.classList.toggle('ok', candleOk);
+  if (candleDot) candleDot.classList.toggle('ok', candleOk);
+  if (candleText) {
+    candleText.textContent = candleOk ? 'BTC live candle forming - OK'
+      : (!candleFeedOk
+        ? (_btcWsOk ? 'BTC live candle forming - Problem: candle stopped'
+          : (_sv1DebugCandleAt ? 'BTC live candle forming - Problem: candle feed disconnected'
+            : 'BTC live candle forming - Problem: waiting for candle feed'))
+        : (!Number.isFinite(renderedPrice)
+          ? 'BTC live candle forming - Problem: chart price not rendered'
+          : 'BTC live candle forming - Problem: candle price lagging'));
+  }
+}
+
+function _sv1DebugStart() {
+  _sv1DebugRefresh();
+  if (!_sv1DebugTimer) {
+    _sv1DebugTimer = setInterval(_sv1DebugRefresh, 1000);
+  }
+}
+let _sv1DebugTimer = null;
 
 // FIX: pehle yeh function `#ws-status`/`#ws-dot` ko unconditionally chhed
 // deta tha — chahe user BankNifty dekh raha ho. BTC ka WebSocket background
@@ -19096,6 +19237,80 @@ function _connectBTCWS() {
     _btcWsRetryDelay = Math.min(_btcWsRetryDelay * 2, 10000);
     // REST already chal rahi hogi — WS retry
     setTimeout(_connectBTCWS, _btcWsRetryDelay);
+  };
+
+  _connectBTCTradeWS();
+}
+
+// Separate Binance trade stream for the true tick-by-tick health check.
+// The kline stream above remains independent because it drives candle
+// formation and higher-timeframe aggregation.
+const _BTC_TRADE_WS_URLS = [
+  'wss://stream.binance.com/ws/btcusdt@trade',
+  'wss://data-stream.binance.com/ws/btcusdt@trade',
+  'wss://stream.binance.com:9443/ws/btcusdt@trade',
+];
+
+function _connectBTCTradeWS() {
+  try {
+    if (_btcTradeWs &&
+        (_btcTradeWs.readyState === WebSocket.CONNECTING ||
+         _btcTradeWs.readyState === WebSocket.OPEN)) return;
+  } catch(_) {}
+
+  _btcTradeWsOk = false;
+  const url = _BTC_TRADE_WS_URLS[_btcTradeUrlIdx % _BTC_TRADE_WS_URLS.length];
+  let ws;
+  try { ws = new WebSocket(url); } catch(_) {
+    setTimeout(_connectBTCTradeWS, _btcTradeRetryDelay);
+    return;
+  }
+  _btcTradeWs = ws;
+
+  ws.onopen = () => {
+    if (_btcTradeWs !== ws) return;
+    _btcTradeWsOk = true;
+    _btcTradeUrlIdx = 0;
+    _btcTradeRetryDelay = 1000;
+    _sv1DebugRefresh();
+  };
+  ws.onmessage = evt => {
+    try {
+      const d = JSON.parse(evt.data);
+      if (d && d.p != null && Number.isFinite(parseFloat(d.p))) {
+        const price = parseFloat(d.p);
+        const tradeMs = Number.isFinite(Number(d.T)) ? Number(d.T) : Date.now();
+        _sv1DebugTickPrice = price;
+        _btcLastTickMs = Date.now();
+        _sv1DebugTickAt = _btcLastTickMs;
+        // The kline stream can legitimately lag the last trade by one or
+        // more updates. Feed the trade into the same candle/cell update path
+        // so the header, forming candle, and native price scale stay aligned.
+        // `fromTrade` keeps the candle-health tracker dependent on klines.
+        if (typeof S !== 'undefined' && S.asset === BTC_ASSET) {
+          _applyBTCKline({
+            t: tradeMs,
+            o: String(price),
+            h: String(price),
+            l: String(price),
+            c: String(price),
+          }, { fromTrade: true });
+        }
+        _sv1DebugRefresh();
+      }
+    } catch(_) {}
+  };
+  ws.onerror = () => {
+    if (_btcTradeWs === ws) _btcTradeWsOk = false;
+    _sv1DebugRefresh();
+  };
+  ws.onclose = () => {
+    if (_btcTradeWs !== ws) return;
+    _btcTradeWsOk = false;
+    _btcTradeUrlIdx++;
+    _btcTradeRetryDelay = Math.min(_btcTradeRetryDelay * 2, 10000);
+    _sv1DebugRefresh();
+    setTimeout(_connectBTCTradeWS, _btcTradeRetryDelay);
   };
 }
 
@@ -22457,6 +22672,7 @@ function _startBNPolling() {
 // INIT
 // ════════════════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+  _sv1DebugStart();
   // Load custom TFs first so rebuildTfBar has correct data
   loadTFPrefs();
 
