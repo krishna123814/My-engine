@@ -3231,51 +3231,36 @@ else:
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
-    # ── Binance Login Card (BTC Options — Balance + Strike/Premium) ────────────
+    # ── Binance Login Card (sirf login — live option chain background thread ────
+    #    isi saved key/secret ko use karta hai; yahan koi extra data fetch/
+    #    display nahi hota) ─────────────────────────────────────────────────────
     st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
     st.markdown('''<div class="login-title">🟡 Binance Login</div>''', unsafe_allow_html=True)
-    st.markdown('''<div class="login-sub">API Key/Secret daalo — spot balance + BTC option strike ka premium dikhega</div>''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-sub">API Key/Secret daalo aur login karo — live option chain isi se chalti hai</div>''', unsafe_allow_html=True)
 
     _bn_api_key    = st.text_input("Binance API Key", type="password", key="binance_api_key")
     _bn_secret_key = st.text_input("Binance Secret Key", type="password", key="binance_secret_key")
 
-    if st.button("🔍 Binance Fetch Data", use_container_width=True, type="primary", key="binance_fetch_btn"):
+    if st.button("🔌 Binance Login", use_container_width=True, type="primary", key="binance_login_btn"):
         if not _bn_api_key or not _bn_secret_key:
             st.error("Pehle API Key aur Secret Key daalo")
         else:
-            # Stack View 1 ke live BTC option-chain background thread ke liye
-            # bhi yahi keys chahiye (wo alag se chalta hai) — isliye save kar do.
-            save_creds({**load_creds(), "binance_api_key": _bn_api_key, "binance_secret_key": _bn_secret_key})
-            with st.spinner("Binance se data la rahe hain…"):
-                _ok_bspot, _bspot_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
-                _btc_price, _err_price = binance_get_spot_price("BTCUSDT")
+            with st.spinner("Binance se login ho raha hai…"):
+                # Sirf credentials valid hain ya nahi check karne ke liye ek
+                # lightweight signed call — result yahan display nahi hota,
+                # sirf pass/fail dekha jaata hai.
+                _ok_login, _login_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
 
-            if _ok_bspot:
+            if _ok_login:
+                # Live option-chain background thread (_ensure_binance_ws_threads
+                # / _binance_oc_bg_loop) ke liye keys save karo — wahi in
+                # credentials ko use karke chart chalata hai.
+                save_creds({**load_creds(), "binance_api_key": _bn_api_key, "binance_secret_key": _bn_secret_key})
+                st.session_state["binance_logged_in"] = True
                 st.success("✅ Binance login successful")
-                st.write("**Spot Balances:**")
-                if _bspot_result:
-                    st.json(_bspot_result)
-                else:
-                    st.write("Koi non-zero spot balance nahi mili")
             else:
-                st.error(f"❌ Balance error: {_bspot_result}")
-
-            if _err_price:
-                st.error(f"❌ BTC price fetch error: {_err_price}")
-            else:
-                st.write(f"**BTC Spot Price:** {_btc_price}")
-                _nearest_opt, _err_opt = binance_get_nearest_option(_bn_api_key, _btc_price, side="CALL")
-                if _err_opt:
-                    st.error(f"❌ Strike fetch error: {_err_opt}")
-                else:
-                    st.write("**Nearest Strike:**")
-                    st.json(_nearest_opt)
-                    _premium, _err_prem = binance_get_option_premium(_bn_api_key, _nearest_opt["symbol"])
-                    if _err_prem:
-                        st.error(f"❌ Premium fetch error: {_err_prem}")
-                    else:
-                        st.write("**Premium:**")
-                        st.json(_premium)
+                st.session_state["binance_logged_in"] = False
+                st.error(f"❌ Login failed: {_login_result}")
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
