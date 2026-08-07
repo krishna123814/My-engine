@@ -17442,19 +17442,6 @@ async function buildCellChart(idx) {
       if (_fwCell.length) cellDataWithWs = data.concat(_fwCell);
     } catch(_) {}
   }
-  // FIX (BTC live freeze in Stack View 1): the whitespace tail places many
-  // future placeholder bars (up to futureOffset, e.g. 30) beyond the
-  // currently-forming candle. series.update() only allows extending at or
-  // after the LAST bar already in the series — once the live candle rolls
-  // over to the 2nd/3rd/... forming bucket, its time is EARLIER than
-  // those far-future placeholders already sitting at the end of the
-  // series, so update() silently fails (caught by try/catch) and the
-  // chart freezes forever at the first forming candle. We keep our own
-  // running copy of the real (non-whitespace) historical bars so that on
-  // every bucket rollover we can rebuild [real bars + live bar + fresh
-  // whitespace] via setData() instead of update() — this keeps BOTH the
-  // live candle AND the future-whitespace tail working correctly together.
-  c._histData = data.slice();
 
   c.chart=LightweightCharts.createChart(el,{
     width:el.clientWidth||200, height:el.clientHeight||200,
@@ -18931,22 +18918,7 @@ function _applyBTCKline(k) {
   CELLS.forEach(c => {
     if (c.asset!==BTC_ASSET||!c.series) return;
     const cTfSec=(c.tf||1)*60, cBucket=Math.floor(kOpenSec/cTfSec)*cTfSec;
-    const _bucketChanged = !c._btcBkt||c._btcBkt.time!==cBucket||c._btcBkt.tf!==c.tf;
-    if (_bucketChanged) {
-      // FIX (BTC live freeze in Stack View 1): before starting the new
-      // forming candle, archive the just-closed one into our own
-      // c._histData copy — Stack View rebuilds via setData() below (see
-      // c._btcNewBucket branch), so if we don't keep it here ourselves it
-      // would otherwise vanish (buildCellChart's global data pools are
-      // NOT updated live by this loop).
-      if (S.layout === 'stack' && Array.isArray(c._histData) && c._btcBkt && c._btcBkt.tf === c.tf) {
-        const _closedBar = {time:c._btcBkt.time, open:c._btcBkt.open, high:c._btcBkt.high, low:c._btcBkt.low, close:c._btcBkt.close};
-        if (c._histData.length && c._histData[c._histData.length-1].time === _closedBar.time) {
-          c._histData[c._histData.length-1] = _closedBar;
-        } else if (!c._histData.length || c._histData[c._histData.length-1].time < _closedBar.time) {
-          c._histData.push(_closedBar);
-        }
-      }
+    if (!c._btcBkt||c._btcBkt.time!==cBucket||c._btcBkt.tf!==c.tf) {
       // Bucket change: resample sirf tab karo — yeh expensive hai
       const _cRaw  = _baseDataFor(c.asset, c.tf);
       const _cHist = (c.tf > 1) ? resampleForTF(_cRaw, c.tf, c.asset) : _cRaw;
@@ -18959,7 +18931,6 @@ function _applyBTCKline(k) {
       } else {
         c._btcBkt = {tf:c.tf, time:cBucket, open, high, low, close};
       }
-      c._btcNewBucket = true;
     } else {
       // Same bucket: sirf OHLC update karo — resample nahi
       c._btcBkt.high=Math.max(c._btcBkt.high,high);
@@ -18972,26 +18943,7 @@ function _applyBTCKline(k) {
       requestAnimationFrame(() => {
         c._btcRafPending = false;
         if (!c.series || !c._btcBkt) return;
-        try{
-          if (S.layout === 'stack' && c._btcNewBucket && Array.isArray(c._histData)) {
-            // FIX: Stack View 1 keeps a future-whitespace tail (many
-            // placeholder bars beyond the forming candle) in the series.
-            // series.update() can only extend at/after the LAST bar
-            // already present — once we roll onto a new forming bucket,
-            // its time is EARLIER than those far-future placeholders, so
-            // a plain update() gets silently rejected and the chart
-            // freezes forever on the first forming candle. Rebuilding via
-            // setData() with a freshly-generated whitespace tail avoids
-            // that ordering conflict, every time a new candle starts.
-            const _isBNc = c.asset && !isCryptoSymbol(c.asset);
-            const _liveBar = {time:c._btcBkt.time, open:c._btcBkt.open, high:c._btcBkt.high, low:c._btcBkt.low, close:c._btcBkt.close, value:c._btcBkt.close};
-            const _fw = _buildFutureWhitespace(c._btcBkt.time, c.tf, _isBNc, (S.futureOffset || 30));
-            c.series.setData(c._histData.concat([_liveBar], _fw));
-          } else {
-            c.series.update({...c._btcBkt,value:c._btcBkt.close});
-          }
-          c._btcNewBucket = false;
-        }catch(_){}
+        try{c.series.update({...c._btcBkt,value:c._btcBkt.close});}catch(_){}
         if ((c.tf||1)>=1440 && c.chart && c._followLive) {
           try{c.chart.timeScale().scrollToRealTime();}catch(_){}
         }
