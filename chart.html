@@ -856,7 +856,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-radius:6px;
   padding:8px 10px;
   min-width:260px;
-  max-width:320px;
+     max-width:420px;
+     max-height:70vh;
+     overflow:auto;
   box-shadow:0 4px 20px rgba(0,0,0,.7);
 }
 #sv1-debug-popup.open{ display:block; }
@@ -17550,7 +17552,7 @@ async function buildCellChart(idx) {
   // real data ke turant baad jodta hai, taaki chart ko kuch guess na karna
   // pade — SV2 jaisa hi consistent behavior.
   let cellDataWithWs = data;
-  if (S.layout === 'stack' && data.length) {
+   if (S.layout === 'stack' && data.length) {
     try {
       const _cellIsBN = c.asset && !isCryptoSymbol(c.asset);
       const _fwCell = _buildFutureWhitespace(data[data.length - 1].time, c.tf, _cellIsBN, (S.futureOffset || 30));
@@ -17620,7 +17622,7 @@ async function buildCellChart(idx) {
     badge.style.left = left + 'px';
   });
 
-  if (data.length) {
+   if (data.length) {
     if (cType === 'line' || cType === 'area') {
       c.series.setData(cellDataWithWs.map(d => (d.close != null ? {time: d.time, value: d.close} : d)));
     } else {
@@ -17628,6 +17630,14 @@ async function buildCellChart(idx) {
     }
     _applyZoom(c.chart.timeScale(), c.asset, c.tf);
   }
+   c._sv1RealDataLength = data.length;
+   c._sv1LiveIndex = data.length ? data.length - 1 : null;
+   c._sv1SeriesDataLength = cellDataWithWs.length;
+   c._sv1InputRealTime = data.length ? data[data.length - 1].time : null;
+   c._sv1InputTailTime = cellDataWithWs.length ? cellDataWithWs[cellDataWithWs.length - 1].time : null;
+   c._sv1InputTailCount = Math.max(0, cellDataWithWs.length - data.length);
+   c._sv1ChartPrice = data.length ? Number(data[data.length - 1].close) : null;
+   c._sv1LastUpdateError = null;
   // ------------------------------------------------------------------------
 
   c.chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
@@ -17756,7 +17766,15 @@ function updateCellPrice(idx, data) {
   const _dayOpen=_candleOpen[_asset]??last.open;
   const chg=ltp-_dayOpen;
   // Seed cell last-price for timer widget
-  if (CELLS[idx]) { CELLS[idx]._lastLTP=ltp; CELLS[idx]._candleOpen=last.open; }
+   if (CELLS[idx]) {
+     CELLS[idx]._lastLTP=ltp;
+     CELLS[idx]._lastLTPAt=Date.now();
+     CELLS[idx]._candleOpen=last.open;
+     CELLS[idx]._sv1ChartPrice=Number(ltp);
+     CELLS[idx]._sv1LastUpdateError=null;
+     CELLS[idx]._sv1RealDataLength=data.length;
+     CELLS[idx]._sv1LiveIndex=data.length-1;
+   }
   const pct=(_dayOpen?chg/_dayOpen*100:0).toFixed(2);
   const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   const cls=chg>=0?'up':'dn', color=chg>=0?'#26a69a':'#ef5350';
@@ -18930,6 +18948,13 @@ function _applyBTCKline(k, opts) {
   const tfSec   =(S.tf||1)*60;
   const bucket  =Math.floor(kOpenSec/tfSec)*tfSec;
 
+  // Debug only: keep the kline stream's forming close separate from the
+  // trade stream price. No chart value is changed here.
+  if (!_fromTrade) {
+    _sv1DebugCandlePrice = Number.isFinite(close) ? close : null;
+    _sv1DebugCandlePriceAt = Date.now();
+  }
+
   // Track per-minute open for timer color
   const minBucket=Math.floor(kOpenSec/60)*60;
   if (_candleOpen[BTC_ASSET]===undefined||_btcBucket.time!==bucket)
@@ -19069,7 +19094,35 @@ function _applyBTCKline(k, opts) {
       requestAnimationFrame(() => {
         c._btcRafPending = false;
         if (!c.series || !c._btcBkt) return;
-        try{c.series.update({...c._btcBkt,value:c._btcBkt.close});}catch(_){}
+         c._sv1LastUpdateAttemptAt = Date.now();
+         c._sv1LastUpdateError = '';
+         const _traceTimes = _sv1ReadCellTimes(c);
+         const _proposedTime = c._btcBkt.time;
+         const _realNum = _traceTimes.realTime;
+         const _tailNum = _traceTimes.tailTime;
+         c._sv1UpdateTrace = {
+           proposedTime: _proposedTime,
+           realTime: _realNum,
+           tailTime: _tailNum,
+           realItemTime: _traceTimes.realItemTime,
+           tailItemTime: _traceTimes.tailItemTime,
+           realInputTime: c._sv1InputRealTime,
+           tailInputTime: c._sv1InputTailTime,
+           inputTailCount: c._sv1InputTailCount,
+           realIndex: _traceTimes.realIndex,
+           tailIndex: _traceTimes.tailIndex,
+           timeOrder: [
+             _realNum != null && _proposedTime > _realNum ? 'new>real' : 'new<=real',
+             _tailNum != null && _proposedTime > _tailNum ? 'new>tail' : 'new<=tail',
+             _realNum != null && _tailNum != null && _tailNum > _realNum ? 'tail>real' : 'tail<=real',
+           ].join(',')
+         };
+         try {
+           c.series.update({...c._btcBkt,value:c._btcBkt.close});
+           c._sv1LastUpdateOkAt = Date.now();
+         } catch (e) {
+           c._sv1LastUpdateError = e && e.message ? e.message : 'SERIES_UPDATE_ERROR';
+         }
         if ((c.tf||1)>=1440 && c.chart && c._followLive) {
           try{c.chart.timeScale().scrollToRealTime();}catch(_){}
         }
@@ -19127,12 +19180,103 @@ let _sv1DebugTickAt = 0;
 let _sv1DebugCandleAt = 0;
 let _sv1DebugCandleBucket = null;
 let _sv1DebugTickPrice = null;
+let _sv1DebugCandlePrice = null;
+let _sv1DebugCandlePriceAt = 0;
 let _sv1DebugRenderedPrice = null;
 let _sv1DebugPriceLag = null;
 let _sv1DebugPriceAligned = null;
 let _sv1DebugCellIssues = [];   // per-cell price-scale problems (stuck / mismatched)
+let _sv1DebugCellRows = [];     // complete per-cell source/chart/axis diagnostics
+let _sv1DebugCellSpread = null;
 const _SV1_DEBUG_STALE_MS = 10000;
 const _SV1_DEBUG_LAG_TOL = 0.02; // thoda float-rounding tolerance ke liye (0.01 se thoda zyada)
+
+function _sv1TimeDebugText(t) {
+  if (t == null) return '-';
+  if (typeof t === 'number') return String(t);
+  try { return JSON.stringify(t); } catch(_) { return String(t); }
+}
+
+function _sv1TimeDebugNumber(t) {
+  if (typeof t === 'number' && Number.isFinite(t)) return t;
+  if (t && typeof t === 'object' &&
+      Number.isFinite(t.year) && Number.isFinite(t.month) && Number.isFinite(t.day)) {
+    return Date.UTC(t.year, t.month - 1, t.day) / 1000;
+  }
+  return null;
+}
+
+function _sv1ReadCellTimes(c) {
+  const out = {
+    realTime: null, tailTime: null, realItemTime: null, tailItemTime: null,
+    realIndex: c && Number.isInteger(c._sv1LiveIndex) ? c._sv1LiveIndex : null,
+    tailIndex: c && Number.isInteger(c._sv1SeriesDataLength) ? c._sv1SeriesDataLength - 1 : null,
+  };
+  if (!c || !c.series || typeof c.series.dataByIndex !== 'function') return out;
+  try {
+    if (out.realIndex != null) {
+      const item = c.series.dataByIndex(out.realIndex, 0);
+      if (item && item.time != null) {
+        out.realItemTime = item.time;
+        out.realTime = _sv1TimeDebugNumber(item.time);
+      }
+    }
+    if (out.tailIndex != null) {
+      const item = c.series.dataByIndex(out.tailIndex, 0);
+      if (item && item.time != null) {
+        out.tailItemTime = item.time;
+        out.tailTime = _sv1TimeDebugNumber(item.time);
+      }
+    }
+  } catch(_) {}
+  return out;
+}
+
+function _sv1ReadCellScale(c) {
+  const out = { series: null, axis: null, rangeLow: null, rangeHigh: null, error: '' };
+  if (!c || !c.series || !c.chart) {
+    out.error = 'NO_SERIES';
+    return out;
+  }
+  try {
+    let item = null;
+    if (Number.isInteger(c._sv1LiveIndex)) {
+      item = c.series.dataByIndex(c._sv1LiveIndex, 0);
+    }
+    const p = item ? (item.close ?? item.value) : c._sv1ChartPrice;
+    if (Number.isFinite(p)) out.series = Number(p);
+    if (Number.isFinite(out.series)) {
+      const y = c.series.priceToCoordinate(out.series);
+      const ps = c.chart.priceScale('right');
+      if (ps && typeof ps.getVisibleRange === 'function') {
+        const range = ps.getVisibleRange();
+        if (range) {
+          out.rangeLow = Number.isFinite(range.from) ? Number(range.from) : null;
+          out.rangeHigh = Number.isFinite(range.to) ? Number(range.to) : null;
+        }
+      }
+      if (y != null && ps && typeof ps.coordinateToPrice === 'function') {
+        const axisPrice = ps.coordinateToPrice(y);
+        if (Number.isFinite(axisPrice)) out.axis = Number(axisPrice);
+      }
+    }
+  } catch (e) {
+    out.error = e && e.message ? e.message : 'SCALE_PROBE_ERROR';
+  }
+  return out;
+}
+
+function _sv1CaptureCellSeries(c) {
+  if (!c || !c.series || !Number.isInteger(c._sv1LiveIndex)) return null;
+  try {
+    const item = c.series.dataByIndex(c._sv1LiveIndex, 0);
+    if (!item) return null;
+    const value = item.close ?? item.value;
+    return Number.isFinite(value) ? Number(value) : null;
+  } catch(_) {
+    return null;
+  }
+}
 
 function _sv1DebugRefresh() {
   const tracker = document.getElementById('sv1-debug-tracker');
@@ -19153,28 +19297,89 @@ function _sv1DebugRefresh() {
   // aata hai — feed ok hone ka matlab ye nahi ki har cell update ho raha
   // hai. Isliye ab sirf "pehla mila cell" nahi, BALKI SAARE BTC cells check
   // karte hain — jo bhi cell stale ya price-mismatch nikle, use flag karo.
-  let renderedPrice = null;
+   let renderedPrice = null;
   _sv1DebugCellIssues = [];
+   _sv1DebugCellRows = [];
+   _sv1DebugCellSpread = null;
   if (isStack1 && typeof CELLS !== 'undefined') {
+     const cellValues = [];
     CELLS.forEach((c, i) => {
-      if (!c || c.asset !== BTC_ASSET || !Number.isFinite(c._lastLTP)) return;
-      if (renderedPrice === null) renderedPrice = Number(c._lastLTP); // summary line ke liye pehla valid
-      const cAgeMs = c._lastLTPAt ? (now - c._lastLTPAt) : null;
-      const cStale = cAgeMs === null || cAgeMs > _SV1_DEBUG_STALE_MS;
-      const cLag = Number.isFinite(_sv1DebugTickPrice)
-        ? Math.abs(_sv1DebugTickPrice - Number(c._lastLTP)) : null;
-      const cLagBad = cLag !== null && cLag > _SV1_DEBUG_LAG_TOL;
-      if (cStale || cLagBad) {
-        const label = '· ' + (_cellTfLabel ? _cellTfLabel(c.tf) : (c.tf + 'm')) + ' (cell ' + i + ')';
-        const ageTxt = cAgeMs !== null ? Math.round(cAgeMs / 1000) + 's ago' : 'never updated';
-        const lagTxt = cLag !== null ? cLag.toFixed(2) : '-';
-        _sv1DebugCellIssues.push(
-          label + ' — px ' + Number(c._lastLTP).toFixed(2) +
-          ', lag ' + lagTxt + ', updated ' + ageTxt +
-          (cStale ? ' [STUCK]' : '')
-        );
-      }
+       if (!c || c.asset !== BTC_ASSET) return;
+       const cellPrice = Number.isFinite(c._lastLTP) ? Number(c._lastLTP) : null;
+       const candlePrice = Number.isFinite(_sv1DebugCandlePrice) ? _sv1DebugCandlePrice : null;
+       const probe = _sv1ReadCellScale(c);
+       const actualSeriesPrice = probe.series != null
+         ? probe.series : _sv1CaptureCellSeries(c);
+       const cAgeMs = c._lastLTPAt ? (now - c._lastLTPAt) : null;
+       const updateAge = cAgeMs != null ? Math.round(cAgeMs / 1000) : null;
+       const tickDiff = Number.isFinite(_sv1DebugTickPrice) && cellPrice != null
+         ? Math.abs(_sv1DebugTickPrice - cellPrice) : null;
+       const candleDiff = candlePrice != null && cellPrice != null
+         ? Math.abs(candlePrice - cellPrice) : null;
+       const seriesDiff = candlePrice != null && actualSeriesPrice != null
+         ? Math.abs(candlePrice - actualSeriesPrice) : null;
+       const axisDiff = actualSeriesPrice != null && probe.axis != null
+         ? Math.abs(actualSeriesPrice - probe.axis) : null;
+       const cStale = cAgeMs === null || cAgeMs > _SV1_DEBUG_STALE_MS;
+       let problem = '';
+       if (!c.series) problem = 'NO_SERIES';
+       else if (c._sv1LastUpdateError) problem = 'UPDATE_ERROR';
+       else if (cStale) problem = 'CELL_UPDATE_STALE';
+       else if (seriesDiff != null && seriesDiff > _SV1_DEBUG_LAG_TOL) problem = 'CHART_BAR_STALE';
+       else if (axisDiff != null && axisDiff > _SV1_DEBUG_LAG_TOL) problem = 'RIGHT_SCALE_STALE';
+       else if (probe.axis == null) problem = 'RIGHT_SCALE_NOT_READABLE';
+       const row = {
+         idx: i,
+         tf: _cellTfLabel ? _cellTfLabel(c.tf) : (c.tf + 'm'),
+         tick: Number.isFinite(_sv1DebugTickPrice) ? _sv1DebugTickPrice : null,
+         candle: candlePrice,
+         series: actualSeriesPrice,
+         axis: probe.axis,
+         rangeLow: probe.rangeLow,
+         rangeHigh: probe.rangeHigh,
+         attemptAge: c._sv1LastUpdateAttemptAt
+           ? Math.round((now - c._sv1LastUpdateAttemptAt) / 1000) : null,
+         successAge: c._sv1LastUpdateOkAt
+           ? Math.round((now - c._sv1LastUpdateOkAt) / 1000) : null,
+         updateError: c._sv1LastUpdateError || '',
+         realTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.realTime : null,
+         tailTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.tailTime : null,
+         proposedTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.proposedTime : null,
+         realItemTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.realItemTime : null,
+         tailItemTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.tailItemTime : null,
+         realInputTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.realInputTime : null,
+         tailInputTime: c._sv1UpdateTrace ? c._sv1UpdateTrace.tailInputTime : null,
+         inputTailCount: c._sv1UpdateTrace ? c._sv1UpdateTrace.inputTailCount : null,
+         realIndex: c._sv1UpdateTrace ? c._sv1UpdateTrace.realIndex : null,
+         tailIndex: c._sv1UpdateTrace ? c._sv1UpdateTrace.tailIndex : null,
+         timeOrder: c._sv1UpdateTrace ? c._sv1UpdateTrace.timeOrder : '',
+         tickDiff, candleDiff, seriesDiff, axisDiff,
+         updateAge, problem,
+       };
+       _sv1DebugCellRows.push(row);
+       if (cellPrice != null) {
+         cellValues.push(cellPrice);
+         if (renderedPrice === null) renderedPrice = actualSeriesPrice != null ? actualSeriesPrice : cellPrice;
+       }
+       if (problem) {
+         const cause = problem === 'UPDATE_ERROR'
+           ? 'series update ne error diya'
+           : problem === 'CELL_UPDATE_STALE'
+             ? 'is cell ka live update stale hai'
+             : problem === 'CHART_BAR_STALE'
+               ? 'series ka latest bar kline close se match nahi'
+               : problem === 'RIGHT_SCALE_STALE'
+                 ? 'right scale ka coordinate price series se match nahi'
+                 : problem;
+         _sv1DebugCellIssues.push(
+           'cell ' + i + ' (' + row.tf + ') — ' + cause +
+           (c._sv1LastUpdateError ? ': ' + c._sv1LastUpdateError : '')
+         );
+       }
     });
+     if (cellValues.length > 1) {
+       _sv1DebugCellSpread = Math.max(...cellValues) - Math.min(...cellValues);
+     }
   }
   const priceAligned = Number.isFinite(_sv1DebugTickPrice) &&
     Number.isFinite(renderedPrice) &&
@@ -19182,12 +19387,15 @@ function _sv1DebugRefresh() {
     _sv1DebugCellIssues.length === 0;
   const candleOk = candleFeedOk && priceAligned;
 
-  // ── Debug popup ke liye exact lag amount aur rendered price save karo ──
+   // ── Debug popup ke liye exact lag amount aur rendered price save karo ──
   _sv1DebugRenderedPrice = Number.isFinite(renderedPrice) ? renderedPrice : null;
   _sv1DebugPriceLag = (Number.isFinite(_sv1DebugTickPrice) && Number.isFinite(renderedPrice))
     ? Math.abs(_sv1DebugTickPrice - renderedPrice)
     : null;
   _sv1DebugPriceAligned = priceAligned;
+   if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+     _sv1DebugPopupRefreshLog();
+   }
 
   const tickRow = document.getElementById('sv1-debug-tick-row');
   const tickDot = document.getElementById('sv1-debug-tick-dot');
@@ -19258,19 +19466,59 @@ function _sv1DebugPopupRefreshLog() {
   const candleStatus = document.getElementById('sv1-debug-candle-text') ?
     document.getElementById('sv1-debug-candle-text').textContent : '-';
 
-  const lines = [
+   const cellLines = _sv1DebugCellRows.map(row => {
+     const diffs = [
+       row.tickDiff != null ? 'liveΔ ' + row.tickDiff.toFixed(2) : 'liveΔ -',
+       row.candleDiff != null ? 'klineΔ ' + row.candleDiff.toFixed(2) : 'klineΔ -',
+       row.seriesDiff != null ? 'chartΔ ' + row.seriesDiff.toFixed(2) : 'chartΔ -',
+       row.axisDiff != null ? 'scaleΔ ' + row.axisDiff.toFixed(2) : 'scaleΔ -',
+     ].join(' · ');
+         const state = row.problem ? ' [PROBLEM: ' + row.problem + ']' : ' [OK]';
+     return {
+       ok: !row.problem,
+       text: '  Cell ' + row.idx + ' (' + row.tf + ')' +
+         '  live=' + (row.tick != null ? row.tick.toFixed(2) : '-') +
+         '  kline=' + (row.candle != null ? row.candle.toFixed(2) : '-') +
+         '  chart=' + (row.series != null ? row.series.toFixed(2) : '-') +
+         '  scale=' + (row.axis != null ? row.axis.toFixed(2) : '-') +
+         '  range=' + (row.rangeLow != null && row.rangeHigh != null
+           ? row.rangeLow.toFixed(2) + '..' + row.rangeHigh.toFixed(2) : '-') +
+         '  time(real/tail/new)=' +
+           _sv1TimeDebugText(row.realItemTime) + '/' +
+           _sv1TimeDebugText(row.tailItemTime) + '/' +
+           _sv1TimeDebugText(row.proposedTime) +
+         '  input(real/tail/count)=' +
+           _sv1TimeDebugText(row.realInputTime) + '/' +
+           _sv1TimeDebugText(row.tailInputTime) + '/' +
+           (row.inputTailCount != null ? row.inputTailCount : '-') +
+         '  order=' + (row.timeOrder || '-') +
+         '  ' + diffs +
+          '  update=' + (row.updateAge != null ? row.updateAge + 's ago' : 'never') +
+          '  attempt=' + (row.attemptAge != null ? row.attemptAge + 's ago' : 'never') +
+          '  ok=' + (row.successAge != null ? row.successAge + 's ago' : 'never') +
+          (row.updateError ? '  error=' + row.updateError : '') +
+         state
+     };
+   });
+
+   const lines = [
     { ok: tickOk,      text: '● Tick Feed   : ' + tickStatus },
     { ok: null,        text: '  Last tick   : ' + tickAge },
-    { ok: null,        text: '  Tick price  : ' + (_sv1DebugTickPrice != null ? _sv1DebugTickPrice : '-') },
+     { ok: null,        text: '  Live price  : ' + (_sv1DebugTickPrice != null ? _sv1DebugTickPrice.toFixed(2) : '-') },
     { ok: candleFeedOk,text: '● Candle Feed : ' + candleStatus },
     { ok: null,        text: '  Last candle : ' + candleAge },
     { ok: null,        text: '  Bucket      : ' + (_sv1DebugCandleBucket != null ? _sv1DebugCandleBucket : '-') },
+     { ok: null,        text: '  Kline close : ' + (_sv1DebugCandlePrice != null ? _sv1DebugCandlePrice.toFixed(2) : '-') },
     { ok: null,        text: '  Rendered px : ' + (_sv1DebugRenderedPrice != null ? _sv1DebugRenderedPrice : '-') },
     { ok: _sv1DebugPriceAligned, text: '  Price lag   : ' + (_sv1DebugPriceLag != null ? _sv1DebugPriceLag.toFixed(2) : '-') },
     { ok: null,        text: '  BTC WS      : ' + (typeof _btcWsOk !== 'undefined' ? (_btcWsOk ? 'OK' : 'DOWN') : '-') },
     { ok: null,        text: '  Trade WS    : ' + (typeof _btcTradeWsOk !== 'undefined' ? (_btcTradeWsOk ? 'OK' : 'DOWN') : '-') },
-    { ok: (_sv1DebugCellIssues.length === 0), text: '● Price Scale : ' + (_sv1DebugCellIssues.length === 0 ? 'All cells OK' : (_sv1DebugCellIssues.length + ' cell(s) stuck/mismatched')) },
-    ..._sv1DebugCellIssues.map(t => ({ ok: false, text: '  ' + t })),
+     { ok: (_sv1DebugCellIssues.length === 0), text: '● Price Scale : ' + (_sv1DebugCellIssues.length === 0 ? 'All cells OK' : (_sv1DebugCellIssues.length + ' cell(s) stuck/mismatched')) },
+     { ok: (_sv1DebugCellSpread == null || _sv1DebugCellSpread <= _SV1_DEBUG_LAG_TOL),
+       text: '  Cell spread : ' + (_sv1DebugCellSpread != null ? _sv1DebugCellSpread.toFixed(2) : '-') + ' (max-min)' },
+     { ok: null, text: '  Cell prices below are: live tick → kline close → chart bar → right-scale probe' },
+     ...cellLines,
+     ..._sv1DebugCellIssues.map(t => ({ ok: false, text: '  Cause      : ' + t })),
     { ok: null,        text: '  Stale limit : ' + (_SV1_DEBUG_STALE_MS / 1000) + 's' },
     { ok: null,        text: '  Log time    : ' + new Date().toLocaleTimeString() },
   ];
