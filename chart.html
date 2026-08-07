@@ -19068,7 +19068,41 @@ function _applyBTCKline(k, opts) {
   // Grid mode — RAF throttled per cell to avoid main thread blocking
   CELLS.forEach(c => {
     if (c.asset!==BTC_ASSET||!c.series) return;
-    const cTfSec=(c.tf||1)*60, cBucket=Math.floor(kOpenSec/cTfSec)*cTfSec;
+    const cTfSec=(c.tf||1)*60;
+    const _isMultiDay = (c.tf||1) > 1440;
+    let cBucket;
+    if (_isMultiDay) {
+      // FIX (CHART_BAR_STALE on 3D/9D/27D): resampleForTF()/resampleCryptoDaily()
+      // chunk multi-day BTC history in INDEX-ALIGNED nDays groups (walking the
+      // raw day-sequence from its start), NOT epoch-modulo. The old
+      // floor(epoch/cTfSec)*cTfSec bucket almost never matched that real chunk
+      // boundary, so the live/forming bar landed in the wrong slot vs history —
+      // that's the stale/mismatched chart bar the SV1 debug tracker flags.
+      // cTfSec here is exactly nDays*86400, so "next chunk" is always
+      // lastChunk.time + cTfSec — matches resampleCryptoDaily's own sequential
+      // grouping exactly. Anchor is cached per cell so we don't have to
+      // re-resample on every single tick, only when the day actually rolls
+      // past the cached chunk's end.
+      const curDay = Math.floor(kOpenSec / 86400) * 86400;
+      const _anchor = c._btcChunkAnchor;
+      if (_anchor && curDay >= _anchor.time && curDay < _anchor.time + cTfSec) {
+        cBucket = _anchor.time;
+      } else {
+        const _cRawA  = _baseDataFor(c.asset, c.tf);
+        const _cHistA = resampleForTF(_cRawA, c.tf, c.asset);
+        const _lastA  = _cHistA.length ? _cHistA[_cHistA.length - 1] : null;
+        if (_lastA && curDay >= _lastA.time + cTfSec) {
+          cBucket = _lastA.time + cTfSec;   // next chunk, index-aligned
+        } else if (_lastA) {
+          cBucket = _lastA.time;            // still inside the last real chunk
+        } else {
+          cBucket = curDay;                 // no history yet — fallback
+        }
+        c._btcChunkAnchor = { time: cBucket };
+      }
+    } else {
+      cBucket = Math.floor(kOpenSec/cTfSec)*cTfSec;
+    }
     if (!c._btcBkt||c._btcBkt.time!==cBucket||c._btcBkt.tf!==c.tf) {
       // Bucket change: resample sirf tab karo — yeh expensive hai
       const _cRaw  = _baseDataFor(c.asset, c.tf);
