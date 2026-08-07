@@ -2645,6 +2645,46 @@ def _register_api_route():
                     self.wfile.write(body)
                     return
 
+                # ── Option chain payloads — served directly from the same
+                # in-memory cache the background loops already maintain.
+                # Earlier chart.html tried to fetch the on-disk
+                # binance_optionchain.json / fyers_optionchain.json files by
+                # relative path; that never resolved reliably from inside the
+                # Streamlit component iframe (no route backed it), which is
+                # why the option chain looked "live" one poll and "polling
+                # failed" the next. These routes fix that at the source. ──
+                if parsed.path == "/api/binance_optionchain":
+                    try:
+                        payload = get_cached_binance_option_chain_payload()
+                        body = json.dumps(payload).encode()
+                        self.send_response(200)
+                    except Exception as e:
+                        body = json.dumps({"error": f"server exception: {e}"}).encode()
+                        self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
+                if parsed.path == "/api/fyers_optionchain":
+                    try:
+                        payload = get_cached_option_chain_payload()
+                        body = json.dumps(payload).encode()
+                        self.send_response(200)
+                    except Exception as e:
+                        body = json.dumps({"error": f"server exception: {e}"}).encode()
+                        self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+
                 if parsed.path != "/api/bn_history":
                     self.send_response(404)
                     self.end_headers()

@@ -21228,6 +21228,11 @@ function _ocDebugPopupRefreshLog() {
     { ok: !data.stale_warning, text: '  Payload status : ' + (data.stale_warning || 'fresh') },
     { ok: null,      text: '  Last error     : ' + (ws.last_error || 'none') },
     { ok: verdictOk, text: verdictText },
+    { ok: null,      text: '' },
+    { ok: _ocBinancePollLastErr ? false : true,
+      text: '  Chain poll     : ' + (_ocBinancePollLastErr
+              ? ('FAILING — ' + _ocBinancePollLastErr)
+              : ('OK, last success ' + (_ocBinancePollLastOk ? _ocDebugAgeText((Date.now() - _ocBinancePollLastOk) / 1000) : 'never'))) },
     { ok: null,      text: '  Log time       : ' + new Date().toLocaleTimeString() },
   ];
 
@@ -21327,47 +21332,91 @@ function _ocMarkBinanceDotStale(reason) {
   }
 }
 
-// Direct poll fallback — fyers_optionchain.json seedha read karta hai
+// ── Poll last-error tracking (for debug popup — see _ocDebugPopupRefreshLog) ──
+// Pehle ye relative-path se on-disk JSON fetch karne ki koshish karta tha
+// (./fyers_optionchain.json etc.) jo Streamlit component iframe ke andar se
+// kabhi reliably resolve nahi hota tha (koi backend route hi nahi tha usko
+// serve karne ke liye) — isi wajah se "LIVE" / "polling failed" flap ho raha
+// tha. Ab side-port API (/api/fyers_optionchain, /api/binance_optionchain)
+// se seedha memory-cached payload milta hai — same server jo /api/bn_tick
+// serve karta hai. ──────────────────────────────────────────────────────
+var _ocFyersPollLastOk    = 0;   // Date.now() of last successful poll
+var _ocFyersPollLastErr   = '';  // human-readable reason of last failure
+var _ocBinancePollLastOk  = 0;
+var _ocBinancePollLastErr = '';
+
 async function _pollOptionChain() {
-  const paths = ['./fyers_optionchain.json', '/fyers_optionchain.json', 'fyers_optionchain.json'];
-  for (const p of paths) {
-    try {
-      const r = await fetch(p, { cache: 'no-store' });
-      if (r.ok) {
-        const d = await r.json();
-        _ocFyersFailStreak = 0;
-        _ocClearFyersStale();
-        _applyOptionChain(d);
+  if (_resolvedApiPort === 0) { await _probeApiPort(); }
+  if (_resolvedApiPort === 0) {
+    _ocFyersFailStreak++;
+    _ocFyersPollLastErr = 'side-port API not reachable (server not started / port 8502-8510 blocked)';
+    if (_ocFyersFailStreak >= _OC_POLL_FAIL_THRESHOLD) _ocMarkFyersStale(_ocFyersPollLastErr);
+    return;
+  }
+  const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/fyers_optionchain`;
+  try {
+    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      const d = await r.json();
+      if (d && d.error) {
+        _ocFyersFailStreak++;
+        _ocFyersPollLastErr = 'backend: ' + d.error;
+        if (_ocFyersFailStreak >= _OC_POLL_FAIL_THRESHOLD) _ocMarkFyersStale(_ocFyersPollLastErr);
         return;
       }
-    } catch(_) {}
+      _ocFyersFailStreak = 0;
+      _ocFyersPollLastOk = Date.now();
+      _ocFyersPollLastErr = '';
+      _ocClearFyersStale();
+      _applyOptionChain(d);
+      return;
+    }
+    _ocFyersPollLastErr = 'HTTP ' + r.status;
+  } catch(e) {
+    _ocFyersPollLastErr = (e && e.name === 'TimeoutError') ? 'request timed out (>4s)' : ('fetch error: ' + (e && e.message || e));
   }
-  // Sab paths fail ho gaye — silently freeze mat ho, streak badhao aur
-  // threshold cross hone par explicitly stale dikhao.
+  // Fail ho gaya — silently freeze mat ho, streak badhao aur threshold
+  // cross hone par explicitly stale dikhao.
   _ocFyersFailStreak++;
   if (_ocFyersFailStreak >= _OC_POLL_FAIL_THRESHOLD) {
-    _ocMarkFyersStale('backend/network unreachable');
+    _ocMarkFyersStale(_ocFyersPollLastErr || 'backend/network unreachable');
   }
 }
-// Direct poll fallback — binance_optionchain.json seedha read karta hai
+
 async function _pollBinanceOptionChain() {
-  const paths = ['./binance_optionchain.json', '/binance_optionchain.json', 'binance_optionchain.json'];
-  for (const p of paths) {
-    try {
-      const r = await fetch(p, { cache: 'no-store' });
-      if (r.ok) {
-        const d = await r.json();
-        _ocBinanceFailStreak = 0;
-        _applyBinanceOptionChain(d);
+  if (_resolvedApiPort === 0) { await _probeApiPort(); }
+  if (_resolvedApiPort === 0) {
+    _ocBinanceFailStreak++;
+    _ocBinancePollLastErr = 'side-port API not reachable (server not started / port 8502-8510 blocked)';
+    if (_ocBinanceFailStreak >= _OC_POLL_FAIL_THRESHOLD) _ocMarkBinanceDotStale(_ocBinancePollLastErr);
+    return;
+  }
+  const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/binance_optionchain`;
+  try {
+    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      const d = await r.json();
+      if (d && d.error) {
+        _ocBinanceFailStreak++;
+        _ocBinancePollLastErr = 'backend: ' + d.error;
+        if (_ocBinanceFailStreak >= _OC_POLL_FAIL_THRESHOLD) _ocMarkBinanceDotStale(_ocBinancePollLastErr);
         return;
       }
-    } catch(_) {}
+      _ocBinanceFailStreak = 0;
+      _ocBinancePollLastOk = Date.now();
+      _ocBinancePollLastErr = '';
+      _applyBinanceOptionChain(d);
+      return;
+    }
+    _ocBinancePollLastErr = 'HTTP ' + r.status;
+  } catch(e) {
+    _ocBinancePollLastErr = (e && e.name === 'TimeoutError') ? 'request timed out (>4s)' : ('fetch error: ' + (e && e.message || e));
   }
-  // Sab paths fail ho gaye — dot ko purani "Live" state par freeze mat hone
-  // do, explicitly stale/disconnected maaro.
+  // Fail ho gaya — dot ko purani "Live" state par freeze mat hone do,
+  // explicitly stale/disconnected maaro, aur asli reason yaad rakho.
   _ocBinanceFailStreak++;
   if (_ocBinanceFailStreak >= _OC_POLL_FAIL_THRESHOLD) {
-    _ocMarkBinanceDotStale('polling failed — backend/network unreachable');
+    _ocMarkBinanceDotStale(_ocBinancePollLastErr || 'polling failed — backend/network unreachable');
   }
 }
 function _startOCPolling() {
