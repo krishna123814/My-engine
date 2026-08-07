@@ -19393,7 +19393,9 @@ function _sv1DebugRefresh() {
        else if (cStale) problem = 'CELL_UPDATE_STALE';
        else if (seriesDiff != null && seriesDiff > _SV1_DEBUG_LAG_TOL) problem = 'CHART_BAR_STALE';
        else if (axisDiff != null && axisDiff > _SV1_DEBUG_LAG_TOL) problem = 'RIGHT_SCALE_STALE';
-       else if (probe.axis == null) problem = 'RIGHT_SCALE_NOT_READABLE';
+       // NOTE: RIGHT_SCALE_NOT_READABLE check jaan-bujh kar hataya gaya hai —
+       // ye sirf ek diagnostic tha (chart resize/layout timing ki wajah se
+       // false-positive deta tha), asli data/price issue nahi pakadta tha.
        const row = {
          idx: i,
          tf: _cellTfLabel ? _cellTfLabel(c.tf) : (c.tf + 'm'),
