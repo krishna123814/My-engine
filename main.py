@@ -832,7 +832,9 @@ def _bn_gapfill_visible_quotes():
                 if not sym:
                     continue
                 row = _BN_LIVE_QUOTES.setdefault(sym, {})
-                if item.get("markPrice") not in (None, ""): row["mark"]    = item["markPrice"]
+                if item.get("markPrice") not in (None, ""):
+                    row["mark"]    = item["markPrice"]
+                    row["mark_ts"] = now   # LTP freshness-compare ke liye (leg_from)
                 if item.get("bidIV")     is not None:       row["buy_iv"]  = item["bidIV"]
                 if item.get("askIV")     is not None:       row["sell_iv"] = item["askIV"]
                 if item.get("markIV")    is not None:       row["iv"]      = item["markIV"]
@@ -873,11 +875,16 @@ def _bn_apply_mark_msg(msg: dict):
             return
         with _BN_LIVE_LOCK:
             row = _BN_LIVE_QUOTES.setdefault(sym, {})
+            _touched_mark = False
             for target, keys in _BN_MARK_FIELD_MAP.items():
                 for k in keys:
                     if k in msg and msg[k] not in (None, ""):
                         row[target] = msg[k]
+                        if target == "mark":
+                            _touched_mark = True
                         break
+            if _touched_mark:
+                row["mark_ts"] = time.time()   # LTP freshness-compare ke liye (leg_from)
             row["ts"] = time.time()
     except Exception:
         pass
@@ -943,6 +950,7 @@ def _bn_apply_trade_msg(msg: dict):
             row = _BN_LIVE_QUOTES.setdefault(sym, {})
             if price not in (None, ""):
                 row["last"] = price
+                row["last_ts"] = time.time()   # LTP freshness-compare ke liye (leg_from)
             if qty not in (None, ""):
                 try:
                     row["vol_cum"] = float(row.get("vol_cum", 0) or 0) + float(qty)
@@ -1098,9 +1106,29 @@ def _bn_rebuild_payload_from_memory() -> dict:
         _mark = q.get("mark")
         _bid  = q.get("bid")
         _ask  = q.get("ask")
+        # FIX (LTP freeze bug): pehle LTP hamesha "last traded price" ko
+        # blindly prefer karta tha, "mark" ko sirf tab use karta tha jab
+        # "last" kabhi mila hi na ho. Ek baar koi trade ho gaya (chahe kitna
+        # hi purana ho), LTP hamesha ke liye us purani trade price par FREEZE
+        # ho jaata tha — mark price (jo live continuously update ho raha
+        # hota hai) kabhi dikhta hi nahi tha, chahe kitna bhi fresh ho.
+        # Isi wajah se illiquid strikes ka LTP debug mein "WS: LIVE" dikhne
+        # ke bawajood minutes tak same rehta tha. Ab jo bhi zyada RECENT hai
+        # (last trade ya mark tick, timestamp se compare karke) wahi LTP
+        # banta hai. ──────────────────────────────────────────────────────
+        _last_ts = q.get("last_ts") or 0
+        _mark_ts = q.get("mark_ts") or 0
+        if _last is not None and _mark is not None:
+            _ltp = float(_last) if _last_ts >= _mark_ts else float(_mark)
+        elif _last is not None:
+            _ltp = float(_last)
+        elif _mark is not None:
+            _ltp = float(_mark)
+        else:
+            _ltp = None
         return {
             "symbol": sym,
-            "ltp":    float(_last if _last is not None else _mark) if (_last is not None or _mark is not None) else None,
+            "ltp":    _ltp,
             "mark":   float(_mark) if _mark is not None else None,
             "chg":    float(q.get("chg") or 0),
             "chgp":   float(q.get("chgp") or 0),
