@@ -5434,11 +5434,11 @@ function _hdrRelayout(){
     <div class="ss-section-title">Screens</div>
     <div class="ss-row">
       <span>Total screens</span>
-      <input type="number" id="ss-total-count" min="1" max="16" value="6">
+      <input type="number" id="ss-total-count" min="1" max="16" value="5">
     </div>
     <div class="ss-row">
       <span>Visible at once</span>
-      <input type="number" id="ss-visible-count" min="1" max="8" value="4">
+      <input type="number" id="ss-visible-count" min="1" max="8" value="5">
     </div>
     <div class="ss-row">
       <span>Step count (per drag)</span>
@@ -5482,11 +5482,11 @@ function _hdrRelayout(){
     <div class="ss-section-title">SCREENS</div>
     <div class="ss-row">
       <span>Total screens</span>
-      <input type="number" id="ss2-total-count" min="1" max="16" value="6" oninput="ss2OnTotalChange()">
+      <input type="number" id="ss2-total-count" min="1" max="16" value="5" oninput="ss2OnTotalChange()">
     </div>
     <div class="ss-row">
       <span>Visible at once</span>
-      <input type="number" id="ss2-visible-count" min="1" max="8" value="4">
+      <input type="number" id="ss2-visible-count" min="1" max="8" value="5">
     </div>
     <div class="ss-row">
       <span>Step count (per drag)</span>
@@ -7780,14 +7780,14 @@ const STACK_LETTERS = 'ABCDEFGHIJKLMNOP'.split('');
 function _stackDefaults() {
   return {
     btc: {
-      total:   6,
-      visible: 4,
+      total:   5,
+      visible: 5,
       step:    1,
-      tfs: ['160m', '8H', '1D', '3D', '9D', '27D'],
+      tfs: ['8H', '1D', '3D', '9D', '27D'],
     },
     bn: {
-      total:   8,
-      visible: 4,
+      total:   5,
+      visible: 5,
       step:    1,
       tfs: ['125m', '1D', '3D', '9D', '27D'],
     },
@@ -8037,13 +8037,13 @@ function _stack2DefaultCfg() {
   return {
     btc: {
       total:   5,
-      visible: 4,
+      visible: 5,
       step:    1,
       tfs: ['8H', '1D', '3D', '9D', '27D'],
     },
     bn: {
-      total:   8,
-      visible: 4,
+      total:   5,
+      visible: 5,
       step:    1,
       tfs: ['125m', '1D', '3D', '9D', '27D'],
     },
@@ -11706,8 +11706,8 @@ function buildStack2() {
   // Pick config for current asset (same logic as Stack View 1)
   const assetKey = _stackKeyForAsset(S.asset);
   const cfg = (_stack2Cfg[assetKey] || _stack2Cfg.btc);
-  const total   = Math.max(1, cfg.total   || 6);
-  const visible = Math.max(1, cfg.visible || 4);
+  const total   = Math.max(1, cfg.total   || 5);
+  const visible = Math.max(1, cfg.visible || 5);
   const sc = document.getElementById('stack-container-2');
   if (!sc) return;
   sc.innerHTML = '';
@@ -12361,8 +12361,8 @@ function ss2SwitchAssetTab(tab) {
 
 function _ss2RenderForTab() {
   const cfg = _stack2Cfg[_ss2Tab] || _stack2Cfg.btc;
-  document.getElementById('ss2-total-count').value   = cfg.total   ?? 6;
-  document.getElementById('ss2-visible-count').value = cfg.visible ?? 4;
+  document.getElementById('ss2-total-count').value   = cfg.total   ?? 5;
+  document.getElementById('ss2-visible-count').value = cfg.visible ?? 5;
   document.getElementById('ss2-step-count').value    = cfg.step    ?? 1;
   _ss2RenderTfGrid(cfg);
 }
@@ -12441,8 +12441,8 @@ function closeStack2Settings() {
 function _ss2RenderLabelGrid() { _ss2RenderForTab(); }  // backward compat shim
 
 function ss2ApplyAndClose() {
-  const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 6));
-  const visible = Math.max(1, Math.min(total, parseInt(document.getElementById('ss2-visible-count').value, 10) || 4));
+  const total   = Math.max(1, Math.min(16, parseInt(document.getElementById('ss2-total-count').value, 10)   || 5));
+  const visible = Math.max(1, Math.min(total, parseInt(document.getElementById('ss2-visible-count').value, 10) || 5));
   const step    = Math.max(1, Math.min(4,     parseInt(document.getElementById('ss2-step-count').value, 10)  || 1));
   const tfs = _ss2ReadTfInputs();
   _stack2Cfg[_ss2Tab] = Object.assign({}, _stack2Cfg[_ss2Tab] || {}, { total, visible, step, tfs });
@@ -14764,9 +14764,17 @@ function buildStack() {
   for (let i = 0; i < total; i++) {
     const prior = priorSource && priorSource[i];
     const priorOk = prior && (!prior.asset || prior.asset === S.asset);
+    // vLine (future-line color/offset/style) sirf tab reuse karo jab prior
+    // slot ka TF bhi naye slot ke TF se match kare — warna "Total screens"
+    // badalne/ghatane par ek TF ka custom offset (e.g. 30 bars) kisi bilkul
+    // alag TF wale naye cell par chala jaata tha, jisse future line kabhi
+    // bahut door to kabhi galat dikhti thi. TF mismatch par fresh default
+    // (_activeVLineDefaults()) milta hai, jo buildCellChart mein already
+    // `if (!c.vLine) c.vLine = {..._activeVLineDefaults()}` se lag jaata hai.
+    const priorTfMatches = priorOk && prior.vLine && prior.tf === tfMins[i];
     const cellObj = {
       asset: assets[i], tf: tfMins[i], chart:null, series:null, el:null,
-      vLine: (priorOk && prior.vLine) ? { ...prior.vLine } : null,
+      vLine: priorTfMatches ? { ...prior.vLine } : null,
     };
     STACK_CELLS.push(cellObj);
     CELLS.push(cellObj);   // buildCellChart/wireSync/selectCell all key off CELLS[idx]
