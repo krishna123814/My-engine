@@ -20459,9 +20459,22 @@ function _ocPopulateBtcExpiries(data) {
   if (sel.value !== String(SV1OC.btcExpiryEpoch)) sel.value = SV1OC.btcExpiryEpoch;
   var dot = document.getElementById('oc-btc-ws-dot');
   if (dot) {
-    var live = !!(data.ws && data.ws.mark_connected);
+    // Mark-price WS aur Spot WS — dono connected hone par hi "Live" dikhao.
+    // Pehle sirf mark_connected check hota tha, isliye spot feed silently
+    // mar jaaye to bhi dot green rehta tha — ab dono zaroori hain.
+    var markLive = !!(data.ws && data.ws.mark_connected);
+    var spotLive = !!(data.ws && data.ws.spot_connected);
+    var live = markLive && spotLive;
     dot.classList.toggle('live', live);
-    dot.title = live ? 'Live WebSocket connected' : 'WebSocket connecting…';
+    if (live) {
+      dot.title = 'Live WebSocket connected';
+    } else if (!markLive && !spotLive) {
+      dot.title = 'WebSocket connecting… (mark + spot dono disconnected)';
+    } else if (!spotLive) {
+      dot.title = 'Spot price WebSocket disconnected';
+    } else {
+      dot.title = 'Mark price WebSocket disconnected';
+    }
   }
 }
 function _ocSetBtcExpiry(val) {

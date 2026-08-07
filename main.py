@@ -584,6 +584,7 @@ BINANCE_OC_FILE          = "binance_optionchain.json"
 BINANCE_OC_STRIKE_WINDOW = 10     # ATM ke dono taraf, HAR expiry ke liye itni strikes
 BINANCE_OC_META_TTL      = 600    # exchangeInfo (strikes/expiries) refresh — 10 min
 BINANCE_OC_TICKER_TTL    = 5      # 24hr ticker snapshot (OI/vol/chg%) refresh — 5 sec
+BINANCE_SPOT_STALE_SEC   = 10     # spot WS tick se purana ho to REST se fresh price lo
 
 BINANCE_WS_MARK_URL  = "wss://fstream.binance.com/market/stream?streams=btcusdt@optionMarkPrice"
 BINANCE_WS_TRADE_URL = "wss://fstream.binance.com/public/stream?streams=btcusdt@optionTrade"
@@ -861,10 +862,20 @@ def _bn_rebuild_payload_from_memory() -> dict:
         return {"error": "Option chain metadata load ho raha hai… (exchangeInfo abhi fetch nahi hui, thodi der ruko)"}
 
     with _BN_SPOT_LOCK:
-        spot = _BN_SPOT_PRICE["price"]
-    if spot is None:
-        # WS spot abhi connect nahi hua (rare/startup) — ek-baar REST fallback
-        spot, _err = binance_get_spot_price("BTCUSDT")
+        spot    = _BN_SPOT_PRICE["price"]
+        spot_ts = _BN_SPOT_PRICE["ts"]
+    spot_age = (time.time() - spot_ts) if spot_ts else None
+    if spot is None or spot_age is None or spot_age > BINANCE_SPOT_STALE_SEC:
+        # WS spot ya to abhi connect nahi hua (startup) YA silently mar chuki
+        # hai (BINANCE_SPOT_STALE_SEC se koi naya tick nahi aaya) — dono
+        # cases mein REST se fresh price le lo, taaki frozen number kabhi
+        # permanently serve na ho.
+        _fresh_spot, _err = binance_get_spot_price("BTCUSDT")
+        if _fresh_spot is not None:
+            spot = _fresh_spot
+            with _BN_SPOT_LOCK:
+                _BN_SPOT_PRICE["price"] = _fresh_spot
+                _BN_SPOT_PRICE["ts"]    = time.time()
     if spot is None:
         return {"error": "BTC spot price abhi available nahi (WebSocket connect ho raha hai)"}
 
