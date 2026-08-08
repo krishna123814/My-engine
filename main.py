@@ -82,6 +82,10 @@ def _get_backend_flags():
 def _get_debug_log_store():
     return {"lock": threading.Lock(), "lines": []}
 
+@st.cache_resource
+def _get_order_book_store():
+    return {"symbol": None, "data": None, "last_error": None, "fetching": False, "ts": 0}
+
 LIVE_QUOTES = _get_live_quotes_store()
 WS_STATE = _get_ws_state_store()
 TRADE_WS_STATE = _get_trade_ws_state_store()
@@ -90,6 +94,7 @@ SPOT_STORE = _get_spot_store()
 CREDS = _get_creds_store()
 FLAGS = _get_backend_flags()
 DEBUG_LOG = _get_debug_log_store()
+ORDER_BOOK = _get_order_book_store()
 
 DEBUG_LOG_MAX = 250
 
@@ -192,6 +197,18 @@ def get_option_universe(api_key, underlying=UNDERLYING):
         if parsed and parsed["underlying"] == underlying:
             filtered.append(parsed)
     return True, filtered
+
+def get_order_book(symbol, limit=10):
+    """Fetch live order book (market depth) for a given option symbol."""
+    ok, data = call_api(EAPI_URL, "/eapi/v1/depth", {"symbol": symbol, "limit": limit}, "", signed=False)
+    if not ok:
+        return False, data
+    return True, {
+        "symbol": symbol,
+        "bids": data.get("bids", []),   # [[price, qty], ...]
+        "asks": data.get("asks", []),   # [[price, qty], ...]
+        "ts": int(time.time() * 1000),
+    }
 
 # =====================================================================
 # Option chain map (expiry -> strikes)
@@ -435,6 +452,15 @@ def build_snapshot(selected_expiry):
 
     chain_rows = get_live_chain_for_expiry(selected_expiry) if selected_expiry else []
 
+    order_book_out = {
+        "symbol": ORDER_BOOK["symbol"],
+        "bids": (ORDER_BOOK["data"] or {}).get("bids", []),
+        "asks": (ORDER_BOOK["data"] or {}).get("asks", []),
+        "last_error": ORDER_BOOK["last_error"],
+        "age_sec": age_sec(ORDER_BOOK["ts"]) if ORDER_BOOK["ts"] else None,
+        "fetching": ORDER_BOOK["fetching"],
+    }
+
     snapshot = {
         "generated_at": datetime.now().strftime("%H:%M:%S"),
         "spot": {
@@ -454,6 +480,7 @@ def build_snapshot(selected_expiry):
             "age_sec": age_sec(CHAIN_META["last_loaded_ts"]),
             "symbols_count": len(CHAIN_META["symbols"]),
         },
+        "order_book": order_book_out,
         "debug": {
             "websocket_lib_installed": WEBSOCKET_LIB_OK,
             "api_key_present": bool(CREDS.get("api_key")),
@@ -546,6 +573,25 @@ else:
     if "selected_expiry" not in st.session_state or st.session_state.selected_expiry not in expiries:
         st.session_state.selected_expiry = expiries[0]
     selected_expiry = st.selectbox("Expiry", expiries, key="selected_expiry")
+
+# ── Order book fetch: triggered via query param ?ob_symbol=BTC-YYMMDD-XXXXX-C ──
+qp = st.query_params
+ob_symbol = qp.get("ob_symbol", "")
+if ob_symbol and ob_symbol != ORDER_BOOK.get("symbol"):
+    ORDER_BOOK["symbol"] = ob_symbol
+    ORDER_BOOK["fetching"] = True
+    ORDER_BOOK["last_error"] = None
+    ok, result = get_order_book(ob_symbol, limit=10)
+    if ok:
+        ORDER_BOOK["data"] = result
+        ORDER_BOOK["ts"] = int(time.time() * 1000)
+        ORDER_BOOK["last_error"] = None
+        dlog(f"Order book fetched for {ob_symbol}", level="ok")
+    else:
+        ORDER_BOOK["data"] = None
+        ORDER_BOOK["last_error"] = result
+        dlog(f"Order book FAILED for {ob_symbol}: {result}", level="err")
+    ORDER_BOOK["fetching"] = False
 
 snapshot = build_snapshot(selected_expiry)
 

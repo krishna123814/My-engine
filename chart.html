@@ -92,6 +92,86 @@
   .log-info { color: var(--muted); }
   details summary { cursor: pointer; color: var(--muted); margin-top: 8px; font-size: 0.75rem; }
   #dbg-raw { white-space: pre-wrap; word-break: break-word; background: #05070c; padding: 8px; border-radius: 6px; max-height: 200px; overflow-y: auto; font-size: 0.65rem; margin-top: 6px; }
+
+  /* ── Market Depth Modal ─────────────────────────────────────────── */
+  tr.clickable-row { cursor: pointer; transition: background 0.15s; }
+  tr.clickable-row:hover { background: rgba(240,185,11,0.12) !important; }
+  tr.clickable-row td.strike-cell {
+    position: relative;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  tr.clickable-row td.strike-cell::after {
+    content: "📋";
+    font-size: 0.65rem;
+    margin-left: 4px;
+    opacity: 0.5;
+    vertical-align: middle;
+  }
+
+  #depth-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 10000;
+    align-items: center; justify-content: center;
+  }
+  #depth-overlay.open { display: flex; }
+
+  #depth-modal {
+    background: #151c2c;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px;
+    width: min(92vw, 680px);
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+    position: relative;
+  }
+  #depth-modal h3 { margin: 0 0 4px; font-size: 1rem; color: var(--accent); }
+  #depth-modal .depth-sub { color: var(--muted); font-size: 0.75rem; margin-bottom: 14px; }
+
+  #depth-close {
+    position: absolute; top: 14px; right: 16px;
+    background: none; border: none; color: var(--muted);
+    font-size: 1.4rem; cursor: pointer; line-height: 1;
+  }
+  #depth-close:hover { color: var(--text); }
+
+  .depth-tables { display: flex; gap: 16px; flex-wrap: wrap; }
+  .depth-side { flex: 1; min-width: 200px; }
+  .depth-side h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px; }
+  .depth-side h4.ask-h { color: var(--red); }
+  .depth-side h4.bid-h { color: var(--green); }
+  .depth-side table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .depth-side th { color: var(--muted); font-size: 0.72rem; font-weight: 600; padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+  .depth-side th:first-child { text-align: left; }
+  .depth-side td { padding: 5px 8px; text-align: right; border-bottom: 1px solid rgba(42,46,62,0.5); }
+  .depth-side td:first-child { text-align: left; font-weight: 600; }
+  .depth-side td.ask-price { color: var(--red); }
+  .depth-side td.bid-price { color: var(--green); }
+
+  .depth-bar-cell { position: relative; }
+  .depth-bar {
+    position: absolute; top: 2px; bottom: 2px; border-radius: 2px;
+    opacity: 0.18; pointer-events: none;
+  }
+  .depth-bar.ask-bar { background: var(--red); right: 0; }
+  .depth-bar.bid-bar { background: var(--green); left: 0; }
+
+  #depth-status {
+    text-align: center; padding: 30px 0; color: var(--muted); font-size: 0.85rem;
+  }
+  .depth-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  .depth-tab {
+    padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: none; color: var(--muted); font-size: 0.8rem; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .depth-tab.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+  .depth-spread { text-align: center; padding: 6px; font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 4px 0; }
+  .depth-spread span { color: var(--yellow); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -144,6 +224,39 @@
     <span id="overall-dot" class="dot"></span>
     <span id="overall-text">--</span>
     <span style="margin-left:auto;">Snapshot: <span id="gen-time">--</span></span>
+  </div>
+
+  <!-- ══ Market Depth Modal ══ -->
+  <div id="depth-overlay">
+    <div id="depth-modal">
+      <button id="depth-close" title="Close">✕</button>
+      <h3 id="depth-title">Market Depth</h3>
+      <div class="depth-sub" id="depth-sub">--</div>
+
+      <div class="depth-tabs">
+        <button class="depth-tab active" data-tab="call" id="tab-call">📗 CALL</button>
+        <button class="depth-tab" data-tab="put" id="tab-put">📕 PUT</button>
+      </div>
+
+      <div id="depth-status">Strike select karo — order book load ho raha hai...</div>
+
+      <div class="depth-tables" id="depth-tables" style="display:none;">
+        <div class="depth-side" id="asks-side">
+          <h4 class="ask-h">Asks (Sellers)</h4>
+          <table>
+            <thead><tr><th>Price</th><th>Qty</th><th style="width:80px;">Depth</th></tr></thead>
+            <tbody id="asks-body"></tbody>
+          </table>
+        </div>
+        <div class="depth-side" id="bids-side">
+          <h4 class="bid-h">Bids (Buyers)</h4>
+          <table>
+            <thead><tr><th>Price</th><th>Qty</th><th style="width:80px;">Depth</th></tr></thead>
+            <tbody id="bids-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ══ Debug icon + panel ══ -->
@@ -218,14 +331,18 @@
           Math.abs(r.strike - spotPrice) < Math.abs(best - spotPrice) ? r.strike : best, chain.rows[0].strike);
       }
       tbody.innerHTML = chain.rows.map(row => `
-        <tr class="${row.strike === atmStrike ? 'atm' : ''}">
+        <tr class="${row.strike === atmStrike ? 'atm' : ''} clickable-row"
+            data-call="${row.call_symbol || ''}"
+            data-put="${row.put_symbol || ''}"
+            data-strike="${row.strike}"
+            onclick="openDepth(this)">
           <td class="call">${fmt(row.call_iv)}</td>
           <td class="call">${fmt(row.call_delta, 3)}</td>
           <td class="call">${fmt(row.call_bid)}</td>
           <td class="call">${fmt(row.call_ask)}</td>
           <td class="call">${fmt(row.call_mark)}</td>
           <td class="call">${fmt(row.call_last)}</td>
-          <td style="font-weight:700;color:var(--accent)">${fmt(row.strike, 0)}</td>
+          <td class="strike-cell">${fmt(row.strike, 0)}</td>
           <td class="put">${fmt(row.put_last)}</td>
           <td class="put">${fmt(row.put_mark)}</td>
           <td class="put">${fmt(row.put_ask)}</td>
@@ -342,6 +459,201 @@
   });
 
   render();
+
+  // ══════════════════════════════════════════════════════
+  // MARKET DEPTH (ORDER BOOK) LOGIC
+  // ══════════════════════════════════════════════════════
+  let depthState = {
+    strike: null,
+    callSymbol: null,
+    putSymbol: null,
+    activeTab: "call",   // "call" | "put"
+  };
+
+  // Tab switching
+  document.querySelectorAll(".depth-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".depth-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      depthState.activeTab = btn.dataset.tab;
+      triggerDepthFetch();
+    });
+  });
+
+  // Close modal
+  document.getElementById("depth-close").addEventListener("click", closeDepth);
+  document.getElementById("depth-overlay").addEventListener("click", e => {
+    if (e.target === document.getElementById("depth-overlay")) closeDepth();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeDepth(); });
+
+  function openDepth(row) {
+    depthState.strike    = row.dataset.strike;
+    depthState.callSymbol = row.dataset.call || null;
+    depthState.putSymbol  = row.dataset.put  || null;
+    depthState.activeTab  = "call";
+
+    // Reset tabs UI
+    document.querySelectorAll(".depth-tab").forEach(b => b.classList.remove("active"));
+    document.getElementById("tab-call").classList.add("active");
+
+    document.getElementById("depth-title").textContent =
+      "Market Depth — Strike " + fmt(depthState.strike, 0);
+    document.getElementById("depth-sub").textContent =
+      "CALL: " + (depthState.callSymbol || "N/A") +
+      " | PUT: " + (depthState.putSymbol || "N/A");
+
+    document.getElementById("depth-overlay").classList.add("open");
+    setDepthStatus("⏳ Order book fetch ho rahi hai...");
+    triggerDepthFetch();
+  }
+
+  function closeDepth() {
+    document.getElementById("depth-overlay").classList.remove("open");
+    // Clear query param so next click on same strike re-fetches
+    try {
+      const u = new URL(window.parent.location.href);
+      u.searchParams.delete("ob_symbol");
+      window.parent.history.replaceState({}, "", u.toString());
+    } catch(e) {}
+  }
+
+  function setDepthStatus(msg) {
+    document.getElementById("depth-status").style.display = "block";
+    document.getElementById("depth-status").textContent = msg;
+    document.getElementById("depth-tables").style.display = "none";
+  }
+
+  function triggerDepthFetch() {
+    const sym = depthState.activeTab === "call"
+      ? depthState.callSymbol
+      : depthState.putSymbol;
+
+    if (!sym) {
+      setDepthStatus("❌ Is strike/side ke liye symbol available nahi hai.");
+      return;
+    }
+
+    setDepthStatus("⏳ " + sym + " ka order book fetch ho raha hai...");
+
+    // Tell Streamlit to fetch this symbol's order book via query param
+    try {
+      const u = new URL(window.parent.location.href);
+      u.searchParams.set("ob_symbol", sym);
+      window.parent.history.replaceState({}, "", u.toString());
+    } catch(e) {
+      console.warn("Could not set query param:", e);
+    }
+
+    // Poll snapshot for order_book data (Streamlit will embed it after rerun)
+    pollForOrderBook(sym, 0);
+  }
+
+  function pollForOrderBook(sym, attempt) {
+    if (attempt > 20) {
+      setDepthStatus("⏱ Timeout — Streamlit se data nahi aaya. Thodi der baad retry karo.");
+      return;
+    }
+    // Read current embedded snapshot's order_book field
+    let currentSnap = {};
+    try {
+      currentSnap = JSON.parse(document.getElementById("snapshot-data").textContent);
+    } catch(e) {}
+
+    const ob = currentSnap.order_book || {};
+    if (ob.symbol === sym && !ob.fetching && (ob.bids || ob.asks)) {
+      renderOrderBook(ob);
+    } else if (ob.last_error && ob.symbol === sym) {
+      setDepthStatus("❌ Error: " + ob.last_error);
+    } else {
+      // Not ready yet, wait and re-check
+      setTimeout(() => {
+        // Re-parse latest snapshot (Streamlit may have updated it on rerun)
+        let freshSnap = {};
+        try {
+          freshSnap = JSON.parse(document.getElementById("snapshot-data").textContent);
+        } catch(e) {}
+        const freshOb = freshSnap.order_book || {};
+        if (freshOb.symbol === sym && !freshOb.fetching) {
+          if (freshOb.last_error) {
+            setDepthStatus("❌ Error: " + freshOb.last_error);
+          } else {
+            renderOrderBook(freshOb);
+          }
+        } else {
+          pollForOrderBook(sym, attempt + 1);
+        }
+      }, 600);
+    }
+  }
+
+  function renderOrderBook(ob) {
+    const bids = ob.bids || [];
+    const asks = ob.asks || [];
+
+    if (!bids.length && !asks.length) {
+      setDepthStatus("📭 Is option par koi order book data nahi mila (illiquid / no quotes).");
+      return;
+    }
+
+    document.getElementById("depth-status").style.display = "none";
+    document.getElementById("depth-tables").style.display = "flex";
+
+    const maxBidQty = Math.max(...bids.map(b => parseFloat(b[1]) || 0), 0.001);
+    const maxAskQty = Math.max(...asks.map(a => parseFloat(a[1]) || 0), 0.001);
+
+    // Best bid & ask for spread
+    const bestBid = bids.length ? parseFloat(bids[0][0]) : null;
+    const bestAsk = asks.length ? parseFloat(asks[asks.length - 1][0]) : null;
+
+    // Asks — show highest first (sellers want more)
+    const sortedAsks = [...asks].sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
+    document.getElementById("asks-body").innerHTML = sortedAsks.map(([p, q]) => {
+      const pct = Math.round((parseFloat(q) / maxAskQty) * 100);
+      return `<tr>
+        <td class="ask-price">${fmt(p, 4)}</td>
+        <td>${fmt(q, 3)}</td>
+        <td class="depth-bar-cell" style="position:relative;">
+          <div class="depth-bar ask-bar" style="width:${pct}%;"></div>
+          <span style="position:relative;z-index:1;">${fmt(q, 3)}</span>
+        </td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="3" style="color:var(--muted);text-align:center;">No asks</td></tr>`;
+
+    // Spread row
+    if (bestBid !== null && bestAsk !== null) {
+      const spread = bestAsk - bestBid;
+      const mid = (bestBid + bestAsk) / 2;
+      const spreadPct = mid > 0 ? ((spread / mid) * 100).toFixed(2) : "--";
+      const spreadRow = `<tr class="depth-spread" style="display:table-row;">
+        <td colspan="3" style="text-align:center;color:var(--muted);font-size:0.72rem;padding:4px 0;">
+          Spread: <span style="color:var(--yellow);font-weight:600;">${fmt(spread, 4)}</span>
+          (${spreadPct}%) | Mid: <span style="color:var(--accent);">${fmt(mid, 4)}</span>
+        </td>
+      </tr>`;
+      document.getElementById("asks-body").innerHTML += spreadRow;
+    }
+
+    // Bids — show highest first (best buyer on top)
+    const sortedBids = [...bids].sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
+    document.getElementById("bids-body").innerHTML = sortedBids.map(([p, q]) => {
+      const pct = Math.round((parseFloat(q) / maxBidQty) * 100);
+      return `<tr>
+        <td class="bid-price">${fmt(p, 4)}</td>
+        <td>${fmt(q, 3)}</td>
+        <td class="depth-bar-cell" style="position:relative;">
+          <div class="depth-bar bid-bar" style="width:${pct}%;"></div>
+          <span style="position:relative;z-index:1;">${fmt(q, 3)}</span>
+        </td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="3" style="color:var(--muted);text-align:center;">No bids</td></tr>`;
+
+    // Update sub heading with age
+    const age = ob.age_sec !== null && ob.age_sec !== undefined ? ob.age_sec + "s ago" : "";
+    document.getElementById("depth-sub").textContent =
+      (depthState.activeTab === "call" ? "CALL: " : "PUT: ") +
+      (ob.symbol || "") + (age ? " — updated " + age : "");
+  }
 </script>
 </body>
 </html>
