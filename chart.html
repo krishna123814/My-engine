@@ -814,16 +814,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   padding:0 3px;
   box-sizing:border-box;
 }
-/* Combined status icon: 2x2 grid of dots — row1 = BTC candle feed
-   (tick/candle), row2 = BTC Option Chain LTP feed (mark/trade), merged
-   here so top-header debug covers both BTC feeds in one place. */
+/* Combined status icon: 3-col grid of dots — row1 = BTC candle feed
+   (tick/candle) + boot/login, row2 = BTC Option Chain LTP feed
+   (mark/trade), merged here so top-header debug covers BTC feeds AND
+   app-startup/login status in one place. */
 #sv1-debug-icon{
   display:grid;
-  grid-template-columns:repeat(2,1fr);
+  grid-template-columns:repeat(3,1fr);
   align-items:center;
   justify-content:center;
   gap:2px;
-  width:16px;
+  width:20px;
   height:16px;
   border-radius:3px;
   background:rgba(30,34,45,0.7);
@@ -844,6 +845,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   border-color:#26a69a;
   background:#26a69a;
   box-shadow:0 0 4px #26a69a;
+}
+.sv1-debug-dot.err{
+  border-color:#ef5350;
+  background:#ef5350;
+  box-shadow:0 0 4px #ef5350;
 }
 /* ── Debug Log Popup ── */
 #sv1-debug-popup{
@@ -881,6 +887,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 #sv1-debug-popup-log .log-ok  { color:#26a69a; }
 #sv1-debug-popup-log .log-err { color:#ef5350; }
+#sv1-debug-popup-log .log-warn{ color:#f0b90b; }
 #sv1-debug-popup-copy{
   margin-top:8px;
   width:100%;
@@ -905,66 +912,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv1-debug-start-btn.sv1-debug-ctrl-active{ background:#26a69a33; border-color:#26a69a; color:#26a69a; }
 #sv1-debug-stop-btn.sv1-debug-ctrl-active{ background:#ef535033; border-color:#ef5350; color:#ef5350; }
 #sv1-debug-autostart-btn.sv1-debug-ctrl-active{ background:#2962ff33; border-color:#2962ff; color:#2962ff; }
-
-/* ── Boot / Login Startup Debug Tracker — icon-only, next to sv1-debug ── */
-#boot-debug-tracker{
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  flex-shrink:0;
-  width:22px;
-  height:22px;
-  cursor:pointer;
-  position:relative;
-  border-right:1px solid #363c4e;
-  padding:0 3px;
-  box-sizing:border-box;
-  font-size:11px;
-}
-#boot-debug-dot{
-  width:6px;height:6px;border-radius:50%;
-  border:1px solid #555;background:transparent;
-  transition:background .3s,box-shadow .3s,border-color .3s;
-}
-#boot-debug-dot.err{ border-color:#ef5350; background:#ef5350; box-shadow:0 0 4px #ef5350; }
-#boot-debug-dot.ok{  border-color:#26a69a; background:#26a69a; box-shadow:0 0 4px #26a69a; }
-#boot-debug-popup{
-  display:none;
-  position:fixed;
-  top:30px;
-  left:50%;
-  transform:translateX(-50%);
-  z-index:9999;
-  background:#1a1d27;
-  border:1px solid #363c4e;
-  border-radius:6px;
-  padding:8px 10px;
-  min-width:270px;
-  max-width:440px;
-  max-height:70vh;
-  overflow:auto;
-  box-shadow:0 4px 20px rgba(0,0,0,.7);
-}
-#boot-debug-popup.open{ display:block; }
-#boot-debug-popup-title{
-  font-size:9px;font-weight:700;color:#9598a1;margin-bottom:6px;
-  letter-spacing:.4px;text-transform:uppercase;
-}
-#boot-debug-popup-sub{
-  font-size:8.5px;color:#666;margin:-4px 0 6px;line-height:13px;
-}
-#boot-debug-popup-log{
-  font-size:9px;color:#c0c0c0;line-height:15px;
-  white-space:pre-wrap;word-break:break-all;
-}
-#boot-debug-popup-log .log-ok  { color:#26a69a; }
-#boot-debug-popup-log .log-err { color:#ef5350; }
-#boot-debug-popup-log .log-warn{ color:#f0b90b; }
-#boot-debug-popup-copy{
-  margin-top:8px;width:100%;height:26px;background:#363c4e;border:none;
-  border-radius:4px;color:#e0e0e0;font-size:10px;cursor:pointer;letter-spacing:.3px;
-}
-#boot-debug-popup-copy:active{ background:#26a69a; color:#fff; }
 
 #hdr-ohlc{
   display:none;font-size:9px;color:#787b86;flex:2;
@@ -4268,23 +4215,11 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </button>
   </div>
 
-  <div id="boot-debug-tracker" title="App Startup / Login Debug — tap to view log" onclick="_bootDebugPopupToggle()">
-    <span id="boot-debug-dot"></span>
-  </div>
-
-  <!-- ── App Startup / Login Debug Popup — poore backend startup ka trace,
-       login se lekar chart render hone tak, exceptions samet ── -->
-  <div id="boot-debug-popup">
-    <div id="boot-debug-popup-title">🚀 App Startup / Login Debug Log</div>
-    <div id="boot-debug-popup-sub">Ye log tab tak ka trace hai jab tak ye page (chart) render hua — login, credential-check, background-thread launch, aur koi bhi crash/exception isme dikhega.</div>
-    <div id="boot-debug-popup-log"></div>
-    <button id="boot-debug-popup-copy" onclick="_bootDebugPopupCopy()">📋 Copy Log</button>
-  </div>
-
-  <div id="sv1-debug-tracker" title="BTC Live + Option Chain Debug (auto-fix on) — tap to view log" onclick="_sv1DebugPopupToggle()">
+  <div id="sv1-debug-tracker" title="BTC Live + Option Chain + App Startup/Login Debug (auto-fix on) — tap to view log" onclick="_sv1DebugPopupToggle()">
     <div id="sv1-debug-icon">
       <span class="sv1-debug-dot" id="sv1-debug-tick-dot"></span>
       <span class="sv1-debug-dot" id="sv1-debug-candle-dot"></span>
+      <span class="sv1-debug-dot" id="sv1-debug-boot-dot" title="App Startup / Login"></span>
       <span class="sv1-debug-dot" id="sv1-debug-mark-dot" title="Option Chain: Mark price WS"></span>
       <span class="sv1-debug-dot" id="sv1-debug-trade-dot" title="Option Chain: Trade WS"></span>
     </div>
@@ -4299,7 +4234,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
   <!-- ── Debug Log Popup ── -->
   <div id="sv1-debug-popup">
-    <div id="sv1-debug-popup-title">📡 BTC Live Feed + Option Chain LTP Log</div>
+    <div id="sv1-debug-popup-title">📡 BTC Live Feed + Option Chain LTP + App Startup/Login Log</div>
     <div id="sv1-debug-ctrl-row">
       <button id="sv1-debug-start-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugEnable()" title="Debug chalu karo">▶ Start</button>
       <button id="sv1-debug-stop-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugDisable()" title="Debug band karo">■ Stop</button>
@@ -19839,6 +19774,23 @@ function _sv1DebugPopupRefreshLog() {
     }
   }
 
+  // ── App Startup / Login Debug log (pehle alag "boot-debug-tracker" mein
+  // tha, ab yahan isi merged popup mein) — window.__STARTUP_LOG__ backend
+  // (main.py) se STATIC snapshot hai jab tak ye page render hui thi. ──
+  const _bootLines = (window.__STARTUP_LOG__ && window.__STARTUP_LOG__.length) ? window.__STARTUP_LOG__ : null;
+  let bootHtml;
+  if (!_bootLines) {
+    bootHtml = '<span>⏳ Startup log abhi backend se nahi mila (page abhi reload nahi hui hai, ya render se pehle ka data hai).</span>';
+  } else {
+    bootHtml = _bootLines.map(function(l) {
+      const cls = l.level === 'err' ? 'log-err' : (l.level === 'warn' ? 'log-warn' : (l.level === 'ok' ? 'log-ok' : ''));
+      const safe = String(l.msg).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const prefix = l.t + '  ';
+      return cls ? ('<span class="' + cls + '">' + prefix + safe + '</span>') : (prefix + safe);
+    }).join('\n');
+  }
+  html += '\n<span>' + '─'.repeat(20) + ' App Startup / Login ' + '─'.repeat(20) + '</span>\n' + bootHtml;
+
   logEl.innerHTML = html;
 }
 
@@ -19867,81 +19819,35 @@ function _sv1DebugFallbackCopy(text, btn) {
   ta.remove();
 }
 
-// ── App Startup / Login Debug Popup ─────────────────────────────────────────
+// ── App Startup / Login Debug — ab sv1-debug tracker/popup mein merged ─────
 // window.__STARTUP_LOG__ backend se (main.py, _build_chart_html) embed hota
 // hai — ye ek STATIC snapshot hai jitna backend ne page render karte waqt
 // tak record kiya tha (login, creds-check, thread-launch, exceptions).
 // Isliye "refresh" ka matlab hai poori page reload karna, kyunki naya
 // snapshot sirf naye render ke saath hi aa sakta hai — koi live polling
 // nahi karte isme (jaanbojh kar simple/lightweight rakha hai).
+// Ye function ab sirf sv1-debug-icon ke 5th (boot) dot ka color set karta
+// hai; poora log text ab _sv1DebugPopupRefreshLog() ke andar merged
+// popup mein render hota hai.
 function _bootDebugRenderLog() {
-  const logEl = document.getElementById('boot-debug-popup-log');
-  const dotEl = document.getElementById('boot-debug-dot');
-  if (!logEl) return;
+  const dotEl = document.getElementById('sv1-debug-boot-dot');
+  if (!dotEl) return;
   const lines = (window.__STARTUP_LOG__ && window.__STARTUP_LOG__.length) ? window.__STARTUP_LOG__ : null;
-  if (!lines) {
-    logEl.innerHTML = '<span>⏳ Startup log abhi backend se nahi mila (page abhi reload nahi hui hai, ya render se pehle ka data hai).</span>';
-    if (dotEl) dotEl.className = '';
-    return;
-  }
+  dotEl.classList.remove('ok', 'err');
+  if (!lines) return;
   let hasErr = false;
-  const html = lines.map(function(l) {
-    const cls = l.level === 'err' ? 'log-err' : (l.level === 'warn' ? 'log-warn' : (l.level === 'ok' ? 'log-ok' : ''));
-    if (l.level === 'err') hasErr = true;
-    const safe = String(l.msg).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const prefix = l.t + '  ';
-    return cls ? ('<span class="' + cls + '">' + prefix + safe + '</span>') : (prefix + safe);
-  }).join('\n');
-  logEl.innerHTML = html;
-  if (dotEl) dotEl.className = hasErr ? 'err' : 'ok';
-}
-
-function _bootDebugPopupToggle() {
-  const popup = document.getElementById('boot-debug-popup');
-  if (!popup) return;
-  const isOpen = popup.classList.contains('open');
-  if (isOpen) {
-    popup.classList.remove('open');
-  } else {
-    _bootDebugRenderLog();
-    popup.classList.add('open');
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].level === 'err') { hasErr = true; break; }
   }
-}
-
-function _bootDebugPopupCopy() {
-  const logEl = document.getElementById('boot-debug-popup-log');
-  const copyBtn = document.getElementById('boot-debug-popup-copy');
-  if (!logEl) return;
-  const text = logEl.innerText || logEl.textContent;
-  try {
-    navigator.clipboard.writeText(text).then(() => {
-      if (copyBtn) { copyBtn.textContent = '✅ Copied!'; setTimeout(() => { copyBtn.textContent = '📋 Copy Log'; }, 1800); }
-    }).catch(() => { _sv1DebugFallbackCopy(text, copyBtn); });
-  } catch(_) {
-    _sv1DebugFallbackCopy(text, copyBtn);
+  dotEl.classList.add(hasErr ? 'err' : 'ok');
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+    _sv1DebugPopupRefreshLog();
   }
 }
 
 // Startup log load hote hi ek baar dot ka color set kar do (bina popup khole)
 // taaki user ko pata chal jaaye agar koi error hai, popup khole bina.
 try { _bootDebugRenderLog(); } catch(_) {}
-
-document.addEventListener('touchstart', function(e) {
-  const popup = document.getElementById('boot-debug-popup');
-  const tracker = document.getElementById('boot-debug-tracker');
-  if (!popup || !popup.classList.contains('open')) return;
-  if (!popup.contains(e.target) && !tracker.contains(e.target)) {
-    popup.classList.remove('open');
-  }
-}, { passive: true });
-document.addEventListener('click', function(e) {
-  const popup = document.getElementById('boot-debug-popup');
-  const tracker = document.getElementById('boot-debug-tracker');
-  if (!popup || !popup.classList.contains('open')) return;
-  if (!popup.contains(e.target) && !tracker.contains(e.target)) {
-    popup.classList.remove('open');
-  }
-});
 
 // ── Close popup on outside tap ────────────────────────────────────────────
 document.addEventListener('touchstart', function(e) {
