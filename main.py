@@ -2,7 +2,7 @@
 Binance Option Chain — WebSocket-first architecture
 =====================================================
 Spot price      : WebSocket (btcusdt@trade) — real-time
-Option chain    : WebSocket (@ticker per expiry) — real-time bid/ask/mark/iv/delta
+Option chain    : WebSocket (@optionTicker per expiry) — real-time bid/ask/mark/iv/delta
 Chain metadata  : REST once + every 10 min (symbols/strikes/expiries)
 Order book REST : REST on-demand (initial snapshot on strike click)
 Order book live : Browser-side JS WebSocket (no Streamlit rerun needed → no blink)
@@ -62,7 +62,7 @@ def _get_ws_states():
                    "last_message_ts": 0, "connect_count": 0, "error_count": 0},
         "ticker": {"running": False, "connected": False, "last_error": None,
                    "last_message_ts": 0, "connect_count": 0, "error_count": 0,
-                   "subscribed_expiry": None},
+                   "subscribed_expiry": None, "active_url": None, "tried_urls": []},
     }
 
 @st.cache_resource
@@ -91,6 +91,10 @@ def _get_order_book_store():
     return {"symbol": None, "data": None, "last_error": None, "fetching": False, "ts": 0}
 
 @st.cache_resource
+def _get_render_stats_store():
+    return {"lock": threading.Lock(), "script_runs": 0, "fragment_runs": 0}
+
+@st.cache_resource
 def _get_ticker_ws_ref():
     # holds the live wsapp so we can close/resubscribe when expiry changes
     return {"wsapp": None, "lock": threading.Lock()}
@@ -104,6 +108,7 @@ FLAGS         = _get_backend_flags()
 DEBUG_LOG     = _get_debug_log_store()
 ORDER_BOOK    = _get_order_book_store()
 TICKER_WS_REF = _get_ticker_ws_ref()
+RENDER_STATS  = _get_render_stats_store()
 
 # shortcuts
 SPOT_WS   = WS_STATES["spot"]
@@ -298,15 +303,27 @@ def find_global_nearest_strike(spot_price):
 # ─────────────────────────────────────────────────────────────────────
 # Generic WebSocket loop
 # ─────────────────────────────────────────────────────────────────────
-def _ws_loop(name, state, url, on_message_fn, store_wsapp_ref=None):
+def _ws_loop(name, state, url_or_urls, on_message_fn, store_wsapp_ref=None):
+    """
+    Runs a reconnecting WebSocket loop.
+    url_or_urls can be a single URL string, or a list of candidate URLs —
+    when a list is given, each connection attempt tries the next candidate
+    in rotation and logs which one it's trying, so you can see in the debug
+    log which endpoint actually works.
+    """
+    urls = url_or_urls if isinstance(url_or_urls, (list, tuple)) else [url_or_urls]
+    idx = 0
+    attempt_connected = {"v": False}
+
     def _on_open(ws):
         state["connected"]     = True
         state["last_error"]    = None
         state["connect_count"] += 1
+        attempt_connected["v"] = True
         if store_wsapp_ref is not None:
             with TICKER_WS_REF["lock"]:
                 TICKER_WS_REF["wsapp"] = ws
-        dlog(f"{name} WS connected", level="ok")
+        dlog(f"{name} WS connected -> {state.get('active_url')}", level="ok")
 
     def _on_message(ws, message):
         try:
@@ -326,7 +343,7 @@ def _ws_loop(name, state, url, on_message_fn, store_wsapp_ref=None):
         state["connected"]    = False
         state["last_error"]   = str(error)
         state["error_count"] += 1
-        dlog(f"{name} WS error: {error}", level="err")
+        dlog(f"{name} WS error on {state.get('active_url')}: {error}", level="err")
 
     def _on_close(ws, code, msg):
         state["connected"] = False
@@ -336,6 +353,13 @@ def _ws_loop(name, state, url, on_message_fn, store_wsapp_ref=None):
         dlog(f"{name} WS closed (code={code})", level="warn")
 
     while state["running"]:
+        url = urls[idx % len(urls)]
+        state["active_url"] = url
+        attempt_connected["v"] = False
+        if "tried_urls" in state and url not in state["tried_urls"]:
+            state["tried_urls"].append(url)
+        if len(urls) > 1:
+            dlog(f"{name} WS trying candidate {idx % len(urls) + 1}/{len(urls)}: {url}")
         try:
             wsapp = websocket.WebSocketApp(
                 url,
@@ -346,8 +370,13 @@ def _ws_loop(name, state, url, on_message_fn, store_wsapp_ref=None):
         except Exception as e:
             state["last_error"]   = str(e)
             state["connected"]    = False
-            dlog_exception(f"{name} WS loop", e)
+            dlog_exception(f"{name} WS loop ({url})", e)
         if state["running"]:
+            # If this URL never connected during this attempt, move on to the
+            # next candidate. If it did connect and later dropped, retry the
+            # same URL first (it's the one that's known to work).
+            if not attempt_connected["v"]:
+                idx += 1
             time.sleep(3)
 
 # ─────────────────────────────────────────────────────────────────────
@@ -546,17 +575,29 @@ def start_ticker_ws_for_expiry(expiry):
                 pass
         time.sleep(0.5)
 
-    streams = "/".join(f"{s.lower()}@ticker" for s in symbols)
-    url = f"wss://nbstream.binance.com/eoptions/stream?streams={streams}"
+    # Per official Binance Options docs, the correct stream name is @optionTicker
+    # (not @ticker) and the correct base URL is fstream.binance.com/public/ or
+    # /market/ (not nbstream.binance.com/eoptions/, which returns 404).
+    # We try the documented candidates first and keep the old URL as a last
+    # resort fallback, in case Binance routes it differently in practice.
+    streams_new = "/".join(f"{s.lower()}@optionTicker" for s in symbols)
+    streams_old = "/".join(f"{s.lower()}@ticker" for s in symbols)
+    url_candidates = [
+        f"wss://fstream.binance.com/public/stream?streams={streams_new}",
+        f"wss://fstream.binance.com/market/stream?streams={streams_new}",
+        f"wss://nbstream.binance.com/eoptions/stream?streams={streams_old}",
+    ]
     TICKER_WS["running"]            = True
     TICKER_WS["subscribed_expiry"]  = expiry
+    TICKER_WS["tried_urls"]         = []
     threading.Thread(
         target=_ws_loop,
-        args=("Ticker", TICKER_WS, url, _update_from_ticker),
+        args=("Ticker", TICKER_WS, url_candidates, _update_from_ticker),
         kwargs={"store_wsapp_ref": True},
         daemon=True,
     ).start()
-    dlog(f"Ticker WS started for expiry {expiry} ({len(symbols)} symbols)", level="ok")
+    dlog(f"Ticker WS started for expiry {expiry} ({len(symbols)} symbols), "
+         f"{len(url_candidates)} endpoint candidates queued", level="ok")
 
 # ─────────────────────────────────────────────────────────────────────
 # Background loops
@@ -638,6 +679,10 @@ def build_snapshot(selected_expiry):
         "debug": {
             "websocket_lib_installed": WEBSOCKET_LIB_OK,
             "api_key_present":         bool(CREDS.get("api_key")),
+            "render_stats": {
+                "script_runs":    RENDER_STATS["script_runs"],
+                "fragment_runs":  RENDER_STATS["fragment_runs"],
+            },
             "ws_spot":   {
                 "running":           SPOT_WS["running"],
                 "connected":         SPOT_WS["connected"],
@@ -670,6 +715,8 @@ def build_snapshot(selected_expiry):
                 "subscribed_expiry":    TICKER_WS["subscribed_expiry"],
                 "connect_count":        TICKER_WS["connect_count"],
                 "error_count":          TICKER_WS["error_count"],
+                "active_url":           TICKER_WS.get("active_url"),
+                "tried_urls":           TICKER_WS.get("tried_urls", []),
             },
             "log": debug_log_snapshot(),
         },
@@ -720,6 +767,8 @@ if not st.session_state.binance_logged_in:
 
 # ── Dashboard ───────────────────────────────────────────────────────
 ensure_backend_started()
+with RENDER_STATS["lock"]:
+    RENDER_STATS["script_runs"] += 1
 
 top_col1, top_col2, top_col3 = st.columns([5, 2, 1])
 with top_col1:
@@ -763,16 +812,31 @@ if ob_symbol and ob_symbol != ORDER_BOOK.get("symbol"):
         dlog(f"Order book REST FAILED: {ob_symbol}: {result}", level="err")
     ORDER_BOOK["fetching"] = False
 
-snapshot   = build_snapshot(selected_expiry)
 chart_path = Path(__file__).parent / "chart.html"
 
-if chart_path.exists():
-    html = chart_path.read_text(encoding="utf-8")
-    html = html.replace("__SNAPSHOT_JSON__", json.dumps(snapshot))
-    components.html(html, height=950, scrolling=True)
-else:
-    st.error("chart.html not found — same folder me rakho.")
+def _render_chart():
+    """Builds the snapshot + renders chart.html. Scoped in a fragment so that
+    only this piece of the page reruns on refresh — the title, selectors,
+    and rest of the layout above it stay put, which cuts down on the
+    full-page blink that a full st.rerun() causes."""
+    with RENDER_STATS["lock"]:
+        RENDER_STATS["fragment_runs"] += 1
+    snapshot = build_snapshot(selected_expiry)
+    if chart_path.exists():
+        html = chart_path.read_text(encoding="utf-8")
+        html = html.replace("__SNAPSHOT_JSON__", json.dumps(snapshot))
+        components.html(html, height=950, scrolling=True)
+    else:
+        st.error("chart.html not found — same folder me rakho.")
 
-if auto_refresh:
-    time.sleep(refresh_sec)
-    st.rerun()
+if hasattr(st, "fragment"):
+    if auto_refresh:
+        st.fragment(_render_chart, run_every=f"{refresh_sec}s")()
+    else:
+        st.fragment(_render_chart)()
+else:
+    # Older Streamlit without st.fragment support — fall back to full rerun.
+    _render_chart()
+    if auto_refresh:
+        time.sleep(refresh_sec)
+        st.rerun()

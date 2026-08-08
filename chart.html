@@ -47,6 +47,28 @@
   .dot.err  { background:var(--red); }
   .dot.warn { background:var(--yellow); }
 
+  /* ── Blink/reload detector ── */
+  #reload-flash {
+    position:fixed; top:0; left:0; right:0; height:4px; z-index:10001;
+    background:var(--accent); opacity:1; pointer-events:none;
+    animation: reloadFlashFade 900ms ease-out forwards;
+  }
+  @keyframes reloadFlashFade {
+    0%   { opacity:1; }
+    100% { opacity:0; }
+  }
+  #reload-badge {
+    position:fixed; top:8px; left:50%; transform:translateX(-50%);
+    background:var(--card); border:1px solid var(--accent); color:var(--accent);
+    font-size:.68rem; padding:2px 10px; border-radius:20px; z-index:10001;
+    opacity:0; pointer-events:none; animation: reloadBadgeFade 900ms ease-out forwards;
+  }
+  @keyframes reloadBadgeFade {
+    0%   { opacity:1; }
+    70%  { opacity:1; }
+    100% { opacity:0; }
+  }
+
   /* ── Debug FAB + panel ── */
   #debug-fab {
     position:fixed; right:18px; bottom:18px; width:46px; height:46px;
@@ -226,6 +248,8 @@
   <span id="overall-text">--</span>
   <span style="margin-left:auto;">Snapshot: <span id="gen-time">--</span></span>
 </div>
+<div id="reload-flash"></div>
+<div id="reload-badge">🔄 Page reloaded</div>
 
 <!-- ══ Market Depth Modal ══ -->
 <div id="depth-overlay">
@@ -268,7 +292,12 @@
 <!-- ── Debug FAB + panel ── -->
 <div id="debug-fab" title="Debug panel">🐞</div>
 <div id="debug-panel">
-  <h4>🐞 Debug — Live System Status</h4>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+    <h4 style="margin:0;">🐞 Debug — Live System Status</h4>
+    <button id="dbg-copy-btn" style="background:var(--card);border:1px solid var(--border);
+      color:var(--text);border-radius:6px;padding:4px 10px;font-size:.7rem;cursor:pointer;
+      white-space:nowrap;">📋 Copy</button>
+  </div>
   <div class="dbg-grid" id="dbg-grid"></div>
   <div id="dbg-errors"></div>
   <div style="color:var(--muted);font-size:.72rem;margin:8px 0 4px;">Live log</div>
@@ -287,6 +316,40 @@
 let snap = {};
 try { snap = JSON.parse(document.getElementById("snapshot-data").textContent); }
 catch(e) { snap = { error: "Snapshot parse error: " + e }; }
+
+// ═══════════════════════════════════════════════════════════
+// BLINK / RELOAD DETECTOR
+// Every time this <script> runs, the whole document has just been
+// (re)loaded into the iframe — that IS the blink. window.name survives
+// full document reloads within the same window/iframe object (even across
+// srcdoc changes), so we use it as a poor-man's persistent counter to prove
+// whether reloads are actually happening, and how often.
+// ═══════════════════════════════════════════════════════════
+let __reloadCount = 1;
+let __msSincePrevReload = null;
+(function() {
+  const nowTs = Date.now();
+  try {
+    const prev = window.name ? JSON.parse(window.name) : null;
+    if (prev && prev.__dbgReload) {
+      __reloadCount = (prev.count || 0) + 1;
+      __msSincePrevReload = nowTs - (prev.ts || nowTs);
+    }
+  } catch (e) { /* window.name wasn't ours — treat as first load */ }
+  try {
+    window.name = JSON.stringify({ __dbgReload: true, count: __reloadCount, ts: nowTs });
+  } catch (e) { /* ignore if window.name is locked down */ }
+})();
+// If this isn't truly the first load of the tab, show the flash + badge —
+// on a genuine first load there's nothing to compare against yet.
+if (__reloadCount > 1) {
+  // elements already animate on load via CSS; nothing else needed here.
+} else {
+  const rf = document.getElementById("reload-flash");
+  const rb = document.getElementById("reload-badge");
+  if (rf) rf.style.display = "none";
+  if (rb) rb.style.display = "none";
+}
 
 function fmt(n, d=2) {
   if (n === null || n === undefined || n === "") return "--";
@@ -363,7 +426,7 @@ function render() {
       </tr>`).join("");
   } else {
     tbody.innerHTML = `<tr><td colspan="13" style="color:var(--muted);padding:20px;">
-      ${chain.last_error ? "Chain error: "+chain.last_error : "No data for this expiry yet"}
+      No data for this expiry yet ${chain.last_error ? "— see 🐞 Debug panel for error details" : ""}
     </td></tr>`;
   }
 
@@ -398,7 +461,22 @@ function render() {
 
 function renderDebugPanel(dbg, spot, chain) {
   const ws = (s) => s || {};
+  const reloadInfo = __reloadCount > 1
+    ? `${__reloadCount} loads so far · last gap ${__msSincePrevReload}ms ago`
+    : `1 load so far (first load)`;
   document.getElementById("dbg-grid").innerHTML = `
+    <div class="dbg-item" style="grid-column:1/-1;border-color:${__reloadCount>3?'var(--red)':'var(--border)'};">
+      <div class="t">🔄 Blink detector (this tab)</div>
+      <div class="v" style="font-weight:400;font-size:.72rem;">${reloadInfo}</div>
+      <div style="color:var(--muted);font-size:.65rem;margin-top:2px;">
+        Har baar yeh count badhta hai aur badge/flash dikhta hai, iska matlab iframe fully reload hui — yehi blink hai.
+        Agar count refresh interval jitni baar hi badh raha hai, blink ho rahi hai. Agar stable rehta hai, blink nahi.
+      </div>
+    </div>
+    <div class="dbg-item"><div class="t">Server script reruns</div>
+      <div class="v">${dbg.render_stats ? dbg.render_stats.script_runs : "--"}</div></div>
+    <div class="dbg-item"><div class="t">Server fragment reruns</div>
+      <div class="v">${dbg.render_stats ? dbg.render_stats.fragment_runs : "--"}</div></div>
     <div class="dbg-item"><div class="t">API Key</div>
       <div class="v">${statusDot(dbg.api_key_present)} ${dbg.api_key_present?"Present":"Missing"}</div></div>
     <div class="dbg-item"><div class="t">WS lib</div>
@@ -419,6 +497,10 @@ function renderDebugPanel(dbg, spot, chain) {
       <div class="v">${statusDot(ws(dbg.ws_ticker).connected)} ${ws(dbg.ws_ticker).connected?"Live":"Down"}</div></div>
     <div class="dbg-item"><div class="t">Ticker expiry</div>
       <div class="v">${ws(dbg.ws_ticker).subscribed_expiry||"--"}</div></div>
+    <div class="dbg-item" style="grid-column:1/-1;"><div class="t">Ticker active URL</div>
+      <div class="v" style="font-weight:400;font-size:.68rem;word-break:break-all;">${ws(dbg.ws_ticker).active_url||"--"}</div></div>
+    <div class="dbg-item" style="grid-column:1/-1;"><div class="t">Ticker endpoints tried</div>
+      <div class="v" style="font-weight:400;font-size:.68rem;">${(ws(dbg.ws_ticker).tried_urls||[]).length || 0} candidate(s)</div></div>
     <div class="dbg-item"><div class="t">Chain meta</div>
       <div class="v">${statusDot(chain.last_ok)} ${chain.symbols_count||0} sym</div></div>
     <div class="dbg-item"><div class="t">Chain loaded</div>
@@ -446,6 +528,70 @@ function renderDebugPanel(dbg, spot, chain) {
 document.getElementById("debug-fab").addEventListener("click", () => {
   document.getElementById("debug-panel").classList.toggle("open");
 });
+
+function buildDebugReportText() {
+  const dbg = snap.debug || {};
+  const spot = snap.spot || {};
+  const chain = snap.chain || {};
+  const ws = (s) => s || {};
+  const lines = [];
+  lines.push("=== Debug Report — " + (snap.generated_at || "") + " ===");
+  lines.push("Blink detector: " + (__reloadCount > 1
+    ? `${__reloadCount} full loads so far, last gap ${__msSincePrevReload}ms`
+    : "1 load so far (first load)"));
+  lines.push("Server script reruns: " + (dbg.render_stats ? dbg.render_stats.script_runs : "--") +
+    " | fragment reruns: " + (dbg.render_stats ? dbg.render_stats.fragment_runs : "--"));
+  lines.push("API Key: " + (dbg.api_key_present ? "Present" : "Missing"));
+  lines.push("WS lib: " + (dbg.websocket_lib_installed ? "OK" : "Missing"));
+  lines.push("Spot WS: " + (ws(dbg.ws_spot).connected ? "Live" : "Down") +
+    " | msgs: " + (spot.msg_count||0) + " rx / " + (spot.err_count||0) + " err");
+  lines.push("Mark-Price WS: " + (ws(dbg.ws_mark).connected ? "Live" : "Down") +
+    " | last msg: " + ageText(ws(dbg.ws_mark).last_msg_age_sec));
+  lines.push("Trade WS: " + (ws(dbg.ws_trade).connected ? "Live" : "Down") +
+    " | last msg: " + ageText(ws(dbg.ws_trade).last_msg_age_sec));
+  lines.push("Ticker WS: " + (ws(dbg.ws_ticker).connected ? "Live" : "Down") +
+    " | expiry: " + (ws(dbg.ws_ticker).subscribed_expiry||"--"));
+  lines.push("Ticker active URL: " + (ws(dbg.ws_ticker).active_url||"--"));
+  (ws(dbg.ws_ticker).tried_urls||[]).forEach((u,i) => lines.push("  candidate " + (i+1) + ": " + u));
+  lines.push("Chain meta: " + (chain.last_ok ? "OK" : "FAIL") +
+    " | " + (chain.symbols_count||0) + " symbols | loaded " + ageText(chain.age_sec));
+  lines.push("");
+  lines.push("--- Errors ---");
+  const errs = [];
+  if (spot.last_error) errs.push("Spot: " + spot.last_error);
+  if (chain.last_error) errs.push("Chain: " + chain.last_error);
+  ["ws_spot","ws_mark","ws_trade","ws_ticker"].forEach(k => {
+    if (dbg[k] && dbg[k].last_error) errs.push(k + ": " + dbg[k].last_error);
+  });
+  lines.push(errs.length ? errs.join("\n") : "No errors");
+  lines.push("");
+  lines.push("--- Live log ---");
+  (dbg.log||[]).forEach(l => lines.push(`[${l.t}] ${l.level.toUpperCase()}: ${l.msg}`));
+  lines.push("");
+  lines.push("--- Raw snapshot JSON ---");
+  lines.push(JSON.stringify(snap, null, 2));
+  return lines.join("\n");
+}
+
+document.getElementById("dbg-copy-btn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const text = buildDebugReportText();
+  const btn = document.getElementById("dbg-copy-btn");
+  const done = (ok) => { btn.textContent = ok ? "✅ Copied" : "❌ Failed"; setTimeout(() => btn.textContent = "📋 Copy", 1500); };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => done(true)).catch(() => done(false));
+  } else {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      done(true);
+    } catch (err) { done(false); }
+  }
+});
+
 render();
 
 // ═══════════════════════════════════════════════════════════
