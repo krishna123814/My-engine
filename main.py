@@ -1,21 +1,22 @@
 """
-Binance Option Chain — Login Gate + Live Backend + Advanced Debug Panel
-========================================================================
-IMPORTANT ARCHITECTURE NOTE (why this version is different):
-Earlier version ran a side HTTP server on 127.0.0.1:8502 and had
-chart.html poll it via fetch(). That only works when the browser and
-the server are the SAME machine (local dev). On a hosted deployment
-(Render, etc.) the browser is on the user's phone/PC and 127.0.0.1
-there means "the phone itself" — so the connection can never succeed.
-That's exactly the "Backend se connect nahi ho pa raha" error seen.
+Binance Option Chain — WebSocket-first architecture
+=====================================================
+Spot price      : WebSocket (btcusdt@trade) — real-time
+Option chain    : WebSocket (@ticker per expiry) — real-time bid/ask/mark/iv/delta
+Chain metadata  : REST once + every 10 min (symbols/strikes/expiries)
+Order book REST : REST on-demand (initial snapshot on strike click)
+Order book live : Browser-side JS WebSocket (no Streamlit rerun needed → no blink)
 
-FIX: no network calls from the browser at all. Every few seconds,
-Streamlit reruns this script, we build one JSON "snapshot" of
-everything (spot price, nearest strike, option chain rows, AND a
-full debug log of what every background thread is doing / any
-errors), and embed that JSON directly inside the HTML we send to
-components.html(). The debug panel in chart.html just reads that
-embedded JSON — no fetch, no ports, works anywhere Streamlit works.
+Architecture note
+-----------------
+Streamlit reruns every N seconds just to push a fresh JSON snapshot into
+components.html(). All heavy lifting is done in background threads/WebSockets
+that survive reruns. The browser never makes network calls for chain data —
+everything is embedded in the snapshot JSON.
+
+For order book: initial REST snapshot comes via Streamlit query-param mechanism,
+then browser JS opens its own WebSocket to Binance depth stream for live updates.
+This keeps the modal completely independent of Streamlit reruns (no blink).
 """
 
 import time
@@ -39,27 +40,30 @@ except ImportError:
     websocket = None
     WEBSOCKET_LIB_OK = False
 
-BASE_URL = "https://api.binance.com"
-EAPI_URL = "https://eapi.binance.com"
+BASE_URL   = "https://api.binance.com"
+EAPI_URL   = "https://eapi.binance.com"
 UNDERLYING = "BTCUSDT"
 DEFAULT_REFRESH_SEC = 3
 
-# =====================================================================
-# Persistent stores (survive Streamlit reruns — process-wide singletons)
-# =====================================================================
+# ─────────────────────────────────────────────────────────────────────
+# Persistent stores  (survive Streamlit reruns — process-wide singletons)
+# ─────────────────────────────────────────────────────────────────────
 @st.cache_resource
-def _get_live_quotes_store():
-    return {}
+def _get_live_quotes_store():   return {}
 
 @st.cache_resource
-def _get_ws_state_store():
-    return {"running": False, "connected": False, "last_error": None,
-             "last_message_ts": 0, "connect_count": 0, "error_count": 0}
-
-@st.cache_resource
-def _get_trade_ws_state_store():
-    return {"running": False, "connected": False, "last_error": None,
-             "last_message_ts": 0, "connect_count": 0, "error_count": 0}
+def _get_ws_states():
+    return {
+        "spot":   {"running": False, "connected": False, "last_error": None,
+                   "last_message_ts": 0, "connect_count": 0, "error_count": 0},
+        "mark":   {"running": False, "connected": False, "last_error": None,
+                   "last_message_ts": 0, "connect_count": 0, "error_count": 0},
+        "trade":  {"running": False, "connected": False, "last_error": None,
+                   "last_message_ts": 0, "connect_count": 0, "error_count": 0},
+        "ticker": {"running": False, "connected": False, "last_error": None,
+                   "last_message_ts": 0, "connect_count": 0, "error_count": 0,
+                   "subscribed_expiry": None},
+    }
 
 @st.cache_resource
 def _get_chain_store():
@@ -68,7 +72,7 @@ def _get_chain_store():
 
 @st.cache_resource
 def _get_spot_store():
-    return {"price": None, "ts": 0, "last_error": None, "ok_count": 0, "err_count": 0}
+    return {"price": None, "ts": 0, "last_error": None, "msg_count": 0, "err_count": 0}
 
 @st.cache_resource
 def _get_creds_store():
@@ -86,20 +90,33 @@ def _get_debug_log_store():
 def _get_order_book_store():
     return {"symbol": None, "data": None, "last_error": None, "fetching": False, "ts": 0}
 
-LIVE_QUOTES = _get_live_quotes_store()
-WS_STATE = _get_ws_state_store()
-TRADE_WS_STATE = _get_trade_ws_state_store()
-CHAIN_META = _get_chain_store()
-SPOT_STORE = _get_spot_store()
-CREDS = _get_creds_store()
-FLAGS = _get_backend_flags()
-DEBUG_LOG = _get_debug_log_store()
-ORDER_BOOK = _get_order_book_store()
+@st.cache_resource
+def _get_ticker_ws_ref():
+    # holds the live wsapp so we can close/resubscribe when expiry changes
+    return {"wsapp": None, "lock": threading.Lock()}
+
+LIVE_QUOTES   = _get_live_quotes_store()
+WS_STATES     = _get_ws_states()
+CHAIN_META    = _get_chain_store()
+SPOT_STORE    = _get_spot_store()
+CREDS         = _get_creds_store()
+FLAGS         = _get_backend_flags()
+DEBUG_LOG     = _get_debug_log_store()
+ORDER_BOOK    = _get_order_book_store()
+TICKER_WS_REF = _get_ticker_ws_ref()
+
+# shortcuts
+SPOT_WS   = WS_STATES["spot"]
+MARK_WS   = WS_STATES["mark"]
+TRADE_WS  = WS_STATES["trade"]
+TICKER_WS = WS_STATES["ticker"]
 
 DEBUG_LOG_MAX = 250
 
+# ─────────────────────────────────────────────────────────────────────
+# Debug logger
+# ─────────────────────────────────────────────────────────────────────
 def dlog(msg, level="info"):
-    """Thread-safe debug log — shows up live in the debug panel."""
     line = {"t": datetime.now().strftime("%H:%M:%S"), "level": level, "msg": str(msg)}
     with DEBUG_LOG["lock"]:
         DEBUG_LOG["lines"].append(line)
@@ -107,18 +124,18 @@ def dlog(msg, level="info"):
             del DEBUG_LOG["lines"][: len(DEBUG_LOG["lines"]) - DEBUG_LOG_MAX]
 
 def dlog_exception(where, exc):
-    dlog(f"EXCEPTION in {where}: {exc}\n{traceback.format_exc()[-800:]}", level="err")
+    dlog(f"EXCEPTION in {where}: {exc}\n{traceback.format_exc()[-600:]}", level="err")
 
 def debug_log_snapshot():
     with DEBUG_LOG["lock"]:
         return list(DEBUG_LOG["lines"])
 
 if not WEBSOCKET_LIB_OK:
-    dlog("websocket-client package NOT installed — run: pip install websocket-client", level="err")
+    dlog("websocket-client NOT installed — pip install websocket-client", level="err")
 
-# =====================================================================
-# Binance REST helpers
-# =====================================================================
+# ─────────────────────────────────────────────────────────────────────
+# REST helpers
+# ─────────────────────────────────────────────────────────────────────
 def get_server_time():
     try:
         r = requests.get(f"{BASE_URL}/api/v3/time", timeout=10)
@@ -142,21 +159,21 @@ def call_api(base, path, params, api_key, signed=False, secret_key=None):
     if qs:
         url = f"{url}?{qs}"
     try:
-        r = requests.get(url, headers=headers, timeout=20)
+        r  = requests.get(url, headers=headers, timeout=20)
         ct = r.headers.get("Content-Type", "")
         if "application/json" in ct:
             data = r.json()
             if r.status_code == 200:
                 return True, data
-            return False, f"Error {data.get('code', r.status_code)}: {data.get('msg', 'Unknown error')}"
+            return False, f"Error {data.get('code', r.status_code)}: {data.get('msg', 'Unknown')}"
         text = r.text.strip()
         if "<html" in text.lower():
-            return False, f"HTTP {r.status_code}: Binance returned HTML instead of JSON"
+            return False, f"HTTP {r.status_code}: HTML response (not JSON)"
         return False, f"HTTP {r.status_code}: {text[:300]}"
     except requests.exceptions.Timeout:
         return False, "Request timed out"
     except requests.exceptions.ConnectionError:
-        return False, "Connection error (network egress blocked / no internet?)"
+        return False, "Connection error (network blocked?)"
     except Exception as e:
         return False, str(e)
 
@@ -164,25 +181,35 @@ def get_spot_balance(api_key, secret_key):
     ok, data = call_api(BASE_URL, "/api/v3/account", {}, api_key, signed=True, secret_key=secret_key)
     if not ok:
         return False, data
-    balances = [b for b in data.get("balances", []) if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0]
+    balances = [b for b in data.get("balances", [])
+                if float(b.get("free", 0)) + float(b.get("locked", 0)) > 0]
     return True, balances
 
-def get_spot_price(symbol=UNDERLYING):
-    ok, data = call_api(BASE_URL, "/api/v3/ticker/price", {"symbol": symbol}, "", signed=False)
+def get_order_book(symbol, limit=10):
+    """REST snapshot of order book — used on first click."""
+    ok, data = call_api(EAPI_URL, "/eapi/v1/depth", {"symbol": symbol, "limit": limit}, "", signed=False)
     if not ok:
-        return None, data
-    return float(data["price"]), None
+        return False, data
+    return True, {
+        "symbol": symbol,
+        "bids": data.get("bids", []),
+        "asks": data.get("asks", []),
+        "ts": int(time.time() * 1000),
+    }
 
+# ─────────────────────────────────────────────────────────────────────
+# Option chain metadata (REST — once + every 10 min)
+# ─────────────────────────────────────────────────────────────────────
 def parse_option_symbol(symbol):
     try:
         parts = symbol.split("-")
         if len(parts) != 4:
             return None
-        underlying_coin, expiry, strike, cp = parts
+        coin, expiry, strike, cp = parts
         side = "CALL" if cp.upper() == "C" else "PUT" if cp.upper() == "P" else None
         if not side:
             return None
-        return {"symbol": symbol, "underlying": f"{underlying_coin}USDT",
+        return {"symbol": symbol, "underlying": f"{coin}USDT",
                 "expiry": expiry, "strike": float(strike), "side": side}
     except Exception:
         return None
@@ -198,21 +225,6 @@ def get_option_universe(api_key, underlying=UNDERLYING):
             filtered.append(parsed)
     return True, filtered
 
-def get_order_book(symbol, limit=10):
-    """Fetch live order book (market depth) for a given option symbol."""
-    ok, data = call_api(EAPI_URL, "/eapi/v1/depth", {"symbol": symbol, "limit": limit}, "", signed=False)
-    if not ok:
-        return False, data
-    return True, {
-        "symbol": symbol,
-        "bids": data.get("bids", []),   # [[price, qty], ...]
-        "asks": data.get("asks", []),   # [[price, qty], ...]
-        "ts": int(time.time() * 1000),
-    }
-
-# =====================================================================
-# Option chain map (expiry -> strikes)
-# =====================================================================
 def build_chain_map(parsed_symbols):
     expiry_map = {}
     for item in parsed_symbols:
@@ -223,52 +235,49 @@ def build_chain_map(parsed_symbols):
             expiry_map[expiry][strike]["call_symbol"] = symbol
         else:
             expiry_map[expiry][strike]["put_symbol"] = symbol
-    return {expiry: sorted(rows.values(), key=lambda x: x["strike"]) for expiry, rows in expiry_map.items()}
+    return {exp: sorted(rows.values(), key=lambda x: x["strike"])
+            for exp, rows in expiry_map.items()}
 
 def load_chain_metadata(api_key, underlying=UNDERLYING):
     ok, parsed_symbols = get_option_universe(api_key, underlying=underlying)
     if not ok:
-        CHAIN_META["last_ok"] = False
+        CHAIN_META["last_ok"]    = False
         CHAIN_META["last_error"] = parsed_symbols
-        dlog(f"Chain metadata load FAILED: {parsed_symbols}", level="err")
+        dlog(f"Chain metadata FAILED: {parsed_symbols}", level="err")
         return False, parsed_symbols
     chain_map = build_chain_map(parsed_symbols)
-    CHAIN_META["underlying"] = underlying
-    CHAIN_META["expiries"] = sorted(chain_map.keys())
-    CHAIN_META["by_expiry"] = chain_map
-    CHAIN_META["symbols"] = [x["symbol"] for x in parsed_symbols]
-    CHAIN_META["last_ok"] = True
-    CHAIN_META["last_error"] = None
-    CHAIN_META["last_loaded_ts"] = int(time.time() * 1000)
-    dlog(f"Chain metadata loaded OK — {len(CHAIN_META['expiries'])} expiries, {len(parsed_symbols)} symbols", level="ok")
+    CHAIN_META.update({
+        "underlying":     underlying,
+        "expiries":       sorted(chain_map.keys()),
+        "by_expiry":      chain_map,
+        "symbols":        [x["symbol"] for x in parsed_symbols],
+        "last_ok":        True,
+        "last_error":     None,
+        "last_loaded_ts": int(time.time() * 1000),
+    })
+    dlog(f"Chain metadata OK — {len(CHAIN_META['expiries'])} expiries, "
+         f"{len(parsed_symbols)} symbols", level="ok")
     return True, CHAIN_META
 
-def get_symbols_for_expiry(expiry):
-    rows = CHAIN_META["by_expiry"].get(expiry, [])
-    out = []
-    for row in rows:
-        if row.get("call_symbol"):
-            out.append(row["call_symbol"])
-        if row.get("put_symbol"):
-            out.append(row["put_symbol"])
-    return out
-
+# ─────────────────────────────────────────────────────────────────────
+# Live data builders
+# ─────────────────────────────────────────────────────────────────────
 def get_live_chain_for_expiry(expiry):
     rows = CHAIN_META["by_expiry"].get(expiry, [])
-    out = []
+    out  = []
     for row in rows:
         call_q = LIVE_QUOTES.get(row.get("call_symbol"), {})
-        put_q = LIVE_QUOTES.get(row.get("put_symbol"), {})
+        put_q  = LIVE_QUOTES.get(row.get("put_symbol"),  {})
         out.append({
-            "strike": row["strike"],
-            "call_symbol": row.get("call_symbol"), "call_bid": call_q.get("bid"),
-            "call_ask": call_q.get("ask"), "call_mark": call_q.get("mark"),
-            "call_last": call_q.get("last"), "call_iv": call_q.get("iv"),
-            "call_delta": call_q.get("delta"),
-            "put_symbol": row.get("put_symbol"), "put_bid": put_q.get("bid"),
-            "put_ask": put_q.get("ask"), "put_mark": put_q.get("mark"),
-            "put_last": put_q.get("last"), "put_iv": put_q.get("iv"),
-            "put_delta": put_q.get("delta"),
+            "strike":     row["strike"],
+            "call_symbol": row.get("call_symbol"),
+            "call_bid":   call_q.get("bid"),  "call_ask":   call_q.get("ask"),
+            "call_mark":  call_q.get("mark"), "call_last":  call_q.get("last"),
+            "call_iv":    call_q.get("iv"),   "call_delta": call_q.get("delta"),
+            "put_symbol": row.get("put_symbol"),
+            "put_bid":    put_q.get("bid"),   "put_ask":    put_q.get("ask"),
+            "put_mark":   put_q.get("mark"),  "put_last":   put_q.get("last"),
+            "put_iv":     put_q.get("iv"),    "put_delta":  put_q.get("delta"),
         })
     return out
 
@@ -282,23 +291,102 @@ def find_global_nearest_strike(spot_price):
             if best_dist is None or dist < best_dist:
                 best_dist = dist
                 best = {"expiry": expiry, "strike": row["strike"],
-                        "call_symbol": row.get("call_symbol"), "put_symbol": row.get("put_symbol")}
+                        "call_symbol": row.get("call_symbol"),
+                        "put_symbol":  row.get("put_symbol")}
     return best
 
-# =====================================================================
-# Live WebSocket — options mark price + trade streams
-# =====================================================================
-def update_live_quote_from_msg(msg):
+# ─────────────────────────────────────────────────────────────────────
+# Generic WebSocket loop
+# ─────────────────────────────────────────────────────────────────────
+def _ws_loop(name, state, url, on_message_fn, store_wsapp_ref=None):
+    def _on_open(ws):
+        state["connected"]     = True
+        state["last_error"]    = None
+        state["connect_count"] += 1
+        if store_wsapp_ref is not None:
+            with TICKER_WS_REF["lock"]:
+                TICKER_WS_REF["wsapp"] = ws
+        dlog(f"{name} WS connected", level="ok")
+
+    def _on_message(ws, message):
+        try:
+            data    = json.loads(message)
+            payload = data.get("data") if isinstance(data, dict) and "data" in data else data
+            if isinstance(payload, list):
+                for item in payload:
+                    if isinstance(item, dict):
+                        on_message_fn(item)
+            elif isinstance(payload, dict):
+                on_message_fn(payload)
+        except Exception as e:
+            state["last_error"]   = str(e)
+            state["error_count"] += 1
+
+    def _on_error(ws, error):
+        state["connected"]    = False
+        state["last_error"]   = str(error)
+        state["error_count"] += 1
+        dlog(f"{name} WS error: {error}", level="err")
+
+    def _on_close(ws, code, msg):
+        state["connected"] = False
+        if store_wsapp_ref is not None:
+            with TICKER_WS_REF["lock"]:
+                TICKER_WS_REF["wsapp"] = None
+        dlog(f"{name} WS closed (code={code})", level="warn")
+
+    while state["running"]:
+        try:
+            wsapp = websocket.WebSocketApp(
+                url,
+                on_open=_on_open, on_message=_on_message,
+                on_error=_on_error, on_close=_on_close,
+            )
+            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+        except Exception as e:
+            state["last_error"]   = str(e)
+            state["connected"]    = False
+            dlog_exception(f"{name} WS loop", e)
+        if state["running"]:
+            time.sleep(3)
+
+# ─────────────────────────────────────────────────────────────────────
+# Message handlers
+# ─────────────────────────────────────────────────────────────────────
+def _update_spot_from_trade(msg):
+    """Handler for btcusdt@trade — extracts last price."""
+    try:
+        price = msg.get("p") or msg.get("price")
+        if price not in (None, ""):
+            SPOT_STORE["price"]     = float(price)
+            SPOT_STORE["ts"]        = int(time.time() * 1000)
+            SPOT_STORE["last_error"] = None
+            SPOT_STORE["msg_count"] += 1
+            SPOT_WS["last_message_ts"] = SPOT_STORE["ts"]
+    except Exception as e:
+        SPOT_STORE["err_count"] += 1
+        SPOT_STORE["last_error"]  = str(e)
+
+def _update_from_mark_price(msg):
+    """Handler for optionMarkPrice stream."""
     try:
         symbol = msg.get("s") or msg.get("symbol")
         if not symbol:
             return
         LIVE_QUOTES.setdefault(symbol, {})
         field_map = {
-            "last": ["c", "last", "lastPrice"], "bid": ["bo", "bidPrice"], "ask": ["ao", "askPrice"],
-            "mark": ["mp", "mark", "markPrice"], "vol": ["V", "volume"],
-            "delta": ["d", "delta"], "gamma": ["g", "gamma"], "theta": ["t", "theta"], "vega": ["v", "vega"],
-            "iv": ["vo", "iv", "markIV"], "buy_iv": ["b", "buy_iv"], "sell_iv": ["a", "sell_iv"],
+            "last":    ["c", "last", "lastPrice"],
+            "bid":     ["bo", "bidPrice"],
+            "ask":     ["ao", "askPrice"],
+            "mark":    ["mp", "mark", "markPrice"],
+            "vol":     ["V",  "volume"],
+            "delta":   ["d",  "delta"],
+            "gamma":   ["g",  "gamma"],
+            "theta":   ["t",  "theta"],
+            "vega":    ["v",  "vega"],
+            "iv":      ["vo", "iv", "markIV"],
+            "buy_iv":  ["b",  "buy_iv"],
+            "sell_iv": ["a",  "sell_iv"],
         }
         for target, candidates in field_map.items():
             for key in candidates:
@@ -306,13 +394,14 @@ def update_live_quote_from_msg(msg):
                     LIVE_QUOTES[symbol][target] = msg[key]
                     break
         LIVE_QUOTES[symbol]["symbol"] = symbol
-        LIVE_QUOTES[symbol]["ts"] = int(time.time() * 1000)
-        WS_STATE["last_message_ts"] = LIVE_QUOTES[symbol]["ts"]
+        LIVE_QUOTES[symbol]["ts"]     = int(time.time() * 1000)
+        MARK_WS["last_message_ts"]    = LIVE_QUOTES[symbol]["ts"]
     except Exception as e:
-        WS_STATE["last_error"] = str(e)
-        dlog_exception("update_live_quote_from_msg", e)
+        MARK_WS["last_error"] = str(e)
+        dlog_exception("_update_from_mark_price", e)
 
-def update_live_trade_from_msg(msg):
+def _update_from_trade(msg):
+    """Handler for optionTrade stream — updates last traded price."""
     try:
         symbol = msg.get("s")
         if not symbol:
@@ -328,86 +417,150 @@ def update_live_trade_from_msg(msg):
             except Exception:
                 pass
         LIVE_QUOTES[symbol]["last_trade_ts"] = int(time.time() * 1000)
-        TRADE_WS_STATE["last_message_ts"] = LIVE_QUOTES[symbol]["last_trade_ts"]
+        TRADE_WS["last_message_ts"]          = LIVE_QUOTES[symbol]["last_trade_ts"]
     except Exception as e:
-        TRADE_WS_STATE["last_error"] = str(e)
-        dlog_exception("update_live_trade_from_msg", e)
+        TRADE_WS["last_error"] = str(e)
+        dlog_exception("_update_from_trade", e)
 
-def _ws_loop(name, state, url, on_message_fn):
-    def _on_open(ws):
-        state["connected"] = True
-        state["last_error"] = None
-        state["connect_count"] += 1
-        dlog(f"{name} WebSocket connected", level="ok")
+def _update_from_ticker(msg):
+    """
+    Handler for @ticker stream — full bid/ask/mark/iv/delta per symbol.
+    Binance eoptions ticker fields:
+      s=symbol, o=open, h=high, l=low, c=close(last), V=volume,
+      A=amount, P=priceChangePct, p=priceChange,
+      bo=bestBidPrice, ba=bestBidQty, ao=bestAskPrice, aa=bestAskQty,
+      mp=markPrice, vo=impliedVolatility, d=delta, t=theta, g=gamma, v=vega,
+      T=expiry, e=event
+    """
+    try:
+        symbol = msg.get("s") or msg.get("symbol")
+        if not symbol:
+            return
+        LIVE_QUOTES.setdefault(symbol, {})
+        q = LIVE_QUOTES[symbol]
 
-    def _on_message(ws, message):
-        try:
-            data = json.loads(message)
-            payload = data.get("data") if isinstance(data, dict) and "data" in data else data
-            if isinstance(payload, list):
-                for item in payload:
-                    if isinstance(item, dict):
-                        on_message_fn(item)
-            elif isinstance(payload, dict):
-                on_message_fn(payload)
-        except Exception as e:
-            state["last_error"] = str(e)
-            state["error_count"] += 1
+        def _set(target, keys):
+            for k in keys:
+                val = msg.get(k)
+                if val not in (None, ""):
+                    q[target] = val
+                    return
 
-    def _on_error(ws, error):
-        state["connected"] = False
-        state["last_error"] = str(error)
-        state["error_count"] += 1
-        dlog(f"{name} WebSocket error: {error}", level="err")
+        _set("last",  ["c", "close", "lastPrice"])
+        _set("bid",   ["bo", "bestBidPrice"])
+        _set("ask",   ["ao", "bestAskPrice"])
+        _set("mark",  ["mp", "markPrice"])
+        _set("iv",    ["vo", "impliedVolatility", "markIV"])
+        _set("delta", ["d",  "delta"])
+        _set("gamma", ["g",  "gamma"])
+        _set("theta", ["t",  "theta"])
+        _set("vega",  ["v",  "vega"])
+        _set("vol",   ["V",  "volume"])
 
-    def _on_close(ws, code, msg):
-        state["connected"] = False
-        dlog(f"{name} WebSocket closed (code={code})", level="warn")
+        q["symbol"] = symbol
+        q["ts"]     = int(time.time() * 1000)
+        TICKER_WS["last_message_ts"] = q["ts"]
+    except Exception as e:
+        TICKER_WS["last_error"] = str(e)
+        dlog_exception("_update_from_ticker", e)
 
-    while state["running"]:
-        try:
-            wsapp = websocket.WebSocketApp(url, on_open=_on_open, on_message=_on_message,
-                                            on_error=_on_error, on_close=_on_close)
-            wsapp.run_forever(ping_interval=20, ping_timeout=10)
-        except Exception as e:
-            state["last_error"] = str(e)
-            state["connected"] = False
-            dlog_exception(f"{name} WebSocket loop", e)
-        if state["running"]:
-            time.sleep(3)
-
-def start_mark_price_ws(underlying=UNDERLYING):
-    if not WEBSOCKET_LIB_OK or WS_STATE["running"]:
+# ─────────────────────────────────────────────────────────────────────
+# WebSocket starters
+# ─────────────────────────────────────────────────────────────────────
+def start_spot_ws():
+    """Real-time BTC spot price via trade stream."""
+    if not WEBSOCKET_LIB_OK or SPOT_WS["running"]:
         return
-    url = f"wss://fstream.binance.com/market/stream?streams={underlying.lower()}@optionMarkPrice"
-    WS_STATE["running"] = True
-    threading.Thread(target=_ws_loop, args=("Mark-Price", WS_STATE, url, update_live_quote_from_msg), daemon=True).start()
+    url = f"wss://stream.binance.com/ws/{UNDERLYING.lower()}@trade"
+    SPOT_WS["running"] = True
+    threading.Thread(
+        target=_ws_loop,
+        args=("Spot-Trade", SPOT_WS, url, _update_spot_from_trade),
+        daemon=True,
+    ).start()
+    dlog("Spot-Trade WebSocket thread started")
+
+def start_mark_price_ws():
+    if not WEBSOCKET_LIB_OK or MARK_WS["running"]:
+        return
+    url = (f"wss://fstream.binance.com/market/stream?streams="
+           f"{UNDERLYING.lower()}@optionMarkPrice")
+    MARK_WS["running"] = True
+    threading.Thread(
+        target=_ws_loop,
+        args=("Mark-Price", MARK_WS, url, _update_from_mark_price),
+        daemon=True,
+    ).start()
     dlog("Mark-Price WebSocket thread started")
 
-def start_trade_ws(underlying=UNDERLYING):
-    if not WEBSOCKET_LIB_OK or TRADE_WS_STATE["running"]:
+def start_trade_ws():
+    if not WEBSOCKET_LIB_OK or TRADE_WS["running"]:
         return
-    url = f"wss://fstream.binance.com/public/stream?streams={underlying.lower()}@optionTrade"
-    TRADE_WS_STATE["running"] = True
-    threading.Thread(target=_ws_loop, args=("Trade", TRADE_WS_STATE, url, update_live_trade_from_msg), daemon=True).start()
+    url = (f"wss://fstream.binance.com/public/stream?streams="
+           f"{UNDERLYING.lower()}@optionTrade")
+    TRADE_WS["running"] = True
+    threading.Thread(
+        target=_ws_loop,
+        args=("Trade", TRADE_WS, url, _update_from_trade),
+        daemon=True,
+    ).start()
     dlog("Trade WebSocket thread started")
 
-# =====================================================================
-# Background loops
-# =====================================================================
-def _spot_refresh_loop():
-    while True:
-        price, err = get_spot_price(UNDERLYING)
-        if err:
-            SPOT_STORE["last_error"] = err
-            SPOT_STORE["err_count"] += 1
-        else:
-            SPOT_STORE["price"] = price
-            SPOT_STORE["ts"] = int(time.time() * 1000)
-            SPOT_STORE["last_error"] = None
-            SPOT_STORE["ok_count"] += 1
-        time.sleep(3)
+def start_ticker_ws_for_expiry(expiry):
+    """
+    Subscribe to @ticker for every symbol in the given expiry.
+    Binance eoptions combined stream URL:
+      wss://nbstream.binance.com/eoptions/stream?streams=SYM1@ticker/SYM2@ticker/...
+    If already running for same expiry → skip.
+    If running for different expiry → close old, open new.
+    """
+    if not WEBSOCKET_LIB_OK or not expiry:
+        return
+    if TICKER_WS["subscribed_expiry"] == expiry and TICKER_WS["running"]:
+        return  # already live for this expiry
 
+    rows = CHAIN_META["by_expiry"].get(expiry, [])
+    if not rows:
+        dlog(f"Ticker WS: no rows for expiry {expiry}, skipping", level="warn")
+        return
+
+    symbols = []
+    for row in rows:
+        if row.get("call_symbol"):
+            symbols.append(row["call_symbol"])
+        if row.get("put_symbol"):
+            symbols.append(row["put_symbol"])
+
+    if not symbols:
+        return
+
+    # Close existing WS if any
+    if TICKER_WS["running"]:
+        TICKER_WS["running"] = False
+        with TICKER_WS_REF["lock"]:
+            ws = TICKER_WS_REF["wsapp"]
+        if ws:
+            try:
+                ws.close()
+            except Exception:
+                pass
+        time.sleep(0.5)
+
+    streams = "/".join(f"{s.lower()}@ticker" for s in symbols)
+    url = f"wss://nbstream.binance.com/eoptions/stream?streams={streams}"
+    TICKER_WS["running"]            = True
+    TICKER_WS["subscribed_expiry"]  = expiry
+    threading.Thread(
+        target=_ws_loop,
+        args=("Ticker", TICKER_WS, url, _update_from_ticker),
+        kwargs={"store_wsapp_ref": True},
+        daemon=True,
+    ).start()
+    dlog(f"Ticker WS started for expiry {expiry} ({len(symbols)} symbols)", level="ok")
+
+# ─────────────────────────────────────────────────────────────────────
+# Background loops
+# ─────────────────────────────────────────────────────────────────────
 def _chain_meta_refresh_loop():
     first_run = True
     while True:
@@ -417,22 +570,23 @@ def _chain_meta_refresh_loop():
                 load_chain_metadata(api_key, UNDERLYING)
             except Exception as e:
                 dlog_exception("_chain_meta_refresh_loop", e)
-        time.sleep(5 if first_run else 600)  # fast first attempt, then every 10 min
+        time.sleep(5 if first_run else 600)
         first_run = False
 
 def ensure_backend_started():
     if FLAGS["backend_started"]:
         return
     FLAGS["backend_started"] = True
-    dlog("Starting background threads (spot refresh, chain metadata, WebSockets)...")
-    threading.Thread(target=_spot_refresh_loop, daemon=True).start()
+    dlog("Starting background threads & WebSockets...")
     threading.Thread(target=_chain_meta_refresh_loop, daemon=True).start()
-    start_mark_price_ws(UNDERLYING)
-    start_trade_ws(UNDERLYING)
+    start_spot_ws()
+    start_mark_price_ws()
+    start_trade_ws()
+    # Ticker WS for option chain is started later when expiry is known
 
-# =====================================================================
-# Build the data+debug snapshot embedded into chart.html on every rerun
-# =====================================================================
+# ─────────────────────────────────────────────────────────────────────
+# Snapshot builder
+# ─────────────────────────────────────────────────────────────────────
 def build_snapshot(selected_expiry):
     now_ms = int(time.time() * 1000)
 
@@ -442,69 +596,90 @@ def build_snapshot(selected_expiry):
     nearest = find_global_nearest_strike(SPOT_STORE["price"])
     nearest_out = None
     if nearest:
-        call_q = dict(LIVE_QUOTES.get(nearest["call_symbol"], {}))
-        put_q = dict(LIVE_QUOTES.get(nearest["put_symbol"], {}))
+        call_q = dict(LIVE_QUOTES.get(nearest["call_symbol"] or "", {}))
+        put_q  = dict(LIVE_QUOTES.get(nearest["put_symbol"]  or "", {}))
         nearest_out = {
             "expiry": nearest["expiry"], "strike": nearest["strike"],
             "call": {"symbol": nearest["call_symbol"], **call_q},
-            "put": {"symbol": nearest["put_symbol"], **put_q},
+            "put":  {"symbol": nearest["put_symbol"],  **put_q},
         }
 
     chain_rows = get_live_chain_for_expiry(selected_expiry) if selected_expiry else []
 
     order_book_out = {
-        "symbol": ORDER_BOOK["symbol"],
-        "bids": (ORDER_BOOK["data"] or {}).get("bids", []),
-        "asks": (ORDER_BOOK["data"] or {}).get("asks", []),
+        "symbol":     ORDER_BOOK["symbol"],
+        "bids":       (ORDER_BOOK["data"] or {}).get("bids", []),
+        "asks":       (ORDER_BOOK["data"] or {}).get("asks", []),
         "last_error": ORDER_BOOK["last_error"],
-        "age_sec": age_sec(ORDER_BOOK["ts"]) if ORDER_BOOK["ts"] else None,
-        "fetching": ORDER_BOOK["fetching"],
+        "age_sec":    age_sec(ORDER_BOOK["ts"]) if ORDER_BOOK["ts"] else None,
+        "fetching":   ORDER_BOOK["fetching"],
     }
 
-    snapshot = {
+    return {
         "generated_at": datetime.now().strftime("%H:%M:%S"),
         "spot": {
-            "price": SPOT_STORE["price"],
-            "age_sec": age_sec(SPOT_STORE["ts"]),
-            "ok_count": SPOT_STORE["ok_count"],
-            "err_count": SPOT_STORE["err_count"],
+            "price":      SPOT_STORE["price"],
+            "age_sec":    age_sec(SPOT_STORE["ts"]),
+            "msg_count":  SPOT_STORE["msg_count"],
+            "err_count":  SPOT_STORE["err_count"],
             "last_error": SPOT_STORE["last_error"],
         },
         "nearest": nearest_out,
         "chain": {
             "selected_expiry": selected_expiry,
-            "expiries": CHAIN_META["expiries"],
-            "rows": chain_rows,
-            "last_ok": CHAIN_META["last_ok"],
-            "last_error": CHAIN_META["last_error"],
-            "age_sec": age_sec(CHAIN_META["last_loaded_ts"]),
-            "symbols_count": len(CHAIN_META["symbols"]),
+            "expiries":        CHAIN_META["expiries"],
+            "rows":            chain_rows,
+            "last_ok":         CHAIN_META["last_ok"],
+            "last_error":      CHAIN_META["last_error"],
+            "age_sec":         age_sec(CHAIN_META["last_loaded_ts"]),
+            "symbols_count":   len(CHAIN_META["symbols"]),
         },
         "order_book": order_book_out,
         "debug": {
             "websocket_lib_installed": WEBSOCKET_LIB_OK,
-            "api_key_present": bool(CREDS.get("api_key")),
-            "ws_mark": {
-                "running": WS_STATE["running"], "connected": WS_STATE["connected"],
-                "last_error": WS_STATE["last_error"],
-                "last_msg_age_sec": age_sec(WS_STATE["last_message_ts"]),
-                "connect_count": WS_STATE["connect_count"], "error_count": WS_STATE["error_count"],
+            "api_key_present":         bool(CREDS.get("api_key")),
+            "ws_spot":   {
+                "running":           SPOT_WS["running"],
+                "connected":         SPOT_WS["connected"],
+                "last_error":        SPOT_WS["last_error"],
+                "last_msg_age_sec":  age_sec(SPOT_WS["last_message_ts"]),
+                "connect_count":     SPOT_WS["connect_count"],
+                "error_count":       SPOT_WS["error_count"],
             },
-            "ws_trade": {
-                "running": TRADE_WS_STATE["running"], "connected": TRADE_WS_STATE["connected"],
-                "last_error": TRADE_WS_STATE["last_error"],
-                "last_msg_age_sec": age_sec(TRADE_WS_STATE["last_message_ts"]),
-                "connect_count": TRADE_WS_STATE["connect_count"], "error_count": TRADE_WS_STATE["error_count"],
+            "ws_mark":   {
+                "running":           MARK_WS["running"],
+                "connected":         MARK_WS["connected"],
+                "last_error":        MARK_WS["last_error"],
+                "last_msg_age_sec":  age_sec(MARK_WS["last_message_ts"]),
+                "connect_count":     MARK_WS["connect_count"],
+                "error_count":       MARK_WS["error_count"],
+            },
+            "ws_trade":  {
+                "running":           TRADE_WS["running"],
+                "connected":         TRADE_WS["connected"],
+                "last_error":        TRADE_WS["last_error"],
+                "last_msg_age_sec":  age_sec(TRADE_WS["last_message_ts"]),
+                "connect_count":     TRADE_WS["connect_count"],
+                "error_count":       TRADE_WS["error_count"],
+            },
+            "ws_ticker": {
+                "running":              TICKER_WS["running"],
+                "connected":            TICKER_WS["connected"],
+                "last_error":           TICKER_WS["last_error"],
+                "last_msg_age_sec":     age_sec(TICKER_WS["last_message_ts"]),
+                "subscribed_expiry":    TICKER_WS["subscribed_expiry"],
+                "connect_count":        TICKER_WS["connect_count"],
+                "error_count":          TICKER_WS["error_count"],
             },
             "log": debug_log_snapshot(),
         },
     }
-    return snapshot
 
-# =====================================================================
+# ─────────────────────────────────────────────────────────────────────
 # Streamlit UI
-# =====================================================================
-st.set_page_config(page_title="Binance Live Option Chain", layout="wide", initial_sidebar_state="collapsed")
+# ─────────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Binance Live Option Chain",
+                   layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""<style>
 #MainMenu, footer, header {visibility:hidden;}
 .block-container{padding-top:1.2rem;}
@@ -513,34 +688,28 @@ st.markdown("""<style>
 if "binance_logged_in" not in st.session_state:
     st.session_state.binance_logged_in = False
 
-# ---------------------------------------------------------------
-# LOGIN GATE
-# ---------------------------------------------------------------
+# ── Login gate ──────────────────────────────────────────────────────
 if not st.session_state.binance_logged_in:
     st.title("🟡 Binance Login")
-    st.caption("API Key aur Secret Key daalo — verify hone ke baad live option chain dashboard khulega.")
+    st.caption("API Key aur Secret Key daalo — live option chain dashboard khulega.")
 
-    api_key_input = st.text_input("Binance API Key", type="password")
+    api_key_input    = st.text_input("Binance API Key",    type="password")
     secret_key_input = st.text_input("Binance Secret Key", type="password")
 
     if st.button("Login", type="primary", use_container_width=True):
         if not api_key_input or not secret_key_input:
-            dlog("Login blocked — API key/secret empty", level="warn")
             st.error("Pehle API Key aur Secret Key daalo")
         else:
-            dlog("Login attempt started")
             with st.spinner("Binance se verify ho raha hai..."):
                 ok, result = get_spot_balance(api_key_input, secret_key_input)
             if ok:
-                CREDS["api_key"] = api_key_input
+                CREDS["api_key"]    = api_key_input
                 CREDS["secret_key"] = secret_key_input
                 st.session_state.binance_logged_in = True
-                dlog("Login SUCCESS — keys saved", level="ok")
                 ensure_backend_started()
                 st.success("Login successful!")
                 st.rerun()
             else:
-                dlog(f"Login FAILED: {result}", level="err")
                 st.error(f"Login failed: {result}")
 
     with st.expander("🐞 Debug (pre-login)"):
@@ -549,16 +718,14 @@ if not st.session_state.binance_logged_in:
             st.text(f"[{line['t']}] {line['level'].upper()}: {line['msg']}")
     st.stop()
 
-# ---------------------------------------------------------------
-# LOGGED IN — dashboard
-# ---------------------------------------------------------------
+# ── Dashboard ───────────────────────────────────────────────────────
 ensure_backend_started()
 
 top_col1, top_col2, top_col3 = st.columns([5, 2, 1])
 with top_col1:
     st.title("📊 Live BTC Option Chain — Binance")
 with top_col2:
-    refresh_sec = st.slider("Refresh every (sec)", 2, 10, DEFAULT_REFRESH_SEC)
+    refresh_sec  = st.slider("Refresh every (sec)", 2, 10, DEFAULT_REFRESH_SEC)
     auto_refresh = st.checkbox("Auto refresh", value=True)
 with top_col3:
     if st.button("Logout"):
@@ -567,41 +734,44 @@ with top_col3:
 
 expiries = CHAIN_META["expiries"]
 if not expiries:
-    st.info("Option chain metadata load ho rahi hai... thoda ruko (5-10 sec). Neeche debug icon se live status dekh sakte ho.")
+    st.info("Option chain metadata load ho rahi hai... (5-10 sec)")
     selected_expiry = None
 else:
-    if "selected_expiry" not in st.session_state or st.session_state.selected_expiry not in expiries:
+    if ("selected_expiry" not in st.session_state
+            or st.session_state.selected_expiry not in expiries):
         st.session_state.selected_expiry = expiries[0]
     selected_expiry = st.selectbox("Expiry", expiries, key="selected_expiry")
+    # Start/switch ticker WS for the selected expiry
+    start_ticker_ws_for_expiry(selected_expiry)
 
-# ── Order book fetch: triggered via query param ?ob_symbol=BTC-YYMMDD-XXXXX-C ──
-qp = st.query_params
+# ── Order book REST fetch via query param ───────────────────────────
+qp        = st.query_params
 ob_symbol = qp.get("ob_symbol", "")
 if ob_symbol and ob_symbol != ORDER_BOOK.get("symbol"):
-    ORDER_BOOK["symbol"] = ob_symbol
+    ORDER_BOOK["symbol"]   = ob_symbol
     ORDER_BOOK["fetching"] = True
     ORDER_BOOK["last_error"] = None
     ok, result = get_order_book(ob_symbol, limit=10)
     if ok:
-        ORDER_BOOK["data"] = result
-        ORDER_BOOK["ts"] = int(time.time() * 1000)
+        ORDER_BOOK["data"]       = result
+        ORDER_BOOK["ts"]         = int(time.time() * 1000)
         ORDER_BOOK["last_error"] = None
-        dlog(f"Order book fetched for {ob_symbol}", level="ok")
+        dlog(f"Order book REST OK: {ob_symbol}", level="ok")
     else:
-        ORDER_BOOK["data"] = None
+        ORDER_BOOK["data"]       = None
         ORDER_BOOK["last_error"] = result
-        dlog(f"Order book FAILED for {ob_symbol}: {result}", level="err")
+        dlog(f"Order book REST FAILED: {ob_symbol}: {result}", level="err")
     ORDER_BOOK["fetching"] = False
 
-snapshot = build_snapshot(selected_expiry)
-
+snapshot   = build_snapshot(selected_expiry)
 chart_path = Path(__file__).parent / "chart.html"
+
 if chart_path.exists():
     html = chart_path.read_text(encoding="utf-8")
     html = html.replace("__SNAPSHOT_JSON__", json.dumps(snapshot))
     components.html(html, height=950, scrolling=True)
 else:
-    st.error("chart.html not found next to main.py — same folder me rakho.")
+    st.error("chart.html not found — same folder me rakho.")
 
 if auto_refresh:
     time.sleep(refresh_sec)

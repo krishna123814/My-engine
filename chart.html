@@ -5,655 +5,704 @@
 <title>Live Binance Option Chain</title>
 <style>
   :root {
-    --bg: #131722;
-    --card: #1b2030;
-    --border: #2a2e3e;
-    --text: #d1d4dc;
-    --muted: #7a7f8f;
-    --green: #26a69a;
-    --red: #ef5350;
-    --yellow: #f0b90b;
-    --accent: #f0b90b;
+    --bg: #131722; --card: #1b2030; --border: #2a2e3e;
+    --text: #d1d4dc; --muted: #7a7f8f;
+    --green: #26a69a; --red: #ef5350; --yellow: #f0b90b; --accent: #f0b90b;
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    padding: 16px;
-  }
-  h2, h3 { margin: 0 0 10px; font-weight: 600; }
-  .row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 18px;
-    flex: 1;
-    min-width: 220px;
-  }
-  .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: .03em; }
-  .value { font-size: 1.6rem; font-weight: 700; margin-top: 4px; color: var(--text); }
-  .value.call { color: var(--green); font-size: 1.3rem; }
-  .value.put { color: var(--red); font-size: 1.3rem; }
-  .sub { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:16px; }
+  h2,h3 { margin:0 0 10px; font-weight:600; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  th, td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--card); }
-  tr.atm { background: rgba(240, 185, 11, 0.08); }
-  td.call { color: var(--green); }
-  td.put { color: var(--red); }
-  .table-wrap { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
-  .status-line { color: var(--muted); font-size: 0.75rem; margin-top: 8px; display:flex; align-items:center; gap:8px; }
+  /* ── Top cards ── */
+  .row { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px;
+    padding:14px 18px; flex:1; min-width:220px; }
+  .label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.03em; }
+  .value { font-size:1.6rem; font-weight:700; margin-top:4px; color:var(--text); }
+  .value.call { color:var(--green); font-size:1.3rem; }
+  .value.put  { color:var(--red);   font-size:1.3rem; }
+  .sub { color:var(--muted); font-size:.8rem; margin-top:4px; }
+
+  /* ── Chain table ── */
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  th,td { padding:6px 8px; text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--card); z-index:1; }
+  tr.atm { background:rgba(240,185,11,.08); }
+  td.call { color:var(--green); }
+  td.put  { color:var(--red); }
+  .table-wrap { max-height:420px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; }
+
+  /* clickable row */
+  tr.crow { cursor:pointer; transition:background .12s; }
+  tr.crow:hover { background:rgba(240,185,11,.13) !important; }
+  td.strike-cell { color:var(--accent); font-weight:700; position:relative; }
+  td.strike-cell::after { content:"≡"; font-size:.7rem; margin-left:4px; opacity:.45; }
+
+  /* status bar */
+  .status-line { color:var(--muted); font-size:.75rem; margin-top:8px;
+    display:flex; align-items:center; gap:8px; }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-  .dot.ok { background: var(--green); }
-  .dot.err { background: var(--red); }
-  .dot.warn { background: var(--yellow); }
+  .dot.ok   { background:var(--green); }
+  .dot.err  { background:var(--red); }
+  .dot.warn { background:var(--yellow); }
 
-  /* ── Debug icon + panel ───────────────────────────────────────── */
+  /* ── Debug FAB + panel ── */
   #debug-fab {
-    position: fixed; right: 18px; bottom: 18px; width: 46px; height: 46px;
-    border-radius: 50%; background: var(--card); border: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: center; font-size: 1.3rem;
-    cursor: pointer; z-index: 9999; box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+    position:fixed; right:18px; bottom:18px; width:46px; height:46px;
+    border-radius:50%; background:var(--card); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center; font-size:1.3rem;
+    cursor:pointer; z-index:9999; box-shadow:0 2px 10px rgba(0,0,0,.4);
   }
-  #debug-fab.has-error { border-color: var(--red); animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(239,83,80,0.5);} 70%{box-shadow:0 0 0 10px rgba(239,83,80,0);} 100%{box-shadow:0 0 0 0 rgba(239,83,80,0);} }
-
+  #debug-fab.has-error { border-color:var(--red); animation:pulse 1.5s infinite; }
+  @keyframes pulse {
+    0%   { box-shadow:0 0 0 0 rgba(239,83,80,.5); }
+    70%  { box-shadow:0 0 0 10px rgba(239,83,80,0); }
+    100% { box-shadow:0 0 0 0 rgba(239,83,80,0); }
+  }
   #debug-panel {
-    position: fixed; right: 18px; bottom: 76px; width: 380px; max-height: 75vh;
-    background: #0e111a; border: 1px solid var(--border); border-radius: 12px;
-    padding: 14px; overflow-y: auto; z-index: 9999; display: none;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.6); font-size: 0.78rem;
+    position:fixed; right:18px; bottom:76px; width:400px; max-height:78vh;
+    background:#0e111a; border:1px solid var(--border); border-radius:12px;
+    padding:14px; overflow-y:auto; z-index:9999; display:none;
+    box-shadow:0 4px 24px rgba(0,0,0,.6); font-size:.78rem;
   }
-  #debug-panel.open { display: block; }
-  #debug-panel h4 { margin: 0 0 8px; font-size: 0.9rem; color: var(--accent); }
-  .dbg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
-  .dbg-item {
-    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px; font-size: 0.72rem;
-  }
-  .dbg-item .t { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; }
-  .dbg-item .v { margin-top: 3px; font-weight: 600; }
-  .dbg-err-box {
-    background: rgba(239,83,80,0.1); border: 1px solid var(--red); border-radius: 6px;
-    padding: 6px 8px; margin-top: 6px; font-size: 0.7rem; color: #ffb4b2; word-break: break-word;
-  }
-  #dbg-log {
-    background: #05070c; border: 1px solid var(--border); border-radius: 8px;
-    padding: 8px; max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.68rem;
-  }
-  .log-line { margin-bottom: 3px; white-space: pre-wrap; word-break: break-word; }
-  .log-ok   { color: var(--green); }
-  .log-err  { color: var(--red); }
-  .log-warn { color: var(--yellow); }
-  .log-info { color: var(--muted); }
-  details summary { cursor: pointer; color: var(--muted); margin-top: 8px; font-size: 0.75rem; }
-  #dbg-raw { white-space: pre-wrap; word-break: break-word; background: #05070c; padding: 8px; border-radius: 6px; max-height: 200px; overflow-y: auto; font-size: 0.65rem; margin-top: 6px; }
+  #debug-panel.open { display:block; }
+  #debug-panel h4   { margin:0 0 8px; font-size:.9rem; color:var(--accent); }
+  .dbg-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px; }
+  .dbg-item { background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:8px; font-size:.72rem; }
+  .dbg-item .t { color:var(--muted); font-size:.68rem; text-transform:uppercase; }
+  .dbg-item .v { margin-top:3px; font-weight:600; }
+  .dbg-err-box { background:rgba(239,83,80,.1); border:1px solid var(--red);
+    border-radius:6px; padding:6px 8px; margin-top:6px; font-size:.7rem;
+    color:#ffb4b2; word-break:break-word; }
+  #dbg-log { background:#05070c; border:1px solid var(--border); border-radius:8px;
+    padding:8px; max-height:220px; overflow-y:auto; font-family:monospace; font-size:.68rem; }
+  .log-line { margin-bottom:3px; white-space:pre-wrap; word-break:break-word; }
+  .log-ok   { color:var(--green); }
+  .log-err  { color:var(--red); }
+  .log-warn { color:var(--yellow); }
+  .log-info { color:var(--muted); }
+  details summary { cursor:pointer; color:var(--muted); margin-top:8px; font-size:.75rem; }
+  #dbg-raw { white-space:pre-wrap; word-break:break-word; background:#05070c;
+    padding:8px; border-radius:6px; max-height:200px; overflow-y:auto;
+    font-size:.65rem; margin-top:6px; }
 
-  /* ── Market Depth Modal ─────────────────────────────────────────── */
-  tr.clickable-row { cursor: pointer; transition: background 0.15s; }
-  tr.clickable-row:hover { background: rgba(240,185,11,0.12) !important; }
-  tr.clickable-row td.strike-cell {
-    position: relative;
-    color: var(--accent);
-    font-weight: 700;
-  }
-  tr.clickable-row td.strike-cell::after {
-    content: "📋";
-    font-size: 0.65rem;
-    margin-left: 4px;
-    opacity: 0.5;
-    vertical-align: middle;
-  }
-
+  /* ── Market Depth Modal ── */
   #depth-overlay {
-    display: none;
-    position: fixed; inset: 0;
-    background: rgba(0,0,0,0.65);
-    z-index: 10000;
-    align-items: center; justify-content: center;
+    display:none; position:fixed; inset:0;
+    background:rgba(0,0,0,.65); z-index:10000;
+    align-items:center; justify-content:center;
   }
-  #depth-overlay.open { display: flex; }
-
+  #depth-overlay.open { display:flex; }
   #depth-modal {
-    background: #151c2c;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 20px 22px;
-    width: min(92vw, 680px);
-    max-height: 88vh;
-    overflow-y: auto;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.7);
-    position: relative;
+    background:#151c2c; border:1px solid var(--border); border-radius:14px;
+    padding:20px 22px; width:min(95vw,700px); max-height:90vh; overflow-y:auto;
+    box-shadow:0 8px 40px rgba(0,0,0,.7); position:relative;
   }
-  #depth-modal h3 { margin: 0 0 4px; font-size: 1rem; color: var(--accent); }
-  #depth-modal .depth-sub { color: var(--muted); font-size: 0.75rem; margin-bottom: 14px; }
-
+  #depth-modal h3 { margin:0 0 2px; font-size:1rem; color:var(--accent); }
+  .depth-sub { color:var(--muted); font-size:.74rem; margin-bottom:12px; }
   #depth-close {
-    position: absolute; top: 14px; right: 16px;
-    background: none; border: none; color: var(--muted);
-    font-size: 1.4rem; cursor: pointer; line-height: 1;
+    position:absolute; top:14px; right:16px;
+    background:none; border:none; color:var(--muted);
+    font-size:1.4rem; cursor:pointer; line-height:1;
   }
-  #depth-close:hover { color: var(--text); }
+  #depth-close:hover { color:var(--text); }
 
-  .depth-tables { display: flex; gap: 16px; flex-wrap: wrap; }
-  .depth-side { flex: 1; min-width: 200px; }
-  .depth-side h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px; }
-  .depth-side h4.ask-h { color: var(--red); }
-  .depth-side h4.bid-h { color: var(--green); }
-  .depth-side table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-  .depth-side th { color: var(--muted); font-size: 0.72rem; font-weight: 600; padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--border); }
-  .depth-side th:first-child { text-align: left; }
-  .depth-side td { padding: 5px 8px; text-align: right; border-bottom: 1px solid rgba(42,46,62,0.5); }
-  .depth-side td:first-child { text-align: left; font-weight: 600; }
-  .depth-side td.ask-price { color: var(--red); }
-  .depth-side td.bid-price { color: var(--green); }
-
-  .depth-bar-cell { position: relative; }
-  .depth-bar {
-    position: absolute; top: 2px; bottom: 2px; border-radius: 2px;
-    opacity: 0.18; pointer-events: none;
-  }
-  .depth-bar.ask-bar { background: var(--red); right: 0; }
-  .depth-bar.bid-bar { background: var(--green); left: 0; }
-
-  #depth-status {
-    text-align: center; padding: 30px 0; color: var(--muted); font-size: 0.85rem;
-  }
-  .depth-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+  /* tabs */
+  .depth-tabs { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
   .depth-tab {
-    padding: 5px 14px; border-radius: 6px; border: 1px solid var(--border);
-    background: none; color: var(--muted); font-size: 0.8rem; cursor: pointer;
-    transition: all 0.15s;
+    padding:5px 14px; border-radius:6px; border:1px solid var(--border);
+    background:none; color:var(--muted); font-size:.8rem; cursor:pointer; transition:all .15s;
   }
-  .depth-tab.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
-  .depth-spread { text-align: center; padding: 6px; font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 4px 0; }
-  .depth-spread span { color: var(--yellow); font-weight: 600; }
+  .depth-tab.active { background:var(--accent); color:#000; border-color:var(--accent); font-weight:700; }
+
+  /* live badge */
+  .live-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:.68rem; padding:2px 8px; border-radius:12px;
+    font-weight:600; letter-spacing:.04em;
+  }
+  .live-badge.live  { background:rgba(38,166,154,.18); color:var(--green); border:1px solid var(--green); }
+  .live-badge.snap  { background:rgba(240,185,11,.15); color:var(--yellow); border:1px solid var(--yellow); }
+  .live-badge.off   { background:rgba(122,127,143,.12); color:var(--muted); border:1px solid var(--border); }
+  .live-dot { width:6px; height:6px; border-radius:50%; background:currentColor;
+    animation:livepulse 1.2s infinite; }
+  @keyframes livepulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+  /* depth tables */
+  #depth-status { text-align:center; padding:30px 0; color:var(--muted); font-size:.85rem; }
+  .depth-book { display:flex; gap:14px; flex-wrap:wrap; }
+  .depth-side { flex:1; min-width:200px; }
+  .depth-side h4 { font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; margin:0 0 6px; }
+  .depth-side h4.ask-h { color:var(--red); }
+  .depth-side h4.bid-h { color:var(--green); }
+  .depth-side table { width:100%; border-collapse:collapse; font-size:.8rem; }
+  .depth-side th { color:var(--muted); font-size:.7rem; font-weight:600; padding:4px 6px;
+    text-align:right; border-bottom:1px solid var(--border); }
+  .depth-side th:first-child { text-align:left; }
+  .depth-side td { padding:4px 6px; text-align:right;
+    border-bottom:1px solid rgba(42,46,62,.5); }
+  .depth-side td:first-child { text-align:left; font-weight:600; }
+  td.ap { color:var(--red); }
+  td.bp { color:var(--green); }
+
+  /* depth bar */
+  .bar-cell { position:relative; min-width:70px; }
+  .bar-bg {
+    position:absolute; top:2px; bottom:2px; border-radius:2px;
+    opacity:.2; pointer-events:none; transition:width .3s;
+  }
+  .bar-bg.ask { background:var(--red);   right:0; }
+  .bar-bg.bid { background:var(--green); left:0; }
+  .bar-cell span { position:relative; z-index:1; }
+
+  /* spread row */
+  .spread-row td {
+    font-size:.71rem; color:var(--muted); text-align:center;
+    padding:5px 0; border-top:1px solid var(--border);
+    border-bottom:1px solid var(--border);
+  }
+  .spread-row .sv { color:var(--yellow); font-weight:700; }
+  .spread-row .mv { color:var(--accent); }
+
+  /* flash animation for live updates */
+  @keyframes flashG { 0%{background:rgba(38,166,154,.25);} 100%{background:transparent;} }
+  @keyframes flashR { 0%{background:rgba(239,83,80,.25);}  100%{background:transparent;} }
+  .flash-g { animation:flashG .4s ease; }
+  .flash-r { animation:flashR .4s ease; }
 </style>
 </head>
 <body>
 
-  <div class="row">
-    <div class="card">
-      <div class="label">BTCUSDT Spot</div>
-      <div class="value" id="spot-price">--</div>
-      <div class="sub" id="spot-ts">--</div>
-    </div>
-    <div class="card">
-      <div class="label">Nearest Strike / Expiry</div>
-      <div class="value" id="nearest-strike" style="font-size:1.3rem;">--</div>
-      <div class="sub" id="nearest-expiry">--</div>
-    </div>
-    <div class="card">
-      <div class="label">Nearest Call (Mark / IV)</div>
-      <div class="value call" id="call-mark">--</div>
-      <div class="sub" id="call-iv">--</div>
-    </div>
-    <div class="card">
-      <div class="label">Nearest Put (Mark / IV)</div>
-      <div class="value put" id="put-mark">--</div>
-      <div class="sub" id="put-iv">--</div>
-    </div>
+<!-- ── Top stat cards ── -->
+<div class="row">
+  <div class="card">
+    <div class="label">BTCUSDT Spot</div>
+    <div class="value" id="spot-price">--</div>
+    <div class="sub"   id="spot-ts">--</div>
   </div>
-
-  <h3>Full Option Chain</h3>
-  <div class="table-wrap">
-    <table id="chain-table">
-      <thead>
-        <tr>
-          <th colspan="6" style="color:var(--green)">CALL</th>
-          <th>Strike</th>
-          <th colspan="6" style="color:var(--red)">PUT</th>
-        </tr>
-        <tr>
-          <th>IV</th><th>Delta</th><th>Bid</th><th>Ask</th><th>Mark</th><th>Last</th>
-          <th></th>
-          <th>Last</th><th>Mark</th><th>Ask</th><th>Bid</th><th>Delta</th><th>IV</th>
-        </tr>
-      </thead>
-      <tbody id="chain-body">
-        <tr><td colspan="13" style="color:var(--muted);padding:20px;">No data yet</td></tr>
-      </tbody>
-    </table>
+  <div class="card">
+    <div class="label">Nearest Strike / Expiry</div>
+    <div class="value" id="nearest-strike" style="font-size:1.3rem;">--</div>
+    <div class="sub"   id="nearest-expiry">--</div>
   </div>
-
-  <div class="status-line">
-    <span id="overall-dot" class="dot"></span>
-    <span id="overall-text">--</span>
-    <span style="margin-left:auto;">Snapshot: <span id="gen-time">--</span></span>
+  <div class="card">
+    <div class="label">Nearest Call (Mark / IV)</div>
+    <div class="value call" id="call-mark">--</div>
+    <div class="sub"        id="call-iv">--</div>
   </div>
+  <div class="card">
+    <div class="label">Nearest Put (Mark / IV)</div>
+    <div class="value put" id="put-mark">--</div>
+    <div class="sub"       id="put-iv">--</div>
+  </div>
+</div>
 
-  <!-- ══ Market Depth Modal ══ -->
-  <div id="depth-overlay">
-    <div id="depth-modal">
-      <button id="depth-close" title="Close">✕</button>
-      <h3 id="depth-title">Market Depth</h3>
-      <div class="depth-sub" id="depth-sub">--</div>
+<!-- ── Option chain table ── -->
+<h3>Full Option Chain</h3>
+<div class="table-wrap">
+  <table id="chain-table">
+    <thead>
+      <tr>
+        <th colspan="6" style="color:var(--green)">CALL</th>
+        <th>Strike</th>
+        <th colspan="6" style="color:var(--red)">PUT</th>
+      </tr>
+      <tr>
+        <th>IV</th><th>Delta</th><th>Bid</th><th>Ask</th><th>Mark</th><th>Last</th>
+        <th></th>
+        <th>Last</th><th>Mark</th><th>Ask</th><th>Bid</th><th>Delta</th><th>IV</th>
+      </tr>
+    </thead>
+    <tbody id="chain-body">
+      <tr><td colspan="13" style="color:var(--muted);padding:20px;">No data yet…</td></tr>
+    </tbody>
+  </table>
+</div>
 
-      <div class="depth-tabs">
+<div class="status-line">
+  <span id="overall-dot" class="dot"></span>
+  <span id="overall-text">--</span>
+  <span style="margin-left:auto;">Snapshot: <span id="gen-time">--</span></span>
+</div>
+
+<!-- ══ Market Depth Modal ══ -->
+<div id="depth-overlay">
+  <div id="depth-modal">
+    <button id="depth-close">✕</button>
+    <h3 id="depth-title">Market Depth</h3>
+    <div class="depth-sub" id="depth-sub">--</div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+      <div class="depth-tabs" style="margin-bottom:0;">
         <button class="depth-tab active" data-tab="call" id="tab-call">📗 CALL</button>
-        <button class="depth-tab" data-tab="put" id="tab-put">📕 PUT</button>
+        <button class="depth-tab"        data-tab="put"  id="tab-put">📕 PUT</button>
       </div>
+      <span id="live-badge" class="live-badge off">
+        <span class="live-dot"></span> --
+      </span>
+    </div>
 
-      <div id="depth-status">Strike select karo — order book load ho raha hai...</div>
+    <div id="depth-status">Strike select karo…</div>
 
-      <div class="depth-tables" id="depth-tables" style="display:none;">
-        <div class="depth-side" id="asks-side">
-          <h4 class="ask-h">Asks (Sellers)</h4>
-          <table>
-            <thead><tr><th>Price</th><th>Qty</th><th style="width:80px;">Depth</th></tr></thead>
-            <tbody id="asks-body"></tbody>
-          </table>
-        </div>
-        <div class="depth-side" id="bids-side">
-          <h4 class="bid-h">Bids (Buyers)</h4>
-          <table>
-            <thead><tr><th>Price</th><th>Qty</th><th style="width:80px;">Depth</th></tr></thead>
-            <tbody id="bids-body"></tbody>
-          </table>
-        </div>
+    <div class="depth-book" id="depth-book" style="display:none;">
+      <div class="depth-side">
+        <h4 class="ask-h">Asks — Sellers ↑</h4>
+        <table>
+          <thead><tr><th>Price</th><th>Qty</th><th class="bar-cell">Depth</th></tr></thead>
+          <tbody id="asks-body"></tbody>
+        </table>
+      </div>
+      <div class="depth-side">
+        <h4 class="bid-h">Bids — Buyers ↓</h4>
+        <table>
+          <thead><tr><th>Price</th><th>Qty</th><th class="bar-cell">Depth</th></tr></thead>
+          <tbody id="bids-body"></tbody>
+        </table>
       </div>
     </div>
   </div>
+</div>
 
-  <!-- ══ Debug icon + panel ══ -->
-  <div id="debug-fab" title="Open debug panel">🐞</div>
-  <div id="debug-panel">
-    <h4>🐞 Debug — Live System Status</h4>
-    <div class="dbg-grid" id="dbg-grid"></div>
-    <div id="dbg-errors"></div>
-    <div style="color:var(--muted);font-size:0.72rem;margin:8px 0 4px;">Live log (newest last)</div>
-    <div id="dbg-log"></div>
-    <details>
-      <summary>Raw snapshot JSON</summary>
-      <div id="dbg-raw"></div>
-    </details>
-  </div>
+<!-- ── Debug FAB + panel ── -->
+<div id="debug-fab" title="Debug panel">🐞</div>
+<div id="debug-panel">
+  <h4>🐞 Debug — Live System Status</h4>
+  <div class="dbg-grid" id="dbg-grid"></div>
+  <div id="dbg-errors"></div>
+  <div style="color:var(--muted);font-size:.72rem;margin:8px 0 4px;">Live log</div>
+  <div id="dbg-log"></div>
+  <details>
+    <summary>Raw snapshot JSON</summary>
+    <div id="dbg-raw"></div>
+  </details>
+</div>
 
 <script id="snapshot-data" type="application/json">__SNAPSHOT_JSON__</script>
 <script>
-  let snap = {};
+// ═══════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════
+let snap = {};
+try { snap = JSON.parse(document.getElementById("snapshot-data").textContent); }
+catch(e) { snap = { error: "Snapshot parse error: " + e }; }
+
+function fmt(n, d=2) {
+  if (n === null || n === undefined || n === "") return "--";
+  const x = parseFloat(n);
+  return isNaN(x) ? "--" : x.toLocaleString(undefined, {maximumFractionDigits: d});
+}
+function ageText(s) {
+  if (s === null || s === undefined) return "never";
+  return s < 60 ? s + "s ago" : Math.round(s/60) + "m ago";
+}
+function statusDot(ok) {
+  return `<span class="dot ${ok?'ok':'err'}" style="display:inline-block;"></span>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAIN RENDER  (called every Streamlit rerun)
+// ═══════════════════════════════════════════════════════════
+function render() {
+  if (snap.error) {
+    document.getElementById("overall-text").textContent = snap.error;
+    document.getElementById("overall-dot").className = "dot err";
+    return;
+  }
+
+  // Spot
+  const spot = snap.spot || {};
+  document.getElementById("spot-price").textContent =
+    spot.price ? "$" + fmt(spot.price) : "--";
+  document.getElementById("spot-ts").textContent = spot.price
+    ? "WS live · " + (spot.msg_count||0) + " msgs"
+    : (spot.last_error ? "❌ " + spot.last_error : "waiting…");
+
+  // Nearest
+  const nearest = snap.nearest;
+  if (nearest) {
+    document.getElementById("nearest-strike").textContent = fmt(nearest.strike, 0);
+    document.getElementById("nearest-expiry").textContent = "Expiry: " + nearest.expiry;
+    document.getElementById("call-mark").textContent = fmt(nearest.call && nearest.call.mark);
+    document.getElementById("call-iv").textContent   = "IV: " + fmt(nearest.call && nearest.call.iv);
+    document.getElementById("put-mark").textContent  = fmt(nearest.put  && nearest.put.mark);
+    document.getElementById("put-iv").textContent    = "IV: " + fmt(nearest.put  && nearest.put.iv);
+  }
+
+  // Chain table
+  const chain = snap.chain || {};
+  const tbody = document.getElementById("chain-body");
+  if (chain.rows && chain.rows.length) {
+    const spotP = spot.price;
+    let atm = null;
+    if (spotP) {
+      atm = chain.rows.reduce((b, r) =>
+        Math.abs(r.strike - spotP) < Math.abs(b - spotP) ? r.strike : b,
+        chain.rows[0].strike);
+    }
+    tbody.innerHTML = chain.rows.map(row => `
+      <tr class="crow ${row.strike === atm ? 'atm' : ''}"
+          data-call="${row.call_symbol||''}"
+          data-put="${row.put_symbol||''}"
+          data-strike="${row.strike}"
+          onclick="openDepth(this)">
+        <td class="call">${fmt(row.call_iv)}</td>
+        <td class="call">${fmt(row.call_delta,3)}</td>
+        <td class="call">${fmt(row.call_bid)}</td>
+        <td class="call">${fmt(row.call_ask)}</td>
+        <td class="call">${fmt(row.call_mark)}</td>
+        <td class="call">${fmt(row.call_last)}</td>
+        <td class="strike-cell">${fmt(row.strike,0)}</td>
+        <td class="put">${fmt(row.put_last)}</td>
+        <td class="put">${fmt(row.put_mark)}</td>
+        <td class="put">${fmt(row.put_ask)}</td>
+        <td class="put">${fmt(row.put_bid)}</td>
+        <td class="put">${fmt(row.put_delta,3)}</td>
+        <td class="put">${fmt(row.put_iv)}</td>
+      </tr>`).join("");
+  } else {
+    tbody.innerHTML = `<tr><td colspan="13" style="color:var(--muted);padding:20px;">
+      ${chain.last_error ? "Chain error: "+chain.last_error : "No data for this expiry yet"}
+    </td></tr>`;
+  }
+
+  document.getElementById("gen-time").textContent = snap.generated_at || "--";
+
+  // Status dot
+  const dbg = snap.debug || {};
+  const problems = [];
+  if (!dbg.websocket_lib_installed)                     problems.push("websocket-client missing");
+  if (!dbg.api_key_present)                             problems.push("No API key");
+  if (dbg.ws_spot   && !dbg.ws_spot.connected)          problems.push("Spot WS down");
+  if (dbg.ws_mark   && !dbg.ws_mark.connected)          problems.push("Mark-price WS down");
+  if (dbg.ws_trade  && !dbg.ws_trade.connected)         problems.push("Trade WS down");
+  if (dbg.ws_ticker && !dbg.ws_ticker.connected)        problems.push("Ticker WS down");
+  if (chain.last_error)                                  problems.push("Chain: " + chain.last_error);
+  if (spot.last_error)                                   problems.push("Spot: " + spot.last_error);
+
+  const dot = document.getElementById("overall-dot");
+  const txt = document.getElementById("overall-text");
+  const fab = document.getElementById("debug-fab");
+  if (!problems.length) {
+    dot.className = "dot ok"; txt.textContent = "All systems live";
+    fab.classList.remove("has-error");
+  } else {
+    dot.className = "dot warn";
+    txt.textContent = problems.length + " issue(s) — open 🐞";
+    fab.classList.add("has-error");
+  }
+
+  renderDebugPanel(dbg, spot, chain);
+}
+
+function renderDebugPanel(dbg, spot, chain) {
+  const ws = (s) => s || {};
+  document.getElementById("dbg-grid").innerHTML = `
+    <div class="dbg-item"><div class="t">API Key</div>
+      <div class="v">${statusDot(dbg.api_key_present)} ${dbg.api_key_present?"Present":"Missing"}</div></div>
+    <div class="dbg-item"><div class="t">WS lib</div>
+      <div class="v">${statusDot(dbg.websocket_lib_installed)} ${dbg.websocket_lib_installed?"OK":"Missing"}</div></div>
+    <div class="dbg-item"><div class="t">Spot WS</div>
+      <div class="v">${statusDot(ws(dbg.ws_spot).connected)} ${ws(dbg.ws_spot).connected?"Live":"Down"}</div></div>
+    <div class="dbg-item"><div class="t">Spot msgs</div>
+      <div class="v">${spot.msg_count||0} rx / ${spot.err_count||0} err</div></div>
+    <div class="dbg-item"><div class="t">Mark-Price WS</div>
+      <div class="v">${statusDot(ws(dbg.ws_mark).connected)} ${ws(dbg.ws_mark).connected?"Live":"Down"}</div></div>
+    <div class="dbg-item"><div class="t">Mark last msg</div>
+      <div class="v">${ageText(ws(dbg.ws_mark).last_msg_age_sec)}</div></div>
+    <div class="dbg-item"><div class="t">Trade WS</div>
+      <div class="v">${statusDot(ws(dbg.ws_trade).connected)} ${ws(dbg.ws_trade).connected?"Live":"Down"}</div></div>
+    <div class="dbg-item"><div class="t">Trade last msg</div>
+      <div class="v">${ageText(ws(dbg.ws_trade).last_msg_age_sec)}</div></div>
+    <div class="dbg-item"><div class="t">Ticker WS</div>
+      <div class="v">${statusDot(ws(dbg.ws_ticker).connected)} ${ws(dbg.ws_ticker).connected?"Live":"Down"}</div></div>
+    <div class="dbg-item"><div class="t">Ticker expiry</div>
+      <div class="v">${ws(dbg.ws_ticker).subscribed_expiry||"--"}</div></div>
+    <div class="dbg-item"><div class="t">Chain meta</div>
+      <div class="v">${statusDot(chain.last_ok)} ${chain.symbols_count||0} sym</div></div>
+    <div class="dbg-item"><div class="t">Chain loaded</div>
+      <div class="v">${ageText(chain.age_sec)}</div></div>`;
+
+  const errs = [];
+  if (spot.last_error) errs.push("Spot: " + spot.last_error);
+  if (chain.last_error) errs.push("Chain: " + chain.last_error);
+  ["ws_spot","ws_mark","ws_trade","ws_ticker"].forEach(k => {
+    if (dbg[k] && dbg[k].last_error) errs.push(k + ": " + dbg[k].last_error);
+  });
+  document.getElementById("dbg-errors").innerHTML = errs.length
+    ? errs.map(e => `<div class="dbg-err-box">${e}</div>`).join("")
+    : `<div style="color:var(--muted);font-size:.72rem;">No errors 🎉</div>`;
+
+  const logBox = document.getElementById("dbg-log");
+  const logs = (dbg.log||[]).slice(-80);
+  logBox.innerHTML = logs.map(l =>
+    `<div class="log-line log-${l.level}">[${l.t}] ${l.level.toUpperCase()}: ${l.msg}</div>`
+  ).join("") || `<div style="color:var(--muted)">No logs yet</div>`;
+  logBox.scrollTop = logBox.scrollHeight;
+  document.getElementById("dbg-raw").textContent = JSON.stringify(snap, null, 2);
+}
+
+document.getElementById("debug-fab").addEventListener("click", () => {
+  document.getElementById("debug-panel").classList.toggle("open");
+});
+render();
+
+// ═══════════════════════════════════════════════════════════
+// MARKET DEPTH — browser-side WebSocket (no Streamlit rerun)
+// ═══════════════════════════════════════════════════════════
+let depthState = {
+  strike: null, callSymbol: null, putSymbol: null, activeTab: "call",
+};
+let depthWS   = null;   // live WebSocket instance
+let depthBook = { bids: [], asks: [] };  // current in-memory book
+
+// ── tab switching ──
+document.querySelectorAll(".depth-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".depth-tab").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    depthState.activeTab = btn.dataset.tab;
+    openDepthForCurrentState();
+  });
+});
+
+// ── close ──
+document.getElementById("depth-close").addEventListener("click", closeDepth);
+document.getElementById("depth-overlay").addEventListener("click", e => {
+  if (e.target === document.getElementById("depth-overlay")) closeDepth();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDepth(); });
+
+function closeDepth() {
+  document.getElementById("depth-overlay").classList.remove("open");
+  closeDepthWS();
+}
+
+// ── open from row click ──
+function openDepth(row) {
+  depthState.strike     = row.dataset.strike;
+  depthState.callSymbol = row.dataset.call || null;
+  depthState.putSymbol  = row.dataset.put  || null;
+  depthState.activeTab  = "call";
+  document.querySelectorAll(".depth-tab").forEach(b => b.classList.remove("active"));
+  document.getElementById("tab-call").classList.add("active");
+
+  document.getElementById("depth-title").textContent =
+    "Market Depth — Strike " + fmt(depthState.strike, 0);
+  document.getElementById("depth-overlay").classList.add("open");
+  openDepthForCurrentState();
+}
+
+function openDepthForCurrentState() {
+  const sym = depthState.activeTab === "call"
+    ? depthState.callSymbol : depthState.putSymbol;
+
+  document.getElementById("depth-sub").textContent =
+    (depthState.activeTab === "call" ? "CALL" : "PUT") + ": " + (sym || "N/A");
+
+  if (!sym) {
+    setDepthStatus("❌ Is side ke liye symbol nahi hai.");
+    setBadge("off", "--");
+    closeDepthWS();
+    return;
+  }
+
+  depthBook = { bids: [], asks: [] };
+  setDepthStatus("⏳ REST snapshot fetch ho rahi hai…");
+  setBadge("off", "Loading…");
+
+  // Step 1 — REST snapshot from Streamlit (query param trigger)
+  fetchRestSnapshot(sym, () => {
+    // Step 2 — connect live WS for updates
+    connectDepthWS(sym);
+  });
+}
+
+// ── Step 1: REST snapshot via Streamlit query param ──
+function fetchRestSnapshot(sym, onDone) {
+  // Signal Streamlit to fetch via query param
   try {
-    snap = JSON.parse(document.getElementById("snapshot-data").textContent);
-  } catch (e) {
-    snap = { error: "Failed to parse embedded snapshot JSON: " + e };
-  }
+    const u = new URL(window.parent.location.href);
+    u.searchParams.set("ob_symbol", sym);
+    window.parent.history.replaceState({}, "", u.toString());
+  } catch(e) {}
 
-  function fmt(n, digits = 2) {
-    if (n === null || n === undefined || n === "") return "--";
-    const num = parseFloat(n);
-    if (isNaN(num)) return "--";
-    return num.toLocaleString(undefined, { maximumFractionDigits: digits });
-  }
-
-  function ageText(sec) {
-    if (sec === null || sec === undefined) return "never";
-    if (sec < 60) return sec + "s ago";
-    return Math.round(sec / 60) + "m ago";
-  }
-
-  function render() {
-    if (snap.error) {
-      document.getElementById("overall-text").textContent = "Snapshot parse error: " + snap.error;
-      document.getElementById("overall-dot").className = "dot err";
+  // Poll embedded snapshot for the data (Streamlit embeds after rerun)
+  let attempts = 0;
+  const poll = setInterval(() => {
+    attempts++;
+    let freshSnap = {};
+    try {
+      freshSnap = JSON.parse(document.getElementById("snapshot-data").textContent);
+    } catch(e) {}
+    const ob = freshSnap.order_book || {};
+    if (ob.symbol === sym && !ob.fetching) {
+      clearInterval(poll);
+      if (ob.last_error) {
+        setDepthStatus("⚠️ REST snapshot failed: " + ob.last_error +
+          " — trying live WS only…");
+      } else if (ob.bids || ob.asks) {
+        // Merge REST data into in-memory book
+        depthBook.bids = (ob.bids || []).map(([p,q]) => ({p: parseFloat(p), q: parseFloat(q)}));
+        depthBook.asks = (ob.asks || []).map(([p,q]) => ({p: parseFloat(p), q: parseFloat(q)}));
+        renderDepthBook();
+        setBadge("snap", "Snapshot");
+      }
+      onDone();
       return;
     }
-
-    // ── Spot ──
-    const spot = snap.spot || {};
-    document.getElementById("spot-price").textContent = spot.price ? "$" + fmt(spot.price) : "--";
-    document.getElementById("spot-ts").textContent = spot.price
-      ? "updated " + ageText(spot.age_sec)
-      : (spot.last_error ? "Error: " + spot.last_error : "waiting for first price...");
-
-    // ── Nearest strike ──
-    const nearest = snap.nearest;
-    if (nearest) {
-      document.getElementById("nearest-strike").textContent = fmt(nearest.strike, 0);
-      document.getElementById("nearest-expiry").textContent = "Expiry: " + nearest.expiry;
-      document.getElementById("call-mark").textContent = fmt(nearest.call && nearest.call.mark);
-      document.getElementById("call-iv").textContent = "IV: " + fmt(nearest.call && nearest.call.iv);
-      document.getElementById("put-mark").textContent = fmt(nearest.put && nearest.put.mark);
-      document.getElementById("put-iv").textContent = "IV: " + fmt(nearest.put && nearest.put.iv);
+    if (attempts > 25) {
+      clearInterval(poll);
+      setDepthStatus("⚠️ REST snapshot timeout — live WS se try kar raha hai…");
+      onDone();
     }
+  }, 400);
+}
 
-    // ── Chain table ──
-    const chain = snap.chain || {};
-    const tbody = document.getElementById("chain-body");
-    if (chain.rows && chain.rows.length) {
-      const spotPrice = spot.price;
-      let atmStrike = null;
-      if (spotPrice) {
-        atmStrike = chain.rows.reduce((best, r) =>
-          Math.abs(r.strike - spotPrice) < Math.abs(best - spotPrice) ? r.strike : best, chain.rows[0].strike);
-      }
-      tbody.innerHTML = chain.rows.map(row => `
-        <tr class="${row.strike === atmStrike ? 'atm' : ''} clickable-row"
-            data-call="${row.call_symbol || ''}"
-            data-put="${row.put_symbol || ''}"
-            data-strike="${row.strike}"
-            onclick="openDepth(this)">
-          <td class="call">${fmt(row.call_iv)}</td>
-          <td class="call">${fmt(row.call_delta, 3)}</td>
-          <td class="call">${fmt(row.call_bid)}</td>
-          <td class="call">${fmt(row.call_ask)}</td>
-          <td class="call">${fmt(row.call_mark)}</td>
-          <td class="call">${fmt(row.call_last)}</td>
-          <td class="strike-cell">${fmt(row.strike, 0)}</td>
-          <td class="put">${fmt(row.put_last)}</td>
-          <td class="put">${fmt(row.put_mark)}</td>
-          <td class="put">${fmt(row.put_ask)}</td>
-          <td class="put">${fmt(row.put_bid)}</td>
-          <td class="put">${fmt(row.put_delta, 3)}</td>
-          <td class="put">${fmt(row.put_iv)}</td>
-        </tr>
-      `).join("");
-    } else {
-      tbody.innerHTML = `<tr><td colspan="13" style="color:var(--muted);padding:20px;">
-        ${chain.last_error ? "Chain load error: " + chain.last_error : "No data for this expiry yet"}
-      </td></tr>`;
-    }
-
-    document.getElementById("gen-time").textContent = snap.generated_at || "--";
-
-    // ── Overall status dot ──
-    const dbg = snap.debug || {};
-    const problems = [];
-    if (!dbg.websocket_lib_installed) problems.push("websocket-client not installed");
-    if (!dbg.api_key_present) problems.push("No API key in memory");
-    if (dbg.ws_mark && !dbg.ws_mark.connected) problems.push("Mark-price WS not connected");
-    if (dbg.ws_trade && !dbg.ws_trade.connected) problems.push("Trade WS not connected");
-    if (chain.last_error) problems.push("Chain: " + chain.last_error);
-    if (spot.last_error) problems.push("Spot: " + spot.last_error);
-
-    const overallDot = document.getElementById("overall-dot");
-    const overallText = document.getElementById("overall-text");
-    const fab = document.getElementById("debug-fab");
-    if (problems.length === 0) {
-      overallDot.className = "dot ok";
-      overallText.textContent = "All systems live";
-      fab.classList.remove("has-error");
-    } else {
-      overallDot.className = "dot warn";
-      overallText.textContent = problems.length + " issue(s) — open 🐞 debug for details";
-      fab.classList.add("has-error");
-    }
-
-    renderDebugPanel(dbg, spot, chain);
+// ── Step 2: Browser WebSocket for live depth ──
+function connectDepthWS(sym) {
+  closeDepthWS();
+  // Binance eoptions depth stream: @depth10@100ms
+  const url = `wss://nbstream.binance.com/eoptions/stream?streams=${sym.toLowerCase()}@depth10@100ms`;
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch(e) {
+    setBadge("off", "WS N/A");
+    return;
   }
+  depthWS = ws;
 
-  function statusDot(ok) {
-    return `<span class="dot ${ok ? 'ok' : 'err'}" style="display:inline-block;"></span>`;
-  }
-
-  function renderDebugPanel(dbg, spot, chain) {
-    const grid = document.getElementById("dbg-grid");
-    grid.innerHTML = `
-      <div class="dbg-item">
-        <div class="t">API Credentials</div>
-        <div class="v">${statusDot(dbg.api_key_present)} ${dbg.api_key_present ? "Present" : "Missing"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">websocket-client lib</div>
-        <div class="v">${statusDot(dbg.websocket_lib_installed)} ${dbg.websocket_lib_installed ? "Installed" : "NOT installed"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Spot Price Feed</div>
-        <div class="v">${statusDot(!!spot.price)} ${spot.price ? ageText(spot.age_sec) : "no data"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Spot ok/err count</div>
-        <div class="v">${spot.ok_count || 0} / ${spot.err_count || 0}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Mark-Price WS</div>
-        <div class="v">${statusDot(dbg.ws_mark && dbg.ws_mark.connected)} ${dbg.ws_mark && dbg.ws_mark.connected ? "Connected" : "Down"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Mark WS last msg</div>
-        <div class="v">${dbg.ws_mark ? ageText(dbg.ws_mark.last_msg_age_sec) : "--"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Trade WS</div>
-        <div class="v">${statusDot(dbg.ws_trade && dbg.ws_trade.connected)} ${dbg.ws_trade && dbg.ws_trade.connected ? "Connected" : "Down"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Trade WS last msg</div>
-        <div class="v">${dbg.ws_trade ? ageText(dbg.ws_trade.last_msg_age_sec) : "--"}</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Option Chain Meta</div>
-        <div class="v">${statusDot(chain.last_ok)} ${chain.symbols_count || 0} symbols, ${(chain.expiries||[]).length} expiries</div>
-      </div>
-      <div class="dbg-item">
-        <div class="t">Chain last loaded</div>
-        <div class="v">${ageText(chain.age_sec)}</div>
-      </div>
-    `;
-
-    const errBox = document.getElementById("dbg-errors");
-    const errs = [];
-    if (spot.last_error) errs.push("Spot price: " + spot.last_error);
-    if (chain.last_error) errs.push("Option chain: " + chain.last_error);
-    if (dbg.ws_mark && dbg.ws_mark.last_error) errs.push("Mark-Price WS: " + dbg.ws_mark.last_error);
-    if (dbg.ws_trade && dbg.ws_trade.last_error) errs.push("Trade WS: " + dbg.ws_trade.last_error);
-    errBox.innerHTML = errs.length
-      ? errs.map(e => `<div class="dbg-err-box">${e}</div>`).join("")
-      : `<div style="color:var(--muted);font-size:0.72rem;">No active errors 🎉</div>`;
-
-    const logBox = document.getElementById("dbg-log");
-    const logs = (dbg.log || []).slice(-80);
-    logBox.innerHTML = logs.map(l =>
-      `<div class="log-line log-${l.level}">[${l.t}] ${l.level.toUpperCase()}: ${l.msg}</div>`
-    ).join("") || `<div style="color:var(--muted)">No log entries yet</div>`;
-    logBox.scrollTop = logBox.scrollHeight;
-
-    document.getElementById("dbg-raw").textContent = JSON.stringify(snap, null, 2);
-  }
-
-  document.getElementById("debug-fab").addEventListener("click", () => {
-    document.getElementById("debug-panel").classList.toggle("open");
-  });
-
-  render();
-
-  // ══════════════════════════════════════════════════════
-  // MARKET DEPTH (ORDER BOOK) LOGIC
-  // ══════════════════════════════════════════════════════
-  let depthState = {
-    strike: null,
-    callSymbol: null,
-    putSymbol: null,
-    activeTab: "call",   // "call" | "put"
+  ws.onopen = () => {
+    setBadge("live", "LIVE");
   };
 
-  // Tab switching
-  document.querySelectorAll(".depth-tab").forEach(btn => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".depth-tab").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-      depthState.activeTab = btn.dataset.tab;
-      triggerDepthFetch();
+  ws.onmessage = (evt) => {
+    try {
+      const raw  = JSON.parse(evt.data);
+      const data = raw.data || raw;  // combined stream wraps in {stream, data}
+      applyDepthUpdate(data);
+      renderDepthBook();
+    } catch(e) {}
+  };
+
+  ws.onerror = () => {
+    setBadge("off", "WS Error");
+  };
+
+  ws.onclose = () => {
+    if (depthWS === ws) {
+      setBadge("snap", "WS closed");
+    }
+  };
+}
+
+function closeDepthWS() {
+  if (depthWS) {
+    try { depthWS.close(); } catch(e) {}
+    depthWS = null;
+  }
+}
+
+// ── Apply incremental depth update ──
+// Binance sends: { b: [[price, qty], ...], a: [[price, qty], ...] }
+// qty=0 means remove that level
+function applyDepthUpdate(data) {
+  const bUpdates = data.b || data.bids || [];
+  const aUpdates = data.a || data.asks || [];
+
+  function applyLevels(book, updates, isBid) {
+    updates.forEach(([ps, qs]) => {
+      const p = parseFloat(ps), q = parseFloat(qs);
+      const idx = book.findIndex(x => x.p === p);
+      if (q === 0) {
+        if (idx !== -1) book.splice(idx, 1);
+      } else {
+        if (idx !== -1) book[idx].q = q;
+        else book.push({p, q});
+      }
     });
-  });
-
-  // Close modal
-  document.getElementById("depth-close").addEventListener("click", closeDepth);
-  document.getElementById("depth-overlay").addEventListener("click", e => {
-    if (e.target === document.getElementById("depth-overlay")) closeDepth();
-  });
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeDepth(); });
-
-  function openDepth(row) {
-    depthState.strike    = row.dataset.strike;
-    depthState.callSymbol = row.dataset.call || null;
-    depthState.putSymbol  = row.dataset.put  || null;
-    depthState.activeTab  = "call";
-
-    // Reset tabs UI
-    document.querySelectorAll(".depth-tab").forEach(b => b.classList.remove("active"));
-    document.getElementById("tab-call").classList.add("active");
-
-    document.getElementById("depth-title").textContent =
-      "Market Depth — Strike " + fmt(depthState.strike, 0);
-    document.getElementById("depth-sub").textContent =
-      "CALL: " + (depthState.callSymbol || "N/A") +
-      " | PUT: " + (depthState.putSymbol || "N/A");
-
-    document.getElementById("depth-overlay").classList.add("open");
-    setDepthStatus("⏳ Order book fetch ho rahi hai...");
-    triggerDepthFetch();
+    // Sort: bids descending, asks ascending
+    book.sort((a, b) => isBid ? b.p - a.p : a.p - b.p);
+    // Keep top 10
+    if (book.length > 10) book.splice(10);
   }
 
-  function closeDepth() {
-    document.getElementById("depth-overlay").classList.remove("open");
-    // Clear query param so next click on same strike re-fetches
-    try {
-      const u = new URL(window.parent.location.href);
-      u.searchParams.delete("ob_symbol");
-      window.parent.history.replaceState({}, "", u.toString());
-    } catch(e) {}
+  applyLevels(depthBook.bids, bUpdates, true);
+  applyLevels(depthBook.asks, aUpdates, false);
+}
+
+// ── Render order book table ──
+function renderDepthBook() {
+  const bids = depthBook.bids.slice(0, 10);
+  const asks = depthBook.asks.slice(0, 10);
+
+  if (!bids.length && !asks.length) {
+    setDepthStatus("📭 Koi order nahi mila (illiquid option).");
+    return;
   }
+  document.getElementById("depth-status").style.display = "none";
+  document.getElementById("depth-book").style.display   = "flex";
 
-  function setDepthStatus(msg) {
-    document.getElementById("depth-status").style.display = "block";
-    document.getElementById("depth-status").textContent = msg;
-    document.getElementById("depth-tables").style.display = "none";
-  }
+  const maxB = Math.max(...bids.map(x => x.q), 0.001);
+  const maxA = Math.max(...asks.map(x => x.q), 0.001);
 
-  function triggerDepthFetch() {
-    const sym = depthState.activeTab === "call"
-      ? depthState.callSymbol
-      : depthState.putSymbol;
-
-    if (!sym) {
-      setDepthStatus("❌ Is strike/side ke liye symbol available nahi hai.");
-      return;
-    }
-
-    setDepthStatus("⏳ " + sym + " ka order book fetch ho raha hai...");
-
-    // Tell Streamlit to fetch this symbol's order book via query param
-    try {
-      const u = new URL(window.parent.location.href);
-      u.searchParams.set("ob_symbol", sym);
-      window.parent.history.replaceState({}, "", u.toString());
-    } catch(e) {
-      console.warn("Could not set query param:", e);
-    }
-
-    // Poll snapshot for order_book data (Streamlit will embed it after rerun)
-    pollForOrderBook(sym, 0);
-  }
-
-  function pollForOrderBook(sym, attempt) {
-    if (attempt > 20) {
-      setDepthStatus("⏱ Timeout — Streamlit se data nahi aaya. Thodi der baad retry karo.");
-      return;
-    }
-    // Read current embedded snapshot's order_book field
-    let currentSnap = {};
-    try {
-      currentSnap = JSON.parse(document.getElementById("snapshot-data").textContent);
-    } catch(e) {}
-
-    const ob = currentSnap.order_book || {};
-    if (ob.symbol === sym && !ob.fetching && (ob.bids || ob.asks)) {
-      renderOrderBook(ob);
-    } else if (ob.last_error && ob.symbol === sym) {
-      setDepthStatus("❌ Error: " + ob.last_error);
-    } else {
-      // Not ready yet, wait and re-check
-      setTimeout(() => {
-        // Re-parse latest snapshot (Streamlit may have updated it on rerun)
-        let freshSnap = {};
-        try {
-          freshSnap = JSON.parse(document.getElementById("snapshot-data").textContent);
-        } catch(e) {}
-        const freshOb = freshSnap.order_book || {};
-        if (freshOb.symbol === sym && !freshOb.fetching) {
-          if (freshOb.last_error) {
-            setDepthStatus("❌ Error: " + freshOb.last_error);
-          } else {
-            renderOrderBook(freshOb);
-          }
-        } else {
-          pollForOrderBook(sym, attempt + 1);
-        }
-      }, 600);
-    }
-  }
-
-  function renderOrderBook(ob) {
-    const bids = ob.bids || [];
-    const asks = ob.asks || [];
-
-    if (!bids.length && !asks.length) {
-      setDepthStatus("📭 Is option par koi order book data nahi mila (illiquid / no quotes).");
-      return;
-    }
-
-    document.getElementById("depth-status").style.display = "none";
-    document.getElementById("depth-tables").style.display = "flex";
-
-    const maxBidQty = Math.max(...bids.map(b => parseFloat(b[1]) || 0), 0.001);
-    const maxAskQty = Math.max(...asks.map(a => parseFloat(a[1]) || 0), 0.001);
-
-    // Best bid & ask for spread
-    const bestBid = bids.length ? parseFloat(bids[0][0]) : null;
-    const bestAsk = asks.length ? parseFloat(asks[asks.length - 1][0]) : null;
-
-    // Asks — show highest first (sellers want more)
-    const sortedAsks = [...asks].sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
-    document.getElementById("asks-body").innerHTML = sortedAsks.map(([p, q]) => {
-      const pct = Math.round((parseFloat(q) / maxAskQty) * 100);
+  // Asks — show highest price first (furthest from market on top)
+  const sortedAsks = [...asks].sort((a, b) => b.p - a.p);
+  document.getElementById("asks-body").innerHTML =
+    sortedAsks.map(({p, q}) => {
+      const pct = Math.round(q / maxA * 100);
       return `<tr>
-        <td class="ask-price">${fmt(p, 4)}</td>
+        <td class="ap">${fmt(p, 4)}</td>
         <td>${fmt(q, 3)}</td>
-        <td class="depth-bar-cell" style="position:relative;">
-          <div class="depth-bar ask-bar" style="width:${pct}%;"></div>
-          <span style="position:relative;z-index:1;">${fmt(q, 3)}</span>
-        </td>
-      </tr>`;
-    }).join("") || `<tr><td colspan="3" style="color:var(--muted);text-align:center;">No asks</td></tr>`;
+        <td class="bar-cell">
+          <div class="bar-bg ask" style="width:${pct}%"></div>
+          <span>${fmt(q, 3)}</span>
+        </td></tr>`;
+    }).join("") +
+    spreadRow(bids, asks);
 
-    // Spread row
-    if (bestBid !== null && bestAsk !== null) {
-      const spread = bestAsk - bestBid;
-      const mid = (bestBid + bestAsk) / 2;
-      const spreadPct = mid > 0 ? ((spread / mid) * 100).toFixed(2) : "--";
-      const spreadRow = `<tr class="depth-spread" style="display:table-row;">
-        <td colspan="3" style="text-align:center;color:var(--muted);font-size:0.72rem;padding:4px 0;">
-          Spread: <span style="color:var(--yellow);font-weight:600;">${fmt(spread, 4)}</span>
-          (${spreadPct}%) | Mid: <span style="color:var(--accent);">${fmt(mid, 4)}</span>
-        </td>
-      </tr>`;
-      document.getElementById("asks-body").innerHTML += spreadRow;
-    }
-
-    // Bids — show highest first (best buyer on top)
-    const sortedBids = [...bids].sort((a, b) => parseFloat(b[0]) - parseFloat(a[0]));
-    document.getElementById("bids-body").innerHTML = sortedBids.map(([p, q]) => {
-      const pct = Math.round((parseFloat(q) / maxBidQty) * 100);
+  // Bids — best bid on top
+  document.getElementById("bids-body").innerHTML =
+    bids.map(({p, q}) => {
+      const pct = Math.round(q / maxB * 100);
       return `<tr>
-        <td class="bid-price">${fmt(p, 4)}</td>
+        <td class="bp">${fmt(p, 4)}</td>
         <td>${fmt(q, 3)}</td>
-        <td class="depth-bar-cell" style="position:relative;">
-          <div class="depth-bar bid-bar" style="width:${pct}%;"></div>
-          <span style="position:relative;z-index:1;">${fmt(q, 3)}</span>
-        </td>
-      </tr>`;
-    }).join("") || `<tr><td colspan="3" style="color:var(--muted);text-align:center;">No bids</td></tr>`;
+        <td class="bar-cell">
+          <div class="bar-bg bid" style="width:${pct}%"></div>
+          <span>${fmt(q, 3)}</span>
+        </td></tr>`;
+    }).join("");
+}
 
-    // Update sub heading with age
-    const age = ob.age_sec !== null && ob.age_sec !== undefined ? ob.age_sec + "s ago" : "";
-    document.getElementById("depth-sub").textContent =
-      (depthState.activeTab === "call" ? "CALL: " : "PUT: ") +
-      (ob.symbol || "") + (age ? " — updated " + age : "");
-  }
+function spreadRow(bids, asks) {
+  if (!bids.length || !asks.length) return "";
+  const bestBid = bids[0].p;
+  // best ask = lowest ask
+  const bestAsk = [...asks].sort((a,b) => a.p - b.p)[0].p;
+  const spread  = bestAsk - bestBid;
+  const mid     = (bestBid + bestAsk) / 2;
+  const pct     = mid > 0 ? ((spread / mid) * 100).toFixed(2) : "--";
+  return `<tr class="spread-row"><td colspan="3">
+    Spread: <span class="sv">${fmt(spread,4)}</span> (${pct}%) &nbsp;|&nbsp;
+    Mid: <span class="mv">${fmt(mid,4)}</span>
+  </td></tr>`;
+}
+
+function setDepthStatus(msg) {
+  document.getElementById("depth-status").style.display = "block";
+  document.getElementById("depth-status").textContent   = msg;
+  document.getElementById("depth-book").style.display   = "none";
+}
+
+function setBadge(type, label) {
+  const el = document.getElementById("live-badge");
+  el.className = "live-badge " + type;
+  const dot = type === "live" ? '<span class="live-dot"></span> ' : '';
+  el.innerHTML = dot + label;
+}
 </script>
 </body>
 </html>
