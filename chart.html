@@ -19808,7 +19808,14 @@ function _sv1DebugPopupRefreshLog() {
       { ok: null, text: '  Bid/Ask lvl : ' + _ocDepthDebug.bidLevels + ' / ' + _ocDepthDebug.askLevels },
       { ok: null, text: '  Total Buy/Sell Qty : ' + _fmtNum(_ocDepthDebug.totalBuy) + ' / ' + _fmtNum(_ocDepthDebug.totalSell) },
     ];
-    if (_ocDepthDebug.ok === false) depthLines.push({ ok: false, text: '  Problem     : ' + _ocDepthDebug.error });
+    if (_ocDepthDebug.ok === false) {
+      depthLines.push({ ok: false, text: '  Problem     : ' + _ocDepthDebug.error });
+      depthLines.push({ ok: null,  text: '  URL hit     : ' + (_ocDepthDebug.url || '-') });
+      depthLines.push({ ok: null,  text: '  HTTP status : ' + (_ocDepthDebug.httpStatus != null ? _ocDepthDebug.httpStatus : '-') });
+      depthLines.push({ ok: null,  text: '  Fail kind   : ' + (_ocDepthDebug.fetchFailKind || '-') + (_ocDepthDebug.fetchFailMsg ? ' (' + _ocDepthDebug.fetchFailMsg + ')' : '') });
+      depthLines.push({ ok: null,  text: '  Backend branch : ' + (_ocDepthDebug.backendBranch || '-') });
+      depthLines.push({ ok: null,  text: '  Resolved port  : ' + (typeof _resolvedApiPort !== 'undefined' ? _resolvedApiPort : '-') });
+    }
     depthHtml = depthLines.map(function(l) {
       if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
       if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
@@ -22377,7 +22384,13 @@ var _ocDepthInFlight = false;
 // depth sheet band hone ke baad bhi last known status/problem dikh sake. ──
 var _ocDepthDebug = {
   symbol: null, ok: null, error: '', ts: 0,
-  ltp: null, bidLevels: 0, askLevels: 0, totalBuy: 0, totalSell: 0
+  ltp: null, bidLevels: 0, askLevels: 0, totalBuy: 0, totalSell: 0,
+  // ── naye diagnostic fields — exact wajah pakadne ke liye ──
+  url: null,            // exact URL jo fetch ki gayi
+  httpStatus: null,     // response ka HTTP status (agar mila)
+  fetchFailKind: null,  // 'timeout' | 'network' | 'json_parse' | 'http_error' | null
+  fetchFailMsg: null,   // raw exception name+message (JS side)
+  backendBranch: null,  // backend ne _debug.branch mein jo bataya (fyers_creds_missing / not_fyers_symbol / etc.)
 };
 
 function _ocDepthDebugUpdateDot() {
@@ -22402,14 +22415,20 @@ function _ocDepthDebugSetOk(data) {
   _ocDepthDebug.askLevels = (data && data.asks) ? data.asks.length : 0;
   _ocDepthDebug.totalBuy  = (data && data.total_buy_qty)  || 0;
   _ocDepthDebug.totalSell = (data && data.total_sell_qty) || 0;
+  _ocDepthDebug.backendBranch = (data && data._debug && data._debug.branch) || null;
+  _ocDepthDebug.fetchFailKind = null;
+  _ocDepthDebug.fetchFailMsg  = null;
   _ocDepthDebugUpdateDot();
 }
 
-function _ocDepthDebugSetErr(msg) {
+// extra: 3rd optional param se caller batata hai backend ka _debug (agar
+// response mil gaya tha, bas usme error tha) vs pure JS-side fetch fail.
+function _ocDepthDebugSetErr(msg, backendDebugObj) {
   _ocDepthDebug.symbol = _ocDepthSymbol;
   _ocDepthDebug.ok     = false;
   _ocDepthDebug.error  = msg || 'Unknown error';
   _ocDepthDebug.ts     = Date.now();
+  _ocDepthDebug.backendBranch = (backendDebugObj && backendDebugObj.branch) || _ocDepthDebug.backendBranch || null;
   _ocDepthDebugUpdateDot();
 }
 
@@ -22450,12 +22469,51 @@ function _ocCloseDepth() {
 async function _ocPollDepth() {
   if (!_ocDepthSymbol || _ocDepthInFlight) return;
   _ocDepthInFlight = true;
+  var _url = _ocDepthUrl(_ocDepthSymbol);
+  _ocDepthDebug.url = _url;
+  _ocDepthDebug.httpStatus = null;
   try {
-    var r = await fetch(_ocDepthUrl(_ocDepthSymbol), { signal: AbortSignal.timeout(4000) });
-    var data = await r.json();
+    var r = await fetch(_url, { signal: AbortSignal.timeout(4000) });
+    _ocDepthDebug.httpStatus = r.status;
+    if (!r.ok) {
+      // Server ne response diya lekin non-2xx status — ye pehle bhi
+      // catch() mein girta tha (r.json() try hone se pehle hi treat ho
+      // jaata tha as failure), ab explicitly capture karo.
+      var bodyTxt = await r.text().catch(function () { return ''; });
+      _ocDepthDebug.fetchFailKind = 'http_error';
+      _ocDepthDebug.fetchFailMsg  = 'HTTP ' + r.status + (bodyTxt ? (' — ' + bodyTxt.slice(0, 200)) : '');
+      _ocRenderDepth({ error: 'Server ne HTTP ' + r.status + ' diya — dobara try karo',
+                        _debug: { branch: 'http_error_status_' + r.status } });
+      _ocDepthInFlight = false;
+      return;
+    }
+    var data;
+    try {
+      data = await r.json();
+    } catch (jsonErr) {
+      _ocDepthDebug.fetchFailKind = 'json_parse';
+      _ocDepthDebug.fetchFailMsg  = (jsonErr && jsonErr.message) || String(jsonErr);
+      _ocRenderDepth({ error: 'Server se JSON parse nahi hua (galat URL/port ho sakta hai)',
+                        _debug: { branch: 'json_parse_fail' } });
+      _ocDepthInFlight = false;
+      return;
+    }
+    _ocDepthDebug.fetchFailKind = null;
+    _ocDepthDebug.fetchFailMsg  = null;
     _ocRenderDepth(data);
   } catch (e) {
-    _ocRenderDepth({ error: 'Connection failed — dobara try karo' });
+    // Ab yahan sirf genuine network-level fail aata hai: timeout
+    // (AbortSignal), DNS/connection-refused, ya CORS block — e.name se
+    // bata dete hain kaunsa hai, taaki generic "Connection failed" na ho.
+    var _kind = 'network';
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) _kind = 'timeout';
+    else if (e && e.name === 'TypeError') _kind = 'network';  // "Failed to fetch" — DNS/CORS/refused
+    _ocDepthDebug.fetchFailKind = _kind;
+    _ocDepthDebug.fetchFailMsg  = (e && (e.name + ': ' + e.message)) || String(e);
+    var _humanMsg = _kind === 'timeout'
+      ? 'Timeout (4s) — server ne response hi nahi diya. Port ' + (_resolvedApiPort || '?') + ' galat ho sakta hai ya backend thread hung hai.'
+      : 'Network error — server tak pahunch nahi paaye (' + _ocDepthDebug.fetchFailMsg + '). URL: ' + _url;
+    _ocRenderDepth({ error: _humanMsg, _debug: { branch: 'js_fetch_' + _kind } });
   }
   _ocDepthInFlight = false;
 }
@@ -22465,7 +22523,7 @@ function _ocRenderDepth(data) {
   if (!rowsEl) return;
   if (!data || data.error) {
     rowsEl.innerHTML = '<div id="oc-depth-err">⚠️ ' + (data && data.error ? data.error : 'Data nahi mila') + '</div>';
-    _ocDepthDebugSetErr(data && data.error ? data.error : 'Data nahi mila');
+    _ocDepthDebugSetErr(data && data.error ? data.error : 'Data nahi mila', data && data._debug);
     return;
   }
   _ocDepthDebugSetOk(data);

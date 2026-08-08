@@ -1351,7 +1351,7 @@ _DEPTH_CACHE: dict = {}
 _DEPTH_LOCK = threading.Lock()
 _DEPTH_TTL  = 1.5  # seconds — depth apna alag chhota TTL, sirf active symbol ke liye
 
-_DEPTH_DEBUG = {"last_error": "", "last_status": None, "ts": 0.0}
+_DEPTH_DEBUG = {"last_error": "", "last_status": None, "last_branch": "", "last_symbol": "", "ts": 0.0}
 
 def fyers_get_market_depth(app_id: str, access_token: str, symbol: str) -> "dict | None":
     """Fyers Market Depth API se 5-level bid/ask order book + price stats fetch karta hai.
@@ -1425,25 +1425,153 @@ def fyers_get_market_depth(app_id: str, access_token: str, symbol: str) -> "dict
         _DEPTH_DEBUG.update({"last_error": str(e), "last_status": None, "ts": time.time()})
         return {"error": f"Exception: {e}"}
 
+# ─── Binance Market Depth (BTC options) — same response shape as
+# fyers_get_market_depth() so _ocRenderDepth() in chart.html can render
+# either asset without any frontend changes. Uses the public (unauthenticated)
+# Binance European Options endpoints — /eapi/v1/depth for 5-level bid/ask,
+# /eapi/v1/ticker for 24hr price stats (open/high/low/last/volume). Both are
+# public data, no api_key/secret needed (unlike Fyers which requires login). ──
+def binance_get_market_depth(symbol: str) -> "dict | None":
+    """Binance Options Depth + 24hr ticker se Fyers jaisa shape wapas karta hai.
+    symbol format: 'BTC-260808-65000-C' (Binance EAPI naming)."""
+    try:
+        ok_d, depth = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/depth", {"symbol": symbol, "limit": 5}, "")
+        if not ok_d:
+            _DEPTH_DEBUG.update({"last_error": str(depth), "last_status": None, "ts": time.time()})
+            return {"error": f"Binance depth API fail — {depth}"}
+        if not isinstance(depth, dict) or ("bids" not in depth and "asks" not in depth):
+            err = f"Binance ne depth ke liye anjaan shape bheja: {str(depth)[:200]}"
+            _DEPTH_DEBUG.update({"last_error": err, "last_status": None, "ts": time.time()})
+            return {"error": err}
+
+        ok_t, ticker = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/ticker", {"symbol": symbol}, "")
+        trow = {}
+        if ok_t:
+            trow = ticker[0] if isinstance(ticker, list) and ticker else (ticker if isinstance(ticker, dict) else {})
+        # ok_t fail hone par bhi depth data useful hai — sirf stats khaali dikhenge,
+        # poora request fail nahi karte (depth-fetch hi original goal hai).
+
+        def _lvl(rows):
+            out = []
+            for row in (rows or [])[:5]:
+                try:
+                    out.append({"price": float(row[0]), "volume": float(row[1]), "ord": 0})
+                except Exception:
+                    continue
+            return out
+
+        bids = _lvl(depth.get("bids"))
+        asks = _lvl(depth.get("asks"))
+        total_buy_qty  = sum(b["volume"] for b in bids)
+        total_sell_qty = sum(a["volume"] for a in asks)
+
+        last_price = float(trow.get("lastPrice", 0) or 0)
+        price_change = float(trow.get("priceChange", 0) or 0)
+        prev_close = last_price - price_change
+
+        _DEPTH_DEBUG.update({"last_error": "", "last_status": None, "ts": time.time()})
+        return {
+            "symbol": symbol,
+            "ltp": last_price,
+            "ch": price_change,
+            "chp": float(trow.get("priceChangePercent", 0) or 0),
+            "bids": bids,
+            "asks": asks,
+            "total_buy_qty":  total_buy_qty,
+            "total_sell_qty": total_sell_qty,
+            "open": float(trow.get("open", 0) or 0),
+            "high": float(trow.get("high", 0) or 0),
+            "low": float(trow.get("low", 0) or 0),
+            "prev_close": prev_close,
+            "atp": last_price,  # Binance options 24hr ticker mein alag avg-price field nahi hai
+            "upper_ckt": 0,     # crypto options mein price-circuit concept nahi hai (Fyers-specific)
+            "lower_ckt": 0,
+            "volume": float(trow.get("volume", 0) or 0),
+            "ltq": float(trow.get("lastQty", 0) or 0),
+            "ts": time.time(),
+        }
+    except Exception as e:
+        _DEPTH_DEBUG.update({"last_error": str(e), "last_status": None, "ts": time.time()})
+        return {"error": f"Exception: {e}"}
+
 def refresh_market_depth_cache(symbol: str) -> dict:
-    """TTL-cached depth fetch — ek hi symbol baar-baar poll hone par bhi
-    Fyers ko sirf har _DEPTH_TTL second mein ek baar hit karta hai."""
+    """TTL-cached depth fetch — symbol format se decide karta hai Fyers ya
+    Binance API call karni hai, phir ek hi symbol baar-baar poll hone par
+    bhi upstream ko sirf har _DEPTH_TTL second mein ek baar hit karta hai.
+
+    DEBUG: har return path apna `_debug.branch` set karta hai taaki frontend
+    (chart.html ke Order Book debug panel) ko pata chale ki backend ke andar
+    EXACT kaunsi wajah se fail hua — 'cache_hit' / 'fyers_creds_missing' /
+    'fyers_api_error' / 'binance_api_error' / 'unrecognized_symbol_format' /
+    'exception' / 'ok'.
+    """
+    branch = "unknown"
     try:
         now = time.time()
         with _DEPTH_LOCK:
             entry = _DEPTH_CACHE.get(symbol)
             if entry and (now - entry["ts"]) < _DEPTH_TTL:
-                return entry["data"]
+                cached = dict(entry["data"])
+                cached["_debug"] = {**cached.get("_debug", {}), "branch": "cache_hit",
+                                     "cache_age_s": round(now - entry["ts"], 2)}
+                return cached
+
+        # ── Symbol-format detection: BTC/Binance option symbols (jaise
+        # 'BTC-260808-65000-C') ko Binance ke public depth API se route
+        # karo; NSE/Fyers symbols ('NSE:...') ko Fyers ke depth API se —
+        # dono asset classes abhi supported hain. ────────────────────────
+        _looks_fyers  = symbol.upper().startswith(("NSE:", "BSE:", "MCX:"))
+        _looks_binance = (not _looks_fyers) and symbol.upper().startswith("BTC-")
+
+        if _looks_binance:
+            branch = "binance_api_call"
+            payload = binance_get_market_depth(symbol) or {"error": "unknown error"}
+            branch = "binance_api_error" if payload.get("error") else "ok"
+            payload["_debug"] = {"branch": branch, "symbol": symbol, "source": "binance"}
+            with _DEPTH_LOCK:
+                _DEPTH_CACHE[symbol] = {"data": payload, "ts": now}
+            _DEPTH_DEBUG.update({"last_error": payload.get("error", ""), "last_branch": branch,
+                                  "last_symbol": symbol, "ts": now})
+            return payload
+
+        if not _looks_fyers:
+            branch = "unrecognized_symbol_format"
+            payload = {
+                "error": (
+                    f"'{symbol}' — symbol format pehchana nahi gaya. Expected: "
+                    f"'NSE:...' (Fyers/index options) ya 'BTC-...' (Binance/BTC options)."
+                ),
+                "_debug": {"branch": branch, "symbol": symbol},
+            }
+            with _DEPTH_LOCK:
+                _DEPTH_CACHE[symbol] = {"data": payload, "ts": now}
+            _DEPTH_DEBUG.update({"last_error": payload["error"], "last_status": None,
+                                  "last_branch": branch, "last_symbol": symbol, "ts": now})
+            return payload
+
         creds = load_creds()
         if not creds.get("access_token") or not creds.get("app_id"):
-            payload = {"error": "Fyers login nahi mila — pehle login karo."}
+            branch = "fyers_creds_missing"
+            payload = {
+                "error": "Fyers login nahi mila — pehle login karo.",
+                "_debug": {"branch": branch, "symbol": symbol},
+            }
         else:
             payload = fyers_get_market_depth(creds["app_id"], creds["access_token"], symbol) or {"error": "unknown error"}
+            branch = "fyers_api_error" if payload.get("error") else "ok"
+            payload["_debug"] = {"branch": branch, "symbol": symbol,
+                                  "http_status": _DEPTH_DEBUG.get("last_status")}
         with _DEPTH_LOCK:
             _DEPTH_CACHE[symbol] = {"data": payload, "ts": now}
+        _DEPTH_DEBUG.update({"last_error": payload.get("error", ""), "last_branch": branch,
+                              "last_symbol": symbol, "ts": now})
         return payload
     except Exception as e:
-        return {"error": f"refresh_market_depth_cache exception: {e}"}
+        branch = "exception"
+        _DEPTH_DEBUG.update({"last_error": str(e), "last_status": None,
+                              "last_branch": branch, "last_symbol": symbol, "ts": time.time()})
+        return {"error": f"refresh_market_depth_cache exception: {e}",
+                "_debug": {"branch": branch, "symbol": symbol}}
 
 # ─── Next-month expiry chain — apna alag TTL cache (SV1's "This Month /
 # Next Month" toggle ke liye). Current-month jitni baar refresh karne ki
@@ -2758,14 +2886,25 @@ def _register_api_route():
                     dsymbol = dqs.get("symbol", [""])[0]
                     try:
                         if not dsymbol:
-                            body = b'{"error":"symbol missing"}'
+                            body = json.dumps({"error": "symbol missing",
+                                                "_debug": {"branch": "no_symbol_in_request"}}).encode()
                             self.send_response(400)
                         else:
                             dpayload = refresh_market_depth_cache(dsymbol)
                             body = json.dumps(dpayload).encode()
                             self.send_response(200)
                     except Exception as e:
-                        body = json.dumps({"error": f"server exception: {e}"}).encode()
+                        # Ye wahi jagah hai jo pehle frontend ko generic
+                        # "Connection failed" dikhwati thi agar iska response
+                        # kabhi malformed/hang ho jaata — ab _debug.branch se
+                        # exact pata chalega ki server-side crash hua tha.
+                        import traceback
+                        body = json.dumps({
+                            "error": f"server exception: {e}",
+                            "_debug": {"branch": "http_handler_exception",
+                                       "symbol": dsymbol,
+                                       "trace": traceback.format_exc()[-500:]},
+                        }).encode()
                         self.send_response(500)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Access-Control-Allow-Origin", "*")
