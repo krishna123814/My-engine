@@ -809,15 +809,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   height:22px;
   cursor:pointer;
   position:relative;
+  z-index:2147483000;
   border-left:1px solid #363c4e;
   border-right:1px solid #363c4e;
   padding:0 3px;
   box-sizing:border-box;
 }
-/* Combined status icon: 3-col grid of dots — row1 = BTC candle feed
-   (tick/candle) + boot/login, row2 = BTC Option Chain LTP feed
-   (mark/trade), merged here so top-header debug covers BTC feeds AND
-   app-startup/login status in one place. */
+/* Combined status icon: 3-col grid of dots — row1 = BTC tick, BTC candle,
+   boot/login; row2 = OC mark WS, OC trade WS, order-book (market depth).
+   Merged here so top-header debug covers BTC feeds, option-chain feeds,
+   order-book status, AND app-startup/login status in one place. */
 #sv1-debug-icon{
   display:grid;
   grid-template-columns:repeat(3,1fr);
@@ -852,13 +853,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   box-shadow:0 0 4px #ef5350;
 }
 /* ── Debug Log Popup ── */
+/* z-index bahut high rakha hai (2147483000) taaki Stack View 1 mein koi
+   bhi screen khuli ho — Option Chain panel (z-index 10003), Order Book /
+   Market Depth sheet (z-index 10501), settings panels, asset picker, etc.
+   — debug popup hamesha unke UPAR hi khule, sabse top layer par. */
 #sv1-debug-popup{
   display:none;
   position:fixed;
   top:30px;
   left:50%;
   transform:translateX(-50%);
-  z-index:9999;
+  z-index:2147483000;
   background:#1a1d27;
   border:1px solid #363c4e;
   border-radius:6px;
@@ -4215,13 +4220,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </button>
   </div>
 
-  <div id="sv1-debug-tracker" title="BTC Live + Option Chain + App Startup/Login Debug (auto-fix on) — tap to view log" onclick="_sv1DebugPopupToggle()">
+  <div id="sv1-debug-tracker" title="BTC Live + Option Chain + App Startup/Login + Order Book Debug (auto-fix on) — tap to view log" onclick="_sv1DebugPopupToggle()">
     <div id="sv1-debug-icon">
       <span class="sv1-debug-dot" id="sv1-debug-tick-dot"></span>
       <span class="sv1-debug-dot" id="sv1-debug-candle-dot"></span>
       <span class="sv1-debug-dot" id="sv1-debug-boot-dot" title="App Startup / Login"></span>
       <span class="sv1-debug-dot" id="sv1-debug-mark-dot" title="Option Chain: Mark price WS"></span>
       <span class="sv1-debug-dot" id="sv1-debug-trade-dot" title="Option Chain: Trade WS"></span>
+      <span class="sv1-debug-dot" id="sv1-debug-depth-dot" title="Order Book (Market Depth)"></span>
     </div>
     <!-- text rows kept hidden for JS compat -->
     <div class="sv1-debug-row" id="sv1-debug-tick-row" style="display:none!important">
@@ -4232,17 +4238,14 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     </div>
   </div>
 
-  <!-- ── Debug Log Popup ── -->
-  <div id="sv1-debug-popup">
-    <div id="sv1-debug-popup-title">📡 BTC Live Feed + Option Chain LTP + App Startup/Login Log</div>
-    <div id="sv1-debug-ctrl-row">
-      <button id="sv1-debug-start-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugEnable()" title="Debug chalu karo">▶ Start</button>
-      <button id="sv1-debug-stop-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugDisable()" title="Debug band karo">■ Stop</button>
-      <button id="sv1-debug-autostart-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugToggleAutostart()" title="App khulte hi debug apne aap chalu ho jaaye">⏻ Autostart: OFF</button>
-    </div>
-    <div id="sv1-debug-popup-log"></div>
-    <button id="sv1-debug-popup-copy" onclick="_sv1DebugPopupCopy()">📋 Copy Log</button>
-  </div>
+  <!-- ── Debug Log Popup ab yahan se nikal ke #hdr ke BAHAR move kar diya
+       hai (dekho neeche, #hdr band hone ke turant baad) — kyunki #hdr khud
+       ek stacking context banata hai (position:relative + z-index:8100),
+       isliye andar rehte hue popup ka z-index kitna bhi high ho, wo Option
+       Chain panel / Order Book sheet (jinka z-index 10003/10501 hai, aur
+       jo #hdr ke BAHAR hain) ke UPAR nahi aa sakta tha. Bahar nikalne se
+       ab z-index:2147483000 sach mein sabse top layer par kaam karta hai,
+       Stack View 1 mein koi bhi screen khuli ho. ── -->
 
   <div id="hdr-price">
     <div id="hdr-ltp">--</div>
@@ -4267,6 +4270,22 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
+</div>
+
+<!-- ── SV1 Debug Log Popup — jaanbojh kar #hdr ke BAHAR (sibling) rakha hai,
+     taaki iska z-index:2147483000 apna asar dikha sake aur Stack View 1
+     mein koi bhi screen khuli ho (Option Chain panel, Order Book/Market
+     Depth sheet, settings panels, asset picker, etc.) — tap karte hi debug
+     hamesha sabse UPAR (topmost) hi khule. ── -->
+<div id="sv1-debug-popup">
+  <div id="sv1-debug-popup-title">📡 BTC Live Feed + Option Chain LTP + Order Book + App Startup/Login Log</div>
+  <div id="sv1-debug-ctrl-row">
+    <button id="sv1-debug-start-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugEnable()" title="Debug chalu karo">▶ Start</button>
+    <button id="sv1-debug-stop-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugDisable()" title="Debug band karo">■ Stop</button>
+    <button id="sv1-debug-autostart-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugToggleAutostart()" title="App khulte hi debug apne aap chalu ho jaaye">⏻ Autostart: OFF</button>
+  </div>
+  <div id="sv1-debug-popup-log"></div>
+  <button id="sv1-debug-popup-copy" onclick="_sv1DebugPopupCopy()">📋 Copy Log</button>
 </div>
 
 <!-- ═══ TOP-BAR TOGGLE FAB — tiny draggable overlay, tap=show/hide bar, drag=move ═══ -->
@@ -19774,6 +19793,30 @@ function _sv1DebugPopupRefreshLog() {
     }
   }
 
+  // ── Order Book (Market Depth) — strike select karke jo buy/sell screen
+  // khulti hai usme order-book poll ka status/problem yahan merged hai. ──
+  let depthHtml;
+  if (typeof _ocDepthDebug === 'undefined' || _ocDepthDebug.ts === 0) {
+    depthHtml = '<span>— Koi strike ka Order Book (Market Depth) abhi tak khola nahi gaya.</span>';
+  } else {
+    const depthAge = Math.round((Date.now() - _ocDepthDebug.ts) / 1000) + 's ago';
+    const depthLines = [
+      { ok: _ocDepthDebug.ok, text: '● Order Book : ' + (_ocDepthDebug.ok ? 'OK' : 'FAILED') },
+      { ok: null, text: '  Symbol      : ' + (_ocDepthDebug.symbol || '-') },
+      { ok: null, text: '  Last update : ' + depthAge },
+      { ok: null, text: '  LTP         : ' + (_ocDepthDebug.ltp != null ? _fmtNum(_ocDepthDebug.ltp) : '-') },
+      { ok: null, text: '  Bid/Ask lvl : ' + _ocDepthDebug.bidLevels + ' / ' + _ocDepthDebug.askLevels },
+      { ok: null, text: '  Total Buy/Sell Qty : ' + _fmtNum(_ocDepthDebug.totalBuy) + ' / ' + _fmtNum(_ocDepthDebug.totalSell) },
+    ];
+    if (_ocDepthDebug.ok === false) depthLines.push({ ok: false, text: '  Problem     : ' + _ocDepthDebug.error });
+    depthHtml = depthLines.map(function(l) {
+      if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+      if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+      return '<span>' + l.text + '</span>';
+    }).join('\n');
+  }
+  html += '\n<span>' + '─'.repeat(20) + ' Order Book (Market Depth) ' + '─'.repeat(20) + '</span>\n' + depthHtml;
+
   // ── App Startup / Login Debug log (pehle alag "boot-debug-tracker" mein
   // tha, ab yahan isi merged popup mein) — window.__STARTUP_LOG__ backend
   // (main.py) se STATIC snapshot hai jab tak ye page render hui thi. ──
@@ -22330,6 +22373,46 @@ var _ocDepthSymbol   = null;
 var _ocDepthPollTid  = null;
 var _ocDepthInFlight = false;
 
+// ── Order Book debug state — sv1-debug tracker/popup mein merged, taaki
+// depth sheet band hone ke baad bhi last known status/problem dikh sake. ──
+var _ocDepthDebug = {
+  symbol: null, ok: null, error: '', ts: 0,
+  ltp: null, bidLevels: 0, askLevels: 0, totalBuy: 0, totalSell: 0
+};
+
+function _ocDepthDebugUpdateDot() {
+  var dot = document.getElementById('sv1-debug-depth-dot');
+  if (dot) {
+    dot.classList.remove('ok', 'err');
+    if (_ocDepthDebug.ok === true)  dot.classList.add('ok');
+    if (_ocDepthDebug.ok === false) dot.classList.add('err');
+  }
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+    _sv1DebugPopupRefreshLog();
+  }
+}
+
+function _ocDepthDebugSetOk(data) {
+  _ocDepthDebug.symbol    = _ocDepthSymbol;
+  _ocDepthDebug.ok        = true;
+  _ocDepthDebug.error     = '';
+  _ocDepthDebug.ts        = Date.now();
+  _ocDepthDebug.ltp       = (data && data.ltp != null) ? data.ltp : null;
+  _ocDepthDebug.bidLevels = (data && data.bids) ? data.bids.length : 0;
+  _ocDepthDebug.askLevels = (data && data.asks) ? data.asks.length : 0;
+  _ocDepthDebug.totalBuy  = (data && data.total_buy_qty)  || 0;
+  _ocDepthDebug.totalSell = (data && data.total_sell_qty) || 0;
+  _ocDepthDebugUpdateDot();
+}
+
+function _ocDepthDebugSetErr(msg) {
+  _ocDepthDebug.symbol = _ocDepthSymbol;
+  _ocDepthDebug.ok     = false;
+  _ocDepthDebug.error  = msg || 'Unknown error';
+  _ocDepthDebug.ts     = Date.now();
+  _ocDepthDebugUpdateDot();
+}
+
 function _ocDepthUrl(symbol) {
   var path = '/api/market_depth?symbol=' + encodeURIComponent(symbol);
   if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) {
@@ -22382,8 +22465,10 @@ function _ocRenderDepth(data) {
   if (!rowsEl) return;
   if (!data || data.error) {
     rowsEl.innerHTML = '<div id="oc-depth-err">⚠️ ' + (data && data.error ? data.error : 'Data nahi mila') + '</div>';
+    _ocDepthDebugSetErr(data && data.error ? data.error : 'Data nahi mila');
     return;
   }
+  _ocDepthDebugSetOk(data);
   var bids = data.bids || [], asks = data.asks || [];
   var n = Math.max(bids.length, asks.length, 5);
   var html = '';
