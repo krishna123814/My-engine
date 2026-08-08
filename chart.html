@@ -19795,9 +19795,35 @@ function _sv1DebugPopupRefreshLog() {
 
   // ── Order Book (Market Depth) — strike select karke jo buy/sell screen
   // khulti hai usme order-book poll ka status/problem yahan merged hai. ──
+  // Heartbeat block hamesha dikhta hai (chahe depth kabhi khula na ho) —
+  // isse pata chalta hai ki backend fragment zinda hai, aur pushState
+  // bridge se JS→backend signal pahuncha ya nahi (root-cause diagnosis
+  // ke liye, guess karne ki zaroorat nahi).
+  const hbSeen = (typeof _ocDepthDebug !== 'undefined') && _ocDepthDebug.backendHeartbeatSeen;
+  let hbHtml;
+  if (!hbSeen) {
+    hbHtml = '<span class="log-err">● Backend heartbeat : KABHI NAHI MILA — ya to _market_depth_pusher fragment chal hi nahi raha (sess_active/_btc_only dono false?), ya postMessage khud Render/parent tak nahi pahunch raha.</span>';
+  } else {
+    const hbAge = Math.round((Date.now() - _ocDepthDebug.backendHeartbeatTs) / 1000) + 's ago';
+    const hbLines = [
+      { ok: true, text: '● Backend heartbeat : ALIVE — last ' + hbAge + ' (runs=' + _ocDepthDebug.backendRuns + ')' },
+      { ok: (_ocDepthDebug.backendActiveSymbol === _ocDepthSymbol) || (!_ocDepthSymbol && !_ocDepthDebug.backendActiveSymbol),
+        text: '  Backend ka active_depth_symbol : ' + (_ocDepthDebug.backendActiveSymbol || '(none)') +
+              '   |   Frontend ka _ocDepthSymbol : ' + (_ocDepthSymbol || '(none)') },
+    ];
+    if (_ocDepthSymbol && !_ocDepthDebug.backendActiveSymbol) {
+      hbLines.push({ ok: false, text: '  ⚠️ MISMATCH — frontend ne symbol select kiya hai lekin backend ko kabhi nahi mila → pushState/popstate bridge signal khoya ja raha hai (Streamlit ka router shayad ise sun hi nahi raha).' });
+    }
+    hbHtml = hbLines.map(function(l) {
+      if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+      if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+      return '<span>' + l.text + '</span>';
+    }).join('\n');
+  }
+
   let depthHtml;
   if (typeof _ocDepthDebug === 'undefined' || _ocDepthDebug.ts === 0) {
-    depthHtml = '<span>— Koi strike ka Order Book (Market Depth) abhi tak khola nahi gaya.</span>';
+    depthHtml = hbHtml + '\n<span>— Koi strike ka Order Book (Market Depth) abhi tak khola nahi gaya.</span>';
   } else {
     const depthAge = Math.round((Date.now() - _ocDepthDebug.ts) / 1000) + 's ago';
     const depthLines = [
@@ -19820,7 +19846,7 @@ function _sv1DebugPopupRefreshLog() {
       depthLines.push({ ok: null,  text: '  Backend branch : ' + (_ocDepthDebug.backendBranch || '-') });
       depthLines.push({ ok: null,  text: '  Resolved port  : ' + (typeof _resolvedApiPort !== 'undefined' ? _resolvedApiPort : '-') });
     }
-    depthHtml = depthLines.map(function(l) {
+    depthHtml = hbHtml + '\n' + depthLines.map(function(l) {
       if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
       if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
       return '<span>' + l.text + '</span>';
@@ -22421,10 +22447,18 @@ var _ocDepthDebug = {
   fetchFailMsg: null,   // raw exception name+message (JS side)
   backendBranch: null,  // backend ne _debug.branch mein jo bataya (fyers_creds_missing / not_fyers_symbol / etc.)
   // ── channel health — primary postMessage bridge vs secondary side-port poll ──
-  channel: null,            // 'postMessage' | 'poll' — data aakhri kis channel se aayi
+  channel: null,            // 'postMessage' | 'poll (fallback)' — data aakhri kis channel se aayi
   bridgeOk: null,            // pushState bridge (JS→parent) call successful hui ya nahi
   bridgeLastMsg: null,       // bridge ka last status/error message
-  lastPostMessageTs: 0,      // aakhri baar postMessage se data kab mila (Date.now())
+  lastPostMessageTs: 0,      // aakhri baar postMessage se data mila (Date.now())
+  // ── backend heartbeat — _market_depth_pusher HAR run mein ek heartbeat
+  // bhejta hai (chahe symbol set ho ya na ho), taaki ye 3 alag sawaal
+  // independently answer ho sakein: fragment zinda hai? backend ka
+  // session_state kya dikh raha hai? pushState signal pahuncha ya nahi? ──
+  backendHeartbeatSeen: false,  // kabhi bhi ek heartbeat mila hai is session mein?
+  backendHeartbeatTs: 0,        // aakhri heartbeat kab mila
+  backendActiveSymbol: undefined,  // backend ke session_state mein _active_depth_symbol ki value (kabhi undefined = heartbeat hi nahi mila)
+  backendRuns: 0,                  // fragment ka run-counter (badhta rehna chahiye agar zinda hai)
 };
 
 function _ocDepthDebugUpdateDot() {
@@ -22511,8 +22545,26 @@ function _ocPushDepthSymbolToParent(symbol) {
 // hai (jahan side-port reachable ho, jaise local dev). Symbol-mismatch
 // guard: agar user ne fataafat doosri strike select kar li ho (purana
 // pusher iteration abhi bhi in-flight ho) to stale data render nahi hoga.
+//
+// HEARTBEAT handling: _market_depth_pusher (backend) ab HAR run mein ek
+// message bhejta hai, chahe koi symbol active ho ya na ho. Ye humesha
+// process hoti hai (sirf sheet khuli ho tab nahi) — taaki debug panel
+// backend ki state dikha sake chahe depth-sheet band ho ya khuli.
 function _applyMarketDepthPush(data) {
-  if (!data || !_ocDepthSymbol) return;
+  if (!data) return;
+
+  // Backend heartbeat — bridge/fragment health verify karne ke liye,
+  // depth-sheet khuli ho ya nahi is se independent.
+  _ocDepthDebug.backendHeartbeatSeen = true;
+  _ocDepthDebug.backendHeartbeatTs = Date.now();
+  _ocDepthDebug.backendActiveSymbol = (data.active_symbol_on_backend !== undefined)
+    ? data.active_symbol_on_backend : _ocDepthDebug.backendActiveSymbol;
+  _ocDepthDebug.backendRuns = (data.runs != null) ? data.runs : _ocDepthDebug.backendRuns;
+  _ocDepthDebugUpdateDot();
+
+  if (data._heartbeat) return;  // sirf status update tha, koi actual depth data nahi
+
+  if (!_ocDepthSymbol) return;
   if (data.symbol && data.symbol !== _ocDepthSymbol) return;  // stale/mismatched — ignore
   _ocDepthDebug.channel = 'postMessage';
   _ocDepthDebug.lastPostMessageTs = Date.now();

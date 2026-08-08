@@ -1353,6 +1353,12 @@ _DEPTH_TTL  = 1.5  # seconds — depth apna alag chhota TTL, sirf active symbol 
 
 _DEPTH_DEBUG = {"last_error": "", "last_status": None, "last_branch": "", "last_symbol": "", "ts": 0.0}
 
+# _market_depth_pusher (Streamlit fragment) ki apni run-count/state — sirf
+# debug/diagnostic ke liye, taaki frontend confirm kar sake ki fragment
+# zinda hai aur backend ka _active_depth_symbol kya dikh raha hai. Dekho
+# _market_depth_pusher ka comment for full context.
+_MD_PUSHER_DEBUG = {"runs": 0, "last_active_symbol": None, "last_run_ts": 0.0}
+
 def fyers_get_market_depth(app_id: str, access_token: str, symbol: str) -> "dict | None":
     """Fyers Market Depth API se 5-level bid/ask order book + price stats fetch karta hai.
     Response shape match karta hai Fyers app ke 'Market Depth' screen se:
@@ -1435,7 +1441,12 @@ def binance_get_market_depth(symbol: str) -> "dict | None":
     """Binance Options Depth + 24hr ticker se Fyers jaisa shape wapas karta hai.
     symbol format: 'BTC-260808-65000-C' (Binance EAPI naming)."""
     try:
-        ok_d, depth = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/depth", {"symbol": symbol, "limit": 5}, "")
+        # Binance Options depth API sirf specific limit values accept karta
+        # hai (10/20/50/100/500/1000) — 5 invalid hai (confirmed via "Error
+        # -4021: Invalid depth limit"). Minimum allowed (10) bhejte hain,
+        # neeche _lvl() already sirf pehle 5 rows leta hai, isliye output
+        # shape same rehta hai.
+        ok_d, depth = _binance_call(BINANCE_EAPI_URL, "/eapi/v1/depth", {"symbol": symbol, "limit": 10}, "")
         if not ok_d:
             _DEPTH_DEBUG.update({"last_error": str(depth), "last_status": None, "ts": time.time()})
             return {"error": f"Binance depth API fail — {depth}"}
@@ -3140,7 +3151,10 @@ if _qp.get("sv2_chunk_reset") == "1":
 if "depth_symbol" in _qp:
     _dsym = _qp.get("depth_symbol", "").strip()
     st.query_params.clear()
+    _dsym_old = st.session_state.get("_active_depth_symbol")
     st.session_state["_active_depth_symbol"] = _dsym if _dsym else None
+    _slog(f"[Depth] Handler5 FIRED — depth_symbol query-param = '{_dsym}' | "
+          f"session_state: {_dsym_old!r} -> {st.session_state['_active_depth_symbol']!r}")
     st.rerun()
 
 # ── Startup debug: is script-run se pehle process kitni purani hai — agar
@@ -3834,10 +3848,38 @@ if sess_active or _btc_only:
     if sess_active or _btc_only:
         @st.fragment(run_every=1)
         def _market_depth_pusher():
+            # DEBUG INSTRUMENTATION: pehle ye sirf tab kuch push karta tha
+            # jab _active_depth_symbol set ho — isliye jab bridge fail hua
+            # (pushState se signal backend tak nahi pahuncha), frontend ko
+            # koi fark hi nahi pata chal raha tha (khaali silence, "kaam
+            # kyun nahi kar raha" guess karna padta). AB ye HAR run mein ek
+            # heartbeat push karta hai (chahe symbol set ho ya na ho) — isse
+            # frontend 3 alag cheezein independently verify kar sakta hai:
+            # (1) fragment zinda/running hai, (2) backend ka session_state
+            # mein _active_depth_symbol kya value dikh rahi hai (JS ka
+            # pushState signal pahuncha ya nahi — agar backend hamesha None
+            # dikhaye jab depth-sheet khula ho, to confirm ho jaata hai ki
+            # signal bridge hi fail ho raha hai), (3) kitni baar ye fragment
+            # chal chuka hai (`runs` counter — agar wo hi na badhe to fragment
+            # khud hi nahi chal raha, alag issue).
+            global _MD_PUSHER_DEBUG
+            _MD_PUSHER_DEBUG["runs"] += 1
             _dsym = st.session_state.get("_active_depth_symbol")
+            _MD_PUSHER_DEBUG["last_active_symbol"] = _dsym
+            _MD_PUSHER_DEBUG["last_run_ts"] = time.time()
+
             if not _dsym:
-                return
-            dpayload = refresh_market_depth_cache(_dsym)
+                dpayload = {
+                    "_heartbeat": True,
+                    "active_symbol_on_backend": None,
+                    "runs": _MD_PUSHER_DEBUG["runs"],
+                }
+            else:
+                dpayload = refresh_market_depth_cache(_dsym)
+                dpayload["_heartbeat"] = False
+                dpayload["active_symbol_on_backend"] = _dsym
+                dpayload["runs"] = _MD_PUSHER_DEBUG["runs"]
+
             _d_json = json.dumps(dpayload)
             _script7 = f"""
 <script>
