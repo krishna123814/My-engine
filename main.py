@@ -3127,11 +3127,21 @@ if _qp.get("sv2_chunk_reset") == "1":
     st.session_state.pop("_sv2_max_eff_btc", None)
     st.rerun()
 
-# Handler 5: (removed) — pehle yahan BTC Market Depth open/close bridge tha
-# jo `depth_symbol` query-param ke zariye har baar poore app ka st.rerun()
-# trigger karta tha (isi wajah se BTC depth khulte hi pura app reload hota
-# tha). BTC depth ab seedha browser se Binance public REST se fetch hoti
-# hai (chart.html), backend ko is bridge ki zaroorat hi nahi rahi.
+# Handler 5: Market Depth (BTC/NSE) — kaunsa symbol ka depth-sheet khula
+# hai, JS side se `depth_symbol` query-param ke zariye batata hai. PEHLE ye
+# `form.submit()` se (real browser navigation) trigger hota tha, isliye
+# har depth-open/close par poora page reload hota tha (chart iframe bhi
+# reload ho jaata). AB chart.html JS side se `history.pushState()` +
+# manual `popstate` dispatch use karta hai (dekho _ocPushDepthSymbolToParent
+# chart.html mein) — koi real navigation nahi, sirf Streamlit ka apna
+# internal query-param→websocket rerun sync trigger hota hai. Isliye
+# st.query_params yahan change dikhega, lekin chart iframe reload NAHI
+# hoga (koi page-navigation hui hi nahi).
+if "depth_symbol" in _qp:
+    _dsym = _qp.get("depth_symbol", "").strip()
+    st.query_params.clear()
+    st.session_state["_active_depth_symbol"] = _dsym if _dsym else None
+    st.rerun()
 
 # ── Startup debug: is script-run se pehle process kitni purani hai — agar
 # _STARTUP_LOG khaali hai to matlab ye is container/process ka BILKUL PEHLA
@@ -3801,11 +3811,52 @@ if sess_active or _btc_only:
 
         _binance_meta_pusher()
 
-    # ── BTC Market Depth: pehle yahan ek postMessage pusher fragment tha
-    # (Option A). Ab BTC options depth seedha browser se Binance public
-    # REST (eapi.binance.com) se fetch hoti hai (chart.html me
-    # _ocOpenDepth) — isliye ye backend pusher delete kar diya. Koi
-    # st.fragment/backend involvement nahi, koi page reload nahi.
+    # ── Market Depth (BTC/NSE) → postMessage pusher ─────────────────────────
+    # ITIHAAS: (Option A) backend postMessage pusher tha → hataya gaya, kyunki
+    # depth (Option B) client-side seedha eapi.binance.com REST se fetch karne
+    # lagi thi. Wo bhi hata di gayi — Binance Options API browser-origin ko
+    # CORS allow nahi karta. Uske baad (Option C) ek side-port REST poll
+    # (/api/market_depth, dekho _ocPollDepth chart.html mein) add hua, jo
+    # LOCAL mein reload-free tha (plain fetch(), koi st.rerun() nahi).
+    # PROBLEM: production (Render.com) sirf ek public port expose karta hai
+    # — side-port (8502) bahar se bilkul unreachable hai, isliye depth
+    # production mein "Failed to fetch" (network error) ke saath poori
+    # tarah FAIL ho raha tha, jabki option chain/balance postMessage
+    # channel se Render par bilkul theek chal rahe the.
+    # FIX (wapas Option A, but reload-safe): option chain jaisa hi
+    # backend-fetch + postMessage pattern — isi already-working channel se.
+    # Symbol JS se `history.pushState()` (NOT form.submit) ke zariye aata
+    # hai (dekho Handler 5 upar aur _ocPushDepthSymbolToParent chart.html
+    # mein), isliye koi real navigation/page-reload nahi hota. Sirf jab koi
+    # depth-sheet khula ho (_active_depth_symbol session_state mein set)
+    # tabhi fetch hota hai — band hone par turant band, rate-limit-safe
+    # (refresh_market_depth_cache ka apna 1.5s TTL bhi hai).
+    if sess_active or _btc_only:
+        @st.fragment(run_every=1)
+        def _market_depth_pusher():
+            _dsym = st.session_state.get("_active_depth_symbol")
+            if not _dsym:
+                return
+            dpayload = refresh_market_depth_cache(_dsym)
+            _d_json = json.dumps(dpayload)
+            _script7 = f"""
+<script>
+(function() {{
+  var d = {_d_json};
+  var frames = window.parent.document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {{
+    try {{
+      frames[i].contentWindow.postMessage(
+        JSON.stringify({{ type: 'market_depth', data: d }}), '*'
+      );
+    }} catch(e) {{}}
+  }}
+}})();
+</script>
+"""
+            components.html(_script7, height=0, scrolling=False)
+
+        _market_depth_pusher()
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────

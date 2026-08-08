@@ -19807,6 +19807,10 @@ function _sv1DebugPopupRefreshLog() {
       { ok: null, text: '  LTP         : ' + (_ocDepthDebug.ltp != null ? _fmtNum(_ocDepthDebug.ltp) : '-') },
       { ok: null, text: '  Bid/Ask lvl : ' + _ocDepthDebug.bidLevels + ' / ' + _ocDepthDebug.askLevels },
       { ok: null, text: '  Total Buy/Sell Qty : ' + _fmtNum(_ocDepthDebug.totalBuy) + ' / ' + _fmtNum(_ocDepthDebug.totalSell) },
+      { ok: _ocDepthDebug.channel === 'postMessage' ? true : null,
+        text: '  Data channel : ' + (_ocDepthDebug.channel || 'abhi tak koi data nahi') +
+              (_ocDepthDebug.lastPostMessageTs ? (' (last postMessage ' + Math.round((Date.now() - _ocDepthDebug.lastPostMessageTs) / 1000) + 's ago)') : '') },
+      { ok: _ocDepthDebug.bridgeOk, text: '  pushState bridge : ' + (_ocDepthDebug.bridgeLastMsg || 'abhi call nahi hua') },
     ];
     if (_ocDepthDebug.ok === false) {
       depthLines.push({ ok: false, text: '  Problem     : ' + _ocDepthDebug.error });
@@ -20998,6 +21002,9 @@ window.addEventListener('message', function(evt) {
     }
     if (msg && msg.type === 'binance_meta') {
       _applyBinanceMeta(msg.data);
+    }
+    if (msg && msg.type === 'market_depth') {
+      _applyMarketDepthPush(msg.data);
     }
     // Also accept BTC tick override from parent (future use)
   } catch(_) {}
@@ -22413,6 +22420,11 @@ var _ocDepthDebug = {
   fetchFailKind: null,  // 'timeout' | 'network' | 'json_parse' | 'http_error' | null
   fetchFailMsg: null,   // raw exception name+message (JS side)
   backendBranch: null,  // backend ne _debug.branch mein jo bataya (fyers_creds_missing / not_fyers_symbol / etc.)
+  // ── channel health — primary postMessage bridge vs secondary side-port poll ──
+  channel: null,            // 'postMessage' | 'poll' — data aakhri kis channel se aayi
+  bridgeOk: null,            // pushState bridge (JS→parent) call successful hui ya nahi
+  bridgeLastMsg: null,       // bridge ka last status/error message
+  lastPostMessageTs: 0,      // aakhri baar postMessage se data kab mila (Date.now())
 };
 
 function _ocDepthDebugUpdateDot() {
@@ -22462,17 +22474,67 @@ function _ocDepthUrl(symbol) {
   return path;
 }
 
-// (Pehle yahan BTC ke liye seedha browser→eapi.binance.com fetch tha, lekin
-// Binance Options API (eapi.binance.com) browser-origin ko CORS allow nahi
-// karta (confirmed via debug diagnosis: server reachable hai, response
-// padhne ki permission nahi hai) — isliye wo approach kaam nahi kar sakti
-// thi. Ab BTC bhi NSE/Fyers wale hi existing side-port REST poll
-// (_ocPollDepth → /api/market_depth) se jaata hai — backend
-// (refresh_market_depth_cache) already BTC-prefixed symbols ko Binance
-// par route karta hai (no CORS issue, kyunki fetch server se hoti hai),
-// aur ye path pehle se hi bina kisi page-reload ke kaam karta hai (koi
-// query-param/st.rerun() ya postMessage bridge involved nahi — sirf ek
-// plain browser fetch() side-port ko).
+// ── Backend ko batata hai kaunsa symbol ka depth-sheet abhi khula hai —
+// isse backend (_market_depth_pusher, main.py) usi symbol ko fetch karke
+// postMessage se push karta rehta hai jab tak sheet band na ho.
+//
+// IMPORTANT: `window.parent.location.href = ...` ya form.submit() se real
+// browser navigation NAHI karte — us se poora page reload ho jaata (chart
+// iframe samet). Iski jagah `history.pushState()` se sirf parent window ka
+// URL/query-string update karte hain, phir manually a 'popstate' event
+// dispatch karte hain — Streamlit ka apna frontend already query-param
+// changes ko popstate se sync karta hai (jaisa browser back/forward par
+// hota hai), isliye ye sirf ek internal websocket rerun trigger karta hai,
+// koi real navigation nahi, chart iframe reload nahi hota.
+function _ocPushDepthSymbolToParent(symbol) {
+  try {
+    var pwin = window.parent;
+    var url = new URL(pwin.location.href);
+    // `set` hamesha (delete nahi) — taaki close (empty string) bhi backend
+    // tak ek explicit signal ke roop mein pahunche, na ki silently ignore ho.
+    url.searchParams.set('depth_symbol', symbol || '');
+    pwin.history.pushState({}, '', url.toString());
+    var EvtCtor = pwin.PopStateEvent || PopStateEvent;
+    pwin.dispatchEvent(new EvtCtor('popstate', { state: {} }));
+    _ocDepthDebug.bridgeOk = true;
+    _ocDepthDebug.bridgeLastMsg = 'pushState OK — depth_symbol=' + (symbol || '(cleared)');
+  } catch (e) {
+    _ocDepthDebug.bridgeOk = false;
+    _ocDepthDebug.bridgeLastMsg = 'pushState bridge FAILED: ' + ((e && e.message) || e);
+    console.error('[Depth] pushState bridge failed:', e);
+  }
+  _ocDepthDebugUpdateDot();
+}
+
+// ── Backend postMessage se aaya depth data — primary channel. Side-port
+// REST poll (_ocPollDepth) secondary/fallback ke roop mein chalta rehta
+// hai (jahan side-port reachable ho, jaise local dev). Symbol-mismatch
+// guard: agar user ne fataafat doosri strike select kar li ho (purana
+// pusher iteration abhi bhi in-flight ho) to stale data render nahi hoga.
+function _applyMarketDepthPush(data) {
+  if (!data || !_ocDepthSymbol) return;
+  if (data.symbol && data.symbol !== _ocDepthSymbol) return;  // stale/mismatched — ignore
+  _ocDepthDebug.channel = 'postMessage';
+  _ocDepthDebug.lastPostMessageTs = Date.now();
+  _ocRenderDepth(data);
+}
+
+// ── ITIHAAS: BTC ke liye seedha browser→eapi.binance.com fetch try kiya
+// tha, lekin Binance Options API browser-origin ko CORS allow nahi karta.
+// Uske baad side-port REST poll (_ocPollDepth → /api/market_depth) add
+// hua — LOCAL mein reload-free tha, lekin production (Render.com) sirf ek
+// public port expose karta hai, isliye side-port bahar se unreachable
+// nikla aur depth production mein poori tarah FAIL ho rahi thi.
+//
+// AB: PRIMARY channel backend postMessage push hai (_market_depth_pusher,
+// main.py) — same already-working channel jisse option chain/balance
+// Render par chalte hain. Symbol backend ko `history.pushState()` se
+// batate hain (_ocPushDepthSymbolToParent — real navigation NAHI, isliye
+// chart iframe reload nahi hota). Side-port REST poll (_ocPollDepth) ab
+// bhi SECONDARY/fallback ke roop mein chalta hai — jahan side-port
+// reachable ho (jaise local dev) wahan extra redundancy milti hai, aur
+// jahan na ho (Render) wahan bas silently fail hoti hai — harmless, kyunki
+// postMessage primary hai.
 
 async function _ocOpenDepth(type) {
   if (_ocSelectedStrike == null) return;
@@ -22487,6 +22549,11 @@ async function _ocOpenDepth(type) {
   document.getElementById('oc-depth-sheet').classList.add('open');
   document.getElementById('oc-depth-rows').innerHTML = '';
   document.getElementById('oc-depth-err') && document.getElementById('oc-depth-err').remove();
+  _ocDepthDebug.channel = null;  // naya symbol — abhi tak kisi channel se data nahi aaya
+
+  // PRIMARY: backend ko batao ki ye symbol ka depth chahiye — postMessage
+  // pusher (main.py) isi se fetch+push start karega.
+  _ocPushDepthSymbolToParent(symbol);
 
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
 
@@ -22504,6 +22571,10 @@ function _ocCloseDepth() {
   document.getElementById('oc-depth-backdrop').classList.remove('open');
   document.getElementById('oc-depth-sheet').classList.remove('open');
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
+  // Backend ko batao ki depth-sheet band ho gayi — _market_depth_pusher
+  // fetch karna band kar dega (rate-limit-safe, jaisa pehle side-port
+  // approach mein "sirf active symbol ke liye poll" tha).
+  _ocPushDepthSymbolToParent(null);
   _ocDepthSymbol = null;
 }
 
@@ -22541,6 +22612,7 @@ async function _ocPollDepth() {
     }
     _ocDepthDebug.fetchFailKind = null;
     _ocDepthDebug.fetchFailMsg  = null;
+    _ocDepthDebug.channel = 'poll (fallback)';
     _ocRenderDepth(data);
   } catch (e) {
     // Ab yahan sirf genuine network-level fail aata hai: timeout
