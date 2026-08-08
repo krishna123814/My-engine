@@ -21394,10 +21394,66 @@ function _ocDebugPopupRefreshLog() {
     return;
   }
   const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
-  if (!data || data.error) {
-    logEl.innerHTML = '<span class="log-err">Koi option chain data abhi available nahi hai.</span>';
+  const _ocBinanceDataFreshOuter = (Date.now() - _ocBinanceLastAppliedTs) < _OC_DATA_STALE_MS;
+
+  // ── No data at all (postMessage kabhi aaya hi nahi, bridge se bhi kuch
+  // nahi mila) — pehle yahan sirf generic "data available nahi" dikhta tha,
+  // ab jo bhi maloom hai (poll status) wo bhi dikhao taaki pata chale
+  // problem browser-side hai ya backend kabhi respond hi nahi kar raha. ──
+  if (!data) {
+    logEl.innerHTML = [
+      { ok: false, text: '⚠️ Backend se BTC option chain ka koi bhi data (postMessage) abhi tak nahi mila.' },
+      { ok: null,  text: '  Data channel   : ' + (_ocBinanceDataFreshOuter ? 'recently OK, ab dobara wait ho raha hai' : 'kabhi nahi mila is session mein') },
+      { ok: null,  text: '  Poll (backup)  : ' + (_ocBinancePollLastErr || (_ocBinancePollLastOk ? 'OK, last success ' + _ocDebugAgeText((Date.now() - _ocBinancePollLastOk) / 1000) : 'never tried yet')) },
+      { ok: null,  text: '  Log time       : ' + new Date().toLocaleTimeString() },
+    ].map(l => l.ok === false ? '<span class="log-err">' + l.text + '</span>' : '<span>' + l.text + '</span>').join('\n');
     return;
   }
+
+  // ── Backend ne data bheja hai lekin poori chain nahi ban paayi
+  // (data.error set hai) — pehle yahan sirf generic message dikhta tha aur
+  // backend ka asli error + WS/thread diagnostics chhup jaate the. Ab
+  // error text ke saath wahi WS/thread lines dikhate hain (agar backend ne
+  // bheji hon) taaki exactly pata chale kahan atka hai. ──
+  if (data.error) {
+    const ews = data.ws || {};
+    const lines = [
+      { ok: false, text: '⚠️ Backend error: ' + data.error },
+      { ok: null,  text: '' },
+    ];
+    if (data.ws) {
+      lines.push(
+        { ok: !!ews.mark_connected,  text: '● Mark WS       : ' + (ews.mark_connected ? 'connected' : 'DISCONNECTED') + ' — last tick ' + _ocDebugAgeText(ews.mark_age_sec) },
+        { ok: !!ews.trade_connected, text: '● Trade WS      : ' + (ews.trade_connected ? 'connected' : 'DISCONNECTED') + ' — last tick ' + _ocDebugAgeText(ews.trade_age_sec) },
+        { ok: !!ews.spot_connected,  text: '● Spot WS       : ' + (ews.spot_connected ? 'connected' : 'DISCONNECTED') + ' — last tick ' + _ocDebugAgeText(ews.spot_age_sec) },
+        { ok: null,  text: '  Last error     : ' + (ews.last_error || 'none') },
+        { ok: (ews.meta_expiries_count != null && ews.meta_expiries_count > 0),
+          text: '  Expiries loaded: ' + (ews.meta_expiries_count != null ? ews.meta_expiries_count : '—') + (ews.meta_expiries_count === 0 ? '  ← exchangeInfo abhi tak fetch nahi hui (ya block ho rahi hai)' : '') },
+        { ok: null,  text: '' },
+        { ok: null,  text: '  ── Backend threads ──' },
+        { ok: (ews.payload_thread_age_sec != null && ews.payload_thread_age_sec < 5),
+          text: '  Payload loop    : ' + (ews.payload_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ews.payload_thread_age_sec) + ' ago') : 'never started') },
+        { ok: (ews.ticker_thread_age_sec != null && ews.ticker_thread_age_sec < 20),
+          text: '  Ticker loop     : ' + (ews.ticker_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ews.ticker_thread_age_sec) + ' ago') : 'never started') },
+        { ok: (ews.meta_thread_age_sec != null && ews.meta_thread_age_sec < 90),
+          text: '  Meta loop       : ' + (ews.meta_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ews.meta_thread_age_sec) + ' ago') : 'never started') },
+      );
+    } else {
+      lines.push({ ok: null, text: '  (Ye backend build purane version ka lag raha hai — WS/thread diagnostics is error ke saath nahi bheje gaye.)' });
+    }
+    lines.push(
+      { ok: null, text: '' },
+      { ok: null, text: '  Poll (backup)  : ' + (_ocBinancePollLastErr || (_ocBinancePollLastOk ? 'OK, last success ' + _ocDebugAgeText((Date.now() - _ocBinancePollLastOk) / 1000) : 'never tried yet')) },
+      { ok: null, text: '  Log time       : ' + new Date().toLocaleTimeString() },
+    );
+    logEl.innerHTML = lines.map(l => {
+      if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+      if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+      return '<span>' + l.text + '</span>';
+    }).join('\n');
+    return;
+  }
+
   const ws = data.ws || {};
   const markLive     = !!ws.mark_live;
   const tradeLive    = !!ws.trade_live;

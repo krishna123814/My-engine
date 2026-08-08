@@ -1068,12 +1068,50 @@ def _ensure_binance_ws_threads():
         threading.Thread(target=_binance_oc_ticker_bg_loop, name="BinanceOptTickerBG", daemon=True).start()
 
 # ── Step 6: payload builder — SABHI expiries, PURE in-memory (no network) ──
+def _bn_ws_status_snapshot(spot_source=None, spot_age=None, expiries_count=None) -> dict:
+    """Har jagah se same tarike se WS/thread diagnostics nikalne ke liye —
+    isse debug ko pata chal sakta hai ki EXACTLY kahan atka hai, chahe poora
+    option-chain payload abhi ban hi na paaya ho (jaisa 'metadata load ho
+    raha hai' ya 'spot abhi available nahi' wale early-error cases). Pehle
+    ye sirf success path mein banta tha — error paths mein bilkul khaali reh
+    jaata tha, isliye debug popup ko root cause pata hi nahi chal pata tha."""
+    now = time.time()
+    mark_age  = (now - _BN_WS_STATE["mark_last_msg_ts"])  if _BN_WS_STATE["mark_last_msg_ts"]  else None
+    trade_age = (now - _BN_WS_STATE["trade_last_msg_ts"]) if _BN_WS_STATE["trade_last_msg_ts"] else None
+    mark_live  = bool(_BN_WS_STATE["mark_connected"])  and mark_age  is not None and mark_age  <= BINANCE_MARK_STALE_SEC
+    trade_live = bool(_BN_WS_STATE["trade_connected"]) and trade_age is not None and trade_age <= BINANCE_TRADE_STALE_SEC
+    return dict(
+        _BN_WS_STATE,
+        mark_live=mark_live,
+        trade_live=trade_live,
+        mark_age_sec=round(mark_age, 1) if mark_age is not None else None,
+        trade_age_sec=round(trade_age, 1) if trade_age is not None else None,
+        spot_source=spot_source,
+        spot_age_sec=round(spot_age, 1) if spot_age is not None else None,
+        # Background thread heartbeats — 0 ka matlab hai thread ne abhi tak
+        # ek baar bhi iteration complete nahi ki (startup), warna age jitni
+        # zyada, thread utni der se "chup" hai.
+        meta_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["meta"], 1) if _BN_THREAD_HEARTBEAT["meta"] else None,
+        ticker_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["ticker"], 1) if _BN_THREAD_HEARTBEAT["ticker"] else None,
+        payload_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["payload"], 1) if _BN_THREAD_HEARTBEAT["payload"] else None,
+        # Kitni expiries meta-loop se mil chuki hain — 0 ka matlab exchangeInfo
+        # fetch abhi tak kabhi safal nahi hui (ya Binance ne block/reject
+        # kar diya). Isse "metadata load ho raha hai" waala error message
+        # genuine startup-delay hai ya permanently stuck hai, ye differentiate
+        # ho jaata hai (thread age ke saath milaakar dekho).
+        meta_expiries_count=expiries_count,
+    )
+
 def _bn_rebuild_payload_from_memory() -> dict:
     with _BN_CHAIN_META_LOCK:
         expiries  = list(_BN_CHAIN_META["expiries"])
         by_expiry = dict(_BN_CHAIN_META["by_expiry"])
     if not expiries:
-        return {"error": "Option chain metadata load ho raha hai… (exchangeInfo abhi fetch nahi hui, thodi der ruko)"}
+        return {
+            "error": "Option chain metadata load ho raha hai… (exchangeInfo abhi fetch nahi hui, thodi der ruko)",
+            "ws": _bn_ws_status_snapshot(expiries_count=0),
+            "ts": time.time(),
+        }
 
     with _BN_SPOT_LOCK:
         spot        = _BN_SPOT_PRICE["price"]
@@ -1095,8 +1133,22 @@ def _bn_rebuild_payload_from_memory() -> dict:
                 _BN_SPOT_PRICE["price"]  = _fresh_spot
                 _BN_SPOT_PRICE["ts"]     = time.time()
                 _BN_SPOT_PRICE["source"] = "rest"
+        elif _err:
+            # REST gap-fill bhi fail hua — asli reason (jaise Binance ne
+            # is server ki IP block/rate-limit kar di ho) yahan capture
+            # karo, taaki debug popup mein exact wajah dikhe, generic
+            # "WebSocket connect ho raha hai" ke bajaye.
+            return {
+                "error": f"BTC spot price abhi available nahi — WS bhi down, REST gap-fill bhi fail: {_err}",
+                "ws": _bn_ws_status_snapshot(spot_source=spot_source, spot_age=spot_age, expiries_count=len(expiries)),
+                "ts": time.time(),
+            }
     if spot is None:
-        return {"error": "BTC spot price abhi available nahi (WebSocket connect ho raha hai)"}
+        return {
+            "error": "BTC spot price abhi available nahi (WebSocket connect ho raha hai)",
+            "ws": _bn_ws_status_snapshot(spot_source=spot_source, spot_age=spot_age, expiries_count=len(expiries)),
+            "ts": time.time(),
+        }
 
     with _BN_LIVE_LOCK:
         live_snapshot = {k: dict(v) for k, v in _BN_LIVE_QUOTES.items()}
@@ -1174,7 +1226,11 @@ def _bn_rebuild_payload_from_memory() -> dict:
         expiry_meta_list.append({"epoch": epoch, "label": label})
 
     if not chains:
-        return {"error": "Koi expiry chain nahi ban paayi"}
+        return {
+            "error": "Koi expiry chain nahi ban paayi",
+            "ws": _bn_ws_status_snapshot(spot_source=spot_source, spot_age=spot_age, expiries_count=len(expiries)),
+            "ts": time.time(),
+        }
 
     default_epoch = expiries[0]  # nearest expiry
     nearest = chains[str(default_epoch)]
@@ -1183,27 +1239,7 @@ def _bn_rebuild_payload_from_memory() -> dict:
     # stream se koi tick 15/30 sec tak na aaya to us stream ko bhi "stale"
     # maano, chahe socket technically khula ho (jaisa spot ke saath pehle
     # fix kiya, ab mark/trade ke saath bhi wahi pattern). ──
-    now = time.time()
-    mark_age  = (now - _BN_WS_STATE["mark_last_msg_ts"])  if _BN_WS_STATE["mark_last_msg_ts"]  else None
-    trade_age = (now - _BN_WS_STATE["trade_last_msg_ts"]) if _BN_WS_STATE["trade_last_msg_ts"] else None
-    mark_live  = bool(_BN_WS_STATE["mark_connected"])  and mark_age  is not None and mark_age  <= BINANCE_MARK_STALE_SEC
-    trade_live = bool(_BN_WS_STATE["trade_connected"]) and trade_age is not None and trade_age <= BINANCE_TRADE_STALE_SEC
-
-    ws_status = dict(
-        _BN_WS_STATE,
-        mark_live=mark_live,
-        trade_live=trade_live,
-        mark_age_sec=round(mark_age, 1) if mark_age is not None else None,
-        trade_age_sec=round(trade_age, 1) if trade_age is not None else None,
-        spot_source=spot_source,
-        spot_age_sec=round(spot_age, 1) if spot_age is not None else None,
-        # Background thread heartbeats — 0 ka matlab hai thread ne abhi tak
-        # ek baar bhi iteration complete nahi ki (startup), warna age jitni
-        # zyada, thread utni der se "chup" hai.
-        meta_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["meta"], 1) if _BN_THREAD_HEARTBEAT["meta"] else None,
-        ticker_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["ticker"], 1) if _BN_THREAD_HEARTBEAT["ticker"] else None,
-        payload_thread_age_sec=round(now - _BN_THREAD_HEARTBEAT["payload"], 1) if _BN_THREAD_HEARTBEAT["payload"] else None,
-    )
+    ws_status = _bn_ws_status_snapshot(spot_source=spot_source, spot_age=spot_age, expiries_count=len(expiries))
 
     return {
         "spot": spot,
@@ -1230,7 +1266,13 @@ def _binance_oc_bg_loop():
         try:
             payload = _bn_rebuild_payload_from_memory()
         except Exception as e:
-            payload = {"error": f"binance bg loop exception: {e}"}
+            with _BN_CHAIN_META_LOCK:
+                _ec = len(_BN_CHAIN_META["expiries"])
+            payload = {
+                "error": f"binance bg loop exception: {e}",
+                "ws": _bn_ws_status_snapshot(expiries_count=_ec),
+                "ts": time.time(),
+            }
         _BN_THREAD_HEARTBEAT["payload"] = time.time()
         with _BINANCE_OC_LAST_PAYLOAD_LOCK:
             _BINANCE_OC_LAST_PAYLOAD.update({"data": payload, "ts": time.time()})
@@ -1246,7 +1288,18 @@ def get_cached_binance_option_chain_payload() -> dict:
         data = _BINANCE_OC_LAST_PAYLOAD["data"]
         age  = time.time() - _BINANCE_OC_LAST_PAYLOAD["ts"]
     if data is None:
-        return {"error": "Binance option chain load ho raha hai… (pehli fetch abhi baaki hai)"}
+        # Background thread (BinanceOptionChainBG) ne abhi tak apna PEHLA
+        # cycle bhi complete nahi kiya — ws/meta diagnostics yahan bhi jodo,
+        # taaki debug popup ko pata chale ye startup delay hai (thread
+        # heartbeat abhi 0 hai, expiries abhi load ho rahi hain) ya thread
+        # kabhi shuru hi nahi hua / crash ho gaya (heartbeat hamesha 0 rahega).
+        with _BN_CHAIN_META_LOCK:
+            _ec = len(_BN_CHAIN_META["expiries"])
+        return {
+            "error": "Binance option chain load ho raha hai… (pehli fetch abhi baaki hai)",
+            "ws": _bn_ws_status_snapshot(expiries_count=_ec),
+            "ts": time.time(),
+        }
     if age > 15:
         d = dict(data)
         d["stale_warning"] = f"Data {int(age)}s purana hai — background refresh check karo"
