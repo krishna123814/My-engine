@@ -72,6 +72,38 @@ DEFAULT_CLIENT_ID = _get_secret("FYERS_CLIENT_ID")
 DEFAULT_PASSWORD  = _get_secret("FYERS_PASSWORD")
 REDIRECT_URI = "https://www.google.com"   # generic, not sensitive — never changes
 
+# ─── App-startup / login debug log ─────────────────────────────────────────
+# Login ke turant baad screen chart par redirect ho jaati hai, isliye startup
+# ke exact steps (creds load, session check, thread launch, koi bhi exception)
+# yahan capture karte hain — taaki header ke chhote debug icon se poora
+# startup trace copy karke dekha ja sake, chahe crash/redirect kitna bhi
+# jaldi ho jaaye.
+_STARTUP_LOG: list = []
+_STARTUP_LOG_LOCK = threading.Lock()
+_STARTUP_LOG_MAX  = 300
+
+def _slog(msg: str, level: str = "info") -> None:
+    """Thread-safe startup/diagnostic log line add karo. level: info|ok|warn|err"""
+    try:
+        t = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=5, minutes=30))).strftime("%H:%M:%S")
+    except Exception:
+        t = time.strftime("%H:%M:%S")
+    line = {"t": t, "level": level, "msg": str(msg)}
+    with _STARTUP_LOG_LOCK:
+        _STARTUP_LOG.append(line)
+        if len(_STARTUP_LOG) > _STARTUP_LOG_MAX:
+            del _STARTUP_LOG[: len(_STARTUP_LOG) - _STARTUP_LOG_MAX]
+
+def _slog_exception(where: str, exc: Exception) -> None:
+    """Exception ko poori traceback ke saath log karo — copy-paste karne layak."""
+    import traceback
+    tb = traceback.format_exc()
+    _slog(f"EXCEPTION in {where}: {exc}\n{tb}", level="err")
+
+def _startup_log_snapshot() -> list:
+    with _STARTUP_LOG_LOCK:
+        return list(_STARTUP_LOG)
+
 # ─── Global live-tick store (updated by WebSocket thread) ─────────────────────
 _LIVE: dict = {
     "ltp":       None,
@@ -2956,18 +2988,61 @@ if _qp.get("sv2_chunk_reset") == "1":
     st.session_state.pop("_sv2_max_eff_btc", None)
     st.rerun()
 
+# ── Startup debug: is script-run se pehle process kitni purani hai — agar
+# _STARTUP_LOG khaali hai to matlab ye is container/process ka BILKUL PEHLA
+# run hai (fresh boot / cold start / restart). Agar pehle se lines hain to
+# same process continue ho raha hai (sirf Streamlit rerun hua hai). ──
+_is_fresh_boot = (len(_STARTUP_LOG) == 0)
+_slog(f"▶ Script run start" + (" — FRESH PROCESS BOOT (cold start/restart)" if _is_fresh_boot else " (rerun, same process)"))
+
 creds      = load_creds()
-sess_active = is_session_active()
+_slog(
+    "Creds loaded — fyers: app_id=%s secret=%s access_token=%s | binance: key=%s secret=%s" % (
+        "yes" if creds.get("app_id") else "NO",
+        "yes" if creds.get("secret_key") else "NO",
+        "yes" if creds.get("access_token") else "NO",
+        "yes" if creds.get("binance_api_key") else "NO",
+        "yes" if creds.get("binance_secret_key") else "NO",
+    )
+)
+
+try:
+    sess_active = is_session_active()
+except Exception as _e_sess:
+    _slog_exception("is_session_active()", _e_sess)
+    sess_active = False
+_slog(f"sess_active (Fyers session valid) = {sess_active}")
+
 # "Replay Mode" (starting page ka naya button) BTC-only chart hi kholta hai,
 # bas SV2 replay data eagerly preload karta hai — isliye chart-render ke
 # liye ye bhi _btc_only jaisa treat hota hai.
 _btc_only_early = st.session_state.get("_btc_only_mode", False) or st.session_state.get("_replay_mode", False)
+_slog(
+    "_btc_only_mode=%s  _replay_mode=%s  binance_logged_in(session)=%s" % (
+        st.session_state.get("_btc_only_mode", False),
+        st.session_state.get("_replay_mode", False),
+        st.session_state.get("binance_logged_in", False),
+    )
+)
 
 # BinanceOptionChainBG thread BTC-only users ke liye bhi chahiye (Binance
 # option chain Fyers session se independent hai) — isliye sirf sess_active
 # nahi, _btc_only bhi is check me shaamil.
 if sess_active or _btc_only_early:
-    _ensure_live_threads()
+    _slog(f"Trigger condition MET (sess_active={sess_active} or btc_only={_btc_only_early}) → calling _ensure_live_threads()")
+    try:
+        _ensure_live_threads()
+        _running = sorted(t.name for t in threading.enumerate())
+        _slog(f"_ensure_live_threads() done. Threads alive now: {_running}", level="ok")
+    except Exception as _e_threads:
+        _slog_exception("_ensure_live_threads()", _e_threads)
+else:
+    _slog(
+        "Trigger condition NOT met (sess_active=False, btc_only=False) → "
+        "_ensure_live_threads() ko is run mein call hi NAHI kiya gaya. "
+        "Agar debug popup mein 'never started' dikh raha hai, yahi wajah hai.",
+        level="warn",
+    )
 
 with st.sidebar:
     st.title("🔑 Fyers Login")
@@ -3262,6 +3337,21 @@ def _build_chart_html(
         "bn_chunk_date":  str(st.session_state.get("_sv2_anchor_date_bn")  or ""),
         "btc_chunk_date": str(st.session_state.get("_sv2_anchor_date_btc") or ""),
     }
+    # ── App-startup / login debug log — snapshot le lo taaki chart render
+    # hone se pehle jitne bhi steps (creds, session check, thread launch,
+    # koi exception) hue hain, header ke chhote debug icon se copy kiye
+    # ja saken. Render ke turant baad ka bhi ek final marker line daal
+    # rahe hain taaki pata chale ye poora startup trace hai.
+    try:
+        _slog(f"Chart HTML render ho raha hai — sess_active={sess_active} btc_only={_btc_only_early}", level="ok")
+    except Exception:
+        pass
+    _startup_log_safe = json.dumps(_startup_log_snapshot()).replace("</", "<\\/")
+    html = html.replace("</body>",
+        f"<script>window.__STARTUP_LOG__={_startup_log_safe};"
+        "try{ if (typeof _bootDebugRenderLog === 'function') _bootDebugRenderLog(); }catch(_){}"
+        "</script>\n</body>", 1)
+
     html = html.replace("</body>",
         f"<script>window.__SV2_DEBUG={json.dumps(_sv2_safe)};"
         f"window.__SV2_DATA_LOADED={json.dumps(_sv2_data_loaded_ok)};"
@@ -3714,14 +3804,20 @@ else:
     _bn_secret_key = st.text_input("Binance Secret Key", type="password", key="binance_secret_key")
 
     if st.button("🔌 Binance Login", use_container_width=True, type="primary", key="binance_login_btn"):
+        _slog("👉 'Binance Login' button clicked")
         if not _bn_api_key or not _bn_secret_key:
+            _slog("Binance Login blocked — API Key/Secret Key khaali the", level="warn")
             st.error("Pehle API Key aur Secret Key daalo")
         else:
             with st.spinner("Binance se login ho raha hai…"):
                 # Sirf credentials valid hain ya nahi check karne ke liye ek
                 # lightweight signed call — result yahan display nahi hota,
                 # sirf pass/fail dekha jaata hai.
-                _ok_login, _login_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
+                try:
+                    _ok_login, _login_result = binance_get_spot_balance(_bn_api_key, _bn_secret_key)
+                except Exception as _e_bn_login:
+                    _slog_exception("Binance Login → binance_get_spot_balance()", _e_bn_login)
+                    _ok_login, _login_result = False, str(_e_bn_login)
 
             if _ok_login:
                 # Live option-chain background thread (_ensure_binance_ws_threads
@@ -3729,9 +3825,11 @@ else:
                 # credentials ko use karke chart chalata hai.
                 save_creds({**load_creds(), "binance_api_key": _bn_api_key, "binance_secret_key": _bn_secret_key})
                 st.session_state["binance_logged_in"] = True
+                _slog("Binance Login SUCCESS — keys saved", level="ok")
                 st.success("✅ Binance login successful")
             else:
                 st.session_state["binance_logged_in"] = False
+                _slog(f"Binance Login FAILED — {_login_result}", level="err")
                 st.error(f"❌ Login failed: {_login_result}")
 
     st.markdown('''</div>''', unsafe_allow_html=True)
@@ -3783,6 +3881,8 @@ else:
         # Replay" dabaye (us waqt JS ka _sv2RequestDataLoad() ek
         # ?sv2_load=1 reload trigger karega jise Handler 3b handle karta
         # hai).
+        _slog("👉 'BTC Chart Kholo (Fyers ke bina)' clicked → _btc_only_mode=True set kiya, st.rerun() call ho raha hai. "
+              "(Threads AGLE run mein start hongi, isi click ke run mein nahi.)")
         st.session_state["_btc_only_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
@@ -3792,6 +3892,7 @@ else:
         # Replay Mode: SV2 (.gz) replay data ABHI eagerly preload karo
         # (BTC-only ke ulat) — taaki chart khulte hi date select turant
         # kaam kare, koi ?sv2_load=1 full-page reload na ho.
+        _slog("👉 'Replay Mode Kholo' clicked → _replay_mode=True set kiya, st.rerun() call ho raha hai.")
         st.session_state["_replay_mode"] = True
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
