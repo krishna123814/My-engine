@@ -1292,8 +1292,10 @@ _BINANCE_OC_LAST_PAYLOAD_LOCK = threading.Lock()
 
 def _binance_oc_bg_loop():
     """Ab koi network call NAHI karta — sirf WS threads ke already-updated
-    in-memory data se payload rebuild karta hai, har 1 second. Isi wajah se
-    1s interval bilkul safe hai (koi REST rate-limit risk nahi)."""
+    in-memory data se payload rebuild karta hai, har 300ms (localhost-only
+    mode: side-port poll ab primary fast path hai, isliye backend refresh
+    bhi tez rakha — koi REST rate-limit risk nahi, purana 1s wala interval
+    is naye 300ms fast-poll ka bottleneck ban raha tha)."""
     while True:
         try:
             payload = _bn_rebuild_payload_from_memory()
@@ -1313,7 +1315,7 @@ def _binance_oc_bg_loop():
                 json.dump(payload, f)
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(0.3)
 
 def get_cached_binance_option_chain_payload() -> dict:
     with _BINANCE_OC_LAST_PAYLOAD_LOCK:

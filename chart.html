@@ -19973,6 +19973,23 @@ function _btcSetStatus(live) {
   }
 }
 
+// ── BTC WS stale watchdog ────────────────────────────────────────────────
+// Agar WS "ok" flag hai par 5+ second se koi tick nahi aayi (network hiccup,
+// silently stuck connection, etc.) to header status mein "_" nishan lagao
+// taaki pata chale ki dot green hai lekin data actually flow nahi ho raha.
+// Naya tick aate hi _btcSetStatus(true) khud "Live" wapas likh deta hai.
+function _btcCheckStale() {
+  if (_btcWsOk && _btcLastTickMs && (Date.now() - _btcLastTickMs > 5000)) {
+    if (typeof S !== 'undefined' && S.asset === BTC_ASSET) {
+      const dot = document.getElementById('ws-dot');
+      const st  = document.getElementById('ws-status');
+      if (dot) dot.className = 'live';
+      if (st)  { st.innerHTML = '<span id="ws-dot" class="live"></span>Live_'; st.title = 'WebSocket connected but no tick in 5s+'; }
+    }
+  }
+}
+setInterval(_btcCheckStale, 1000);
+
 // ── REST loop ─────────────────────────────────────────────────────────────
 async function _btcRestOnce() {
   if (_btcRestBusy) return;
@@ -20000,8 +20017,8 @@ async function _btcRestOnce() {
 }
 
 function _btcStartRest() {
-  if (_btcPollTimer || _btcRestBusy) return;
-  _btcRestOnce(); // immediate first tick
+  // Disabled: WS-only mode, koi REST fallback/backup polling nahi.
+  return;
 }
 
 function _btcStopRest() {
@@ -20019,8 +20036,7 @@ function _connectBTCWS() {
   try { if (_btcWs) { _btcWs.onclose = null; _btcWs.close(); } } catch(_) {}
   _btcWsOk = false;
 
-  // REST turant shuru — WS connect hone tak data aata rahe
-  _btcStartRest();
+  // WS-only: koi REST bridge/fallback nahi, seedha WebSocket se connect
 
   const url = _BTC_WS_URLS[_btcWsUrlIdx % _BTC_WS_URLS.length];
   _btcWs = new WebSocket(url);
@@ -21767,13 +21783,18 @@ async function _pollBinanceOptionChain() {
 }
 function _startOCPolling() {
   if (_ocPollIv) return;
+  // WS-only local-host mode: side-port API poll (bypasses Streamlit rerun
+  // entirely) ab hi PRIMARY fast-update path hai, purana 6000ms sirf
+  // error-detection ke liye tha. Ab yehi loop asli LTP render bhi karta hai
+  // (_pollOptionChain/_pollBinanceOptionChain already _applyOptionChain/
+  // _applyBinanceOptionChain call karte hain on success).
   _ocPollIv = setInterval(() => {
     const p = document.getElementById('oc-panel');
     if (p && p.classList.contains('open')) {
       if (_ocIsBinanceAsset()) _pollBinanceOptionChain();
       else _pollOptionChain();
     }
-  }, 6000);
+  }, 300);
 }
 _startOCPolling();
 
@@ -22435,6 +22456,83 @@ var _ocDepthSymbol   = null;
 var _ocDepthPollTid  = null;
 var _ocDepthInFlight = false;
 
+// ── Live depth WebSocket (BTC only) — seedha browser se Binance eoptions
+// depth stream (@depth10@100ms), koi server hop nahi. Sirf book ROWS is
+// stream se aate hain (100ms tak fresh) — LTP/OHLC/change jaise stat
+// fields isme nahi hote, wo REST poll/postMessage se hi aate rehte hain
+// (slower hai lekin theek hai, wo fields itni fast change nahi hote).
+// BankNifty/Fyers ke liye ye concept hi nahi hai (Binance-only feature),
+// isliye sirf _ocIsBinanceAsset() true hone par connect hota hai.
+var _ocDepthWs        = null;
+var _ocDepthWsSymbol  = null;
+var _ocDepthBook      = { bids: [], asks: [] };
+
+function _ocConnectDepthWS(symbol) {
+  _ocCloseDepthWS();
+  _ocDepthWsSymbol = symbol;
+  _ocDepthBook = { bids: [], asks: [] };
+  var url = 'wss://nbstream.binance.com/eoptions/stream?streams=' +
+            encodeURIComponent(symbol.toLowerCase()) + '@depth10@100ms';
+  var ws;
+  try { ws = new WebSocket(url); } catch (e) { return; }
+  _ocDepthWs = ws;
+  ws.onopen = function () {
+    if (_ocDepthWs !== ws) return;
+    _ocDepthDebug.channel = 'ws (live, 100ms)';
+    _ocDepthDebugUpdateDot();
+  };
+  ws.onmessage = function (evt) {
+    if (_ocDepthWs !== ws) return;
+    try {
+      var raw = JSON.parse(evt.data);
+      var data = raw.data || raw;
+      _ocApplyDepthWsUpdate(data);
+      // Symbol switch ho chuka ho to purani WS ka data ab bhi aa sakta hai
+      // (close() async hai) — guard karo taaki galat strike ki rows na dikhein.
+      if (_ocDepthSymbol === _ocDepthWsSymbol) {
+        _ocRenderDepthBook(_ocDepthBook.bids, _ocDepthBook.asks);
+      }
+    } catch (e) {}
+  };
+  ws.onerror = function () {
+    if (_ocDepthWs === ws) _ocDepthDebug.channel = 'ws-error (REST fallback active)';
+  };
+  ws.onclose = function () {
+    if (_ocDepthWs === ws) _ocDepthWs = null;
+  };
+}
+
+function _ocCloseDepthWS() {
+  if (_ocDepthWs) { try { _ocDepthWs.close(); } catch (e) {} _ocDepthWs = null; }
+  _ocDepthWsSymbol = null;
+  _ocDepthBook = { bids: [], asks: [] };
+}
+
+// Binance depth stream format: { b: [[price, qty], ...], a: [[price, qty], ...] }
+// qty "0" = us price-level ko book se hata do.
+function _ocApplyDepthWsUpdate(data) {
+  var bUpdates = data.b || data.bids || [];
+  var aUpdates = data.a || data.asks || [];
+  function applyLevels(book, updates, isBid) {
+    for (var u = 0; u < updates.length; u++) {
+      var p = parseFloat(updates[u][0]), q = parseFloat(updates[u][1]);
+      var idx = -1;
+      for (var i = 0; i < book.length; i++) { if (book[i].price === p) { idx = i; break; } }
+      if (q === 0) {
+        if (idx !== -1) book.splice(idx, 1);
+      } else if (idx !== -1) {
+        book[idx].volume = q;
+      } else {
+        book.push({ price: p, volume: q, ord: 0 });
+      }
+    }
+    book.sort(function (x, y) { return isBid ? (y.price - x.price) : (x.price - y.price); });
+    if (book.length > 10) book.length = 10;
+  }
+  applyLevels(_ocDepthBook.bids, bUpdates, true);
+  applyLevels(_ocDepthBook.asks, aUpdates, false);
+}
+
 // ── Order Book debug state — sv1-debug tracker/popup mein merged, taaki
 // depth sheet band hone ke baad bhi last known status/problem dikh sake. ──
 var _ocDepthDebug = {
@@ -22609,13 +22707,26 @@ async function _ocOpenDepth(type) {
 
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
 
+  // ── REST snapshot → THEN WS pattern (reference jaisa) ───────────────────
+  // Step 1: side-port REST se ek instant snapshot lo — sheet khulte hi turant
+  // kuch dikhna chahiye (WS connect+first-message ka apna 100-300ms lagta
+  // hai; is beech blank/empty modal dikhna bura UX hai).
   // BTC aur NSE/Fyers dono ab isi ek side-port REST poll se jaate hain —
   // /api/market_depth backend (refresh_market_depth_cache) symbol prefix se
   // khud decide karta hai Fyers ya Binance kisko call karna hai. Koi
   // page-reload nahi (plain browser fetch() hai, form-submit/query-param
   // nahi) aur koi CORS issue nahi (Binance call server-side hoti hai).
   if (typeof _probeApiPort === 'function') await _probeApiPort();
-  _ocPollDepth();
+  await _ocPollDepth();
+
+  // Step 2: snapshot mil chuka — ab BTC (Binance) ke liye live WS connect
+  // karo, jo isi se aage rows ko 100ms pe live update karega. REST poll
+  // (neeche) bhi chalta rehta hai — LTP/OHLC/change stats WS mein nahi
+  // aate, wo yahi se refresh hote rahenge.
+  if (typeof _ocIsBinanceAsset === 'function' && _ocIsBinanceAsset()) {
+    _ocConnectDepthWS(symbol);
+  }
+
   _ocDepthPollTid = setInterval(function () { _ocPollDepth(); }, 1500);
 }
 
@@ -22623,6 +22734,7 @@ function _ocCloseDepth() {
   document.getElementById('oc-depth-backdrop').classList.remove('open');
   document.getElementById('oc-depth-sheet').classList.remove('open');
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
+  _ocCloseDepthWS();
   // Backend ko batao ki depth-sheet band ho gayi — _market_depth_pusher
   // fetch karna band kar dega (rate-limit-safe, jaisa pehle side-port
   // approach mein "sirf active symbol ke liye poll" tha).
@@ -22730,7 +22842,14 @@ function _ocRenderDepth(data) {
     return;
   }
   _ocDepthDebugSetOk(data);
-  _ocRenderDepthBook(data.bids, data.asks);
+  // Agar BTC live depth WS isi symbol ke liye already connected/rendering
+  // hai, to yahan se purani/slower rows overwrite mat karo — sirf stats
+  // (LTP/OHLC/change) niche update honge, jo WS stream mein nahi aate.
+  var _wsOwnsRows = (_ocDepthWs && _ocDepthWsSymbol === _ocDepthSymbol &&
+                      (data.symbol == null || data.symbol === _ocDepthSymbol));
+  if (!_wsOwnsRows) {
+    _ocRenderDepthBook(data.bids, data.asks);
+  }
 
   var ltpEl = document.getElementById('oc-depth-ltp');
   var chgEl = document.getElementById('oc-depth-chg');
