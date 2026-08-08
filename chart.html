@@ -12,6 +12,7 @@
     --muted: #7a7f8f;
     --green: #26a69a;
     --red: #ef5350;
+    --yellow: #f0b90b;
     --accent: #f0b90b;
   }
   * { box-sizing: border-box; }
@@ -33,19 +34,10 @@
     min-width: 220px;
   }
   .label { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: .03em; }
-  .value { font-size: 1.6rem; font-weight: 700; margin-top: 4px; }
-  .value.up { color: var(--green); }
-  .value.down { color: var(--red); }
+  .value { font-size: 1.6rem; font-weight: 700; margin-top: 4px; color: var(--text); }
+  .value.call { color: var(--green); font-size: 1.3rem; }
+  .value.put { color: var(--red); font-size: 1.3rem; }
   .sub { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
-
-  select {
-    background: var(--card);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 0.85rem;
-  }
 
   table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   th, td { padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -53,11 +45,53 @@
   tr.atm { background: rgba(240, 185, 11, 0.08); }
   td.call { color: var(--green); }
   td.put { color: var(--red); }
-  .table-wrap { max-height: 480px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
-  .status { color: var(--muted); font-size: 0.75rem; margin-top: 8px; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
-  .dot.live { background: var(--green); }
-  .dot.dead { background: var(--red); }
+  .table-wrap { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+  .status-line { color: var(--muted); font-size: 0.75rem; margin-top: 8px; display:flex; align-items:center; gap:8px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .dot.ok { background: var(--green); }
+  .dot.err { background: var(--red); }
+  .dot.warn { background: var(--yellow); }
+
+  /* ── Debug icon + panel ───────────────────────────────────────── */
+  #debug-fab {
+    position: fixed; right: 18px; bottom: 18px; width: 46px; height: 46px;
+    border-radius: 50%; background: var(--card); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; font-size: 1.3rem;
+    cursor: pointer; z-index: 9999; box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  }
+  #debug-fab.has-error { border-color: var(--red); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(239,83,80,0.5);} 70%{box-shadow:0 0 0 10px rgba(239,83,80,0);} 100%{box-shadow:0 0 0 0 rgba(239,83,80,0);} }
+
+  #debug-panel {
+    position: fixed; right: 18px; bottom: 76px; width: 380px; max-height: 75vh;
+    background: #0e111a; border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px; overflow-y: auto; z-index: 9999; display: none;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.6); font-size: 0.78rem;
+  }
+  #debug-panel.open { display: block; }
+  #debug-panel h4 { margin: 0 0 8px; font-size: 0.9rem; color: var(--accent); }
+  .dbg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+  .dbg-item {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px; font-size: 0.72rem;
+  }
+  .dbg-item .t { color: var(--muted); font-size: 0.68rem; text-transform: uppercase; }
+  .dbg-item .v { margin-top: 3px; font-weight: 600; }
+  .dbg-err-box {
+    background: rgba(239,83,80,0.1); border: 1px solid var(--red); border-radius: 6px;
+    padding: 6px 8px; margin-top: 6px; font-size: 0.7rem; color: #ffb4b2; word-break: break-word;
+  }
+  #dbg-log {
+    background: #05070c; border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px; max-height: 220px; overflow-y: auto; font-family: monospace; font-size: 0.68rem;
+  }
+  .log-line { margin-bottom: 3px; white-space: pre-wrap; word-break: break-word; }
+  .log-ok   { color: var(--green); }
+  .log-err  { color: var(--red); }
+  .log-warn { color: var(--yellow); }
+  .log-info { color: var(--muted); }
+  details summary { cursor: pointer; color: var(--muted); margin-top: 8px; font-size: 0.75rem; }
+  #dbg-raw { white-space: pre-wrap; word-break: break-word; background: #05070c; padding: 8px; border-radius: 6px; max-height: 200px; overflow-y: auto; font-size: 0.65rem; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -66,7 +100,7 @@
     <div class="card">
       <div class="label">BTCUSDT Spot</div>
       <div class="value" id="spot-price">--</div>
-      <div class="sub" id="spot-ts">waiting for data...</div>
+      <div class="sub" id="spot-ts">--</div>
     </div>
     <div class="card">
       <div class="label">Nearest Strike / Expiry</div>
@@ -75,21 +109,17 @@
     </div>
     <div class="card">
       <div class="label">Nearest Call (Mark / IV)</div>
-      <div class="value call" id="call-mark" style="color:var(--green);font-size:1.3rem;">--</div>
+      <div class="value call" id="call-mark">--</div>
       <div class="sub" id="call-iv">--</div>
     </div>
     <div class="card">
       <div class="label">Nearest Put (Mark / IV)</div>
-      <div class="value put" id="put-mark" style="color:var(--red);font-size:1.3rem;">--</div>
+      <div class="value put" id="put-mark">--</div>
       <div class="sub" id="put-iv">--</div>
     </div>
   </div>
 
-  <div class="row" style="align-items:center;">
-    <h3 style="margin:0;">Full Option Chain</h3>
-    <select id="expiry-select"></select>
-  </div>
-
+  <h3>Full Option Chain</h3>
   <div class="table-wrap">
     <table id="chain-table">
       <thead>
@@ -105,22 +135,39 @@
         </tr>
       </thead>
       <tbody id="chain-body">
-        <tr><td colspan="13" style="color:var(--muted);padding:20px;">Loading chain...</td></tr>
+        <tr><td colspan="13" style="color:var(--muted);padding:20px;">No data yet</td></tr>
       </tbody>
     </table>
   </div>
 
-  <div class="status">
-    <span class="dot" id="conn-dot"></span><span id="conn-text">Connecting to local data server...</span>
+  <div class="status-line">
+    <span id="overall-dot" class="dot"></span>
+    <span id="overall-text">--</span>
+    <span style="margin-left:auto;">Snapshot: <span id="gen-time">--</span></span>
   </div>
 
-<script>
-  const API_PORT = __API_PORT__;
-  const API_BASE = `http://127.0.0.1:${API_PORT}`;
+  <!-- ══ Debug icon + panel ══ -->
+  <div id="debug-fab" title="Open debug panel">🐞</div>
+  <div id="debug-panel">
+    <h4>🐞 Debug — Live System Status</h4>
+    <div class="dbg-grid" id="dbg-grid"></div>
+    <div id="dbg-errors"></div>
+    <div style="color:var(--muted);font-size:0.72rem;margin:8px 0 4px;">Live log (newest last)</div>
+    <div id="dbg-log"></div>
+    <details>
+      <summary>Raw snapshot JSON</summary>
+      <div id="dbg-raw"></div>
+    </details>
+  </div>
 
-  let lastSpot = null;
-  let selectedExpiry = null;
-  let expiryListLoaded = false;
+<script id="snapshot-data" type="application/json">__SNAPSHOT_JSON__</script>
+<script>
+  let snap = {};
+  try {
+    snap = JSON.parse(document.getElementById("snapshot-data").textContent);
+  } catch (e) {
+    snap = { error: "Failed to parse embedded snapshot JSON: " + e };
+  }
 
   function fmt(n, digits = 2) {
     if (n === null || n === undefined || n === "") return "--";
@@ -129,91 +176,48 @@
     return num.toLocaleString(undefined, { maximumFractionDigits: digits });
   }
 
-  function setConn(ok, msg) {
-    document.getElementById("conn-dot").className = "dot " + (ok ? "live" : "dead");
-    document.getElementById("conn-text").textContent = msg;
+  function ageText(sec) {
+    if (sec === null || sec === undefined) return "never";
+    if (sec < 60) return sec + "s ago";
+    return Math.round(sec / 60) + "m ago";
   }
 
-  async function pollSpot() {
-    try {
-      const r = await fetch(`${API_BASE}/api/spot`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
-      const d = await r.json();
-      const el = document.getElementById("spot-price");
-      if (d.price !== null && d.price !== undefined) {
-        if (lastSpot !== null) {
-          el.className = "value " + (d.price >= lastSpot ? "up" : "down");
-        }
-        el.textContent = "$" + fmt(d.price);
-        lastSpot = d.price;
-        document.getElementById("spot-ts").textContent = "updated " + new Date(d.ts).toLocaleTimeString();
-      }
-      setConn(true, "Live — connected to local backend");
-    } catch (e) {
-      setConn(false, "Backend se connect nahi ho pa raha (main.py chal raha hai?)");
+  function render() {
+    if (snap.error) {
+      document.getElementById("overall-text").textContent = "Snapshot parse error: " + snap.error;
+      document.getElementById("overall-dot").className = "dot err";
+      return;
     }
-  }
 
-  async function pollNearest() {
-    try {
-      const r = await fetch(`${API_BASE}/api/nearest`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
-      const d = await r.json();
-      if (d.error) return;
-      document.getElementById("nearest-strike").textContent = fmt(d.strike, 0);
-      document.getElementById("nearest-expiry").textContent = "Expiry: " + d.expiry;
-      document.getElementById("call-mark").textContent = fmt(d.call && d.call.mark);
-      document.getElementById("call-iv").textContent = "IV: " + fmt(d.call && d.call.iv);
-      document.getElementById("put-mark").textContent = fmt(d.put && d.put.mark);
-      document.getElementById("put-iv").textContent = "IV: " + fmt(d.put && d.put.iv);
-    } catch (e) { /* silent — spot poll already reports connection status */ }
-  }
+    // ── Spot ──
+    const spot = snap.spot || {};
+    document.getElementById("spot-price").textContent = spot.price ? "$" + fmt(spot.price) : "--";
+    document.getElementById("spot-ts").textContent = spot.price
+      ? "updated " + ageText(spot.age_sec)
+      : (spot.last_error ? "Error: " + spot.last_error : "waiting for first price...");
 
-  async function loadExpiries() {
-    try {
-      const r = await fetch(`${API_BASE}/api/expiries`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
-      const d = await r.json();
-      const sel = document.getElementById("expiry-select");
-      if (d.expiries && d.expiries.length) {
-        const current = sel.value;
-        sel.innerHTML = "";
-        d.expiries.forEach(exp => {
-          const opt = document.createElement("option");
-          opt.value = exp; opt.textContent = exp;
-          sel.appendChild(opt);
-        });
-        if (!expiryListLoaded) {
-          selectedExpiry = d.expiries[0];
-          sel.value = selectedExpiry;
-          expiryListLoaded = true;
-        } else if (current) {
-          sel.value = current;
-        }
-      }
-    } catch (e) { /* ignore */ }
-  }
+    // ── Nearest strike ──
+    const nearest = snap.nearest;
+    if (nearest) {
+      document.getElementById("nearest-strike").textContent = fmt(nearest.strike, 0);
+      document.getElementById("nearest-expiry").textContent = "Expiry: " + nearest.expiry;
+      document.getElementById("call-mark").textContent = fmt(nearest.call && nearest.call.mark);
+      document.getElementById("call-iv").textContent = "IV: " + fmt(nearest.call && nearest.call.iv);
+      document.getElementById("put-mark").textContent = fmt(nearest.put && nearest.put.mark);
+      document.getElementById("put-iv").textContent = "IV: " + fmt(nearest.put && nearest.put.iv);
+    }
 
-  document.getElementById("expiry-select").addEventListener("change", (e) => {
-    selectedExpiry = e.target.value;
-    pollChain();
-  });
-
-  async function pollChain() {
-    if (!selectedExpiry) return;
-    try {
-      const r = await fetch(`${API_BASE}/api/optionchain?expiry=${encodeURIComponent(selectedExpiry)}`,
-                             { cache: "no-store", signal: AbortSignal.timeout(4000) });
-      const d = await r.json();
-      const tbody = document.getElementById("chain-body");
-      if (!d.rows || !d.rows.length) {
-        tbody.innerHTML = `<tr><td colspan="13" style="color:var(--muted);padding:20px;">No data for this expiry yet</td></tr>`;
-        return;
-      }
-      const spot = d.spot;
+    // ── Chain table ──
+    const chain = snap.chain || {};
+    const tbody = document.getElementById("chain-body");
+    if (chain.rows && chain.rows.length) {
+      const spotPrice = spot.price;
       let atmStrike = null;
-      if (spot) {
-        atmStrike = d.rows.reduce((best, r2) =>
-          Math.abs(r2.strike - spot) < Math.abs(best - spot) ? r2.strike : best, d.rows[0].strike);
+      if (spotPrice) {
+        atmStrike = chain.rows.reduce((best, r) =>
+          Math.abs(r.strike - spotPrice) < Math.abs(best - spotPrice) ? r.strike : best, chain.rows[0].strike);
       }
-      tbody.innerHTML = d.rows.map(row => `
+      tbody.innerHTML = chain.rows.map(row => `
         <tr class="${row.strike === atmStrike ? 'atm' : ''}">
           <td class="call">${fmt(row.call_iv)}</td>
           <td class="call">${fmt(row.call_delta, 3)}</td>
@@ -230,16 +234,114 @@
           <td class="put">${fmt(row.put_iv)}</td>
         </tr>
       `).join("");
-    } catch (e) { /* ignore, next poll will retry */ }
+    } else {
+      tbody.innerHTML = `<tr><td colspan="13" style="color:var(--muted);padding:20px;">
+        ${chain.last_error ? "Chain load error: " + chain.last_error : "No data for this expiry yet"}
+      </td></tr>`;
+    }
+
+    document.getElementById("gen-time").textContent = snap.generated_at || "--";
+
+    // ── Overall status dot ──
+    const dbg = snap.debug || {};
+    const problems = [];
+    if (!dbg.websocket_lib_installed) problems.push("websocket-client not installed");
+    if (!dbg.api_key_present) problems.push("No API key in memory");
+    if (dbg.ws_mark && !dbg.ws_mark.connected) problems.push("Mark-price WS not connected");
+    if (dbg.ws_trade && !dbg.ws_trade.connected) problems.push("Trade WS not connected");
+    if (chain.last_error) problems.push("Chain: " + chain.last_error);
+    if (spot.last_error) problems.push("Spot: " + spot.last_error);
+
+    const overallDot = document.getElementById("overall-dot");
+    const overallText = document.getElementById("overall-text");
+    const fab = document.getElementById("debug-fab");
+    if (problems.length === 0) {
+      overallDot.className = "dot ok";
+      overallText.textContent = "All systems live";
+      fab.classList.remove("has-error");
+    } else {
+      overallDot.className = "dot warn";
+      overallText.textContent = problems.length + " issue(s) — open 🐞 debug for details";
+      fab.classList.add("has-error");
+    }
+
+    renderDebugPanel(dbg, spot, chain);
   }
 
-  // Polling intervals — spot is fastest, chain is heavier so slower.
-  setInterval(pollSpot, 1500);
-  setInterval(pollNearest, 2000);
-  setInterval(loadExpiries, 15000);
-  setInterval(pollChain, 3000);
+  function statusDot(ok) {
+    return `<span class="dot ${ok ? 'ok' : 'err'}" style="display:inline-block;"></span>`;
+  }
 
-  pollSpot(); pollNearest(); loadExpiries().then(pollChain);
+  function renderDebugPanel(dbg, spot, chain) {
+    const grid = document.getElementById("dbg-grid");
+    grid.innerHTML = `
+      <div class="dbg-item">
+        <div class="t">API Credentials</div>
+        <div class="v">${statusDot(dbg.api_key_present)} ${dbg.api_key_present ? "Present" : "Missing"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">websocket-client lib</div>
+        <div class="v">${statusDot(dbg.websocket_lib_installed)} ${dbg.websocket_lib_installed ? "Installed" : "NOT installed"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Spot Price Feed</div>
+        <div class="v">${statusDot(!!spot.price)} ${spot.price ? ageText(spot.age_sec) : "no data"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Spot ok/err count</div>
+        <div class="v">${spot.ok_count || 0} / ${spot.err_count || 0}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Mark-Price WS</div>
+        <div class="v">${statusDot(dbg.ws_mark && dbg.ws_mark.connected)} ${dbg.ws_mark && dbg.ws_mark.connected ? "Connected" : "Down"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Mark WS last msg</div>
+        <div class="v">${dbg.ws_mark ? ageText(dbg.ws_mark.last_msg_age_sec) : "--"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Trade WS</div>
+        <div class="v">${statusDot(dbg.ws_trade && dbg.ws_trade.connected)} ${dbg.ws_trade && dbg.ws_trade.connected ? "Connected" : "Down"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Trade WS last msg</div>
+        <div class="v">${dbg.ws_trade ? ageText(dbg.ws_trade.last_msg_age_sec) : "--"}</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Option Chain Meta</div>
+        <div class="v">${statusDot(chain.last_ok)} ${chain.symbols_count || 0} symbols, ${(chain.expiries||[]).length} expiries</div>
+      </div>
+      <div class="dbg-item">
+        <div class="t">Chain last loaded</div>
+        <div class="v">${ageText(chain.age_sec)}</div>
+      </div>
+    `;
+
+    const errBox = document.getElementById("dbg-errors");
+    const errs = [];
+    if (spot.last_error) errs.push("Spot price: " + spot.last_error);
+    if (chain.last_error) errs.push("Option chain: " + chain.last_error);
+    if (dbg.ws_mark && dbg.ws_mark.last_error) errs.push("Mark-Price WS: " + dbg.ws_mark.last_error);
+    if (dbg.ws_trade && dbg.ws_trade.last_error) errs.push("Trade WS: " + dbg.ws_trade.last_error);
+    errBox.innerHTML = errs.length
+      ? errs.map(e => `<div class="dbg-err-box">${e}</div>`).join("")
+      : `<div style="color:var(--muted);font-size:0.72rem;">No active errors 🎉</div>`;
+
+    const logBox = document.getElementById("dbg-log");
+    const logs = (dbg.log || []).slice(-80);
+    logBox.innerHTML = logs.map(l =>
+      `<div class="log-line log-${l.level}">[${l.t}] ${l.level.toUpperCase()}: ${l.msg}</div>`
+    ).join("") || `<div style="color:var(--muted)">No log entries yet</div>`;
+    logBox.scrollTop = logBox.scrollHeight;
+
+    document.getElementById("dbg-raw").textContent = JSON.stringify(snap, null, 2);
+  }
+
+  document.getElementById("debug-fab").addEventListener("click", () => {
+    document.getElementById("debug-panel").classList.toggle("open");
+  });
+
+  render();
 </script>
 </body>
 </html>
