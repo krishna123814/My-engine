@@ -3127,6 +3127,12 @@ if _qp.get("sv2_chunk_reset") == "1":
     st.session_state.pop("_sv2_max_eff_btc", None)
     st.rerun()
 
+# Handler 5: (removed) — pehle yahan BTC Market Depth open/close bridge tha
+# jo `depth_symbol` query-param ke zariye har baar poore app ka st.rerun()
+# trigger karta tha (isi wajah se BTC depth khulte hi pura app reload hota
+# tha). BTC depth ab seedha browser se Binance public REST se fetch hoti
+# hai (chart.html), backend ko is bridge ki zaroorat hi nahi rahi.
+
 # ── Startup debug: is script-run se pehle process kitni purani hai — agar
 # _STARTUP_LOG khaali hai to matlab ye is container/process ka BILKUL PEHLA
 # run hai (fresh boot / cold start / restart). Agar pehle se lines hain to
@@ -3794,6 +3800,12 @@ if sess_active or _btc_only:
             components.html(_script6, height=0, scrolling=False)
 
         _binance_meta_pusher()
+
+    # ── BTC Market Depth: pehle yahan ek postMessage pusher fragment tha
+    # (Option A). Ab BTC options depth seedha browser se Binance public
+    # REST (eapi.binance.com) se fetch hoti hai (chart.html me
+    # _ocOpenDepth) — isliye ye backend pusher delete kar diya. Koi
+    # st.fragment/backend involvement nahi, koi page reload nahi.
 
 else:
     # ─── Main area inline Login Panel ─────────────────────────────────────────
