@@ -20410,13 +20410,35 @@ function _epochToIST(sec) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ── Real hostname resolver — chart.html Streamlit ke components.html() se
+// SRCDOC iframe mein render hota hai, isliye window.location.hostname yahan
+// hamesha KHAALI hota hai (srcdoc ka koi real origin nahi hota). Isse pehle
+// code seedha 'localhost' literal string pe fallback karta tha — jo sirf
+// local dev mein kaam karta hai (jab browser aur server same machine par
+// ho). Deployment par browser 'localhost' ka matlab APNA machine leta hai,
+// server ka nahi — isliye fetch fail hota tha. window.parent.location
+// same-origin se readable hai (srcdoc iframe apne parent Streamlit page ke
+// origin ko inherit karta hai) aur usme asli public hostname hota hai,
+// isliye usko pehle try karo. ─────────────────────────────────────────────
+function _ocApiHost() {
+  try {
+    if (window.location.hostname) return window.location.hostname;
+  } catch (_) {}
+  try {
+    if (window.parent && window.parent.location && window.parent.location.hostname) {
+      return window.parent.location.hostname;
+    }
+  } catch (_) {}
+  return 'localhost';  // genuine last-resort — sirf tab jab dono blocked hon
+}
+
 // Build URL for the side-port HTTP server injected by Python.
 // If _API_PORT is 0 (server not ready at page-build time), probe ports 8502-8510.
 let _resolvedApiPort = (typeof _API_PORT !== 'undefined' && _API_PORT > 0) ? _API_PORT : 0;
 
 async function _probeApiPort() {
   if (_resolvedApiPort > 0) return _resolvedApiPort;
-  const host = window.location.hostname || 'localhost';
+  const host = _ocApiHost();
   for (let p = 8502; p <= 8510; p++) {
     try {
       const r = await fetch(`http://${host}:${p}/api/bn_history?resolution=D&days=1`,
@@ -20430,7 +20452,7 @@ async function _probeApiPort() {
 function _bnHistoryUrl(res, fromDate, toDate) {
   const path = `/api/bn_history?resolution=${res}&from=${fromDate}&to=${toDate}`;
   if (_resolvedApiPort > 0) {
-    return `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}${path}`;
+    return `http://${_ocApiHost()}:${_resolvedApiPort}${path}`;
   }
   return path;  // same-origin fallback
 }
@@ -21644,7 +21666,7 @@ async function _pollOptionChain() {
     if (_ocFyersFailStreak >= _OC_POLL_FAIL_THRESHOLD) _ocMarkFyersStale(_ocFyersPollLastErr);
     return;
   }
-  const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/fyers_optionchain`;
+  const url = `http://${_ocApiHost()}:${_resolvedApiPort}/api/fyers_optionchain`;
   try {
     const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
     if (r.ok) {
@@ -21682,7 +21704,7 @@ async function _pollBinanceOptionChain() {
     if (_ocBinanceFailStreak >= _OC_POLL_FAIL_THRESHOLD) _ocMarkBinanceDotStale(_ocBinancePollLastErr);
     return;
   }
-  const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/binance_optionchain`;
+  const url = `http://${_ocApiHost()}:${_resolvedApiPort}/api/binance_optionchain`;
   try {
     const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
     if (r.ok) {
@@ -22435,7 +22457,7 @@ function _ocDepthDebugSetErr(msg, backendDebugObj) {
 function _ocDepthUrl(symbol) {
   var path = '/api/market_depth?symbol=' + encodeURIComponent(symbol);
   if (typeof _resolvedApiPort !== 'undefined' && _resolvedApiPort > 0) {
-    return 'http://' + (window.location.hostname || 'localhost') + ':' + _resolvedApiPort + path;
+    return 'http://' + _ocApiHost() + ':' + _resolvedApiPort + path;
   }
   return path;
 }
@@ -23861,7 +23883,7 @@ async function _pollBNTickFast() {
   if (_resolvedApiPort === 0) { await _probeApiPort(); }
   if (_resolvedApiPort === 0) return;  // side port not reachable here — fallbacks will cover it
   try {
-    const url = `http://${window.location.hostname || 'localhost'}:${_resolvedApiPort}/api/bn_tick`;
+    const url = `http://${_ocApiHost()}:${_resolvedApiPort}/api/bn_tick`;
     const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(1200) });
     if (!r.ok) return;
     const d = await r.json();
