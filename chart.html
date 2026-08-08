@@ -814,10 +814,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   padding:0 3px;
   box-sizing:border-box;
 }
-/* Combined status icon: 2 stacked dots */
+/* Combined status icon: 2x2 grid of dots — row1 = BTC candle feed
+   (tick/candle), row2 = BTC Option Chain LTP feed (mark/trade), merged
+   here so top-header debug covers both BTC feeds in one place. */
 #sv1-debug-icon{
-  display:flex;
-  flex-direction:column;
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
   align-items:center;
   justify-content:center;
   gap:2px;
@@ -3622,106 +3624,9 @@ select.s-select, input.s-select{
 #oc-btc-ws-dot.live{background:#26a69a;box-shadow:0 0 4px #26a69a}
 #oc-btc-ws-text.oc-ws-live{color:#26a69a}
 #oc-btc-ws-text.oc-ws-reconnecting{color:#ef5350}
-/* ── BTC Option Chain — LTP WebSocket Debug Tracker (mirrors SV1 header
-   debug: icon-only, tap karo to popup khulta hai). Sirf BTC chain ke liye
-   dikhta hai — BankNifty (Fyers) chain mein is websocket concept ka
-   matlab nahi, isliye JS mein hide rehta hai. ── */
-#oc-debug-tracker{
-  display:none;
-  align-items:center;
-  justify-content:center;
-  flex-shrink:0;
-  width:22px;
-  height:22px;
-  cursor:pointer;
-  position:relative;
-  border:1px solid #2a2e39;
-  border-radius:5px;
-  box-sizing:border-box;
-}
-#oc-debug-icon{
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  justify-content:center;
-  gap:2px;
-  width:16px;
-  height:16px;
-}
-.oc-debug-dot{
-  display:inline-block;
-  width:5px;
-  height:5px;
-  flex:0 0 5px;
-  border-radius:50%;
-  border:1px solid #555;
-  background:transparent;
-  transition:background .3s,box-shadow .3s,border-color .3s;
-}
-.oc-debug-dot.ok{
-  border-color:#26a69a;
-  background:#26a69a;
-  box-shadow:0 0 4px #26a69a;
-}
-#oc-debug-popup{
-  display:none;
-  position:fixed;
-  top:calc(6vh + 50px);
-  left:50%;
-  transform:translateX(-50%);
-  z-index:10050;
-  background:#1a1d27;
-  border:1px solid #363c4e;
-  border-radius:6px;
-  padding:8px 10px;
-  min-width:260px;
-  max-width:420px;
-  max-height:70vh;
-  overflow:auto;
-  box-shadow:0 4px 20px rgba(0,0,0,.7);
-}
-#oc-debug-popup.open{ display:block; }
-#oc-debug-popup-title{
-  font-size:9px;
-  font-weight:700;
-  color:#9598a1;
-  margin-bottom:6px;
-  letter-spacing:.4px;
-  text-transform:uppercase;
-}
-#oc-debug-popup-log{
-  font-size:9px;
-  color:#c0c0c0;
-  line-height:16px;
-  white-space:pre-wrap;
-  word-break:break-all;
-}
-#oc-debug-popup-log .log-ok  { color:#26a69a; }
-#oc-debug-popup-log .log-err { color:#ef5350; }
-#oc-debug-popup-copy{
-  margin-top:8px;
-  width:100%;
-  height:26px;
-  background:#363c4e;
-  border:none;
-  border-radius:4px;
-  color:#e0e0e0;
-  font-size:10px;
-  cursor:pointer;
-  letter-spacing:.3px;
-}
-#oc-debug-popup-copy:active{ background:#26a69a; color:#fff; }
-/* ── Debug Start/Stop/Autostart controls ── */
-#oc-debug-ctrl-row{display:flex;gap:4px;margin-bottom:7px}
-.oc-debug-ctrl-btn{
-  flex:1;background:#232733;border:1px solid #363c4e;border-radius:4px;
-  color:#9598a1;font-size:9px;font-weight:700;padding:6px 2px;cursor:pointer;
-  letter-spacing:.2px;white-space:nowrap;
-}
-.oc-debug-ctrl-btn:active{ transform:scale(.96); }
-#oc-debug-start-btn.oc-debug-ctrl-active{ background:#26a69a33; border-color:#26a69a; color:#26a69a; }
-#oc-debug-stop-btn.oc-debug-ctrl-active{ background:#ef535033; border-color:#ef5350; color:#ef5350; }
-#oc-debug-autostart-btn.oc-debug-ctrl-active{ background:#2962ff33; border-color:#2962ff; color:#2962ff; }
+/* ── BTC Option Chain LTP debug ab yahan alag nahi hai — top header ke
+   SV1 debug tracker (#sv1-debug-tracker) mein hi merge ho gaya hai
+   (mark/trade dots + popup log wahi se dikhte hain). ── */
 #oc-toggle-rows{padding:8px 12px 0}
 .oc-toggle-row{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#787b86;padding:0 2px 8px}
 .oc-toggle-btn{width:38px;height:22px;border-radius:11px;border:none;cursor:pointer;background:#2a2e39;position:relative}
@@ -4376,10 +4281,12 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="boot-debug-popup-copy" onclick="_bootDebugPopupCopy()">📋 Copy Log</button>
   </div>
 
-  <div id="sv1-debug-tracker" title="BTC Live Debug — tap to view log" onclick="_sv1DebugPopupToggle()">
+  <div id="sv1-debug-tracker" title="BTC Live + Option Chain Debug (auto-fix on) — tap to view log" onclick="_sv1DebugPopupToggle()">
     <div id="sv1-debug-icon">
       <span class="sv1-debug-dot" id="sv1-debug-tick-dot"></span>
       <span class="sv1-debug-dot" id="sv1-debug-candle-dot"></span>
+      <span class="sv1-debug-dot" id="sv1-debug-mark-dot" title="Option Chain: Mark price WS"></span>
+      <span class="sv1-debug-dot" id="sv1-debug-trade-dot" title="Option Chain: Trade WS"></span>
     </div>
     <!-- text rows kept hidden for JS compat -->
     <div class="sv1-debug-row" id="sv1-debug-tick-row" style="display:none!important">
@@ -4392,7 +4299,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
 
   <!-- ── Debug Log Popup ── -->
   <div id="sv1-debug-popup">
-    <div id="sv1-debug-popup-title">📡 BTC Live Feed Log</div>
+    <div id="sv1-debug-popup-title">📡 BTC Live Feed + Option Chain LTP Log</div>
     <div id="sv1-debug-ctrl-row">
       <button id="sv1-debug-start-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugEnable()" title="Debug chalu karo">▶ Start</button>
       <button id="sv1-debug-stop-btn" class="sv1-debug-ctrl-btn" onclick="_sv1DebugDisable()" title="Debug band karo">■ Stop</button>
@@ -4748,25 +4655,11 @@ function _hdrRelayout(){
     <button id="oc-pnl-btn" onclick="_ocPnlOverlayToggle()" title="Position P&amp;L (strike ke saath) chart par Show/Hide karo">P&amp;L</button>
     <button id="oc-greeks-btn" onclick="_ocToggleGreeks()" title="Greeks (Delta/IV/Theta/Vega) trade bar mein dikhao">Ⓖ</button>
     <button id="oc-sound-btn" onclick="_ocToggleSound()" title="Sound alerts on/off">🔊</button>
-    <div id="oc-debug-tracker" title="BTC Option LTP Debug — tap to view log" onclick="_ocDebugPopupToggle()">
-      <div id="oc-debug-icon">
-        <span class="oc-debug-dot" id="oc-debug-mark-dot"></span>
-        <span class="oc-debug-dot" id="oc-debug-trade-dot"></span>
-      </div>
-    </div>
+    <!-- ── BTC Option Chain LTP debug ab top-header SV1 debug tracker mein
+         merge ho gaya hai (mark/trade dots wahi icon mein hain, log bhi
+         wahi popup mein dikhta hai) — yahan se separate tracker/popup
+         hata diya gaya. ── -->
     <button id="oc-close" onclick="toggleOptionChain()">✕</button>
-  </div>
-
-  <!-- ── BTC Option Chain — LTP WebSocket Debug Popup ── -->
-  <div id="oc-debug-popup">
-    <div id="oc-debug-popup-title">📡 BTC Option LTP Feed Log</div>
-    <div id="oc-debug-ctrl-row">
-      <button id="oc-debug-start-btn" class="oc-debug-ctrl-btn" onclick="_ocDebugEnable()" title="Debug chalu karo">▶ Start</button>
-      <button id="oc-debug-stop-btn" class="oc-debug-ctrl-btn" onclick="_ocDebugDisable()" title="Debug band karo">■ Stop</button>
-      <button id="oc-debug-autostart-btn" class="oc-debug-ctrl-btn" onclick="_ocDebugToggleAutostart()" title="Option chain khulte hi debug apne aap chalu ho jaaye">⏻ Autostart: OFF</button>
-    </div>
-    <div id="oc-debug-popup-log"></div>
-    <button id="oc-debug-popup-copy" onclick="_ocDebugPopupCopy()">📋 Copy Log</button>
   </div>
 
   <div id="oc-sub">
@@ -19466,6 +19359,44 @@ let _sv1DebugCellSpread = null;
 const _SV1_DEBUG_STALE_MS = 10000;
 const _SV1_DEBUG_LAG_TOL = 0.02; // thoda float-rounding tolerance ke liye (0.01 se thoda zyada)
 
+// ══════════════════════════════════════════════════════════════════════
+// Smart Troubleshoot — Auto-Fix
+// Jab koi feed problem detect hoti hai (dot red), yahan se ek "safe" fix
+// khud try hota hai — bina user ke kuch dabaye. Har feed ka apna cooldown
+// hai taaki reconnect/refresh baar-baar spam na ho (WS apne aap bhi retry
+// karta hai, ye sirf usko turant-trigger karta hai instead of backoff
+// wait karne ke). Jo problems safely auto-fix nahi ho sakte (jaise chart
+// cell stuck ya backend thread crash) — un par koi action nahi liya
+// jaata, sirf log mein clearly bataya jaata hai ki manual action chahiye.
+// ══════════════════════════════════════════════════════════════════════
+const _SV1_AUTOFIX_COOLDOWN_MS = 8000;
+let _sv1AutoFixState = { tick: 0, candle: 0, oc: 0 };
+let _sv1AutoFixEvents = [];   // last few auto-fix attempts, for popup log
+
+function _sv1AutoFixNote(text) {
+  _sv1AutoFixEvents.unshift({ t: Date.now(), text });
+  if (_sv1AutoFixEvents.length > 6) _sv1AutoFixEvents.length = 6;
+}
+
+// tick/candle WS ke liye — dono ka apna reconnect-with-backoff already
+// hai, ye sirf turant ek fresh attempt force karta hai.
+function _sv1AutoFixFeed(kind, ok) {
+  if (ok) return;
+  const now = Date.now();
+  if (now - (_sv1AutoFixState[kind] || 0) < _SV1_AUTOFIX_COOLDOWN_MS) return;
+  _sv1AutoFixState[kind] = now;
+  if (kind === 'tick' && typeof _connectBTCTradeWS === 'function') {
+    _sv1AutoFixNote('🔧 Tick feed down → force-reconnecting trade WS…');
+    try { _connectBTCTradeWS(); } catch(_) {}
+  } else if (kind === 'candle' && typeof _connectBTCWS === 'function') {
+    _sv1AutoFixNote('🔧 Candle feed down → force-reconnecting kline WS…');
+    try { _connectBTCWS(); } catch(_) {}
+  } else if (kind === 'oc' && typeof _pollBinanceOptionChain === 'function') {
+    _sv1AutoFixNote('🔧 Option chain LTP not live → forcing an immediate refresh…');
+    try { _pollBinanceOptionChain(); } catch(_) {}
+  }
+}
+
 function _sv1TimeDebugText(t) {
   if (t == null) return '-';
   if (typeof t === 'number') return String(t);
@@ -19565,6 +19496,10 @@ function _sv1DebugRefresh() {
   // banana) skip ho jaata hai — icon dikhta rehta hai, bas dots update nahi
   // hote. Isse debug sirf jarurat ke samay hi actively chalta hai. ──
   if (!_sv1DebugEnabled) return;
+
+  // ── BTC Option Chain LTP feed (mark/trade WS) dots — merged yahan se
+  // ab top-header ka hi ek combined debug hai. ──
+  if (typeof _ocDebugRefresh === 'function') _ocDebugRefresh();
 
   const now = Date.now();
   const tickOk = _sv1DebugTickAt > 0 && (now - _sv1DebugTickAt) <= _SV1_DEBUG_STALE_MS;
@@ -19669,6 +19604,12 @@ function _sv1DebugRefresh() {
     _sv1DebugCellIssues.length === 0;
   const candleOk = candleFeedOk && priceAligned;
 
+  // ── Auto-fix: sirf raw feed connectivity (tickOk / candleFeedOk) par
+  // trigger karo — cell-render/price-alignment issues WS reconnect se
+  // theek nahi hote, isliye unhe yahan se exclude rakha hai. ──
+  _sv1AutoFixFeed('tick', tickOk);
+  _sv1AutoFixFeed('candle', candleFeedOk);
+
    // ── Debug popup ke liye exact lag amount aur rendered price save karo ──
   _sv1DebugRenderedPrice = Number.isFinite(renderedPrice) ? renderedPrice : null;
   _sv1DebugPriceLag = (Number.isFinite(_sv1DebugTickPrice) && Number.isFinite(renderedPrice))
@@ -19751,8 +19692,12 @@ function _sv1DebugDisable() {
   _sv1DebugEnabled = false;
   const tickDot = document.getElementById('sv1-debug-tick-dot');
   const candleDot = document.getElementById('sv1-debug-candle-dot');
+  const markDot = document.getElementById('sv1-debug-mark-dot');
+  const tradeDot = document.getElementById('sv1-debug-trade-dot');
   if (tickDot) tickDot.classList.remove('ok');
   if (candleDot) candleDot.classList.remove('ok');
+  if (markDot) markDot.classList.remove('ok');
+  if (tradeDot) tradeDot.classList.remove('ok');
   if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
     _sv1DebugPopupRefreshLog();
   }
@@ -19865,15 +19810,36 @@ function _sv1DebugPopupRefreshLog() {
      { ok: null, text: '  Cell prices below are: live tick → kline close → chart bar → right-scale probe' },
      ...cellLines,
      ..._sv1DebugCellIssues.map(t => ({ ok: false, text: '  Cause      : ' + t })),
+     ..._sv1DebugCellIssues.length ? [{ ok: false, text: '  ⚠️ Ye chart-render issue hai, auto-fix se theek nahi hota — page reload try karo.' }] : [],
     { ok: null,        text: '  Stale limit : ' + (_SV1_DEBUG_STALE_MS / 1000) + 's' },
     { ok: null,        text: '  Log time    : ' + new Date().toLocaleTimeString() },
   ];
 
-  logEl.innerHTML = lines.map(l => {
+  // ── Smart Troubleshoot: recent auto-fix attempts (agar koi hue hon) ──
+  if (_sv1AutoFixEvents.length) {
+    lines.push({ ok: null, text: '' });
+    lines.push({ ok: null, text: '  ── 🔧 Auto-fix activity (recent) ──' });
+    _sv1AutoFixEvents.forEach(ev => {
+      const ago = Math.round((Date.now() - ev.t) / 1000);
+      lines.push({ ok: null, text: '  ' + ev.text + '  (' + ago + 's ago)' });
+    });
+  }
+
+  let html = lines.map(l => {
     if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
     if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
     return '<span>' + l.text + '</span>';
   }).join('\n');
+
+  // ── BTC Option Chain LTP feed (mark/trade WS) — merged yahan ──
+  if (typeof _ocDebugBuildLogHtml === 'function') {
+    const ocHtml = _ocDebugBuildLogHtml();
+    if (ocHtml) {
+      html += '\n<span>' + '─'.repeat(20) + ' Option Chain LTP ' + '─'.repeat(20) + '</span>\n' + ocHtml;
+    }
+  }
+
+  logEl.innerHTML = html;
 }
 
 // ── Debug Popup: copy log to clipboard ────────────────────────────────────
@@ -21358,17 +21324,13 @@ function _ocRenderChainFromCache() {
   if (expModeRow) expModeRow.style.display = isBTC ? 'none' : '';
   const btcExpRow = document.getElementById('oc-btc-expiry-row');
   if (btcExpRow) btcExpRow.style.display = isBTC ? '' : 'none';
-  const dbgTracker = document.getElementById('oc-debug-tracker');
-  if (dbgTracker) dbgTracker.style.display = isBTC ? 'flex' : 'none';
   if (isBTC) {
     _ocPopulateBtcExpiries(_ocBinanceChainData);
     if (typeof _ocDebugRefresh === 'function') _ocDebugRefresh();
-  } else {
-    // BankNifty (Fyers) par debug popup khula reh gaya ho to band kar do —
-    // ye websocket concept BTC-specific hai, BankNifty data par apply nahi hota.
-    const dbgPopup = document.getElementById('oc-debug-popup');
-    if (dbgPopup) dbgPopup.classList.remove('open');
   }
+  // NOTE: option-chain LTP debug (mark/trade dots + log) ab top-header
+  // SV1 debug tracker/popup (#sv1-debug-tracker / #sv1-debug-popup) mein
+  // merge hai — yahan alag tracker/popup ab exist nahi karta.
   if (!data) {
     if (body) body.innerHTML = '<div id="oc-loading">Data load ho raha hai…</div>';
     if (spotEl) spotEl.textContent = 'Spot: —';
@@ -21443,66 +21405,15 @@ function _ocDebugAgeText(sec) {
   return (typeof sec === 'number' && isFinite(sec)) ? (Math.round(sec) + 's ago') : 'never';
 }
 
-// ── Debug Start/Stop/Autostart state ───────────────────────────────────────
-// _ocDebugEnabled=false by default → tracker icon dikhta hai (jab BTC option
-// chain khula ho) lekin ws-status scan/log build band rehta hai, jab tak
-// user popup mein "Start" na dabaye. "Autostart" on ho to option chain khulte
-// hi apne aap Start ho jaata hai (localStorage mein yaad rehta hai).
-let _ocDebugEnabled = false;
-let _ocDebugAutostart = false;
-const _OC_DEBUG_AUTOSTART_KEY = 'ocDebugAutostart';
-
-function _ocDebugInit() {
-  try { _ocDebugAutostart = _LS.getItem(_OC_DEBUG_AUTOSTART_KEY) === '1'; } catch(_) {}
-  if (_ocDebugAutostart) _ocDebugEnabled = true;
-  _ocDebugUpdateButtons();
-}
-
-function _ocDebugEnable() {
-  _ocDebugEnabled = true;
-  if (typeof _ocDebugRefresh === 'function') _ocDebugRefresh();
-  if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
-    _ocDebugPopupRefreshLog();
-  }
-  _ocDebugUpdateButtons();
-}
-
-function _ocDebugDisable() {
-  _ocDebugEnabled = false;
-  const markDot  = document.getElementById('oc-debug-mark-dot');
-  const tradeDot = document.getElementById('oc-debug-trade-dot');
-  if (markDot)  markDot.classList.remove('ok');
-  if (tradeDot) tradeDot.classList.remove('ok');
-  if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
-    _ocDebugPopupRefreshLog();
-  }
-  _ocDebugUpdateButtons();
-}
-
-function _ocDebugToggleAutostart() {
-  _ocDebugAutostart = !_ocDebugAutostart;
-  try { _LS.setItem(_OC_DEBUG_AUTOSTART_KEY, _ocDebugAutostart ? '1' : '0'); } catch(_) {}
-  _ocDebugUpdateButtons();
-}
-
-function _ocDebugUpdateButtons() {
-  const startBtn = document.getElementById('oc-debug-start-btn');
-  const stopBtn  = document.getElementById('oc-debug-stop-btn');
-  const autoBtn  = document.getElementById('oc-debug-autostart-btn');
-  if (startBtn) startBtn.classList.toggle('oc-debug-ctrl-active', _ocDebugEnabled);
-  if (stopBtn)  stopBtn.classList.toggle('oc-debug-ctrl-active', !_ocDebugEnabled);
-  if (autoBtn) {
-    autoBtn.classList.toggle('oc-debug-ctrl-active', _ocDebugAutostart);
-    autoBtn.textContent = _ocDebugAutostart ? '⏻ Autostart: ON' : '⏻ Autostart: OFF';
-  }
-}
+// ── Start/Stop/Autostart ab alag nahi hai — top-header SV1 debug ke
+// _sv1DebugEnabled/_sv1DebugAutostart hi is feed ko bhi control karte hain
+// (single Start/Stop/Autostart control, dono BTC feeds ke liye). ──────────
 
 function _ocDebugRefresh() {
-  const tracker = document.getElementById('oc-debug-tracker');
-  if (!tracker) return;
-  const markDot  = document.getElementById('oc-debug-mark-dot');
-  const tradeDot = document.getElementById('oc-debug-trade-dot');
-  if (!_ocDebugEnabled) {
+  const markDot  = document.getElementById('sv1-debug-mark-dot');
+  const tradeDot = document.getElementById('sv1-debug-trade-dot');
+  if (!markDot && !tradeDot) return;
+  if (typeof _sv1DebugEnabled === 'undefined' || !_sv1DebugEnabled) {
     // Stopped: dots idle rakho, koi scan/compute mat karo.
     if (markDot)  markDot.classList.remove('ok');
     if (tradeDot) tradeDot.classList.remove('ok');
@@ -21512,32 +21423,22 @@ function _ocDebugRefresh() {
   const ws = (data && data.ws) || {};
   if (markDot)  markDot.classList.toggle('ok', !!ws.mark_live);
   if (tradeDot) tradeDot.classList.toggle('ok', !!ws.trade_live);
-  if (document.getElementById('oc-debug-popup')?.classList.contains('open')) {
-    _ocDebugPopupRefreshLog();
+  // ── Auto-fix: sirf tab trigger karo jab DONO streams down hon (ek stream
+  // live ho to LTP effectively live hi hai, force-refresh ki zarurat nahi). ──
+  if (typeof _sv1AutoFixFeed === 'function') {
+    _sv1AutoFixFeed('oc', !!(ws.mark_live || ws.trade_live));
+  }
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+    _sv1DebugPopupRefreshLog();
   }
 }
 
-// ── Debug Popup: toggle open/close ────────────────────────────────────────
-function _ocDebugPopupToggle() {
-  const popup = document.getElementById('oc-debug-popup');
-  if (!popup) return;
-  const isOpen = popup.classList.contains('open');
-  if (isOpen) {
-    popup.classList.remove('open');
-  } else {
-    _ocDebugUpdateButtons();
-    _ocDebugPopupRefreshLog();
-    popup.classList.add('open');
-  }
-}
-
-// ── Debug Popup: build log text from the latest `ws` status ───────────────
-function _ocDebugPopupRefreshLog() {
-  const logEl = document.getElementById('oc-debug-popup-log');
-  if (!logEl) return;
-  if (!_ocDebugEnabled) {
-    logEl.innerHTML = '<span>⏸ Debug is stopped. Tap ▶ Start (or turn on Autostart) to begin monitoring.</span>';
-    return;
+// ── Log lines build karta hai (option-chain LTP status) — is se milne
+// wali HTML top-header SV1 debug popup ke log mein neeche append hoti hai
+// (dekho _sv1DebugPopupRefreshLog). ────────────────────────────────────────
+function _ocDebugBuildLogHtml() {
+  if (typeof _sv1DebugEnabled === 'undefined' || !_sv1DebugEnabled) {
+    return '';
   }
   const data = (typeof _ocActiveChainData === 'function') ? _ocActiveChainData() : null;
   const _ocBinanceDataFreshOuter = (Date.now() - _ocBinanceLastAppliedTs) < _OC_DATA_STALE_MS;
@@ -21547,13 +21448,12 @@ function _ocDebugPopupRefreshLog() {
   // ab jo bhi maloom hai (poll status) wo bhi dikhao taaki pata chale
   // problem browser-side hai ya backend kabhi respond hi nahi kar raha. ──
   if (!data) {
-    logEl.innerHTML = [
+    return [
       { ok: false, text: '⚠️ Backend se BTC option chain ka koi bhi data (postMessage) abhi tak nahi mila.' },
       { ok: null,  text: '  Data channel   : ' + (_ocBinanceDataFreshOuter ? 'recently OK, ab dobara wait ho raha hai' : 'kabhi nahi mila is session mein') },
       { ok: null,  text: '  Poll (backup)  : ' + (_ocBinancePollLastErr || (_ocBinancePollLastOk ? 'OK, last success ' + _ocDebugAgeText((Date.now() - _ocBinancePollLastOk) / 1000) : 'never tried yet')) },
       { ok: null,  text: '  Log time       : ' + new Date().toLocaleTimeString() },
     ].map(l => l.ok === false ? '<span class="log-err">' + l.text + '</span>' : '<span>' + l.text + '</span>').join('\n');
-    return;
   }
 
   // ── Backend ne data bheja hai lekin poori chain nahi ban paayi
@@ -21592,12 +21492,11 @@ function _ocDebugPopupRefreshLog() {
       { ok: null, text: '  Poll (backup)  : ' + (_ocBinancePollLastErr || (_ocBinancePollLastOk ? 'OK, last success ' + _ocDebugAgeText((Date.now() - _ocBinancePollLastOk) / 1000) : 'never tried yet')) },
       { ok: null, text: '  Log time       : ' + new Date().toLocaleTimeString() },
     );
-    logEl.innerHTML = lines.map(l => {
+    return lines.map(l => {
       if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
       if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
       return '<span>' + l.text + '</span>';
     }).join('\n');
-    return;
   }
 
   const ws = data.ws || {};
@@ -21674,6 +21573,11 @@ function _ocDebugPopupRefreshLog() {
       text: '  Ticker loop     : ' + (ws.ticker_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.ticker_thread_age_sec) + ' ago') : 'never started') },
     { ok: (ws.meta_thread_age_sec != null && ws.meta_thread_age_sec < 90),
       text: '  Meta loop       : ' + (ws.meta_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.meta_thread_age_sec) + ' ago') : 'never started') },
+    ...((ws.payload_thread_age_sec != null && ws.payload_thread_age_sec >= 5) ||
+        (ws.ticker_thread_age_sec != null && ws.ticker_thread_age_sec >= 20) ||
+        (ws.meta_thread_age_sec != null && ws.meta_thread_age_sec >= 90)
+      ? [{ ok: false, text: '  ⚠️ Backend thread stuck/crashed — auto-fix se theek nahi hota, backend restart chahiye.' }]
+      : []),
     { ok: null,      text: '' },
     { ok: null,
       text: '  Poll (backup)  : ' + (_ocBinancePollLastErr
@@ -21682,49 +21586,17 @@ function _ocDebugPopupRefreshLog() {
     { ok: null,      text: '  Log time       : ' + new Date().toLocaleTimeString() },
   ];
 
-  logEl.innerHTML = lines.map(l => {
+  return lines.map(l => {
     if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
     if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
     return '<span>' + l.text + '</span>';
   }).join('\n');
 }
-
-// ── Debug Popup: copy log to clipboard (reuses SV1's generic fallback) ────
-function _ocDebugPopupCopy() {
-  const logEl = document.getElementById('oc-debug-popup-log');
-  const copyBtn = document.getElementById('oc-debug-popup-copy');
-  if (!logEl) return;
-  const text = logEl.innerText || logEl.textContent;
-  try {
-    navigator.clipboard.writeText(text).then(() => {
-      if (copyBtn) { copyBtn.textContent = '✅ Copied!'; setTimeout(() => { copyBtn.textContent = '📋 Copy Log'; }, 1800); }
-    }).catch(() => {
-      _sv1DebugFallbackCopy(text, copyBtn);
-    });
-  } catch(_) {
-    _sv1DebugFallbackCopy(text, copyBtn);
-  }
-}
-
-document.addEventListener('DOMContentLoaded', _ocDebugInit);
-
-// ── Close popup on outside tap ────────────────────────────────────────────
-document.addEventListener('touchstart', function(e) {
-  const popup = document.getElementById('oc-debug-popup');
-  const tracker = document.getElementById('oc-debug-tracker');
-  if (!popup || !popup.classList.contains('open')) return;
-  if (!popup.contains(e.target) && tracker && !tracker.contains(e.target)) {
-    popup.classList.remove('open');
-  }
-}, { passive: true });
-document.addEventListener('click', function(e) {
-  const popup = document.getElementById('oc-debug-popup');
-  const tracker = document.getElementById('oc-debug-tracker');
-  if (!popup || !popup.classList.contains('open')) return;
-  if (!popup.contains(e.target) && tracker && !tracker.contains(e.target)) {
-    popup.classList.remove('open');
-  }
-});
+// NOTE: option-chain debug ka apna Start/Stop/Autostart, popup toggle,
+// copy-to-clipboard, aur outside-tap-close — sab hata diya gaya hai. Ye
+// sab ab top-header SV1 debug tracker (#sv1-debug-tracker) se hi control
+// hota hai — single combined debug widget, do BTC feeds (candle + option
+// chain LTP).
 
 // ── Polling health tracking (FIX: polling used to fail silently — agar
 // backend down ho jaaye, network toot jaaye, ya JSON file fetch fail ho
@@ -21782,18 +21654,16 @@ function _ocMarkBinanceDotStale(reason) {
     txt.classList.add('oc-ws-reconnecting');
     txt.textContent = '● Stale (poll failed)';
   }
-  // Debug tracker ko bhi purani "live" state par freeze nahi hone dena —
-  // dono dots off, aur popup khula ho to ek clear poll-fail note dikhao.
-  const markDot  = document.getElementById('oc-debug-mark-dot');
-  const tradeDot = document.getElementById('oc-debug-trade-dot');
+  // Debug tracker (ab top-header SV1 mein merged) ko bhi purani "live"
+  // state par freeze nahi hone dena — dono dots off, aur popup khula ho
+  // to log refresh karke ek clear poll-fail note dikhao.
+  const markDot  = document.getElementById('sv1-debug-mark-dot');
+  const tradeDot = document.getElementById('sv1-debug-trade-dot');
   if (markDot)  markDot.classList.remove('ok');
   if (tradeDot) tradeDot.classList.remove('ok');
-  const dbgPopup = document.getElementById('oc-debug-popup');
-  const dbgLogEl = document.getElementById('oc-debug-popup-log');
-  if (dbgPopup && dbgPopup.classList.contains('open') && dbgLogEl) {
-    dbgLogEl.innerHTML = '<span class="log-err">⚠️ LTP LIVE NAHI — '
-      + (reason || 'polling failed, backend/network unreachable')
-      + '</span>\n<span>  Log time       : ' + new Date().toLocaleTimeString() + '</span>';
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open') &&
+      typeof _sv1DebugPopupRefreshLog === 'function') {
+    _sv1DebugPopupRefreshLog();
   }
 }
 
