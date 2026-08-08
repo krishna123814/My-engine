@@ -6,17 +6,27 @@ Option chain    : WebSocket (@optionTicker per expiry) — real-time bid/ask/mar
 Chain metadata  : REST once + every 10 min (symbols/strikes/expiries)
 Order book REST : REST on-demand (initial snapshot on strike click)
 Order book live : Browser-side JS WebSocket (no Streamlit rerun needed → no blink)
+Chain live      : Browser-side JS polling a local snapshot HTTP server (no Streamlit
+                  rerun needed → no iframe reload → no blink)
 
 Architecture note
 -----------------
-Streamlit reruns every N seconds just to push a fresh JSON snapshot into
-components.html(). All heavy lifting is done in background threads/WebSockets
-that survive reruns. The browser never makes network calls for chain data —
-everything is embedded in the snapshot JSON.
+The iframe (chart.html) is embedded ONCE — either on first load or when the
+user changes the selected expiry. It is NOT re-embedded on a timer anymore.
+Instead, a lightweight local HTTP server (started in a background thread)
+serves the current snapshot as JSON at /snapshot?expiry=XXXXXX. The browser
+JS inside the iframe polls this endpoint on its own interval and patches the
+DOM in place — the iframe document itself never reloads, so there's no blink.
 
-For order book: initial REST snapshot comes via Streamlit query-param mechanism,
-then browser JS opens its own WebSocket to Binance depth stream for live updates.
-This keeps the modal completely independent of Streamlit reruns (no blink).
+This mirrors the order-book pattern: initial data comes in once, then the
+browser talks directly to a live source on its own, independent of Streamlit
+reruns.
+
+Caveat: this local HTTP server is only reachable if the extra port is
+network-reachable from the browser (fine for local/dev; on some hosted
+platforms that only expose a single port, e.g. Streamlit Community Cloud,
+this port won't be reachable — the JS falls back to showing the last known
+snapshot and reports "live polling unavailable" in the debug panel).
 """
 
 import time
@@ -25,6 +35,9 @@ import hashlib
 import json
 import threading
 import traceback
+import http.server
+import socketserver
+import urllib.parse
 from pathlib import Path
 from datetime import datetime
 
@@ -44,6 +57,7 @@ BASE_URL   = "https://api.binance.com"
 EAPI_URL   = "https://eapi.binance.com"
 UNDERLYING = "BTCUSDT"
 DEFAULT_REFRESH_SEC = 3
+SNAPSHOT_HTTP_PORT  = 8765   # local JSON polling server for live chain updates
 
 # ─────────────────────────────────────────────────────────────────────
 # Persistent stores  (survive Streamlit reruns — process-wide singletons)
@@ -80,7 +94,7 @@ def _get_creds_store():
 
 @st.cache_resource
 def _get_backend_flags():
-    return {"backend_started": False}
+    return {"backend_started": False, "snapshot_http_started": False}
 
 @st.cache_resource
 def _get_debug_log_store():
@@ -623,7 +637,103 @@ def ensure_backend_started():
     start_spot_ws()
     start_mark_price_ws()
     start_trade_ws()
+    start_snapshot_http_server()
     # Ticker WS for option chain is started later when expiry is known
+
+# ─────────────────────────────────────────────────────────────────────
+# Local snapshot HTTP server — lets the browser poll for fresh chain data
+# on its own, without Streamlit needing to rerun/re-embed the iframe.
+# This is what actually removes the blink (see architecture note at top).
+# ─────────────────────────────────────────────────────────────────────
+class _SnapshotHTTPHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass  # silence default request logging to stdout
+
+    def _write_json(self, status, payload):
+        body = json.dumps(payload).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # client (browser) navigated away / poll aborted — harmless
+
+    def do_GET(self):
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            qs     = urllib.parse.parse_qs(parsed.query)
+            if parsed.path == "/snapshot":
+                expiry = (qs.get("expiry") or [None])[0]
+                payload = build_snapshot(expiry)
+                self._write_json(200, payload)
+                return
+            if parsed.path == "/order_book":
+                symbol = (qs.get("symbol") or [None])[0]
+                if not symbol:
+                    self._write_json(400, {"error": "missing symbol"})
+                    return
+                ORDER_BOOK["symbol"]     = symbol
+                ORDER_BOOK["fetching"]   = True
+                ORDER_BOOK["last_error"] = None
+                ok, result = get_order_book(symbol, limit=10)
+                if ok:
+                    ORDER_BOOK["data"]       = result
+                    ORDER_BOOK["ts"]         = int(time.time() * 1000)
+                    ORDER_BOOK["last_error"] = None
+                    dlog(f"Order book REST OK: {symbol}", level="ok")
+                    ORDER_BOOK["fetching"] = False
+                    self._write_json(200, {
+                        "symbol": symbol, "bids": result.get("bids", []),
+                        "asks": result.get("asks", []), "last_error": None,
+                    })
+                else:
+                    ORDER_BOOK["data"]       = None
+                    ORDER_BOOK["last_error"] = result
+                    ORDER_BOOK["fetching"]   = False
+                    dlog(f"Order book REST FAILED: {symbol}: {result}", level="err")
+                    self._write_json(200, {
+                        "symbol": symbol, "bids": [], "asks": [], "last_error": result,
+                    })
+                return
+            self._write_json(404, {"error": "not found"})
+        except Exception as e:
+            dlog_exception("_SnapshotHTTPHandler.do_GET", e)
+            try:
+                self._write_json(500, {"error": str(e)})
+            except Exception:
+                pass
+
+    def do_OPTIONS(self):
+        # Not strictly needed for simple GET fetches, but harmless to have
+        # in case a browser sends a CORS preflight for any reason.
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.end_headers()
+
+def start_snapshot_http_server():
+    if FLAGS.get("snapshot_http_started"):
+        return
+    FLAGS["snapshot_http_started"] = True
+    try:
+        server = socketserver.ThreadingTCPServer(
+            ("0.0.0.0", SNAPSHOT_HTTP_PORT), _SnapshotHTTPHandler
+        )
+        server.daemon_threads = True
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        dlog(f"Snapshot HTTP server started on port {SNAPSHOT_HTTP_PORT} "
+             f"(browser polls this for live chain updates)", level="ok")
+    except OSError as e:
+        # Most likely "address already in use" — a previous Streamlit rerun's
+        # server is probably still alive and fine to keep using.
+        dlog(f"Snapshot HTTP server bind skipped/failed on port "
+             f"{SNAPSHOT_HTTP_PORT}: {e}", level="warn")
+    except Exception as e:
+        dlog_exception("start_snapshot_http_server", e)
 
 # ─────────────────────────────────────────────────────────────────────
 # Snapshot builder
@@ -774,8 +884,11 @@ top_col1, top_col2, top_col3 = st.columns([5, 2, 1])
 with top_col1:
     st.title("📊 Live BTC Option Chain — Binance")
 with top_col2:
-    refresh_sec  = st.slider("Refresh every (sec)", 2, 10, DEFAULT_REFRESH_SEC)
-    auto_refresh = st.checkbox("Auto refresh", value=True)
+    refresh_sec  = st.slider("Live-poll interval (sec)", 1, 10, DEFAULT_REFRESH_SEC,
+                              help="Kitni jaldi browser JS local snapshot server se fresh "
+                                   "data khinche. Yeh ab Streamlit rerun trigger NAHI karta — "
+                                   "iframe sirf ek baar load hota hai, isliye blink nahi hoti.")
+    auto_refresh = st.checkbox("Live updates on", value=True)
 with top_col3:
     if st.button("Logout"):
         st.session_state.binance_logged_in = False
@@ -793,50 +906,28 @@ else:
     # Start/switch ticker WS for the selected expiry
     start_ticker_ws_for_expiry(selected_expiry)
 
-# ── Order book REST fetch via query param ───────────────────────────
-qp        = st.query_params
-ob_symbol = qp.get("ob_symbol", "")
-if ob_symbol and ob_symbol != ORDER_BOOK.get("symbol"):
-    ORDER_BOOK["symbol"]   = ob_symbol
-    ORDER_BOOK["fetching"] = True
-    ORDER_BOOK["last_error"] = None
-    ok, result = get_order_book(ob_symbol, limit=10)
-    if ok:
-        ORDER_BOOK["data"]       = result
-        ORDER_BOOK["ts"]         = int(time.time() * 1000)
-        ORDER_BOOK["last_error"] = None
-        dlog(f"Order book REST OK: {ob_symbol}", level="ok")
-    else:
-        ORDER_BOOK["data"]       = None
-        ORDER_BOOK["last_error"] = result
-        dlog(f"Order book REST FAILED: {ob_symbol}: {result}", level="err")
-    ORDER_BOOK["fetching"] = False
+# NOTE: order book REST snapshot used to go through a Streamlit query-param
+# + rerun dance here. That's no longer needed — chart.html now fetches
+# /order_book directly from the local snapshot HTTP server (see
+# _SnapshotHTTPHandler above), which avoids triggering any Streamlit rerun.
 
 chart_path = Path(__file__).parent / "chart.html"
 
-def _render_chart():
-    """Builds the snapshot + renders chart.html. Scoped in a fragment so that
-    only this piece of the page reruns on refresh — the title, selectors,
-    and rest of the layout above it stay put, which cuts down on the
-    full-page blink that a full st.rerun() causes."""
-    with RENDER_STATS["lock"]:
-        RENDER_STATS["fragment_runs"] += 1
-    snapshot = build_snapshot(selected_expiry)
-    if chart_path.exists():
-        html = chart_path.read_text(encoding="utf-8")
-        html = html.replace("__SNAPSHOT_JSON__", json.dumps(snapshot))
-        components.html(html, height=950, scrolling=True)
-    else:
-        st.error("chart.html not found — same folder me rakho.")
+# ── Chart iframe: embedded ONCE per real script rerun ──────────────────
+# (login, logout, expiry change, manual browser refresh) — NOT on a timer.
+# Live number updates now happen entirely client-side via the browser
+# polling the local snapshot HTTP server (see start_snapshot_http_server
+# above), so the iframe document itself never reloads → no blink.
+with RENDER_STATS["lock"]:
+    RENDER_STATS["fragment_runs"] += 1   # kept for the debug-panel comparison
 
-if hasattr(st, "fragment"):
-    if auto_refresh:
-        st.fragment(_render_chart, run_every=f"{refresh_sec}s")()
-    else:
-        st.fragment(_render_chart)()
+snapshot = build_snapshot(selected_expiry)
+if chart_path.exists():
+    html = chart_path.read_text(encoding="utf-8")
+    html = html.replace("__SNAPSHOT_JSON__", json.dumps(snapshot))
+    html = html.replace("__POLL_MS__", str(int(refresh_sec * 1000) if auto_refresh else "0"))
+    html = html.replace("__SNAPSHOT_PORT__", str(SNAPSHOT_HTTP_PORT))
+    html = html.replace("__SELECTED_EXPIRY__", json.dumps(selected_expiry))
+    components.html(html, height=950, scrolling=True)
 else:
-    # Older Streamlit without st.fragment support — fall back to full rerun.
-    _render_chart()
-    if auto_refresh:
-        time.sleep(refresh_sec)
-        st.rerun()
+    st.error("chart.html not found — same folder me rakho.")

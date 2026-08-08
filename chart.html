@@ -351,6 +351,54 @@ if (__reloadCount > 1) {
   if (rb) rb.style.display = "none";
 }
 
+// ═══════════════════════════════════════════════════════════
+// LIVE POLLING ENGINE
+// This is what replaces the old "Streamlit reruns → new iframe doc" model.
+// The iframe loads ONCE; after that, this JS polls the local snapshot HTTP
+// server directly and just updates the DOM. No reload, no blink.
+// poll interval (ms; 0 = live updates off), snapshot server port, and the
+// currently-selected expiry are all injected below by main.py at embed time
+// ═══════════════════════════════════════════════════════════
+const __pollMs         = __POLL_MS__;
+const __snapshotPort   = __SNAPSHOT_PORT__;
+const __selectedExpiry = __SELECTED_EXPIRY__;
+window.__apiBase   = null;
+window.__pollStats = { attempts: 0, successes: 0, failures: 0, lastError: null, active: false };
+
+(function() {
+  try {
+    const parentLoc = (window.parent && window.parent.location) ? window.parent.location : window.location;
+    const host = parentLoc.hostname || "localhost";
+    window.__apiBase = `${parentLoc.protocol}//${host}:${__snapshotPort}`;
+  } catch (e) {
+    window.__apiBase = `http://localhost:${__snapshotPort}`;
+  }
+})();
+
+function startLivePolling() {
+  if (!__pollMs || !window.__apiBase) return;
+  window.__pollStats.active = true;
+  const url = `${window.__apiBase}/snapshot?expiry=${encodeURIComponent(__selectedExpiry || "")}`;
+  setInterval(() => {
+    window.__pollStats.attempts++;
+    fetch(url, { cache: "no-store" })
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(freshSnap => {
+        window.__pollStats.successes++;
+        window.__pollStats.lastError = null;
+        snap = freshSnap;
+        render();
+      })
+      .catch(err => {
+        window.__pollStats.failures++;
+        window.__pollStats.lastError = String(err);
+        // Keep showing last known data — don't blank the UI on a transient
+        // network hiccup. renderDebugPanel (called from render()) surfaces
+        // the failure count so it's visible without disrupting the table.
+      });
+  }, __pollMs);
+}
+
 function fmt(n, d=2) {
   if (n === null || n === undefined || n === "") return "--";
   const x = parseFloat(n);
@@ -365,7 +413,8 @@ function statusDot(ok) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// MAIN RENDER  (called every Streamlit rerun)
+// MAIN RENDER  (called on first load, then again on every successful poll —
+// this only touches the DOM, it never reloads the document)
 // ═══════════════════════════════════════════════════════════
 function render() {
   if (snap.error) {
@@ -464,13 +513,24 @@ function renderDebugPanel(dbg, spot, chain) {
   const reloadInfo = __reloadCount > 1
     ? `${__reloadCount} loads so far · last gap ${__msSincePrevReload}ms ago`
     : `1 load so far (first load)`;
+  const ps = window.__pollStats || {};
+  const pollInfo = !__pollMs
+    ? "Off (live updates disabled)"
+    : `${ps.successes||0} ok / ${ps.failures||0} failed (of ${ps.attempts||0}) — every ${__pollMs}ms`;
   document.getElementById("dbg-grid").innerHTML = `
     <div class="dbg-item" style="grid-column:1/-1;border-color:${__reloadCount>3?'var(--red)':'var(--border)'};">
       <div class="t">🔄 Blink detector (this tab)</div>
       <div class="v" style="font-weight:400;font-size:.72rem;">${reloadInfo}</div>
       <div style="color:var(--muted);font-size:.65rem;margin-top:2px;">
-        Har baar yeh count badhta hai aur badge/flash dikhta hai, iska matlab iframe fully reload hui — yehi blink hai.
-        Agar count refresh interval jitni baar hi badh raha hai, blink ho rahi hai. Agar stable rehta hai, blink nahi.
+        Ab iframe sirf ek baar load hota hai (login/expiry-change pe). Agar count stable rehta
+        hai to blink fix ho gayi; agar refresh interval jitni baar badh raha hai to abhi bhi reload ho raha hai.
+      </div>
+    </div>
+    <div class="dbg-item" style="grid-column:1/-1;border-color:${(ps.lastError)?'var(--red)':'var(--border)'};">
+      <div class="t">📡 Live polling (chain/spot data)</div>
+      <div class="v" style="font-weight:400;font-size:.72rem;">${pollInfo}</div>
+      <div style="color:var(--muted);font-size:.65rem;margin-top:2px;word-break:break-all;">
+        API: ${window.__apiBase || "--"} ${ps.lastError ? "· last error: " + ps.lastError : ""}
       </div>
     </div>
     <div class="dbg-item"><div class="t">Server script reruns</div>
@@ -539,6 +599,10 @@ function buildDebugReportText() {
   lines.push("Blink detector: " + (__reloadCount > 1
     ? `${__reloadCount} full loads so far, last gap ${__msSincePrevReload}ms`
     : "1 load so far (first load)"));
+  const _ps = window.__pollStats || {};
+  lines.push("Live polling: " + (!__pollMs
+    ? "off"
+    : `${_ps.successes||0} ok / ${_ps.failures||0} failed of ${_ps.attempts||0}, every ${__pollMs}ms, API=${window.__apiBase||"--"}`));
   lines.push("Server script reruns: " + (dbg.render_stats ? dbg.render_stats.script_runs : "--") +
     " | fragment reruns: " + (dbg.render_stats ? dbg.render_stats.fragment_runs : "--"));
   lines.push("API Key: " + (dbg.api_key_present ? "Present" : "Missing"));
@@ -593,6 +657,7 @@ document.getElementById("dbg-copy-btn").addEventListener("click", (e) => {
 });
 
 render();
+startLivePolling();
 
 // ═══════════════════════════════════════════════════════════
 // MARKET DEPTH — browser-side WebSocket (no Streamlit rerun)
@@ -665,45 +730,31 @@ function openDepthForCurrentState() {
   });
 }
 
-// ── Step 1: REST snapshot via Streamlit query param ──
+// ── Step 1: REST snapshot via local snapshot HTTP server ──
 function fetchRestSnapshot(sym, onDone) {
-  // Signal Streamlit to fetch via query param
-  try {
-    const u = new URL(window.parent.location.href);
-    u.searchParams.set("ob_symbol", sym);
-    window.parent.history.replaceState({}, "", u.toString());
-  } catch(e) {}
-
-  // Poll embedded snapshot for the data (Streamlit embeds after rerun)
-  let attempts = 0;
-  const poll = setInterval(() => {
-    attempts++;
-    let freshSnap = {};
-    try {
-      freshSnap = JSON.parse(document.getElementById("snapshot-data").textContent);
-    } catch(e) {}
-    const ob = freshSnap.order_book || {};
-    if (ob.symbol === sym && !ob.fetching) {
-      clearInterval(poll);
+  if (!window.__apiBase) {
+    setDepthStatus("⚠️ Live polling server unreachable — sirf WS try kar raha hai…");
+    onDone();
+    return;
+  }
+  fetch(window.__apiBase + "/order_book?symbol=" + encodeURIComponent(sym))
+    .then(r => r.json())
+    .then(ob => {
       if (ob.last_error) {
         setDepthStatus("⚠️ REST snapshot failed: " + ob.last_error +
           " — trying live WS only…");
       } else if (ob.bids || ob.asks) {
-        // Merge REST data into in-memory book
         depthBook.bids = (ob.bids || []).map(([p,q]) => ({p: parseFloat(p), q: parseFloat(q)}));
         depthBook.asks = (ob.asks || []).map(([p,q]) => ({p: parseFloat(p), q: parseFloat(q)}));
         renderDepthBook();
         setBadge("snap", "Snapshot");
       }
       onDone();
-      return;
-    }
-    if (attempts > 25) {
-      clearInterval(poll);
-      setDepthStatus("⚠️ REST snapshot timeout — live WS se try kar raha hai…");
+    })
+    .catch(() => {
+      setDepthStatus("⚠️ REST snapshot fetch failed — live WS se try kar raha hai…");
       onDone();
-    }
-  }, 400);
+    });
 }
 
 // ── Step 2: Browser WebSocket for live depth ──
