@@ -83,10 +83,14 @@
     100% { box-shadow:0 0 0 0 rgba(239,83,80,0); }
   }
   #debug-panel {
-    position:fixed; right:18px; bottom:76px; width:400px; max-height:78vh;
+    position:fixed; right:12px; left:12px; bottom:76px;
+    width:auto; max-width:400px; margin-left:auto; max-height:78vh;
     background:#0e111a; border:1px solid var(--border); border-radius:12px;
-    padding:14px; overflow-y:auto; z-index:9999; display:none;
-    box-shadow:0 4px 24px rgba(0,0,0,.6); font-size:.78rem;
+    padding:14px; overflow-y:auto; overflow-x:hidden; z-index:9999; display:none;
+    box-shadow:0 4px 24px rgba(0,0,0,.6); font-size:.78rem; box-sizing:border-box;
+  }
+  @media (max-width:480px) {
+    .dbg-grid { grid-template-columns:1fr; }
   }
   #debug-panel.open { display:block; }
   #debug-panel h4   { margin:0 0 8px; font-size:.9rem; color:var(--accent); }
@@ -492,6 +496,7 @@ function render() {
   if (dbg.ws_ticker && !dbg.ws_ticker.connected)        problems.push("Ticker WS down");
   if (chain.last_error)                                  problems.push("Chain: " + chain.last_error);
   if (spot.last_error)                                   problems.push("Spot: " + spot.last_error);
+  if (snap.order_book && snap.order_book.last_error)     problems.push("Order book: " + snap.order_book.last_error);
 
   const dot = document.getElementById("overall-dot");
   const txt = document.getElementById("overall-text");
@@ -510,6 +515,7 @@ function render() {
 
 function renderDebugPanel(dbg, spot, chain) {
   const ws = (s) => s || {};
+  const ob = snap.order_book || {};
   const reloadInfo = __reloadCount > 1
     ? `${__reloadCount} loads so far · last gap ${__msSincePrevReload}ms ago`
     : `1 load so far (first load)`;
@@ -564,7 +570,15 @@ function renderDebugPanel(dbg, spot, chain) {
     <div class="dbg-item"><div class="t">Chain meta</div>
       <div class="v">${statusDot(chain.last_ok)} ${chain.symbols_count||0} sym</div></div>
     <div class="dbg-item"><div class="t">Chain loaded</div>
-      <div class="v">${ageText(chain.age_sec)}</div></div>`;
+      <div class="v">${ageText(chain.age_sec)}</div></div>
+    <div class="dbg-item"><div class="t">Order book symbol</div>
+      <div class="v" style="font-size:.72rem;">${ob.symbol||"--"}</div></div>
+    <div class="dbg-item"><div class="t">Order book status</div>
+      <div class="v">${ob.fetching?"⏳ Fetching":statusDot(!ob.last_error && ob.symbol)} ${ob.fetching?"":(ob.symbol?(ob.last_error?"Error":"OK"):"No symbol picked")}</div></div>
+    <div class="dbg-item"><div class="t">Order book depth</div>
+      <div class="v">${(ob.bids||[]).length} bids / ${(ob.asks||[]).length} asks</div></div>
+    <div class="dbg-item"><div class="t">Order book age</div>
+      <div class="v">${ageText(ob.age_sec)}</div></div>`;
 
   const errs = [];
   if (spot.last_error) errs.push("Spot: " + spot.last_error);
@@ -619,11 +633,16 @@ function buildDebugReportText() {
   (ws(dbg.ws_ticker).tried_urls||[]).forEach((u,i) => lines.push("  candidate " + (i+1) + ": " + u));
   lines.push("Chain meta: " + (chain.last_ok ? "OK" : "FAIL") +
     " | " + (chain.symbols_count||0) + " symbols | loaded " + ageText(chain.age_sec));
+  const ob = snap.order_book || {};
+  lines.push("Order book: symbol=" + (ob.symbol||"--") +
+    " | " + (ob.bids||[]).length + " bids / " + (ob.asks||[]).length + " asks" +
+    " | fetching=" + (ob.fetching?"yes":"no") + " | age=" + ageText(ob.age_sec));
   lines.push("");
   lines.push("--- Errors ---");
   const errs = [];
   if (spot.last_error) errs.push("Spot: " + spot.last_error);
   if (chain.last_error) errs.push("Chain: " + chain.last_error);
+  if (ob.last_error) errs.push("Order book: " + ob.last_error);
   ["ws_spot","ws_mark","ws_trade","ws_ticker"].forEach(k => {
     if (dbg[k] && dbg[k].last_error) errs.push(k + ": " + dbg[k].last_error);
   });
