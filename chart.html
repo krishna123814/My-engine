@@ -19815,18 +19815,6 @@ function _sv1DebugPopupRefreshLog() {
       depthLines.push({ ok: null,  text: '  Fail kind   : ' + (_ocDepthDebug.fetchFailKind || '-') + (_ocDepthDebug.fetchFailMsg ? ' (' + _ocDepthDebug.fetchFailMsg + ')' : '') });
       depthLines.push({ ok: null,  text: '  Backend branch : ' + (_ocDepthDebug.backendBranch || '-') });
       depthLines.push({ ok: null,  text: '  Resolved port  : ' + (typeof _resolvedApiPort !== 'undefined' ? _resolvedApiPort : '-') });
-      // ── Direct-browser Binance fetch fail hone par exact wajah (CORS vs
-      // genuine network/DNS block) — sirf jab diagnosis chal chuki ho. ──
-      if (_ocDepthDebug.corsProbe != null) {
-        depthLines.push({ ok: null, text: '  Device online   : ' + (_ocDepthDebug.browserOnline === false ? 'NO — offline' : (_ocDepthDebug.browserOnline === true ? 'yes' : '-')) });
-        var _corsLabel = _ocDepthDebug.corsProbe === 'cors_blocked'
-          ? 'YES — server pahunch gayi, CORS headers missing hain (eapi.binance.com is origin ko allow nahi kar raha)'
-          : (_ocDepthDebug.corsProbe === 'unreachable'
-              ? 'no — server tak pahunch hi nahi rahi (DNS/firewall/ISP block)'
-              : (_ocDepthDebug.corsProbe === 'skipped' ? 'checking…' : '-'));
-        depthLines.push({ ok: (_ocDepthDebug.corsProbe === 'cors_blocked') ? false : null, text: '  CORS block?     : ' + _corsLabel });
-        depthLines.push({ ok: null, text: '  Control ping (api.binance.com spot) : ' + (_ocDepthDebug.controlPingOk === true ? 'OK — is domain tak pahunch hai' : (_ocDepthDebug.controlPingOk === false ? 'FAILED — poora Binance domain hi unreachable hai' : '-')) });
-      }
     }
     depthHtml = depthLines.map(function(l) {
       if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
@@ -22425,10 +22413,6 @@ var _ocDepthDebug = {
   fetchFailKind: null,  // 'timeout' | 'network' | 'json_parse' | 'http_error' | null
   fetchFailMsg: null,   // raw exception name+message (JS side)
   backendBranch: null,  // backend ne _debug.branch mein jo bataya (fyers_creds_missing / not_fyers_symbol / etc.)
-  // ── extra diagnosis for direct-browser Binance fetch failures ──
-  browserOnline: null,  // navigator.onLine snapshot
-  corsProbe: null,       // 'cors_blocked' | 'unreachable' | 'ok' | 'skipped' | null (only for eapi failures)
-  controlPingOk: null,   // api.binance.com (spot, known-CORS-open) reachable? true/false/null
 };
 
 function _ocDepthDebugUpdateDot() {
@@ -22456,9 +22440,6 @@ function _ocDepthDebugSetOk(data) {
   _ocDepthDebug.backendBranch = (data && data._debug && data._debug.branch) || null;
   _ocDepthDebug.fetchFailKind = null;
   _ocDepthDebug.fetchFailMsg  = null;
-  _ocDepthDebug.browserOnline = null;
-  _ocDepthDebug.corsProbe     = null;
-  _ocDepthDebug.controlPingOk = null;
   _ocDepthDebugUpdateDot();
 }
 
@@ -22481,150 +22462,17 @@ function _ocDepthUrl(symbol) {
   return path;
 }
 
-function _ocIsBinanceDepthSymbol(symbol) {
-  return /^BTC-/i.test(symbol || '');
-}
-
-// ── BTC depth: seedha browser se Binance public REST (eapi.binance.com) —
-// koi backend/reload involved nahi. Pehle ye ek hidden-form GET submit se
-// Streamlit parent page ko `depth_symbol` query-param bhejta tha, jisse
-// backend har baar st.rerun() karta tha (= poori app reload). Ab depth
-// window khulte hi seedha Binance ko hit karte hain aur poll bhi client-side
-// hi chalti hai, jaisa NSE/Fyers wala side-port poll pehle se karta hai. ──
-async function _ocFetchBinanceDepth(symbol) {
-  var depthUrl  = 'https://eapi.binance.com/eapi/v1/depth?symbol=' + encodeURIComponent(symbol) + '&limit=5';
-  var tickerUrl = 'https://eapi.binance.com/eapi/v1/ticker?symbol=' + encodeURIComponent(symbol);
-  var depth  = await (await fetch(depthUrl,  { signal: AbortSignal.timeout(4000) })).json();
-  var tickerRaw = await (await fetch(tickerUrl, { signal: AbortSignal.timeout(4000) })).json();
-  var trow = Array.isArray(tickerRaw) ? (tickerRaw[0] || {}) : (tickerRaw || {});
-
-  function lvl(rows) {
-    var out = [];
-    (rows || []).slice(0, 5).forEach(function (row) {
-      var price = parseFloat(row[0]), volume = parseFloat(row[1]);
-      if (!isNaN(price) && !isNaN(volume)) out.push({ price: price, volume: volume, ord: 0 });
-    });
-    return out;
-  }
-
-  var bids = lvl(depth.bids), asks = lvl(depth.asks);
-  var lastPrice = parseFloat(trow.lastPrice || 0) || 0;
-  var priceChange = parseFloat(trow.priceChange || 0) || 0;
-
-  return {
-    symbol: symbol,
-    ltp: lastPrice,
-    ch: priceChange,
-    chp: parseFloat(trow.priceChangePercent || 0) || 0,
-    bids: bids,
-    asks: asks,
-    total_buy_qty:  bids.reduce(function (s, b) { return s + b.volume; }, 0),
-    total_sell_qty: asks.reduce(function (s, a) { return s + a.volume; }, 0),
-    open: parseFloat(trow.open || 0) || 0,
-    high: parseFloat(trow.high || 0) || 0,
-    low:  parseFloat(trow.low  || 0) || 0,
-    prev_close: lastPrice - priceChange,
-    atp: lastPrice,
-    upper_ckt: 0,
-    lower_ckt: 0,
-    volume: parseFloat(trow.volume || 0) || 0,
-    ltq: parseFloat(trow.lastQty || 0) || 0,
-    ts: Date.now() / 1000,
-  };
-}
-
-// ── Jab direct-browser Binance fetch fail ho ("Failed to fetch" jaisa
-// generic TypeError), browser khud CORS-block aur genuine-network-block
-// mein farak nahi batata — security ke liye JS se dono ek jaisi error
-// dikhte hain. Ye helper 3 cheezein check karta hai taaki exact wajah pata
-// chale:
-//  1) navigator.onLine       — device hi offline to nahi hai
-//  2) no-cors probe (same URL)— agar ye bhi fail ho to genuine unreachable
-//                                (DNS/firewall/ISP block); agar ye pass ho
-//                                jaaye (opaque response mil jaaye) to
-//                                matlab server tak pahunch rahi hai, sirf
-//                                CORS headers missing hain (CORS block)
-//  3) control ping (api.binance.com — known CORS-open spot endpoint)—
-//                                agar ye pass ho jaaye aur eapi.binance.com
-//                                fail ho, to confirm hota hai ki sirf
-//                                eapi (Options API) specifically CORS
-//                                allow nahi karta / geo-blocked hai.
-async function _ocDiagnoseBinanceFetchFail(failedUrl) {
-  var out = { browserOnline: null, corsProbe: 'skipped', controlPingOk: null };
-  try {
-    out.browserOnline = (typeof navigator !== 'undefined') ? !!navigator.onLine : null;
-  } catch (_) {}
-
-  // No-cors probe: browser JS response body/headers padh nahi payega
-  // (opaque), lekin agar fetch khud resolve ho jaaye (reject na ho) to
-  // matlab TCP/TLS connection + request-response cycle server tak
-  // successfully ho raha hai — sirf CORS ke wajah se normal fetch fail ho
-  // raha tha.
-  try {
-    await fetch(failedUrl, { mode: 'no-cors', signal: AbortSignal.timeout(4000) });
-    out.corsProbe = 'cors_blocked';   // request pahunchi, response bas padh nahi payi
-  } catch (_) {
-    out.corsProbe = 'unreachable';    // ye bhi fail — genuine network/DNS/firewall block
-  }
-
-  // Control ping — Binance spot public API (api.binance.com) generally
-  // CORS-open rehta hai. Agar ye chal jaaye aur eapi.binance.com fail ho,
-  // to confirm ho jaata hai ki problem specifically Options API (eapi)
-  // tak pahunch/CORS ki hai, poore Binance domain ki nahi.
-  try {
-    var r = await fetch('https://api.binance.com/api/v3/ping', { signal: AbortSignal.timeout(4000) });
-    out.controlPingOk = r.ok;
-  } catch (_) {
-    out.controlPingOk = false;
-  }
-
-  return out;
-}
-
-async function _ocPollBinanceDepth() {
-  if (!_ocDepthSymbol || _ocDepthInFlight) return;
-  _ocDepthInFlight = true;
-  var symbol = _ocDepthSymbol;
-  var depthUrlForDiag = 'https://eapi.binance.com/eapi/v1/depth?symbol=' + encodeURIComponent(symbol) + '&limit=5';
-  _ocDepthDebug.url = 'eapi.binance.com (direct browser fetch)';
-  _ocDepthDebug.httpStatus = null;
-  try {
-    var data = await _ocFetchBinanceDepth(symbol);
-    _ocDepthDebug.fetchFailKind = null;
-    _ocDepthDebug.fetchFailMsg  = null;
-    _ocDepthDebug.browserOnline = null;
-    _ocDepthDebug.corsProbe     = null;
-    _ocDepthDebug.controlPingOk = null;
-    _ocRenderDepth(data);
-  } catch (e) {
-    var _kind = (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) ? 'timeout' : 'network';
-    _ocDepthDebug.fetchFailKind = _kind;
-    _ocDepthDebug.fetchFailMsg  = (e && (e.name + ': ' + e.message)) || String(e);
-
-    // Diagnosis sirf genuine "network" fail par chalao (timeout ke liye
-    // zaroorat nahi — wo already clear hai ki server slow/hung hai).
-    if (_kind === 'network') {
-      _ocDiagnoseBinanceFetchFail(depthUrlForDiag).then(function (diag) {
-        _ocDepthDebug.browserOnline = diag.browserOnline;
-        _ocDepthDebug.corsProbe     = diag.corsProbe;
-        _ocDepthDebug.controlPingOk = diag.controlPingOk;
-        var _humanMsg2 = diag.corsProbe === 'cors_blocked'
-          ? 'CORS block — Binance Options API (eapi.binance.com) is browser-origin ko allow nahi kar raha (server tak pahunch rahi hai, response padhne ki permission nahi hai).'
-          : (diag.browserOnline === false
-              ? 'Device offline hai — internet connection check karo.'
-              : 'Binance (eapi.binance.com) tak pahunch nahi paaye — DNS/firewall/ISP block ho sakta hai.');
-        _ocRenderDepth({ error: _humanMsg2, _debug: { branch: 'js_fetch_' + _kind } });
-        if (typeof _sv1DebugPopupRefreshLog === 'function') _sv1DebugPopupRefreshLog();
-      });
-    }
-
-    var _humanMsg = _kind === 'timeout'
-      ? 'Timeout (4s) — Binance se response nahi mila.'
-      : 'Network error — Binance tak pahunch nahi paaye (' + _ocDepthDebug.fetchFailMsg + '). Diagnosis chal raha hai…';
-    _ocRenderDepth({ error: _humanMsg, _debug: { branch: 'js_fetch_' + _kind } });
-  }
-  _ocDepthInFlight = false;
-}
+// (Pehle yahan BTC ke liye seedha browser→eapi.binance.com fetch tha, lekin
+// Binance Options API (eapi.binance.com) browser-origin ko CORS allow nahi
+// karta (confirmed via debug diagnosis: server reachable hai, response
+// padhne ki permission nahi hai) — isliye wo approach kaam nahi kar sakti
+// thi. Ab BTC bhi NSE/Fyers wale hi existing side-port REST poll
+// (_ocPollDepth → /api/market_depth) se jaata hai — backend
+// (refresh_market_depth_cache) already BTC-prefixed symbols ko Binance
+// par route karta hai (no CORS issue, kyunki fetch server se hoti hai),
+// aur ye path pehle se hi bina kisi page-reload ke kaam karta hai (koi
+// query-param/st.rerun() ya postMessage bridge involved nahi — sirf ek
+// plain browser fetch() side-port ko).
 
 async function _ocOpenDepth(type) {
   if (_ocSelectedStrike == null) return;
@@ -22642,17 +22490,14 @@ async function _ocOpenDepth(type) {
 
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
 
-  if (_ocIsBinanceDepthSymbol(symbol)) {
-    // ── BTC/Binance: seedha browser se Binance public REST — koi backend,
-    // koi reload nahi. ───────────────────────────────────────────────────
-    _ocPollBinanceDepth();
-    _ocDepthPollTid = setInterval(function () { _ocPollBinanceDepth(); }, 1500);
-  } else {
-    // ── NSE/Fyers: purana REST-poll-via-side-port hi chalega, untouched. ──
-    if (typeof _probeApiPort === 'function') await _probeApiPort();
-    _ocPollDepth();
-    _ocDepthPollTid = setInterval(function () { _ocPollDepth(); }, 1500);
-  }
+  // BTC aur NSE/Fyers dono ab isi ek side-port REST poll se jaate hain —
+  // /api/market_depth backend (refresh_market_depth_cache) symbol prefix se
+  // khud decide karta hai Fyers ya Binance kisko call karna hai. Koi
+  // page-reload nahi (plain browser fetch() hai, form-submit/query-param
+  // nahi) aur koi CORS issue nahi (Binance call server-side hoti hai).
+  if (typeof _probeApiPort === 'function') await _probeApiPort();
+  _ocPollDepth();
+  _ocDepthPollTid = setInterval(function () { _ocPollDepth(); }, 1500);
 }
 
 function _ocCloseDepth() {
