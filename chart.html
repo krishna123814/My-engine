@@ -19808,12 +19808,6 @@ function _sv1DebugPopupRefreshLog() {
       { ok: null, text: '  Bid/Ask lvl : ' + _ocDepthDebug.bidLevels + ' / ' + _ocDepthDebug.askLevels },
       { ok: null, text: '  Total Buy/Sell Qty : ' + _fmtNum(_ocDepthDebug.totalBuy) + ' / ' + _fmtNum(_ocDepthDebug.totalSell) },
     ];
-    if (_ocDepthDebug.wsMode) {
-      const wsAge = _ocDepthDebug.wsLastMsgTs ? (Math.round((Date.now() - _ocDepthDebug.wsLastMsgTs) / 1000) + 's ago') : 'never';
-      depthLines.push({ ok: _ocDepthDebug.wsConnected, text: '  Live WS     : ' + (_ocDepthDebug.wsConnected ? 'CONNECTED' : 'DISCONNECTED') + ' (bid/ask seedha browser\u2192Binance)' });
-      depthLines.push({ ok: null, text: '  WS last msg : ' + wsAge });
-      depthLines.push({ ok: null, text: '  Stats source: backend poll, har 5s (sirf open/high/low/volume ke liye)' });
-    }
     if (_ocDepthDebug.ok === false) {
       depthLines.push({ ok: false, text: '  Problem     : ' + _ocDepthDebug.error });
       depthLines.push({ ok: null,  text: '  URL hit     : ' + (_ocDepthDebug.url || '-') });
@@ -22397,12 +22391,6 @@ var _ocDepthDebug = {
   fetchFailKind: null,  // 'timeout' | 'network' | 'json_parse' | 'http_error' | null
   fetchFailMsg: null,   // raw exception name+message (JS side)
   backendBranch: null,  // backend ne _debug.branch mein jo bataya (fyers_creds_missing / not_fyers_symbol / etc.)
-  // ── live WS depth (BTC/Binance symbols) — bids/asks yahan se aate hain,
-  // backend poll sirf price-stats (open/high/low/volume) ke liye slow rehta hai
-  wsMode: false,         // true jab symbol BTC/Binance hai aur WS path use ho raha hai
-  wsConnected: false,
-  wsUrl: null,
-  wsLastMsgTs: 0,
 };
 
 function _ocDepthDebugUpdateDot() {
@@ -22452,84 +22440,6 @@ function _ocDepthUrl(symbol) {
   return path;
 }
 
-// ── Live depth WebSocket — sirf BTC/Binance option symbols ke liye. Seedha
-// browser se Binance ke public WS server se connect hota hai (jaisa BTC
-// price feed already karta hai), koi backend port/cloud-deploy issue nahi
-// aata isse (backend REST poll wale approach ke ulat, jo sirf local-dev mein
-// kaam karta tha kyunki wo galat tarah se assume karta tha ki browser aur
-// server same machine par hain). ──────────────────────────────────────────
-var _ocDepthWs = null;
-var _ocDepthWsRetryDelay = 1000;
-
-function _ocIsBinanceDepthSymbol(symbol) {
-  return /^BTC-/i.test(symbol || '');
-}
-
-function _ocDepthWsUrl(symbol) {
-  // Combined-stream endpoint — response {"stream":"...","data":{...}} shape
-  // mein aata hai. depth20@100ms = top-20 levels, har 100ms update.
-  return 'wss://fstream.binance.com/public/stream?streams=' + encodeURIComponent(symbol.toUpperCase()) + '@depth20@100ms';
-}
-
-function _ocDepthWsClose() {
-  if (_ocDepthWs) {
-    try { _ocDepthWs.onclose = null; _ocDepthWs.onerror = null; _ocDepthWs.close(); } catch (_) {}
-    _ocDepthWs = null;
-  }
-  _ocDepthDebug.wsConnected = false;
-}
-
-function _ocDepthWsConnect(symbol) {
-  _ocDepthWsClose();
-  var url = _ocDepthWsUrl(symbol);
-  _ocDepthDebug.wsUrl = url;
-  var ws;
-  try {
-    ws = new WebSocket(url);
-  } catch (_) {
-    setTimeout(function () { if (_ocDepthSymbol === symbol) _ocDepthWsConnect(symbol); }, _ocDepthWsRetryDelay);
-    return;
-  }
-  _ocDepthWs = ws;
-
-  ws.onopen = function () {
-    if (_ocDepthWs !== ws) return;
-    _ocDepthDebug.wsConnected = true;
-    _ocDepthWsRetryDelay = 1000;
-    _ocDepthDebugUpdateDot();
-  };
-
-  ws.onmessage = function (evt) {
-    if (_ocDepthWs !== ws) return;
-    try {
-      var msg = JSON.parse(evt.data);
-      var d = msg.data || msg;  // combined-stream wrapper unwrap
-      var rawBids = d.b || d.bids;
-      var rawAsks = d.a || d.asks;
-      if (!rawBids && !rawAsks) return;
-      var bids = (rawBids || []).slice(0, 5).map(function (row) {
-        return { price: parseFloat(row[0]), volume: parseFloat(row[1]), ord: 0 };
-      });
-      var asks = (rawAsks || []).slice(0, 5).map(function (row) {
-        return { price: parseFloat(row[0]), volume: parseFloat(row[1]), ord: 0 };
-      });
-      _ocRenderDepthBookOnly(bids, asks);
-      _ocDepthDebug.wsLastMsgTs = Date.now();
-      _ocDepthDebug.wsConnected = true;
-    } catch (_) {}
-  };
-
-  ws.onerror = function () { _ocDepthDebug.wsConnected = false; _ocDepthDebugUpdateDot(); };
-
-  ws.onclose = function () {
-    if (_ocDepthWs !== ws) return;
-    _ocDepthDebug.wsConnected = false;
-    _ocDepthDebugUpdateDot();
-    _ocDepthWsRetryDelay = Math.min(_ocDepthWsRetryDelay * 2, 10000);
-    if (_ocDepthSymbol === symbol) setTimeout(function () { _ocDepthWsConnect(symbol); }, _ocDepthWsRetryDelay);
-  };
-}
-
 async function _ocOpenDepth(type) {
   if (_ocSelectedStrike == null) return;
   var symbol = _ocSymbolFor(_ocSelectedStrike, type);
@@ -22544,37 +22454,26 @@ async function _ocOpenDepth(type) {
   document.getElementById('oc-depth-rows').innerHTML = '';
   document.getElementById('oc-depth-err') && document.getElementById('oc-depth-err').remove();
 
-  _ocDepthWsClose();
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
 
-  if (_ocIsBinanceDepthSymbol(symbol)) {
-    // ── BTC/Binance: live WS seedha browser se — bid/ask rows real-time.
-    // Backend poll sirf Price Stats (open/high/low/volume) ke liye, slow
-    // interval par, kyunki wo har 100ms badalne wali cheez nahi hai. ──────
-    _ocDepthDebug.wsMode = true;
-    _ocDepthWsRetryDelay = 1000;
-    _ocDepthWsConnect(symbol);
-    _ocPollDepth(true);  // turant ek baar stats fetch
-    _ocDepthPollTid = setInterval(function () { _ocPollDepth(true); }, 5000);
-  } else {
-    // ── NSE/Fyers: WS option nahi hai (auth token chahiye, browser mein
-    // expose nahi kar sakte) — purana REST-poll-via-backend hi chalega. ───
-    _ocDepthDebug.wsMode = false;
-    if (typeof _probeApiPort === 'function') await _probeApiPort();
-    _ocPollDepth(false);
-    _ocDepthPollTid = setInterval(function () { _ocPollDepth(false); }, 1500);
-  }
+  // ── Sirf REST se — BTC/Binance ho ya NSE/Fyers, dono ke liye backend
+  // /api/market_depth endpoint hi poll hota hai. Fetch tabhi shuru hota hai
+  // jab market depth window open hoti hai (strike select karke), koi
+  // background/live WebSocket nahi rakhte — isse localhost/port wala error
+  // khatam ho jaata hai. ──────────────────────────────────────────────────
+  if (typeof _probeApiPort === 'function') await _probeApiPort();
+  _ocPollDepth();
+  _ocDepthPollTid = setInterval(function () { _ocPollDepth(); }, 1500);
 }
 
 function _ocCloseDepth() {
   document.getElementById('oc-depth-backdrop').classList.remove('open');
   document.getElementById('oc-depth-sheet').classList.remove('open');
   if (_ocDepthPollTid) { clearInterval(_ocDepthPollTid); _ocDepthPollTid = null; }
-  _ocDepthWsClose();
   _ocDepthSymbol = null;
 }
 
-async function _ocPollDepth(statsOnly) {
+async function _ocPollDepth() {
   if (!_ocDepthSymbol || _ocDepthInFlight) return;
   _ocDepthInFlight = true;
   var _url = _ocDepthUrl(_ocDepthSymbol);
@@ -22591,7 +22490,7 @@ async function _ocPollDepth(statsOnly) {
       _ocDepthDebug.fetchFailKind = 'http_error';
       _ocDepthDebug.fetchFailMsg  = 'HTTP ' + r.status + (bodyTxt ? (' — ' + bodyTxt.slice(0, 200)) : '');
       _ocRenderDepth({ error: 'Server ne HTTP ' + r.status + ' diya — dobara try karo',
-                        _debug: { branch: 'http_error_status_' + r.status } }, statsOnly);
+                        _debug: { branch: 'http_error_status_' + r.status } });
       _ocDepthInFlight = false;
       return;
     }
@@ -22602,20 +22501,17 @@ async function _ocPollDepth(statsOnly) {
       _ocDepthDebug.fetchFailKind = 'json_parse';
       _ocDepthDebug.fetchFailMsg  = (jsonErr && jsonErr.message) || String(jsonErr);
       _ocRenderDepth({ error: 'Server se JSON parse nahi hua (galat URL/port ho sakta hai)',
-                        _debug: { branch: 'json_parse_fail' } }, statsOnly);
+                        _debug: { branch: 'json_parse_fail' } });
       _ocDepthInFlight = false;
       return;
     }
     _ocDepthDebug.fetchFailKind = null;
     _ocDepthDebug.fetchFailMsg  = null;
-    _ocRenderDepth(data, statsOnly);
+    _ocRenderDepth(data);
   } catch (e) {
     // Ab yahan sirf genuine network-level fail aata hai: timeout
     // (AbortSignal), DNS/connection-refused, ya CORS block — e.name se
     // bata dete hain kaunsa hai, taaki generic "Connection failed" na ho.
-    // NOTE: BTC/Binance mode mein ye ab sirf Price Stats fail karega —
-    // bid/ask rows WS se independently aate rehte hain, isliye poori
-    // Order Book "FAILED" nahi dikhegi jab tak WS bhi down na ho.
     var _kind = 'network';
     if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) _kind = 'timeout';
     else if (e && e.name === 'TypeError') _kind = 'network';  // "Failed to fetch" — DNS/CORS/refused
@@ -22624,7 +22520,7 @@ async function _ocPollDepth(statsOnly) {
     var _humanMsg = _kind === 'timeout'
       ? 'Timeout (4s) — server ne response hi nahi diya. Port ' + (_resolvedApiPort || '?') + ' galat ho sakta hai ya backend thread hung hai.'
       : 'Network error — server tak pahunch nahi paaye (' + _ocDepthDebug.fetchFailMsg + '). URL: ' + _url;
-    _ocRenderDepth({ error: _humanMsg, _debug: { branch: 'js_fetch_' + _kind } }, statsOnly);
+    _ocRenderDepth({ error: _humanMsg, _debug: { branch: 'js_fetch_' + _kind } });
   }
   _ocDepthInFlight = false;
 }
@@ -22664,42 +22560,19 @@ function _ocRenderDepthBook(bids, asks) {
   return { totalBuy: tb, totalSell: ts };
 }
 
-// ── Live WS message handler ke liye — sirf book update karta hai, koi
-// price-stats nahi (wo REST poll se, slow interval par, alag se aate hain).
-function _ocRenderDepthBookOnly(bids, asks) {
-  var totals = _ocRenderDepthBook(bids, asks);
-  _ocDepthDebug.symbol    = _ocDepthSymbol;
-  _ocDepthDebug.ok        = true;
-  _ocDepthDebug.error     = '';
-  _ocDepthDebug.ts        = Date.now();
-  _ocDepthDebug.bidLevels = bids.length;
-  _ocDepthDebug.askLevels = asks.length;
-  _ocDepthDebug.totalBuy  = totals.totalBuy;
-  _ocDepthDebug.totalSell = totals.totalSell;
-  _ocDepthDebugUpdateDot();
-}
-
-// statsOnly=true: sirf Price Stats panel update karo (bids/asks WS se already
-// aa rahe hain, REST wale purane/slow bid-ask se rows overwrite mat karo).
-function _ocRenderDepth(data, statsOnly) {
+// ── REST poll se aaye data ko depth sheet me render karta hai (rows +
+// price stats dono ek saath) — market depth window open hote hi ek baar,
+// phir har 1.5s interval par yahi call hota hai. ─────────────────────────
+function _ocRenderDepth(data) {
   var rowsEl = document.getElementById('oc-depth-rows');
   if (!rowsEl) return;
   if (!data || data.error) {
-    if (!statsOnly || !_ocDepthDebug.wsConnected) {
-      rowsEl.innerHTML = '<div id="oc-depth-err">⚠️ ' + (data && data.error ? data.error : 'Data nahi mila') + '</div>';
-    }
+    rowsEl.innerHTML = '<div id="oc-depth-err">⚠️ ' + (data && data.error ? data.error : 'Data nahi mila') + '</div>';
     _ocDepthDebugSetErr(data && data.error ? data.error : 'Data nahi mila', data && data._debug);
     return;
   }
-  if (!statsOnly) {
-    _ocDepthDebugSetOk(data);
-    _ocRenderDepthBook(data.bids, data.asks);
-  }
-  // WS live hai to error-state hata do (agar pehle error dikh raha tha)
-  if (statsOnly && _ocDepthDebug.wsConnected) {
-    var errEl = document.getElementById('oc-depth-err');
-    if (errEl) errEl.remove();
-  }
+  _ocDepthDebugSetOk(data);
+  _ocRenderDepthBook(data.bids, data.asks);
 
   var ltpEl = document.getElementById('oc-depth-ltp');
   var chgEl = document.getElementById('oc-depth-chg');
