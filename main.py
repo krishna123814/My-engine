@@ -614,7 +614,10 @@ except ImportError:
     websocket = None
 
 BINANCE_OC_FILE          = "binance_optionchain.json"
-BINANCE_OC_STRIKE_WINDOW = 10     # ATM ke dono taraf, HAR expiry ke liye itni strikes
+BINANCE_OC_STRIKE_WINDOW = 20     # ATM ke dono taraf, HAR expiry ke liye itni strikes
+                                    # (frontend "Strikes" dropdown max option se match — user
+                                    # jitni bhi maange, 20 tak, usi window se serve hota hai;
+                                    # frontend usmein se apni choice slice karta hai)
 BINANCE_OC_META_TTL      = 600    # exchangeInfo (strikes/expiries) refresh — 10 min
 BINANCE_OC_TICKER_TTL    = 5      # 24hr ticker snapshot (OI/vol/chg%) refresh — 5 sec
 BINANCE_SPOT_STALE_SEC   = 10     # spot WS tick se purana ho to REST se fresh price lo
@@ -1633,7 +1636,10 @@ def refresh_option_chain_cache() -> dict:
         if not creds.get("access_token") or not creds.get("app_id"):
             payload = {"error": "Fyers login nahi mila — creds file mein access_token/app_id missing hai."}
         else:
-            data = fyers_get_option_chain(creds["app_id"], creds["access_token"])
+            # strikecount=20 — BTC (Binance) window ke barabar, taaki frontend
+            # ka "Strikes" dropdown (max 20 each side) BankNifty ke liye bhi
+            # bina extra rows-missing ke kaam kare.
+            data = fyers_get_option_chain(creds["app_id"], creds["access_token"], strikecount=20)
             if data:
                 with _OC_LOCK:
                     _OC_CACHE.update({"data": data, "ts": now})

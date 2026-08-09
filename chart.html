@@ -629,6 +629,129 @@
 </script>
 <script>
 /* ════════════════════════════════════════════════════════════════
+   PERFORMANCE MONITOR — header ⏱ icon (SV1 + SV2 dono me same #hdr
+   se aata hai, isliye dono jagah automatically dikhta hai).
+   Batata hai: is waqt kitne background "processes" (setInterval
+   timers) chal rahe hain, kaun kitna time kha raha hai (measured via
+   performance.now() — sabse zyada load wale sabse upar, descending
+   sort), approx JS-heap RAM (jahan browser support kare), aur refresh
+   30s / 1min / 2min me switch ho sakta hai.
+   Extra (apni taraf se add kiya): stopped/idle timers ko bhi track
+   karta hai (agar koi interval clearInterval ho chuka hai to "stopped"
+   dikhega, load-table se bahar nahi hoga — taaki dead code bhi dikhe),
+   sabse heavy process ko 🔥 se highlight karta hai, aur "Reset stats"
+   button diya hai taaki naye session se dobara measure kar sako.
+   ════════════════════════════════════════════════════════════════ */
+const _PM = { tasks: {}, refreshSec: 30, timer: null, startedAt: Date.now() };
+
+function _pmRegister(name, type, ms) {
+  if (!_PM.tasks[name]) {
+    _PM.tasks[name] = { type, ms: ms || null, calls: 0, totalTime: 0, lastTime: 0, lastRunAt: 0 };
+  }
+  return _PM.tasks[name];
+}
+
+// Drop-in replacement for setInterval — same behaviour/return value, but
+// measures how long each tick actually takes so it can show up in the
+// load table. Existing clearInterval(id) calls elsewhere keep working
+// unchanged since the real interval id is returned as-is.
+function _pmSetInterval(name, fn, ms) {
+  const task = _pmRegister(name, 'interval', ms);
+  return setInterval(function () {
+    const t0 = performance.now();
+    try { fn.apply(this, arguments); }
+    finally {
+      const dt = performance.now() - t0;
+      task.calls++; task.totalTime += dt; task.lastTime = dt; task.lastRunAt = Date.now();
+    }
+  }, ms);
+}
+
+// For one-off heavy redraws called from inside a RAF-throttle (e.g. Future
+// Line / Swing S-R redraw) — same measuring, shows up in the same table.
+function _pmMeasure(name, fn) {
+  const task = _pmRegister(name, 'redraw', null);
+  const t0 = performance.now();
+  try { return fn(); }
+  finally {
+    const dt = performance.now() - t0;
+    task.calls++; task.totalTime += dt; task.lastTime = dt; task.lastRunAt = Date.now();
+  }
+}
+
+function _pmMemoryMB() {
+  try { if (performance.memory && performance.memory.usedJSHeapSize) return (performance.memory.usedJSHeapSize / 1048576).toFixed(1); }
+  catch (_) {}
+  return null;
+}
+
+function _pmUpdateBadge() {
+  const badge = document.getElementById('pm-badge');
+  if (!badge) return;
+  const now = Date.now();
+  const alive = Object.values(_PM.tasks).filter(t => t.lastRunAt && (now - t.lastRunAt) < (t.ms ? t.ms * 3 : 10000));
+  badge.textContent = alive.length;
+}
+
+function _pmRender() {
+  _pmUpdateBadge();
+  const body = document.getElementById('pm-panel-body');
+  if (!body) return;
+  const now = Date.now();
+  const rows = Object.keys(_PM.tasks).map(n => ({ name: n, ...(_PM.tasks[n]) })).sort((a, b) => b.totalTime - a.totalTime);
+  const grandTotal = rows.reduce((s, r) => s + r.totalTime, 0) || 1;
+
+  const memMB = _pmMemoryMB();
+  const memRow = memMB !== null
+    ? `RAM (JS heap): <b>${memMB} MB</b>`
+    : `RAM: <span style="color:#787b86">N/A (browser unsupported)</span>`;
+  const aliveCount = rows.filter(r => r.lastRunAt && (now - r.lastRunAt) < (r.ms ? r.ms * 3 : 10000)).length;
+  const upSec = Math.round((now - _PM.startedAt) / 1000);
+
+  let tbl = `<table id="pm-table"><thead><tr><th>Process</th><th>Type</th><th>Status</th><th>Calls</th><th>Avg ms</th><th>Total ms</th></tr></thead><tbody>`;
+  for (const r of rows) {
+    const avg = r.calls ? (r.totalTime / r.calls).toFixed(2) : '0.00';
+    const isAlive = r.lastRunAt && (now - r.lastRunAt) < (r.ms ? r.ms * 3 : 10000);
+    const heavy = r.totalTime / grandTotal > 0.3 ? ' 🔥' : '';
+    tbl += `<tr><td>${r.name}${heavy}</td><td>${r.type}</td>`
+         + `<td class="${isAlive ? 'pm-alive' : 'pm-dead'}">${isAlive ? 'active' : 'stopped'}</td>`
+         + `<td>${r.calls}</td><td>${avg}</td><td>${r.totalTime.toFixed(0)}</td></tr>`;
+  }
+  tbl += `</tbody></table>`;
+
+  body.innerHTML =
+    `<div id="pm-top-row">${memRow}</div>`
+    + `<div id="pm-top-row">Active processes: <b>${aliveCount}</b> / ${rows.length} tracked</div>`
+    + `<div id="pm-top-row">Tracking since: <b>${upSec}s</b> ago</div>`
+    + tbl;
+}
+
+function _pmSetRefresh(sec) {
+  _PM.refreshSec = sec;
+  if (_PM.timer) clearInterval(_PM.timer);
+  _PM.timer = setInterval(_pmRender, sec * 1000);
+  _pmRender();
+  document.querySelectorAll('.pm-freq-btn').forEach(b => b.classList.toggle('active', +b.dataset.sec === sec));
+}
+
+function _pmResetStats() {
+  for (const k in _PM.tasks) { _PM.tasks[k].calls = 0; _PM.tasks[k].totalTime = 0; }
+  _PM.startedAt = Date.now();
+  _pmRender();
+}
+
+function _pmToggle() {
+  const panel = document.getElementById('pm-panel');
+  if (!panel) return;
+  const open = panel.classList.contains('open');
+  panel.classList.toggle('open', !open);
+  if (!open) _pmRender();
+}
+
+document.addEventListener('DOMContentLoaded', function () { _pmSetRefresh(_PM.refreshSec); });
+</script>
+<script>
+/* ════════════════════════════════════════════════════════════════
    SUPABASE DEBUG PANEL — small floating button (bottom-right, "☁")
    Tap it to see: session status, last pulls, last pushes, real
    error messages. No need to open Supabase dashboard to debug.
@@ -700,7 +823,7 @@
       panel.style.display = open ? "none" : "block";
       if (!open) render();
     };
-    setInterval(function () {
+    _pmSetInterval('Supabase Debug Panel Refresh', function () {
       if (panel.style.display === "block") render();
     }, 1000);
   });
@@ -931,6 +1054,34 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .hdr-icon-btn:active{background:#2a2e39;color:#d1d4dc}
 .hdr-icon-btn.active{background:#2962ff;color:#fff;border-color:#2962ff}
+
+/* ── Performance Monitor icon (header) — visible in SV1 + SV2 both
+   since it lives in the shared #hdr, same as every other header icon. ── */
+#pm-icon-btn{position:relative}
+#pm-badge{
+  position:absolute;top:-5px;right:-5px;min-width:13px;height:13px;padding:0 2px;
+  background:#2962ff;color:#fff;border-radius:7px;font-size:8px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;line-height:1;
+}
+#pm-panel{
+  display:none;position:fixed;top:30px;right:6px;z-index:2147483000;
+  background:#1a1d27;border:1px solid #363c4e;border-radius:6px;padding:8px 10px;
+  min-width:260px;max-width:92vw;max-height:70vh;overflow:auto;
+  box-shadow:0 4px 20px rgba(0,0,0,.7);
+}
+#pm-panel.open{display:block}
+#pm-panel-title{font-size:9px;font-weight:700;color:#9598a1;margin-bottom:6px;letter-spacing:.4px;text-transform:uppercase}
+#pm-freq-row{display:flex;gap:4px;margin-bottom:7px}
+.pm-freq-btn{flex:1;background:#232733;border:1px solid #363c4e;border-radius:4px;color:#9598a1;font-size:9px;font-weight:700;padding:5px 2px;cursor:pointer}
+.pm-freq-btn.active{background:#2962ff33;border-color:#2962ff;color:#2962ff}
+#pm-top-row{font-size:9px;color:#c0c0c0;line-height:16px}
+#pm-table{width:100%;border-collapse:collapse;margin-top:6px;font-size:9px}
+#pm-table th{text-align:left;color:#787b86;font-weight:700;padding:3px 4px;border-bottom:1px solid #363c4e;white-space:nowrap}
+#pm-table td{padding:3px 4px;border-bottom:1px solid #232733;color:#d1d4dc;white-space:nowrap}
+#pm-table td.pm-alive{color:#26a69a}
+#pm-table td.pm-dead{color:#ef5350}
+#pm-reset-btn{margin-top:8px;width:100%;height:26px;background:#363c4e;border:none;border-radius:4px;color:#e0e0e0;font-size:10px;cursor:pointer;letter-spacing:.3px}
+#pm-reset-btn:active{background:#ef5350;color:#fff}
 
 /* ── TF Menu Button (header) ──────────────────────────────────────── */
 #tf-menu-btn{
@@ -2494,11 +2645,33 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 #sv2-oc-balance-sub{ font-size:9.5px; color:#787b86; margin-top:2px; }
 #sv2-oc-balance-sub .margin-amt{ color:#ff9800; font-weight:700; }
 #sv2-oc-balance-actions{ display:flex; gap:6px; }
-#sv2-oc-balance-editbtn{
+#sv2-oc-balance-actions{ display:flex; gap:6px; flex-wrap:wrap; }
+#sv2-oc-balance-editbtn,#sv2-oc-balance-addbtn,#sv2-oc-balance-withdrawbtn{
   height:28px; padding:0 10px; border-radius:7px; border:1px solid #2962ff55;
   background:#2962ff1c; color:#2962ff; font-size:10px; font-weight:700; cursor:pointer;
 }
-#sv2-oc-balance-editbtn:active{ background:#2962ff33; }
+#sv2-oc-balance-editbtn:active,#sv2-oc-balance-addbtn:active,#sv2-oc-balance-withdrawbtn:active{ background:#2962ff33; }
+#sv2-oc-balance-add-row,#sv2-oc-balance-withdraw-row{
+  display:none; align-items:center; gap:6px; margin-top:6px;
+}
+#sv2-oc-balance-add-row.open,#sv2-oc-balance-withdraw-row.open{ display:flex; }
+#sv2-oc-balance-add-input,#sv2-oc-balance-withdraw-input{
+  width:120px; height:30px; border-radius:7px; border:1px solid #2a2e39;
+  background:#131722; color:#d1d4dc; font-size:12px; padding:0 8px;
+}
+#sv2-oc-balance-add-input:focus,#sv2-oc-balance-withdraw-input:focus{ outline:none; border-color:#2962ff; }
+#sv2-oc-balance-add-save{
+  height:30px; padding:0 10px; border-radius:7px; border:none;
+  background:#26a69a; color:#0c1017; font-size:11px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-balance-withdraw-save{
+  height:30px; padding:0 10px; border-radius:7px; border:none;
+  background:#ef5350; color:#fff; font-size:11px; font-weight:700; cursor:pointer;
+}
+#sv2-oc-balance-add-cancel,#sv2-oc-balance-withdraw-cancel{
+  height:30px; width:30px; border-radius:7px; border:1px solid #2a2e39;
+  background:#1e222d; color:#787b86; font-size:12px; cursor:pointer;
+}
 #sv2-oc-balance-edit-row{
   display:none; align-items:center; gap:6px; margin-top:6px;
 }
@@ -2517,10 +2690,10 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
   background:#1e222d; color:#787b86; font-size:12px; cursor:pointer;
 }
 #sv2-oc-balance-reset{
-  height:28px; padding:0 10px; border-radius:7px; border:1px solid #2a2e39;
-  background:#131722; color:#787b86; font-size:10px; font-weight:700; cursor:pointer;
+  height:28px; padding:0 10px; border-radius:7px; border:1px solid #ef535066;
+  background:#131722; color:#ef5350; font-size:10px; font-weight:700; cursor:pointer;
 }
-#sv2-oc-balance-reset:active{ background:#2a2e39; }
+#sv2-oc-balance-reset:active{ background:#ef535018; }
 
 /* Greeks show/hide toggle */
 #sv2-oc-greeks-row, .sv2-oc-toggle-row{
@@ -2728,6 +2901,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 }
 .sv2-oc-pos-trail-btn:active{ background:#2a2e39; }
 .sv2-oc-pos-trail-btn.on{ background:#2962ff22; border-color:#2962ff; color:#2962ff; }
+.sv2-oc-pos-roll-btn{
+  flex:1; min-width:80px; height:32px; border-radius:7px; border:1px solid #ff980055;
+  background:#ff980018; color:#ff9800; font-size:11px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-pos-roll-btn:active{ background:#ff980033; }
 .sv2-oc-pos-close-btn{
   flex:1; min-width:80px; height:32px; border-radius:7px; border:none;
   background:#ef535022; color:#ef5350; font-size:11px; font-weight:700; cursor:pointer;
@@ -2886,6 +3064,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#131722;
 .sv2-oc-pending-cancel-btn{
   height:26px; padding:0 10px; border-radius:7px; border:1px solid #ef535055;
   background:#ef535018; color:#ef5350; font-size:10.5px; font-weight:700; cursor:pointer;
+}
+.sv2-oc-pending-btns{ display:flex; gap:6px; flex-shrink:0; }
+.sv2-oc-pending-edit-btn{
+  height:26px; padding:0 10px; border-radius:7px; border:1px solid #2962ff55;
+  background:#2962ff18; color:#2962ff; font-size:10.5px; font-weight:700; cursor:pointer;
 }
 #sv2-oc-trade-btns{ display:flex; gap:10px; }
 .sv2-oc-trade-act{
@@ -3529,25 +3712,91 @@ select.s-select, input.s-select{
 
 #oc-panel{
   display:none;position:fixed;z-index:10003;
-  top:6vh;left:2vw;right:2vw;bottom:8vh;
+  top:28vh;left:6vw;right:6vw;bottom:28vh;
   background:#1e222d;border:1px solid #363c4e;border-radius:12px;
   box-shadow:0 12px 48px #000d;flex-direction:column;overflow:hidden;
 }
 #oc-panel.open{display:flex}
+/* ── Custom confirm modal (replaces native confirm()) ── */
+#oc-custom-modal{
+  display:none;position:fixed;inset:0;z-index:10020;background:#000000cc;
+  align-items:center;justify-content:center;padding:20px;
+}
+#oc-custom-modal.show{display:flex}
+#oc-custom-modal-box{
+  background:#1e222d;border:1px solid #363c4e;border-radius:12px;
+  max-width:360px;width:100%;padding:18px;box-shadow:0 12px 48px #000d;
+}
+#oc-custom-modal-msg{
+  color:#d1d4dc;font-size:13px;white-space:pre-wrap;line-height:1.55;
+  margin-bottom:16px;max-height:60vh;overflow-y:auto;
+}
+#oc-custom-modal-btns{display:flex;gap:8px}
+#oc-custom-modal-btns button{
+  flex:1;height:38px;border-radius:8px;border:1px solid #2a2e39;
+  font-size:13px;font-weight:700;cursor:pointer;
+}
+#oc-custom-modal-cancel{background:#131722;color:#787b86}
+#oc-custom-modal-ok{background:#2962ff;color:#fff;border-color:#2962ff}
+/* ── Toast (replaces native alert()) ── */
+#oc-toast-box{
+  position:fixed;left:50%;bottom:6vh;transform:translateX(-50%);z-index:10021;
+  display:flex;flex-direction:column;gap:8px;align-items:center;
+  pointer-events:none;max-width:90vw;
+}
+.oc-toast{
+  background:#1e222dee;border:1px solid #363c4e;border-radius:10px;
+  color:#d1d4dc;font-size:12.5px;padding:10px 14px;white-space:pre-wrap;
+  box-shadow:0 6px 24px #000a;pointer-events:auto;max-width:100%;
+  text-align:center;animation:ocToastIn .18s ease-out;
+}
+.oc-toast.ok{border-color:#26a69a;color:#26a69a}
+.oc-toast.err{border-color:#ef5350;color:#ef5350}
+@keyframes ocToastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 #oc-hdr{
   display:flex;align-items:center;gap:8px;padding:10px 12px;
   border-bottom:1px solid #2a2e39;flex-shrink:0;
 }
 #oc-hdr-title{font-size:13px;font-weight:700;color:#d1d4dc;flex:1}
 #oc-close{background:none;border:none;color:#787b86;font-size:16px;cursor:pointer;padding:0 4px;line-height:1}
-#oc-greeks-btn,#oc-sound-btn,#oc-pnl-btn{
+#oc-greeks-btn,#oc-sound-btn,#oc-pnl-btn,#oc-cols-btn{
   background:none;border:1px solid #2a2e39;color:#9598a1;font-size:12px;cursor:pointer;
   padding:3px 7px;border-radius:5px;line-height:1;margin-right:6px;
 }
 #oc-greeks-btn.on{border-color:#2962ff;color:#2962ff;background:#2962ff18}
 #oc-sound-btn.off{opacity:.5}
 #oc-pnl-btn.on{border-color:#2962ff;color:#2962ff;background:#2962ff18}
+#oc-cols-btn.on{border-color:#2962ff;color:#2962ff;background:#2962ff18}
 #oc-close:active{color:#ef5350}
+
+/* ── Columns picker (LTP / Bid-Ask / OI / Volume / Greeks) — small ☰ icon
+     next to Greeks/Sound/P&L in oc-hdr, opens a checkbox dropdown so user
+     khud chuun sake option chain mein kaunse columns/subline dikhein. ── */
+#oc-cols-popover{
+  display:none;position:fixed;z-index:10004;
+  background:#1e222d;border:1px solid #363c4e;border-radius:8px;
+  box-shadow:0 10px 32px #000c;width:216px;max-height:70vh;overflow-y:auto;
+}
+#oc-cols-popover.open{display:block}
+.oc-cols-title{
+  font-size:10.5px;font-weight:700;color:#787b86;letter-spacing:.03em;
+  padding:9px 12px 6px;
+}
+.oc-cols-row{
+  display:flex;align-items:center;gap:8px;padding:7px 12px;
+  font-size:12px;color:#d1d4dc;cursor:pointer;
+}
+.oc-cols-row:active{background:#2a2e39}
+.oc-cols-row input[type=checkbox]{
+  width:15px;height:15px;accent-color:#2962ff;flex-shrink:0;cursor:pointer;
+}
+.oc-cols-row.disabled{opacity:.5;cursor:default}
+.oc-cols-row.disabled input{cursor:default}
+.oc-cols-sep{height:1px;background:#2a2e39;margin:4px 0}
+#oc-cols-backdrop{
+  display:none;position:fixed;inset:0;z-index:10003;background:transparent;
+}
+#oc-cols-backdrop.open{display:block}
 #oc-sub{
   display:flex;justify-content:space-between;padding:6px 12px;
   font-size:11px;color:#9598a1;border-bottom:1px solid #2a2e39;flex-shrink:0;
@@ -3717,6 +3966,32 @@ select.s-select, input.s-select{
   border-top:1px solid #2a2e39;background:#181b23;flex-shrink:0;
 }
 #oc-trade-bar.show{display:flex}
+
+/* ═══ Inline Live Order Book (BTC only) — non-modal, sits right inside the
+   trade bar so Buy/Sell aur book same screen par saath dikhte hain. ═══ */
+#oc-trade-book-panel{
+  display:none;background:#131722;border:1px solid #2a2e39;border-radius:8px;
+  padding:8px 8px 6px;margin-bottom:2px;
+}
+#oc-trade-book-panel.show{display:block}
+#oc-trade-book-title{font-size:10.5px;font-weight:700;color:#9598a1;margin-bottom:6px}
+#oc-trade-book-thead{
+  display:grid;grid-template-columns:1fr 1fr 1fr 1fr;font-size:9.5px;font-weight:700;
+  color:#787b86;padding-bottom:4px;border-bottom:1px solid #2a2e39;margin-bottom:2px;
+}
+#oc-trade-book-thead span:nth-child(2){text-align:right}
+#oc-trade-book-thead span:nth-child(3){text-align:left}
+#oc-trade-book-thead span:nth-child(4){text-align:right}
+.oc-book-inline-row{
+  display:grid;grid-template-columns:1fr 1fr 1fr 1fr;font-size:11.5px;font-weight:600;padding:3px 0;
+}
+.oc-book-inline-row .dqb{color:#26a69a;text-align:left}
+.oc-book-inline-row .dpb{color:#e0e3eb;text-align:right;padding-right:6px}
+.oc-book-inline-row .dpa{color:#e0e3eb;text-align:left;padding-left:6px}
+.oc-book-inline-row .dqa{color:#ef5350;text-align:right}
+.oc-book-inline-err{color:#ef5350;font-size:11px;text-align:center;padding:8px 0}
+.oc-depth-btn.active-leg{border-color:#2962ff;color:#2962ff;background:#2962ff1a}
+
 #oc-trade-bar-strike{font-size:12px;font-weight:700;color:#d1d4dc;text-align:center;margin-bottom:2px}
 /* ── Total premium preview — 1 lot ke CE/PE dono ka total rupee amount,
    strike label ke turant neeche. Qty change / limit price / order type
@@ -3750,6 +4025,30 @@ select.s-select, input.s-select{
   color:#d1d4dc;font-size:11px;padding:0 6px;min-width:0;
 }
 .oc-trade-mini-label{font-size:9.5px;color:#787b86;white-space:nowrap}
+/* ── Limit price ± stepper buttons — price ke left/right me, ek tap = ±5
+     point. Number input ke default spinner arrows chhupa diye (sirf in
+     custom buttons se hi control ho, taaki mobile par bada/reliable tap
+     target mile). ── */
+.oc-price-step-btn{
+  flex-shrink:0;width:26px;height:26px;border-radius:6px;border:1px solid #2a2e39;
+  background:#131722;color:#9598a1;font-size:14px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;line-height:1;padding:0;
+}
+.oc-price-step-btn:active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+#oc-trade-limit-price::-webkit-outer-spin-button,
+#oc-trade-limit-price::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+#oc-trade-limit-price{-moz-appearance:textfield}
+/* ── Trade Note/Reason field — SV2 ke #sv2-oc-trade-note se adapt kiya ── */
+#oc-trade-note-row{ margin:8px 0 4px; }
+#oc-trade-note{
+  width:100%; box-sizing:border-box;
+  background:#1e222d; border:1px solid #2a2e39; border-radius:8px;
+  color:#d1d4dc; font-size:11.5px; padding:7px 10px;
+  resize:none; line-height:1.4;
+  font-family:inherit;
+}
+#oc-trade-note::placeholder{ color:#5b606e; }
+#oc-trade-note:focus{ outline:none; border-color:#2962ff; }
 #oc-trade-risk-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 /* ── SL type (SL-Market vs SL-Limit) — adapted from SV2's #sv2-oc-sltype-row.
    Always visible like SV2 (SL type sirf tab matter karta hai jab SL bhara ho,
@@ -3766,14 +4065,26 @@ select.s-select, input.s-select{
 #oc-vbal-value{font-size:22px;font-weight:700;color:#d1d4dc}
 #oc-vbal-sub{font-size:10.5px;color:#787b86;margin-top:4px}
 #oc-vbal-sub .oc-margin-amt{color:#ff9800;font-weight:700}
-#oc-vbal-actions{display:flex;gap:8px;margin-top:12px}
+#oc-vbal-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 .oc-vbal-btn{
-  flex:1;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
+  flex:1;min-width:78px;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
   color:#9598a1;font-size:10.5px;font-weight:700;cursor:pointer;
 }
 .oc-vbal-btn:active{background:#2a2e39}
 #oc-vbal-edit-row{display:none;gap:6px;margin-top:10px}
 #oc-vbal-edit-row.open{display:flex}
+#oc-vbal-add-row{display:none;gap:6px;margin-top:10px}
+#oc-vbal-add-row.open{display:flex}
+#oc-vbal-add-input{flex:1;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;color:#d1d4dc;font-size:12px;padding:0 8px}
+#oc-vbal-add-save{width:50px;height:28px;border:none;border-radius:6px;background:#26a69a;color:#fff;font-size:10.5px;font-weight:700;cursor:pointer}
+#oc-vbal-add-cancel{width:32px;height:28px;border:none;border-radius:6px;background:#2a2e39;color:#9598a1;cursor:pointer}
+#oc-vbal-withdraw-row{display:none;gap:6px;margin-top:10px}
+#oc-vbal-withdraw-row.open{display:flex}
+#oc-vbal-withdraw-input{flex:1;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;color:#d1d4dc;font-size:12px;padding:0 8px}
+#oc-vbal-withdraw-save{width:68px;height:28px;border:none;border-radius:6px;background:#ef5350;color:#fff;font-size:10.5px;font-weight:700;cursor:pointer}
+#oc-vbal-withdraw-cancel{width:32px;height:28px;border:none;border-radius:6px;background:#2a2e39;color:#9598a1;cursor:pointer}
+.oc-vbal-btn.danger{border-color:#ef535066;color:#ef5350}
+.oc-vbal-btn.danger:active{background:#ef535018}
 #oc-vbal-input{flex:1;height:28px;border-radius:6px;border:1px solid #2a2e39;background:#131722;color:#d1d4dc;font-size:12px;padding:0 8px}
 #oc-vbal-save{width:50px;height:28px;border:none;border-radius:6px;background:#2962ff;color:#fff;font-size:10.5px;font-weight:700;cursor:pointer}
 #oc-vbal-cancel{width:32px;height:28px;border:none;border-radius:6px;background:#2a2e39;color:#9598a1;cursor:pointer}
@@ -3885,12 +4196,81 @@ select.s-select, input.s-select{
 .oc-hist-name{font-weight:700;color:#d1d4dc}
 .oc-hist-meta{color:#787b86;font-size:9.5px;margin-top:2px}
 .oc-hist-charges{color:#5b606e;font-size:9px;margin-top:2px;line-height:1.4}
+.oc-hist-note{color:#9aa0ab;font-size:10px;margin-top:4px;line-height:1.4;word-break:break-word;white-space:pre-wrap}
 .oc-pos-section-hdr{padding:8px 12px 4px;font-size:10px;font-weight:700;color:#787b86;letter-spacing:.04em;text-transform:uppercase}
 .oc-pend-cancel-btn{
   border:1px solid #2a2e39;background:#181b23;color:#ef5350;font-size:10px;font-weight:700;
   padding:4px 10px;border-radius:6px;cursor:pointer;
 }
 .oc-pend-cancel-btn:active{background:#2a2e39}
+.oc-pend-edit-btn{
+  border:1px solid #2a2e39;background:#181b23;color:#2962ff;font-size:10px;font-weight:700;
+  padding:4px 10px;border-radius:6px;cursor:pointer;margin-right:6px;
+}
+.oc-pend-edit-btn:active{background:#2a2e39}
+/* ── Edit Working Order modal — pending limit order ka price/qty/SL/TP
+   dobara set karna, bina cancel+re-place kiye. Same overlay pattern as
+   #oc-custom-modal (custom, non-native — fullscreen exit nahi karta). ── */
+#oc-editorder-modal{
+  display:none;position:fixed;inset:0;z-index:10020;background:#000000cc;
+  align-items:center;justify-content:center;padding:20px;
+}
+#oc-editorder-modal.show{display:flex}
+#oc-editorder-box{
+  background:#1e222d;border:1px solid #363c4e;border-radius:12px;
+  max-width:340px;width:100%;padding:18px;box-shadow:0 12px 48px #000d;
+}
+#oc-editorder-title{color:#d1d4dc;font-size:14px;font-weight:700;margin-bottom:2px}
+#oc-editorder-sub{color:#787b86;font-size:11px;margin-bottom:14px}
+.oc-editorder-row{margin-bottom:12px}
+.oc-editorder-row label{display:block;font-size:10.5px;color:#787b86;margin-bottom:5px}
+.oc-editorder-row input{
+  width:100%;height:32px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
+  color:#d1d4dc;font-size:12px;padding:0 8px;box-sizing:border-box;
+}
+.oc-editorder-stepper{display:flex;gap:6px;align-items:center}
+.oc-editorder-stepper input{flex:1}
+#oc-editorder-btns{display:flex;gap:8px;margin-top:4px}
+#oc-editorder-btns button{
+  flex:1;height:38px;border-radius:8px;border:1px solid #2a2e39;
+  font-size:13px;font-weight:700;cursor:pointer;
+}
+#oc-editorder-cancel{background:#131722;color:#787b86}
+#oc-editorder-save{background:#2962ff;color:#fff;border-color:#2962ff}
+/* ── SV2 — Edit Working (pending limit) Order modal — SV1 ke
+   #oc-editorder-modal se adapt kiya, same visual style. ── */
+#sv2-oc-editorder-modal{
+  display:none;position:fixed;inset:0;z-index:10020;background:#000000cc;
+  align-items:center;justify-content:center;padding:20px;
+}
+#sv2-oc-editorder-modal.show{display:flex}
+#sv2-oc-editorder-box{
+  background:#1e222d;border:1px solid #363c4e;border-radius:12px;
+  max-width:340px;width:100%;padding:18px;box-shadow:0 12px 48px #000d;
+}
+#sv2-oc-editorder-title{color:#d1d4dc;font-size:14px;font-weight:700;margin-bottom:2px}
+#sv2-oc-editorder-sub{color:#787b86;font-size:11px;margin-bottom:14px}
+.sv2-oc-editorder-row{margin-bottom:12px}
+.sv2-oc-editorder-row label{display:block;font-size:10.5px;color:#787b86;margin-bottom:5px}
+.sv2-oc-editorder-row input{
+  width:100%;height:32px;border-radius:6px;border:1px solid #2a2e39;background:#131722;
+  color:#d1d4dc;font-size:12px;padding:0 8px;box-sizing:border-box;
+}
+.sv2-oc-editorder-stepper{display:flex;gap:6px;align-items:center}
+.sv2-oc-editorder-stepper input{flex:1}
+.sv2-oc-price-step-btn{
+  flex-shrink:0;width:26px;height:26px;border-radius:6px;border:1px solid #2a2e39;
+  background:#131722;color:#9598a1;font-size:14px;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;line-height:1;padding:0;
+}
+.sv2-oc-price-step-btn:active{background:#2962ff22;border-color:#2962ff;color:#2962ff}
+#sv2-oc-editorder-btns{display:flex;gap:8px;margin-top:4px}
+#sv2-oc-editorder-btns button{
+  flex:1;height:38px;border-radius:8px;border:1px solid #2a2e39;
+  font-size:13px;font-weight:700;cursor:pointer;
+}
+#sv2-oc-editorder-cancel{background:#131722;color:#787b86}
+#sv2-oc-editorder-save{background:#2962ff;color:#fff;border-color:#2962ff}
 #fyers-meta-panel{
   display:none;position:fixed;z-index:10002;
   bottom:34px;left:8px;
@@ -4228,6 +4608,7 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
       <span class="sv1-debug-dot" id="sv1-debug-mark-dot" title="Option Chain: Mark price WS"></span>
       <span class="sv1-debug-dot" id="sv1-debug-trade-dot" title="Option Chain: Trade WS"></span>
       <span class="sv1-debug-dot" id="sv1-debug-depth-dot" title="Order Book (Market Depth)"></span>
+      <span class="sv1-debug-dot" id="sv1-debug-order-dot" title="Order Execution (Buy/Sell trades — filled ya rejected, kyun)"></span>
     </div>
     <!-- text rows kept hidden for JS compat -->
     <div class="sv1-debug-row" id="sv1-debug-tick-row" style="display:none!important">
@@ -4268,8 +4649,23 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button id="broker-btn" onclick="toggleBrokerPanel(event)" title="Fyers Broker Login">🔑</button>
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
+    <button class="hdr-icon-btn" id="pm-icon-btn" onclick="_pmToggle()" title="Performance Monitor (processes / RAM / load)">⏱<span id="pm-badge">0</span></button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
+</div>
+
+<!-- ── Performance Monitor Panel — #hdr ke BAHAR (sibling), same z-index
+     convention jaisa SV1 debug popup — SV1 aur SV2 dono me, koi bhi
+     screen khuli ho, hamesha sabse UPAR hi khule. ── -->
+<div id="pm-panel">
+  <div id="pm-panel-title">⏱ Performance Monitor — Active Processes</div>
+  <div id="pm-freq-row">
+    <button class="pm-freq-btn" data-sec="30" onclick="_pmSetRefresh(30)">30s</button>
+    <button class="pm-freq-btn" data-sec="60" onclick="_pmSetRefresh(60)">1min</button>
+    <button class="pm-freq-btn" data-sec="120" onclick="_pmSetRefresh(120)">2min</button>
+  </div>
+  <div id="pm-panel-body"></div>
+  <button id="pm-reset-btn" onclick="_pmResetStats()">↺ Reset Stats</button>
 </div>
 
 <!-- ── SV1 Debug Log Popup — jaanbojh kar #hdr ke BAHAR (sibling) rakha hai,
@@ -4608,12 +5004,34 @@ function _hdrRelayout(){
     <span id="oc-hdr-title">⛓ Option Chain — BANKNIFTY</span>
     <button id="oc-pnl-btn" onclick="_ocPnlOverlayToggle()" title="Position P&amp;L (strike ke saath) chart par Show/Hide karo">P&amp;L</button>
     <button id="oc-greeks-btn" onclick="_ocToggleGreeks()" title="Greeks (Delta/IV/Theta/Vega) trade bar mein dikhao">Ⓖ</button>
+    <button id="oc-cols-btn" onclick="_ocColsPopoverToggle(event)" title="Columns select karo (LTP/Bid-Ask/OI/Volume/Delta/Gamma/Theta/Vega/IV)">☰</button>
     <button id="oc-sound-btn" onclick="_ocToggleSound()" title="Sound alerts on/off">🔊</button>
     <!-- ── BTC Option Chain LTP debug ab top-header SV1 debug tracker mein
          merge ho gaya hai (mark/trade dots wahi icon mein hain, log bhi
          wahi popup mein dikhta hai) — yahan se separate tracker/popup
          hata diya gaya. ── -->
     <button id="oc-close" onclick="toggleOptionChain()">✕</button>
+  </div>
+
+  <!-- ═══ Columns picker popover — ☰ icon se khulta hai, checkbox se columns
+       select karo. LTP/Strike/OI hamesha core columns hain (disabled tick,
+       hide nahi ho sakte); baaki sab CE/PE cell ke neeche ek chhoti subline
+       mein dikhte hain, jo yahan se select kiye hue hain. ═══ -->
+  <div id="oc-cols-backdrop" onclick="_ocColsPopoverClose()"></div>
+  <div id="oc-cols-popover">
+    <div class="oc-cols-title">COLUMNS DIKHAO</div>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-ltp" onchange="_ocColToggle('ltp')"> LTP</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-oi" onchange="_ocColToggle('oi')"> OI</label>
+    <div class="oc-cols-sep"></div>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-bidask" onchange="_ocColToggle('bidask')"> Bid / Ask</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-oichg" onchange="_ocColToggle('oichg')"> OI Change</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-volume" onchange="_ocColToggle('volume')"> Volume</label>
+    <div class="oc-cols-sep"></div>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-delta" onchange="_ocColToggle('delta')"> Delta (Δ)</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-gamma" onchange="_ocColToggle('gamma')"> Gamma (Γ)</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-theta" onchange="_ocColToggle('theta')"> Theta (Θ)</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-vega" onchange="_ocColToggle('vega')"> Vega (V)</label>
+    <label class="oc-cols-row"><input type="checkbox" id="oc-col-iv" onchange="_ocColToggle('iv')"> IV %</label>
   </div>
 
   <div id="oc-sub">
@@ -4646,8 +5064,10 @@ function _hdrRelayout(){
     </div>
     <div id="oc-toggle-rows">
       <div class="oc-toggle-row">
-        <span>Show Depth (Bid/Ask · OI · Vol)</span>
-        <button class="oc-toggle-btn" id="oc-depth-toggle-btn" onclick="_ocToggleDepth()"></button>
+        <span>🎯 Strikes (ATM ke dono taraf)</span>
+        <input type="number" id="oc-strikes-select" min="1" max="20" step="1"
+               onchange="_ocSetStrikesEachSide(this.value)"
+               style="background:#181b23;color:#d1d4dc;border:1px solid #2a2e39;border-radius:4px;font-size:11px;padding:3px 6px;width:48px;text-align:center;">
       </div>
       <div class="oc-toggle-row">
         <span>⭐ Watchlist Only (favourite strikes)</span>
@@ -4676,13 +5096,27 @@ function _hdrRelayout(){
       <div id="oc-trade-bar-strike">—</div>
       <div id="oc-trade-total">—</div>
       <div id="oc-trade-greeks-row" style="display:none"></div>
+      <!-- ═══ Inline Live Order Book (BTC only) — strike select hote hi trade
+           bar ke saath automatically khulta hai, koi alag click/modal nahi.
+           Same screen par Buy/Sell aur order book dono saath dikhte hain.
+           📊 icon se CE/PE ke beech switch hota hai. BankNifty ke liye ye
+           panel nahi khulta (wahan 📊 purana full modal hi kholta hai). ═══ -->
+      <div id="oc-trade-book-panel">
+        <div id="oc-trade-book-title">📖 Live Order Book</div>
+        <div id="oc-trade-book-thead">
+          <span>Bid Qty</span><span>Bid</span><span>Ask</span><span>Ask Qty</span>
+        </div>
+        <div id="oc-trade-book-rows"></div>
+      </div>
       <div class="oc-otype-row">
         <button class="oc-otype-btn active" id="oc-otype-market-btn" onclick="_ocSetOrderType('market')">Market</button>
         <button class="oc-otype-btn" id="oc-otype-limit-btn" onclick="_ocSetOrderType('limit')">Limit</button>
       </div>
       <div id="oc-trade-limit-row">
         <span class="oc-trade-mini-label">Limit ₹</span>
+        <button type="button" class="oc-price-step-btn" onclick="_ocStepLimitPrice(-5)">−</button>
         <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-limit-price" placeholder="Price" oninput="_ocUpdateTradeTotal()">
+        <button type="button" class="oc-price-step-btn" onclick="_ocStepLimitPrice(5)">+</button>
       </div>
       <div id="oc-trade-risk-row">
         <span class="oc-trade-mini-label">SL ₹</span>
@@ -4704,27 +5138,30 @@ function _hdrRelayout(){
         <span class="oc-trade-mini-label">SL-Limit ₹</span>
         <input type="number" inputmode="decimal" class="oc-trade-mini-inp" id="oc-trade-sllimit" placeholder="fill price">
       </div>
-      <div class="oc-trade-row">
+      <div class="oc-trade-row" id="oc-trade-row-ce">
         <span class="oc-trade-side-label">CE</span>
         <div class="oc-trade-qty-wrap">
           <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(-1)">−</button>
           <span class="oc-trade-qty-val" id="oc-trade-qty-ce">1</span>
           <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(1)">+</button>
         </div>
-        <button id="oc-depth-btn-ce" class="oc-depth-btn" onclick="_ocOpenDepth('CE')" title="Market Depth">📊</button>
+        <button id="oc-depth-btn-ce" class="oc-depth-btn" onclick="_ocDepthBtnClick('CE')" title="Order Book">📊</button>
         <button class="oc-trade-buy-btn" onclick="_ocConfirmTrade('CE','buy')">Buy CE</button>
         <button class="oc-trade-sell-btn" onclick="_ocConfirmTrade('CE','sell')">Sell CE</button>
       </div>
-      <div class="oc-trade-row">
+      <div class="oc-trade-row" id="oc-trade-row-pe">
         <span class="oc-trade-side-label">PE</span>
         <div class="oc-trade-qty-wrap">
           <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(-1)">−</button>
           <span class="oc-trade-qty-val" id="oc-trade-qty-pe">1</span>
           <button class="oc-trade-qty-btn" onclick="_ocTradeQtyStep(1)">+</button>
         </div>
-        <button id="oc-depth-btn-pe" class="oc-depth-btn" onclick="_ocOpenDepth('PE')" title="Market Depth">📊</button>
+        <button id="oc-depth-btn-pe" class="oc-depth-btn" onclick="_ocDepthBtnClick('PE')" title="Order Book">📊</button>
         <button class="oc-trade-buy-btn" onclick="_ocConfirmTrade('PE','buy')">Buy PE</button>
         <button class="oc-trade-sell-btn" onclick="_ocConfirmTrade('PE','sell')">Sell PE</button>
+      </div>
+      <div id="oc-trade-note-row">
+        <textarea id="oc-trade-note" rows="2" placeholder="📝 Trade note / reason (optional) — pehli line mein 'cell show-9D' likho to us cell par P&L badge dikhega"></textarea>
       </div>
       <div id="oc-trade-margin-note">Virtual money — 1 lot = 30 qty (BANKNIFTY)</div>
     </div>
@@ -4813,8 +5250,20 @@ function _hdrRelayout(){
       <div id="oc-vbal-value">₹25,000</div>
       <div id="oc-vbal-sub"></div>
       <div id="oc-vbal-actions">
+        <button class="oc-vbal-btn" onclick="_ocVBalStartAdd()">➕ Add Balance</button>
+        <button class="oc-vbal-btn" onclick="_ocVBalStartWithdraw()">➖ Withdraw</button>
         <button class="oc-vbal-btn" onclick="_ocVBalStartEdit()">✏️ Set Amount</button>
-        <button class="oc-vbal-btn" id="oc-vbal-reset-btn" onclick="_ocVBalReset()">↺ Reset to ₹25,000</button>
+        <button class="oc-vbal-btn danger" id="oc-vbal-reset-btn" onclick="_ocVBalReset()">⚠️ Full Reset</button>
+      </div>
+      <div id="oc-vbal-add-row">
+        <input type="number" id="oc-vbal-add-input" inputmode="decimal" placeholder="Amount add karo">
+        <button id="oc-vbal-add-save" onclick="_ocVBalSaveAdd()">Add</button>
+        <button id="oc-vbal-add-cancel" onclick="_ocVBalCancelAdd()">✕</button>
+      </div>
+      <div id="oc-vbal-withdraw-row">
+        <input type="number" id="oc-vbal-withdraw-input" inputmode="decimal" placeholder="Amount withdraw karo">
+        <button id="oc-vbal-withdraw-save" onclick="_ocVBalSaveWithdraw()">Withdraw</button>
+        <button id="oc-vbal-withdraw-cancel" onclick="_ocVBalCancelWithdraw()">✕</button>
       </div>
       <div id="oc-vbal-edit-row">
         <input type="number" id="oc-vbal-input" inputmode="decimal" placeholder="Enter amount">
@@ -4876,6 +5325,92 @@ function _hdrRelayout(){
           <div class="oc-an-bw-meta" id="oc-an-worst-meta"></div>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Custom in-panel confirm / toast — replaces native confirm()/alert()
+     for SV1's trade-execute + balance-reset flows. Native dialogs make
+     mobile Chrome auto-exit fullscreen (browser must show its own chrome
+     UI); these DOM-based equivalents never touch fullscreen. Placed as a
+     sibling of #oc-panel (not nested inside it) so #oc-panel's
+     overflow:hidden can never clip them. ═══════════════════════════════ -->
+<div id="oc-custom-modal">
+  <div id="oc-custom-modal-box">
+    <div id="oc-custom-modal-msg"></div>
+    <div id="oc-custom-modal-btns">
+      <button id="oc-custom-modal-cancel" type="button">Cancel</button>
+      <button id="oc-custom-modal-ok" type="button">Confirm</button>
+    </div>
+  </div>
+</div>
+<div id="oc-toast-box"></div>
+<div id="oc-editorder-modal">
+  <div id="oc-editorder-box">
+    <div id="oc-editorder-title">Edit Working Order</div>
+    <div id="oc-editorder-sub"></div>
+    <div class="oc-editorder-row">
+      <label>Limit Price ₹</label>
+      <div class="oc-editorder-stepper">
+        <button type="button" class="oc-price-step-btn" onclick="_ocEditOrderStep('limitPrice',-5)">−</button>
+        <input type="number" inputmode="decimal" id="oc-editorder-limitprice">
+        <button type="button" class="oc-price-step-btn" onclick="_ocEditOrderStep('limitPrice',5)">+</button>
+      </div>
+    </div>
+    <div class="oc-editorder-row">
+      <label>Qty (lots)</label>
+      <div class="oc-editorder-stepper">
+        <button type="button" class="oc-price-step-btn" onclick="_ocEditOrderStep('qty',-1)">−</button>
+        <input type="number" inputmode="numeric" id="oc-editorder-qty">
+        <button type="button" class="oc-price-step-btn" onclick="_ocEditOrderStep('qty',1)">+</button>
+      </div>
+    </div>
+    <div class="oc-editorder-row">
+      <label>SL ₹ (optional)</label>
+      <input type="number" inputmode="decimal" id="oc-editorder-sl" placeholder="optional">
+    </div>
+    <div class="oc-editorder-row">
+      <label>TP ₹ (optional)</label>
+      <input type="number" inputmode="decimal" id="oc-editorder-tp" placeholder="optional">
+    </div>
+    <div id="oc-editorder-btns">
+      <button type="button" id="oc-editorder-cancel" onclick="_ocCloseEditPendingOrder()">Cancel</button>
+      <button type="button" id="oc-editorder-save" onclick="_ocSaveEditPendingOrder()">Save Changes</button>
+    </div>
+  </div>
+</div>
+<!-- ── SV2 — Edit Working (pending limit) Order modal ── -->
+<div id="sv2-oc-editorder-modal">
+  <div id="sv2-oc-editorder-box">
+    <div id="sv2-oc-editorder-title">Edit Working Order</div>
+    <div id="sv2-oc-editorder-sub"></div>
+    <div class="sv2-oc-editorder-row">
+      <label>Limit Price</label>
+      <div class="sv2-oc-editorder-stepper">
+        <button type="button" class="sv2-oc-price-step-btn" onclick="_sv2OCEditOrderStep('limitPrice',-5)">−</button>
+        <input type="number" inputmode="decimal" id="sv2-oc-editorder-limitprice">
+        <button type="button" class="sv2-oc-price-step-btn" onclick="_sv2OCEditOrderStep('limitPrice',5)">+</button>
+      </div>
+    </div>
+    <div class="sv2-oc-editorder-row">
+      <label>Qty (lots)</label>
+      <div class="sv2-oc-editorder-stepper">
+        <button type="button" class="sv2-oc-price-step-btn" onclick="_sv2OCEditOrderStep('qty',-1)">−</button>
+        <input type="number" inputmode="numeric" id="sv2-oc-editorder-qty">
+        <button type="button" class="sv2-oc-price-step-btn" onclick="_sv2OCEditOrderStep('qty',1)">+</button>
+      </div>
+    </div>
+    <div class="sv2-oc-editorder-row">
+      <label>SL (optional)</label>
+      <input type="number" inputmode="decimal" id="sv2-oc-editorder-sl" placeholder="optional">
+    </div>
+    <div class="sv2-oc-editorder-row">
+      <label>TP (optional)</label>
+      <input type="number" inputmode="decimal" id="sv2-oc-editorder-tp" placeholder="optional">
+    </div>
+    <div id="sv2-oc-editorder-btns">
+      <button type="button" id="sv2-oc-editorder-cancel" onclick="_sv2OCCloseEditPendingOrder()">Cancel</button>
+      <button type="button" id="sv2-oc-editorder-save" onclick="_sv2OCSaveEditPendingOrder()">Save Changes</button>
     </div>
   </div>
 </div>
@@ -5340,8 +5875,20 @@ function _hdrRelayout(){
         </div>
       </div>
       <div id="sv2-oc-balance-actions">
+        <button id="sv2-oc-balance-addbtn" onclick="_sv2OCStartAddBalance()">➕ Add</button>
+        <button id="sv2-oc-balance-withdrawbtn" onclick="_sv2OCStartWithdrawBalance()">➖ Withdraw</button>
         <button id="sv2-oc-balance-editbtn" onclick="_sv2OCStartManualBalance()">✏️ Set</button>
-        <button id="sv2-oc-balance-reset" onclick="_sv2OCResetBalance()">Reset</button>
+        <button id="sv2-oc-balance-reset" onclick="_sv2OCResetBalance()">⚠️ Full Reset</button>
+      </div>
+      <div id="sv2-oc-balance-add-row">
+        <input type="number" id="sv2-oc-balance-add-input" inputmode="decimal" placeholder="Amount add karo">
+        <button id="sv2-oc-balance-add-save" onclick="_sv2OCSaveAddBalance()">Add</button>
+        <button id="sv2-oc-balance-add-cancel" onclick="_sv2OCCancelAddBalance()">✕</button>
+      </div>
+      <div id="sv2-oc-balance-withdraw-row">
+        <input type="number" id="sv2-oc-balance-withdraw-input" inputmode="decimal" placeholder="Amount withdraw karo">
+        <button id="sv2-oc-balance-withdraw-save" onclick="_sv2OCSaveWithdrawBalance()">Withdraw</button>
+        <button id="sv2-oc-balance-withdraw-cancel" onclick="_sv2OCCancelWithdrawBalance()">✕</button>
       </div>
     </div>
 
@@ -7791,7 +8338,7 @@ function _markUserDragEnd() {
   // Grid/stack containers get rebuilt (innerHTML replaced) when layouts
   // change, so keep re-wiring cheaply on an interval rather than trying to
   // hook every single rebuild call site.
-  setInterval(_attach, 1000);
+  _pmSetInterval('Grid Attach Rewire', _attach, 1000);
 })();
 
 // Every layout is defined by its grid-template-areas rows. The number of unique
@@ -8410,6 +8957,133 @@ function _sv2PracticeTodayStr() {
 // "abhi currently active asset" ki settings hote hain — _sv2OCSyncAssetContext()
 // hi inhe copy karta hai, taaki neeche ka baaki sara code (jo SV2OC.xxx
 // directly use karta hai) bina rewrite kiye dono asset ke liye kaam kare. ──
+// ── USDT → INR live conversion rate (shared: SV1 + SV2 dono ki BTC balance
+// displays isi ek rate ko use karte hain) — CoinGecko ke Tether price feed
+// se fetch hota hai (koi API key nahi chahiye), har 5 min refresh hota hai.
+// Fetch fail ho to purana rate hi silently use hota rehta hai (taaki
+// network hiccup par UI "₹NaN" jaisa kuch na dikhaye). ─────────────────
+var _usdtInrRate = null;
+async function _ocFetchUsdtInrRate() {
+  try {
+    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=inr');
+    const j = await r.json();
+    const rate = j && j.tether && j.tether.inr;
+    if (rate) {
+      _usdtInrRate = rate;
+      // Jo bhi balance panel abhi khula hai use turant refresh karo, taaki
+      // naya rate turant dikhe — agli balance-change ka wait na karna pade.
+      if (typeof _ocSyncBalanceTab === 'function') _ocSyncBalanceTab();
+      if (typeof _ocSyncVBalCard === 'function') _ocSyncVBalCard();
+      if (typeof _sv2OCRenderBalance === 'function') _sv2OCRenderBalance();
+    }
+  } catch (_) { /* purana rate use hota rahega, agla interval retry karega */ }
+}
+_ocFetchUsdtInrRate();
+setInterval(_ocFetchUsdtInrRate, 5 * 60 * 1000); // har 5 min refresh
+// USDT amount ke saath "(≈ ₹X)" suffix banata hai — rate abhi tak mila
+// nahi (pehla fetch pending) to khaali string deta hai.
+function _ocInrEquiv(usdtAmt) {
+  if (_usdtInrRate == null || usdtAmt == null || isNaN(usdtAmt)) return '';
+  return ' (≈ ₹' + Math.round(usdtAmt * _usdtInrRate).toLocaleString('en-IN') + ')';
+}
+
+// ── Custom in-panel confirm/toast — replaces native confirm()/alert() in
+// SV1's trade-execute + balance-reset flows. Native dialogs force mobile
+// Chrome to auto-exit fullscreen (browser has to show its own chrome to
+// draw them); these DOM-based equivalents never touch fullscreen at all. ─
+function _ocModalConfirm(message) {
+  return new Promise(function (resolve) {
+    var overlay = document.getElementById('oc-custom-modal');
+    var msgEl = document.getElementById('oc-custom-modal-msg');
+    var okBtn = document.getElementById('oc-custom-modal-ok');
+    var cancelBtn = document.getElementById('oc-custom-modal-cancel');
+    if (!overlay || !msgEl || !okBtn || !cancelBtn) { resolve(window.confirm(message)); return; }
+    msgEl.textContent = message;
+    overlay.classList.add('show');
+    function cleanup(result) {
+      overlay.classList.remove('show');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      resolve(result);
+    }
+    function onOk() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+  });
+}
+function _ocToast(message, kind) {
+  var box = document.getElementById('oc-toast-box');
+  if (!box) return;
+  var el = document.createElement('div');
+  el.className = 'oc-toast' + (kind ? (' ' + kind) : '');
+  el.textContent = message;
+  box.appendChild(el);
+  setTimeout(function () {
+    el.style.opacity = '0';
+    el.style.transition = 'opacity .25s';
+    setTimeout(function () { el.remove(); }, 260);
+  }, 4200);
+}
+
+// ── Edit an already-placed Working (pending limit) order — price/qty/SL/TP
+// dobara set karna, bina cancel karke naya order lagaye. Pehle sirf Cancel
+// hi possible tha, jisse price thoda idhar-udhar karna ho to poora order
+// dobara banana padta tha (naya id, naya placedTime) — ab seedha edit. ────
+var _ocEditOrderId = null;
+function _ocOpenEditPendingOrder(id) {
+  var o = SV1OC.pendingOrders.find(function (x) { return x.id === id; });
+  if (!o) return;
+  _ocEditOrderId = id;
+  var subEl = document.getElementById('oc-editorder-sub');
+  if (subEl) subEl.textContent = o.type + ' ' + _fmtNum(o.strike) + ' · ' + o.side.toUpperCase() + ' LIMIT';
+  var lp = document.getElementById('oc-editorder-limitprice'); if (lp) lp.value = o.limitPrice;
+  var qv = document.getElementById('oc-editorder-qty'); if (qv) qv.value = o.qtyLots;
+  var sl = document.getElementById('oc-editorder-sl'); if (sl) sl.value = (o.sl != null ? o.sl : '');
+  var tp = document.getElementById('oc-editorder-tp'); if (tp) tp.value = (o.tp != null ? o.tp : '');
+  var overlay = document.getElementById('oc-editorder-modal');
+  if (overlay) overlay.classList.add('show');
+}
+function _ocCloseEditPendingOrder() {
+  var overlay = document.getElementById('oc-editorder-modal');
+  if (overlay) overlay.classList.remove('show');
+  _ocEditOrderId = null;
+}
+function _ocEditOrderStep(field, delta) {
+  var id = (field === 'limitPrice') ? 'oc-editorder-limitprice' : 'oc-editorder-qty';
+  var inp = document.getElementById(id);
+  if (!inp) return;
+  var cur = parseFloat(inp.value);
+  if (isNaN(cur)) cur = 0;
+  var next = cur + delta;
+  next = (field === 'qty') ? Math.max(1, Math.round(next)) : Math.max(0, Math.round(next * 100) / 100);
+  inp.value = next;
+}
+function _ocSaveEditPendingOrder() {
+  var id = _ocEditOrderId;
+  if (!id) return;
+  var o = SV1OC.pendingOrders.find(function (x) { return x.id === id; });
+  if (!o) { _ocCloseEditPendingOrder(); return; }
+  var lpEl = document.getElementById('oc-editorder-limitprice');
+  var qvEl = document.getElementById('oc-editorder-qty');
+  var slEl = document.getElementById('oc-editorder-sl');
+  var tpEl = document.getElementById('oc-editorder-tp');
+  var lp = lpEl ? parseFloat(lpEl.value) : NaN;
+  var qv = qvEl ? parseInt(qvEl.value, 10) : NaN;
+  if (isNaN(lp) || lp <= 0) { _ocToast('⚠️ Sahi Limit price daalo.', 'err'); return; }
+  if (isNaN(qv) || qv <= 0) { _ocToast('⚠️ Sahi Qty daalo.', 'err'); return; }
+  var slv = slEl ? slEl.value : '';
+  var tpv = tpEl ? tpEl.value : '';
+  o.limitPrice = lp;
+  o.qtyLots = qv;
+  o.sl = (slv !== '' && !isNaN(parseFloat(slv))) ? parseFloat(slv) : null;
+  o.tp = (tpv !== '' && !isNaN(parseFloat(tpv))) ? parseFloat(tpv) : null;
+  _ocSavePendingOrders();
+  _ocRenderPositions();
+  _ocCloseEditPendingOrder();
+  _ocToast('✅ Working order update ho gaya.', 'ok');
+}
+
 var SV2OC_ASSET_CFG = {
   bn: {
     label: 'BANKNIFTY', shortLabel: 'BN',
@@ -8648,12 +9322,13 @@ function _sv2OCFmtMoney(v) {
 function _sv2OCRenderBalance() {
   var el = document.getElementById('sv2-oc-balance-val');
   var subEl = document.getElementById('sv2-oc-balance-sub');
-  if (el) el.textContent = _sv2OCFmtMoney(SV2OC.balance);
+  var isBTC = SV2OC.currentAssetKey === 'btc';
+  if (el) el.textContent = _sv2OCFmtMoney(SV2OC.balance) + (isBTC ? _ocInrEquiv(SV2OC.balance) : '');
   if (subEl) {
     var blocked = _sv2OCTotalBlockedMargin();
     if (blocked > 0) {
       var avail = SV2OC.balance - blocked;
-      subEl.innerHTML = 'Available ' + _sv2OCFmtMoney(avail) +
+      subEl.innerHTML = 'Available ' + _sv2OCFmtMoney(avail) + (isBTC ? _ocInrEquiv(avail) : '') +
         ' · <span class="margin-amt">' + _sv2OCFmtMoney(blocked) + ' margin blocked</span>';
     } else {
       subEl.textContent = '';
@@ -8986,6 +9661,46 @@ function _sv2OCUpdateRolloverWarning() {
 // AGLI expiry-cycle mein theoretical price par turant re-open kar deta hai
 // (jaisa real broker "rollover" order — do legs, ek hi niyat). Positions
 // jo window se bahar hain unhe touch nahi karta. ─────────────────────────
+// ── Individual position rollover — sirf EK position ko current-cycle par
+// square-off karke, agli-expiry-cycle mein theoretical price par re-open
+// karta hai (SV1's _ocRollPosition se adapt kiya, SV2 ke sim-bid/ask +
+// SquareOffCore/ExecuteFill engine use karke). Position card ke "🔄 Roll"
+// button se, ya "Roll All" se (jo isi function ko loop mein call karta hai)
+// dono jagah se use hota hai. ─────────────────────────────────────────────
+function _sv2OCRollPosition(id) {
+  var idx = SV2OC.positions.findIndex(function (p) { return p.id === id; });
+  if (idx === -1) return;
+  var spot = _sv2OCCurrentSpot();
+  if (spot == null) { alert('Live price abhi available nahi hai, thodi der baad try karo.'); return; }
+  var nowSec = _sv2OCCurrentTimeSec();
+  var p = SV2OC.positions[idx];
+  var strike = p.strike, type = p.type, side = p.side, lots = p.lots;
+  var oldExpirySec = _sv2OCPositionExpirySec(p);
+  var mark = _sv2OCMarkPriceFor(p, spot, nowSec);
+  var ba = _sv2OCSimBidAsk(mark, strike, spot);
+  var exitPx = (side === 'buy') ? ba.bid : ba.ask; // exit slippage, jaisa SL-Market
+  var pnl = _sv2OCSquareOffCore(idx, exitPx, 'rollover');
+
+  var newExpirySec = _sv2OCExpiryAfter(oldExpirySec);
+  var theoP = _sv2OCMarkPriceFor({ strike: strike, type: type, expirySec: newExpirySec }, spot, nowSec);
+  var ba2 = _sv2OCSimBidAsk(theoP, strike, spot);
+  var entryPx = (side === 'buy') ? ba2.ask : ba2.bid; // entry slippage, jaisa market order
+  var rollNote = 'Rolled from previous cycle @ theoretical ' + SV2OC.cur + _sv2OCFmtPrice(entryPx) + ' (purani leg P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ')';
+  var ok = _sv2OCExecuteFill({ strike: strike, type: type, expirySec: newExpirySec }, side, lots, entryPx, 'SLM', null, null, null, rollNote);
+
+  _sv2OCUpdateRolloverWarning();
+  _sv2OCUpdateBottomBarBadge();
+  _sv2OCRenderPositions();
+  _sv2OCRenderHistory();
+  _sv2OCRenderBalance();
+  _sv2OCSoundRollover();
+  var newExpiryStr = new Date(newExpirySec * 1000).toISOString().slice(0, 10);
+  if (ok) {
+    alert('🔄 Rolled — ' + side.toUpperCase() + ' ' + strike + ' ' + type + ' naye expiry (' + newExpiryStr + ') mein @ ' + SV2OC.cur + _sv2OCFmtPrice(entryPx) + ' (purani leg P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + ').');
+  } else {
+    alert('🔄 ' + side.toUpperCase() + ' ' + strike + ' ' + type + ' square-off ho gaya (rollover, P&L ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0) + '), lekin balance/margin kam hone ki wajah se naya position open nahi ho paaya. Chain se manually khol lo.');
+  }
+}
 function _sv2OCRolloverAllPositions() {
   if (!SV2OC.positions.length) return;
   var spot = _sv2OCCurrentSpot();
@@ -9144,6 +9859,7 @@ function _sv2OCWarnSessionReset() {
 
 // ── Manually set balance to any custom amount ────────────────────────────
 function _sv2OCStartManualBalance() {
+  _sv2OCCancelAddBalance(); _sv2OCCancelWithdrawBalance();
   var row = document.getElementById('sv2-oc-balance-edit-row');
   var input = document.getElementById('sv2-oc-balance-input');
   if (!row || !input) return;
@@ -9168,6 +9884,59 @@ function _sv2OCSaveManualBalance() {
   _sv2OCSaveBalance();
   _sv2OCRenderBalance();
   _sv2OCCancelManualBalance();
+}
+// ── ➕ Add Balance — purana balance reset kiye BINA usme amount jodta hai
+// (positions/history/pending sab untouched rehte hain). ────────────────
+function _sv2OCStartAddBalance() {
+  _sv2OCCancelManualBalance(); _sv2OCCancelWithdrawBalance();
+  var row = document.getElementById('sv2-oc-balance-add-row');
+  var input = document.getElementById('sv2-oc-balance-add-input');
+  if (!row || !input) return;
+  input.value = '';
+  row.classList.add('open');
+  input.focus();
+}
+function _sv2OCCancelAddBalance() {
+  var row = document.getElementById('sv2-oc-balance-add-row');
+  if (row) row.classList.remove('open');
+}
+function _sv2OCSaveAddBalance() {
+  var input = document.getElementById('sv2-oc-balance-add-input');
+  if (!input) return;
+  var amt = parseFloat(input.value);
+  if (isNaN(amt) || amt <= 0) { alert('Sahi amount daalo (0 se zyada).'); return; }
+  SV2OC.balance = (SV2OC.balance || 0) + amt;
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
+  _sv2OCCancelAddBalance();
+}
+// ── ➖ Withdraw Balance — balance se amount ghataata hai. Margin-blocked
+// paisa (open SELL positions ka collateral) withdraw nahi ho sakta, isliye
+// max sirf available balance (_sv2OCAvailableBalance()) tak hi allowed hai. ──
+function _sv2OCStartWithdrawBalance() {
+  _sv2OCCancelManualBalance(); _sv2OCCancelAddBalance();
+  var row = document.getElementById('sv2-oc-balance-withdraw-row');
+  var input = document.getElementById('sv2-oc-balance-withdraw-input');
+  if (!row || !input) return;
+  input.value = '';
+  row.classList.add('open');
+  input.focus();
+}
+function _sv2OCCancelWithdrawBalance() {
+  var row = document.getElementById('sv2-oc-balance-withdraw-row');
+  if (row) row.classList.remove('open');
+}
+function _sv2OCSaveWithdrawBalance() {
+  var input = document.getElementById('sv2-oc-balance-withdraw-input');
+  if (!input) return;
+  var amt = parseFloat(input.value);
+  if (isNaN(amt) || amt <= 0) { alert('Sahi amount daalo (0 se zyada).'); return; }
+  var avail = (typeof _sv2OCAvailableBalance === 'function') ? _sv2OCAvailableBalance() : SV2OC.balance;
+  if (amt > avail) { alert('Itna withdraw nahi ho sakta — sirf ' + _sv2OCFmtMoney(avail) + ' available hai (margin-blocked paisa withdraw nahi ho sakta).'); return; }
+  SV2OC.balance = SV2OC.balance - amt;
+  _sv2OCSaveBalance();
+  _sv2OCRenderBalance();
+  _sv2OCCancelWithdrawBalance();
 }
 
 // ── Greeks show/hide preference ───────────────────────────────────────────
@@ -10075,6 +10844,10 @@ function _sv2OCOpenTrade(strike, type, ltp) {
   if (tpEl) tpEl.value = '';
   if (limitEl) limitEl.value = _sv2OCFmtPrice(ltp);
   if (sllimitEl) sllimitEl.value = '';
+  // Note field ko "cell show-" se pre-fill karo (sirf jab khaali ho) — user
+  // ko sirf timeframe (3D/9D/etc) type karna pade, poora tag khud ban jaaye.
+  var noteEl0 = document.getElementById('sv2-oc-trade-note');
+  if (noteEl0 && !noteEl0.value) noteEl0.value = 'cell show-';
   _sv2OCSetOrderType('market');
   _sv2OCSetSLType('SLM');
   _sv2OCRenderTradeQtyAndTotal();
@@ -10185,11 +10958,23 @@ function _sv2OCTradeCancel() {
   if (noteEl) noteEl.value = '';
 }
 // ── Edit note on an already-open position (prompt-based, mobile-friendly) ──
+// Helper: note ki pehli line mein "cell show-" tag guaranteed rakhta hai —
+// agar already hai (kisi bhi timeframe ke saath) to note untouched, agar
+// nahi hai (naya note ya purana note bina tag ke) to "cell show-" ek nayi
+// pehli line ke roop mein aage add kar deta hai (purana content niche shift
+// ho jaata hai, delete nahi hota).
+function _sv2OCEnsureCellShowPrefix(note) {
+  note = note || '';
+  var firstLine = note.split('\n')[0].trim();
+  if (/^cell\s+show\s*-\s*\S+/i.test(firstLine)) return note; // already tagged
+  return note ? ('cell show-\n' + note) : 'cell show-';
+}
 function _sv2OCEditPositionNote(id) {
   var idx = SV2OC.positions.findIndex(function(p){ return p.id === id; });
   if (idx === -1) return;
   var currentNote = SV2OC.positions[idx].note || '';
-  var newNote = prompt('📝 Trade note / reason edit karo:\n(Khaali chhodne par note hata jaayega)', currentNote);
+  var promptDefault = _sv2OCEnsureCellShowPrefix(currentNote);
+  var newNote = prompt('📝 Trade note / reason edit karo:\n(Pehli line "cell show-9D" jaisa rakho to us cell par P&L badge dikhega. Khaali chhodne par note hata jaayega)', promptDefault);
   if (newNote === null) return; // cancelled
   SV2OC.positions[idx].note = newNote.trim();
   _sv2OCSavePositions();
@@ -10385,6 +11170,61 @@ function _sv2OCCancelPendingOrder(id) {
   SV2OC.pendingOrders.splice(idx, 1);
   _sv2OCSavePendingOrders();
   _sv2OCRenderPositions();
+}
+// ── Edit an already-placed Working (pending limit) order — price/qty/SL/TP
+// dobara set karna, bina cancel karke naya order lagaye (SV1 ke
+// _ocOpenEditPendingOrder/_ocSaveEditPendingOrder se adapt kiya). ────────
+var _sv2OCEditOrderId = null;
+function _sv2OCOpenEditPendingOrder(id) {
+  var o = SV2OC.pendingOrders.find(function (x) { return x.id === id; });
+  if (!o) return;
+  _sv2OCEditOrderId = id;
+  var subEl = document.getElementById('sv2-oc-editorder-sub');
+  if (subEl) subEl.textContent = o.type + ' ' + o.strike + ' · ' + o.side.toUpperCase() + ' LIMIT';
+  var lp = document.getElementById('sv2-oc-editorder-limitprice'); if (lp) lp.value = o.limitPrice;
+  var qv = document.getElementById('sv2-oc-editorder-qty'); if (qv) qv.value = o.lots;
+  var sl = document.getElementById('sv2-oc-editorder-sl'); if (sl) sl.value = (o.slValue != null ? o.slValue : '');
+  var tp = document.getElementById('sv2-oc-editorder-tp'); if (tp) tp.value = (o.tpValue != null ? o.tpValue : '');
+  var overlay = document.getElementById('sv2-oc-editorder-modal');
+  if (overlay) overlay.classList.add('show');
+}
+function _sv2OCCloseEditPendingOrder() {
+  var overlay = document.getElementById('sv2-oc-editorder-modal');
+  if (overlay) overlay.classList.remove('show');
+  _sv2OCEditOrderId = null;
+}
+function _sv2OCEditOrderStep(field, delta) {
+  var id = (field === 'limitPrice') ? 'sv2-oc-editorder-limitprice' : 'sv2-oc-editorder-qty';
+  var inp = document.getElementById(id);
+  if (!inp) return;
+  var cur = parseFloat(inp.value);
+  if (isNaN(cur)) cur = 0;
+  var next = cur + delta;
+  next = (field === 'qty') ? Math.max(1, Math.round(next)) : Math.max(0, Math.round(next * 100) / 100);
+  inp.value = next;
+}
+function _sv2OCSaveEditPendingOrder() {
+  var id = _sv2OCEditOrderId;
+  if (!id) return;
+  var o = SV2OC.pendingOrders.find(function (x) { return x.id === id; });
+  if (!o) { _sv2OCCloseEditPendingOrder(); return; }
+  var lpEl = document.getElementById('sv2-oc-editorder-limitprice');
+  var qvEl = document.getElementById('sv2-oc-editorder-qty');
+  var slEl = document.getElementById('sv2-oc-editorder-sl');
+  var tpEl = document.getElementById('sv2-oc-editorder-tp');
+  var lp = lpEl ? parseFloat(lpEl.value) : NaN;
+  var qv = qvEl ? parseInt(qvEl.value, 10) : NaN;
+  if (isNaN(lp) || lp <= 0) { alert('⚠️ Sahi Limit price daalo.'); return; }
+  if (isNaN(qv) || qv <= 0) { alert('⚠️ Sahi Qty daalo.'); return; }
+  var slv = slEl ? slEl.value : '';
+  var tpv = tpEl ? tpEl.value : '';
+  o.limitPrice = lp;
+  o.lots = qv;
+  o.slValue = (slv !== '' && !isNaN(parseFloat(slv))) ? parseFloat(slv) : null;
+  o.tpValue = (tpv !== '' && !isNaN(parseFloat(tpv))) ? parseFloat(tpv) : null;
+  _sv2OCSavePendingOrders();
+  _sv2OCRenderPositions();
+  _sv2OCCloseEditPendingOrder();
 }
 
 // ── Set / change SL & Target on an already-open position ─────────────────
@@ -10659,7 +11499,10 @@ function _sv2OCRenderPositions() {
             '<div class="sv2-oc-pending-name">' + o.side.toUpperCase() + ' LIMIT ' + SV2OC.label + ' ' + o.strike + ' ' + o.type + '</div>' +
             '<div class="sv2-oc-pending-meta">' + o.lots + ' ' + qtyUnitLbl2 + ' · Limit ' + SV2OC.cur + _sv2OCFmtPrice(o.limitPrice) + '</div>' +
           '</div>' +
-          '<button class="sv2-oc-pending-cancel-btn" onclick="_sv2OCCancelPendingOrder(\'' + o.id + '\')">Cancel</button>' +
+          '<div class="sv2-oc-pending-btns">' +
+            '<button class="sv2-oc-pending-edit-btn" onclick="_sv2OCOpenEditPendingOrder(\'' + o.id + '\')">Edit</button>' +
+            '<button class="sv2-oc-pending-cancel-btn" onclick="_sv2OCCancelPendingOrder(\'' + o.id + '\')">Cancel</button>' +
+          '</div>' +
         '</div>' +
       '</div>';
     });
@@ -10689,6 +11532,8 @@ function _sv2OCRenderPositions() {
     }
     if (p.tp != null) metaBits.push('Target ' + SV2OC.cur + _sv2OCFmtPrice(p.tp));
     var qtyUnitLbl = p.lots > 1 ? SV2OC.qtyPlural : SV2OC.qtySingular;
+    var posExpirySec = _sv2OCPositionExpirySec(p);
+    var nearExpiry = (nowSec != null) && ((posExpirySec - nowSec) / 86400 <= (SV2OC.rolloverWarnDays || 1));
     var noteHtml = p.note
       ? '<div class="sv2-oc-pos-note"><span class="sv2-oc-pos-note-icon">📝</span><span class="sv2-oc-pos-note-text">' + p.note.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span><button class="sv2-oc-pos-note-edit" onclick="_sv2OCEditPositionNote(\'' + p.id + '\')" title="Note edit karo">✏️</button></div>'
       : '<div class="sv2-oc-pos-note" style="border-color:#2a2e39;color:#5b606e"><span class="sv2-oc-pos-note-icon">📝</span><span class="sv2-oc-pos-note-text" style="font-style:italic">Note add karo...</span><button class="sv2-oc-pos-note-edit" onclick="_sv2OCEditPositionNote(\'' + p.id + '\')" title="Note likhو">✏️</button></div>';
@@ -10706,6 +11551,7 @@ function _sv2OCRenderPositions() {
         '<button class="sv2-oc-pos-sltp-btn" onclick="_sv2OCEditSLTP(\'' + p.id + '\')">🎯 SL/Target</button>' +
         '<button class="sv2-oc-pos-trail-btn' + (p.trailPoints != null ? ' on' : '') + '" onclick="_sv2OCSetTrailSL(\'' + p.id + '\')">🔄 Trail SL</button>' +
         (p.lots > 1 ? '<button class="sv2-oc-pos-partial-btn" onclick="_sv2OCPartialExitPosition(\'' + p.id + '\')">✂️ Partial Exit</button>' : '') +
+        (nearExpiry ? '<button class="sv2-oc-pos-roll-btn" onclick="_sv2OCRollPosition(\'' + p.id + '\')">🔄 Roll</button>' : '') +
         '<button class="sv2-oc-pos-close-btn" onclick="_sv2OCClosePosition(\'' + p.id + '\')">Square Off</button>' +
       '</div>' +
     '</div>';
@@ -11038,7 +11884,7 @@ function _sv2OCRenderPnlTopLeft() {
   function _parseCellShowTag(note) {
     if (!note) return null;
     var firstLine = note.split('\n')[0].trim().toLowerCase();
-    var m = firstLine.match(/^cell\s+show-(\S+)/);
+    var m = firstLine.match(/^cell\s+show\s*-\s*(\S+)/);
     if (!m) return null;
     // normalizeLabel jaisa: uppercase (except 'm' = minutes)
     var raw = m[1];
@@ -13861,7 +14707,7 @@ function ss2ApplyAndClose() {
     _ringRaf = requestAnimationFrame(_ringStep);
 
     // setInterval → forming candle body/wick update (every 200 ms = smooth enough)
-    _formingIv = setInterval(function() {
+    _formingIv = _pmSetInterval('Forming Candle Update', function() {
       var pct = Math.min((performance.now() - _ringStart) / TICK_MS, 1);
       _rebuildWithForming(pct);
     }, 200);
@@ -14685,7 +15531,7 @@ function _sv2ResumeLastReplayFromCal() {
 
 // ── Autosave safety-net — Future Line / Arrow edits jahan se bhi hon, sab
 //    capture ho jaayein bina har jagah alag-alag hook lagaye. ───────────────
-setInterval(function(){ try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }, 4000);
+_pmSetInterval('SV2 Snapshot Save', function(){ try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }, 4000);
 window.addEventListener('beforeunload', function(){ try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} });
 document.addEventListener('visibilitychange', function(){
   if (document.hidden) { try { _sv2SaveSnapshotForCurrentAsset(); } catch(_){} }
@@ -15953,7 +16799,7 @@ function _updateMarketTimers() {
     }
   } catch(_) {}
 }
-setInterval(_updateMarketTimers, 1000);
+_pmSetInterval('Market Timers', _updateMarketTimers, 1000);
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', _updateMarketTimers);
 } else {
@@ -15984,7 +16830,7 @@ function _updateLiveClocks() {
     if (el2) el2.textContent = t;
   } catch (_) {}
 }
-setInterval(_updateLiveClocks, 1000);
+_pmSetInterval('Live Clocks', _updateLiveClocks, 1000);
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', _updateLiveClocks);
 } else {
@@ -16109,7 +16955,7 @@ function _updateTfCloseWidgets() {
     _renderTfCloseWidget(document.getElementById('sv2-tf-closed-widget'), _tfCloseState.sv2, _sv2BaseMinNow);
   } catch(_) {}
 }
-setInterval(_updateTfCloseWidgets, 1000);
+_pmSetInterval('TF Close Widgets', _updateTfCloseWidgets, 1000);
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', _updateTfCloseWidgets);
 } else {
@@ -16471,8 +17317,16 @@ function rebuildChart() {
   const mainEl = document.getElementById('main-chart');
   chart = LightweightCharts.createChart(mainEl, chartOpts(mainEl));
   _followLive = true;
-  mainEl.addEventListener('pointerdown', ()=>{ _followLive = false; }, {passive:true});
-  mainEl.addEventListener('wheel', ()=>{ _followLive = false; }, {passive:true});
+  // Named handler + cleanup so repeated rebuildChart() calls (TF/asset switch)
+  // don't keep stacking new pointerdown/wheel listeners on the same reused div.
+  if (mainEl._followLiveOff) {
+    mainEl.removeEventListener('pointerdown', mainEl._followLiveOff);
+    mainEl.removeEventListener('wheel', mainEl._followLiveOff);
+  }
+  const _followLiveOff = () => { _followLive = false; };
+  mainEl._followLiveOff = _followLiveOff;
+  mainEl.addEventListener('pointerdown', _followLiveOff, {passive:true});
+  mainEl.addEventListener('wheel', _followLiveOff, {passive:true});
 
   if (S.chartType === 'candle') {
     mainSeries = chart.addCandlestickSeries({
@@ -16605,13 +17459,17 @@ function rebuildChart() {
   _mainVLTime = data.length ? data[data.length - 1].time : null;
   _applyVLineColor(S.asset, S.tf, S.vLineSV1);
   _vlCreateCanvas();
-  chart.timeScale().subscribeVisibleLogicalRangeChange(_vlDraw);
-  // RAF-throttle vlDraw on crosshair move — prevents double-paint with legend RAF
+  // RAF-throttle vlDraw — shared guard for both scroll/zoom (range-change) and
+  // crosshair move, so redraw never runs more than once per animation frame
+  // even if the underlying events fire many times in a single frame (fast
+  // pinch-zoom / inertial pan can fire range-change 10-20x per frame).
   let _vlRAF = null;
-  chart.subscribeCrosshairMove(() => {
+  const _vlDrawThrottled = () => {
     if (_vlRAF) return;
-    _vlRAF = requestAnimationFrame(() => { _vlRAF = null; _vlDraw(); });
-  });
+    _vlRAF = requestAnimationFrame(() => { _vlRAF = null; _pmMeasure('Future Line Redraw (SV1)', _vlDraw); });
+  };
+  chart.timeScale().subscribeVisibleLogicalRangeChange(_vlDrawThrottled);
+  chart.subscribeCrosshairMove(_vlDrawThrottled);
   _vlDraw();
 }
 
@@ -18790,7 +19648,7 @@ let _cellTimerRafId=0;
 function _startCellTimers() {
   if (_cellTimerIv) clearInterval(_cellTimerIv);
   if (_cellTimerRafId) cancelAnimationFrame(_cellTimerRafId);
-  _cellTimerIv=setInterval(_tickCellTimersText, 1000);
+  _cellTimerIv=_pmSetInterval('Cell Timers Text', _tickCellTimersText, 1000);
   _tickCellTimersText();
   const posLoop=()=>{
     _positionCellTimers();
@@ -18822,7 +19680,7 @@ function initCandleTimer() {
     'border:1px solid #2f3241;padding:1px 3px;text-align:right;'+
     'border-radius:0 0 2px 2px;white-space:nowrap;visibility:hidden;';
   mainEl.appendChild(_timerEl);
-  _timerIv=setInterval(_tickTimerText,1000);
+  _timerIv=_pmSetInterval('Timer Text', _tickTimerText,1000);
   _tickTimerText();
   const posLoop=()=>{
     _positionTimerEl();
@@ -19314,6 +20172,34 @@ const _SV1_DEBUG_STALE_MS = 10000;
 const _SV1_DEBUG_LAG_TOL = 0.02; // thoda float-rounding tolerance ke liye (0.01 se thoda zyada)
 
 // ══════════════════════════════════════════════════════════════════════
+// Order Execution debug — har Buy/Sell tap ka full analysis: trade
+// execute hui ya nahi, agar nahi hui to exact reason. Market fill,
+// working (limit) order place, aur reject teeno yahan log hote hain.
+// ══════════════════════════════════════════════════════════════════════
+let _sv1TradeLog = [];   // {t, strike, type, side, orderType, qtyLots, reqPrice, fillPrice, status:'filled'|'pending'|'rejected', reason, detail}
+const _SV1_TRADE_LOG_MAX = 15;
+
+function _sv1LogTrade(entry) {
+  entry.t = Date.now();
+  _sv1TradeLog.unshift(entry);
+  if (_sv1TradeLog.length > _SV1_TRADE_LOG_MAX) _sv1TradeLog.length = _SV1_TRADE_LOG_MAX;
+  _sv1DebugUpdateOrderDot();
+  if (document.getElementById('sv1-debug-popup')?.classList.contains('open')) {
+    _sv1DebugPopupRefreshLog();
+  }
+}
+
+function _sv1DebugUpdateOrderDot() {
+  const dot = document.getElementById('sv1-debug-order-dot');
+  if (!dot) return;
+  if (!_sv1TradeLog.length) { dot.classList.remove('ok'); dot.classList.remove('err'); return; }
+  const last = _sv1TradeLog[0];
+  const good = last.status === 'filled' || last.status === 'pending';
+  dot.classList.toggle('ok', good);
+  dot.classList.toggle('err', !good);
+}
+
+// ══════════════════════════════════════════════════════════════════════
 // Smart Troubleshoot — Auto-Fix
 // Jab koi feed problem detect hoti hai (dot red), yahan se ek "safe" fix
 // khud try hota hai — bina user ke kuch dabaye. Har feed ka apna cooldown
@@ -19621,7 +20507,7 @@ function _sv1DebugStart() {
   // _sv1DebugRefresh ke andar).
   _sv1DebugRefresh();
   if (!_sv1DebugTimer) {
-    _sv1DebugTimer = setInterval(_sv1DebugRefresh, 1000);
+    _sv1DebugTimer = _pmSetInterval('SV1 Debug Refresh', _sv1DebugRefresh, 1000);
   }
 }
 let _sv1DebugTimer = null;
@@ -19792,6 +20678,37 @@ function _sv1DebugPopupRefreshLog() {
       html += '\n<span>' + '─'.repeat(20) + ' Option Chain LTP ' + '─'.repeat(20) + '</span>\n' + ocHtml;
     }
   }
+
+  // ── Order Execution — har Buy/Sell tap ka pura analysis: trade execute
+  // hui ya nahi, aur nahi hui to exact reason (SL-Limit field khaali,
+  // limit price invalid, LTP unavailable, insufficient balance/margin).
+  // Market fills, working (limit) order placements, aur pending orders
+  // jo baad me auto-trigger hokar fill hue — teeno yahan dikhte hain. ──
+  let orderExecHtml;
+  if (!_sv1TradeLog.length) {
+    orderExecHtml = '<span>— Abhi tak koi Buy/Sell trade try nahi kiya gaya.</span>';
+  } else {
+    orderExecHtml = _sv1TradeLog.map(function (e) {
+      const ago = Math.round((now - e.t) / 1000) + 's ago';
+      const sideTxt = e.side === 'buy' ? 'BUY' : 'SELL';
+      const otTxt = e.orderType === 'limit-triggered' ? 'limit(auto-fill)' : (e.orderType || '-');
+      const head = '● [' + ago + ']  ' + sideTxt + ' ' + (e.type || '-') + ' ' + _fmtNum(e.strike) +
+        '  qty=' + e.qtyLots + ' lot  order=' + otTxt +
+        '  reqPx=' + (e.reqPrice != null ? _fmtNum(e.reqPrice) : '-') +
+        '  fillPx=' + (e.fillPrice != null ? _fmtNum(e.fillPrice) : '-') +
+        '  → ' + e.status.toUpperCase();
+      const ok = e.status === 'filled' || e.status === 'pending';
+      const lines2 = [{ ok: ok, text: head }];
+      if (e.reason) lines2.push({ ok: null, text: '  Reason : ' + e.reason });
+      if (e.detail) lines2.push({ ok: null, text: '  Detail : ' + e.detail });
+      return lines2.map(function (l) {
+        if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+        if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+        return '<span>' + l.text + '</span>';
+      }).join('\n');
+    }).join('\n');
+  }
+  html += '\n<span>' + '─'.repeat(20) + ' Order Execution (Buy/Sell) ' + '─'.repeat(20) + '</span>\n' + orderExecHtml;
 
   // ── Order Book (Market Depth) — strike select karke jo buy/sell screen
   // khulti hai usme order-book poll ka status/problem yahan merged hai. ──
@@ -19988,7 +20905,7 @@ function _btcCheckStale() {
     }
   }
 }
-setInterval(_btcCheckStale, 1000);
+_pmSetInterval('BTC Stale Check', _btcCheckStale, 1000);
 
 // ── REST loop ─────────────────────────────────────────────────────────────
 async function _btcRestOnce() {
@@ -21101,7 +22018,7 @@ async function _pollFyersMeta() {
 function _startFyersMetaPolling() {
   if (_fyersMetaPollIv) return;
   _pollFyersMeta();
-  _fyersMetaPollIv = setInterval(_pollFyersMeta, 15000);
+  _fyersMetaPollIv = _pmSetInterval('Fyers Meta Poll', _pollFyersMeta, 15000);
 }
 _startFyersMetaPolling();
 
@@ -21134,7 +22051,7 @@ async function _pollBinanceMeta() {
 function _startBinanceMetaPolling() {
   if (_binanceMetaPollIv) return;
   _pollBinanceMeta();
-  _binanceMetaPollIv = setInterval(_pollBinanceMeta, 15000);
+  _binanceMetaPollIv = _pmSetInterval('Binance Meta Poll', _pollBinanceMeta, 15000);
 }
 _startBinanceMetaPolling();
 
@@ -21152,17 +22069,82 @@ function toggleOptionChain() {
     var nextBtn = document.getElementById('oc-expiry-mode-next');
     if (curBtn) curBtn.classList.toggle('active', SV1OC.expiryMode === 'current');
     if (nextBtn) nextBtn.classList.toggle('active', SV1OC.expiryMode === 'next');
-    var depthBtn = document.getElementById('oc-depth-toggle-btn');
-    if (depthBtn) depthBtn.classList.toggle('on', SV1OC.depthOn);
+    if (typeof _ocSyncColsBtn === 'function') _ocSyncColsBtn();
     var wlBtn = document.getElementById('oc-watchlist-toggle-btn');
     if (wlBtn) wlBtn.classList.toggle('on', SV1OC.watchlistFilterOn);
+    var strikesSel = document.getElementById('oc-strikes-select');
+    if (strikesSel) strikesSel.value = String(SV1OC.strikesEachSide);
     if (typeof _ocRenderPositions === 'function') _ocRenderPositions();
     if (typeof _ocRenderHistory === 'function') _ocRenderHistory();
     if (_ocActiveTab === 'analytics' && typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
+    _ocKeyboardFix();
   } else {
     _ocHideTradeBar();
+    _ocKeyboardFixReset(); // reset to default 28vh/28vh from CSS for next open
   }
 }
+
+// ── SV1 Option Chain — keyboard-safe panel resize ──────────────────────────
+// #oc-panel is `position:fixed; top:28vh; bottom:28vh;` — mobile browsers
+// compute vh against the LAYOUT viewport, which does NOT shrink when the
+// on-screen keyboard opens. So the panel keeps its full height and the
+// keyboard simply overlaps its bottom — hiding the Buy/Sell price/SL/TP
+// inputs in #oc-trade-bar right when you tap them to edit.
+// PREVIOUS attempt compared against window.innerHeight, but this whole app
+// runs inside a Streamlit iframe (see _fixParentViewport above) where
+// window.innerHeight doesn't reliably shrink either — so the "covered"
+// amount came out too small and the panel barely moved.
+// FIX (v2): stop guessing a "covered" delta at all. Just pin the panel's
+// top + height DIRECTLY to visualViewport's own top/height — that value is
+// always the real currently-visible rectangle (keyboard or not), so the
+// panel (and the Buy/Sell bar + order book inside it) is guaranteed to sit
+// fully inside whatever area is actually visible above the keyboard.
+function _ocKeyboardFix() {
+  const panel = document.getElementById('oc-panel');
+  if (!panel || !panel.classList.contains('open')) return;
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const margin = 8;
+  panel.style.bottom = 'auto';
+  panel.style.top = margin + 'px';
+  panel.style.height = Math.max(240, Math.round(vv.height - margin * 2)) + 'px';
+  // Compensate for any scroll the browser did to bring the focused input
+  // into view (visualViewport.offsetTop) — position:fixed elements don't
+  // always auto-track this inside an iframe, so shift explicitly.
+  panel.style.transform = 'translateY(' + Math.round(vv.offsetTop) + 'px)';
+}
+function _ocKeyboardFixReset() {
+  const panel = document.getElementById('oc-panel');
+  if (!panel) return;
+  panel.style.top = '';
+  panel.style.bottom = '';
+  panel.style.height = '';
+  panel.style.transform = '';
+}
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', _ocKeyboardFix);
+  window.visualViewport.addEventListener('scroll', _ocKeyboardFix);
+}
+// Re-check right when a price/SL/TP input inside the panel gets focus —
+// the keyboard takes a moment to animate in, so re-run a few times as it
+// settles, and nudge the focused input into view once the panel resizes.
+document.addEventListener('focusin', function(e) {
+  const panel = document.getElementById('oc-panel');
+  if (!panel || !panel.classList.contains('open') || !panel.contains(e.target)) return;
+  if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') return;
+  _ocKeyboardFix();
+  [120, 320, 600].forEach(function(ms) {
+    setTimeout(function() {
+      _ocKeyboardFix();
+      try { e.target.scrollIntoView({ block: 'nearest' }); } catch(_) {}
+    }, ms);
+  });
+});
+document.addEventListener('focusout', function(e) {
+  const panel = document.getElementById('oc-panel');
+  if (!panel || !panel.classList.contains('open') || !panel.contains(e.target)) return;
+  setTimeout(_ocKeyboardFix, 300);
+});
 
 // ── Tabs: Chain / Positions / Balance / History (independent from SV2) ────
 let _ocActiveTab = 'chain';
@@ -21180,27 +22162,34 @@ function _ocSelectTab(tab) {
   if (tab === 'analytics' && typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
 }
 
-// ── Tap a strike row to select/highlight it + open the Buy/Sell trade bar
-// niche. Dobara tap karne se deselect + trade bar band ho jaati hai. ──────
+// ── Tap CE ya PE cell (kisi bhi strike row mein) → sirf usi leg (side) ka
+// Buy/Sell trade bar + order book khulta hai. Beech ke strike-number cell
+// pe tap karne se side='both' jaata hai, jo CE+PE dono saath (compare-view)
+// khol deta hai — jaisa pehle poori row click karne par hota tha. Wahi
+// strike+side dobara tap karne se deselect + trade bar band ho jaati hai. ──
 let _ocSelectedStrike = null;
-function _ocSelectStrike(el, strike) {
+let _ocSelectedSide = null; // 'CE' | 'PE' | 'both'
+function _ocSelectStrike(strike, side) {
   // BTC (Binance) chain — pehle sirf highlight tak seemit tha kyunki charges
   // calc NSE-hardcoded thi (STT/stamp/SEBI/GST) jo BTC ke liye galat hoti.
   // Ab _ocApproxCharges aur margin/lot-size/currency sab SV1OC_ASSET_CFG.btc
   // se asset-aware hain (SV2's already-working pattern mirror kiya hai),
   // isliye ab BTC ke liye bhi normal trade bar khulta hai — bas apni
   // (USDT, 0.1-BTC-contract) settings ke saath.
+  side = side || 'both';
+  const rowEl = document.querySelector('.oc-row[data-strike="' + strike + '"]');
   const prev = document.querySelector('.oc-row.oc-selected');
-  if (prev && prev !== el) prev.classList.remove('oc-selected');
-  if (_ocSelectedStrike === strike) {
-    el.classList.remove('oc-selected');
+  if (_ocSelectedStrike === strike && _ocSelectedSide === side) {
+    if (rowEl) rowEl.classList.remove('oc-selected');
     _ocSelectedStrike = null;
+    _ocSelectedSide = null;
     _ocHideTradeBar();
-  } else {
-    el.classList.add('oc-selected');
-    _ocSelectedStrike = strike;
-    _ocShowTradeBar(strike);
+    return;
   }
+  if (prev && prev !== rowEl) prev.classList.remove('oc-selected');
+  if (rowEl) rowEl.classList.add('oc-selected');
+  _ocSelectedStrike = strike;
+  _ocShowTradeBar(strike, false, side);
 }
 
 // Balance tab reuses the same real Fyers balance data that already flows
@@ -21221,7 +22210,7 @@ function _ocSyncBalanceTab() {
     if (obEl) {
       const v = _ocBinanceMeta && _ocBinanceMeta.usdt_balance != null ? _ocBinanceMeta.usdt_balance : null;
       obEl.textContent = (v != null)
-        ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 2}) + ' USDT'
+        ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 2}) + ' USDT' + _ocInrEquiv(v)
         : '—';
     }
     if (strikeRow) strikeRow.style.display = 'none';
@@ -21331,6 +22320,21 @@ function _applyBinanceOptionChain(data) {
   _ocBinanceUpdateFingerprints(data);
   _ocBinanceChainData = data;
   if (_ocIsBinanceAsset()) _ocRenderChainFromCache();
+  // ── Yahi missing tha: BankNifty ke _applyOptionChain() ki tarah, BTC ke
+  // har fast (300ms) tick par bhi working orders, SL/TP/Trailing-SL, aur
+  // Positions tab ka LTP turant refresh hona chahiye — pehle sirf Chain tab
+  // update hota tha, isliye Positions tab me pending order ka LTP tab tak
+  // stale rehta tha jab tak backend ka slow (~1s) fallback push na aaye. ──
+  if (_ocIsBinanceAsset()) {
+    if (typeof _ocCheckPendingOrders === 'function') _ocCheckPendingOrders();
+    if (typeof _ocUpdateTrailingSL === 'function') _ocUpdateTrailingSL();
+    if (typeof _ocCheckSLTP === 'function') _ocCheckSLTP();
+    if (typeof _ocCheckExpirySettlement === 'function') _ocCheckExpirySettlement();
+    if (typeof _ocUpdateEodSquareOffWarning === 'function') _ocUpdateEodSquareOffWarning();
+    if (typeof _ocUpdateMarginCallBanner === 'function') _ocUpdateMarginCallBanner();
+    _ocRenderPositions();
+    _ocRefreshHeaderBadge();
+  }
 }
 
 
@@ -21378,6 +22382,25 @@ function _ocRenderChainFromCache() {
   if (!body) return;
 
   let rows = data.rows;
+  // ── ATM ke dono taraf sirf utni hi strikes rakho jitni user ne "Strikes"
+  // dropdown se choose ki hain (server hamesha bada fixed window bhejta hai,
+  // yahan sirf center-slice hota hai — ATM khud dikhta rehta hai). ─────────
+  if (rows.length && data.atm != null && SV1OC.strikesEachSide) {
+    let atmIdx = rows.findIndex(row => row.strike === data.atm);
+    if (atmIdx < 0) {
+      // Exact ATM match na mile to strike-wise sabse nazdeek wala use karo.
+      let bestDiff = Infinity;
+      rows.forEach((row, i) => {
+        const diff = Math.abs(row.strike - data.atm);
+        if (diff < bestDiff) { bestDiff = diff; atmIdx = i; }
+      });
+    }
+    if (atmIdx >= 0) {
+      const lo = Math.max(0, atmIdx - SV1OC.strikesEachSide);
+      const hi = Math.min(rows.length, atmIdx + SV1OC.strikesEachSide + 1);
+      rows = rows.slice(lo, hi);
+    }
+  }
   if (SV1OC.watchlistFilterOn) {
     rows = rows.filter(row => SV1OC.watchlist.indexOf(row.strike) >= 0);
   }
@@ -21388,11 +22411,52 @@ function _ocRenderChainFromCache() {
     return;
   }
 
-  function depthLine(leg) {
+  // ── Configurable subline (replaces old all-or-nothing "Show Depth"
+  // toggle) — sirf wahi fields dikhata hai jo SV1OC.cols mein user ne
+  // ☰ Columns popover se select kiye hain. Greeks (Delta/Gamma/Theta/Vega/
+  // IV) live LTP+spot se _ocGreeksFor() ke through calculate hote hain
+  // (Black-Scholes), BankNifty aur BTC dono ke liye kaam karta hai. ──────
+  function _ocSubLine(leg, strike, type) {
     if (!leg) return '';
-    const oiCls = (leg.oich || 0) >= 0 ? 'oc-up' : 'oc-dn';
-    return `<span class="oc-depth-sub">B/A ${_fmtNum(leg.bid)}/${_fmtNum(leg.ask)}<br>`
-         + `OI <span class="${oiCls}">${_fmtNum(leg.oich)}</span> · Vol ${_fmtNum(leg.volume)}</span>`;
+    const c = SV1OC.cols || {};
+    const parts = [];
+    if (c.bidask) parts.push(`B/A ${_fmtNum(leg.bid)}/${_fmtNum(leg.ask)}`);
+    if (c.oichg) {
+      const oiCls = (leg.oich || 0) >= 0 ? 'oc-up' : 'oc-dn';
+      parts.push(`OI <span class="${oiCls}">${_fmtNum(leg.oich)}</span>`);
+    }
+    if (c.volume) parts.push(`Vol ${_fmtNum(leg.volume)}`);
+    if (c.delta || c.gamma || c.theta || c.vega || c.iv) {
+      const g = (typeof _ocGreeksFor === 'function') ? _ocGreeksFor(strike, type) : null;
+      if (g) {
+        if (c.delta) parts.push('Δ' + g.delta.toFixed(2));
+        if (c.gamma) parts.push('Γ' + g.gamma.toFixed(4));
+        if (c.theta) parts.push('Θ' + g.theta.toFixed(1));
+        if (c.vega)  parts.push('V' + g.vega.toFixed(1));
+        if (c.iv)    parts.push('IV' + (g.iv * 100).toFixed(1) + '%');
+      }
+    }
+    if (!parts.length) return '';
+    return `<span class="oc-depth-sub">${parts.join(' · ')}</span>`;
+  }
+
+  // ── LTP aur OI ab core-forced columns nahi hain — user ☰ Columns
+  // popover se inhe bhi mark/unmark kar sakta hai, baaki columns ki tarah.
+  // Isliye legend aur row dono JS se dynamically banaye jaate hain (fixed
+  // HTML nahi), taaki jo column uncheck ho wo poori tarah gayab ho jaaye. ──
+  const cShowLtp = !!(SV1OC.cols && SV1OC.cols.ltp);
+  const cShowOi  = !!(SV1OC.cols && SV1OC.cols.oi);
+  const legendEl = document.getElementById('oc-legend');
+  if (legendEl) {
+    let lg = '<span class="oc-star-cell"></span>';
+    if (cShowOi)  lg += '<span>OI</span>';
+    lg += '<span>Chg%</span>';
+    if (cShowLtp) lg += '<span>LTP</span>';
+    lg += '<span class="oc-legend-strike"></span>';
+    if (cShowLtp) lg += '<span>LTP</span>';
+    lg += '<span>Chg%</span>';
+    if (cShowOi)  lg += '<span>OI</span>';
+    legendEl.innerHTML = lg;
   }
 
   let html = '';
@@ -21404,15 +22468,21 @@ function _ocRenderChainFromCache() {
     const peChgCls = (pe.chg || 0) >= 0 ? 'oc-up' : 'oc-dn';
     const selCls = (_ocSelectedStrike === row.strike) ? ' oc-selected' : '';
     const isWl = SV1OC.watchlist.indexOf(row.strike) >= 0;
-    html += `<div class="oc-row${isAtm ? ' oc-atm' : ''}${selCls}" onclick="_ocSelectStrike(this, ${row.strike})">`
+    // ── Har cell apni side ke saath tagged hai (CE ya PE) — is se jis side
+    // pe tap hoga, sirf usi ka Buy/Sell + order book khulega (_ocSelectStrike
+    // neeche dekho). Beech ka strike-number cell 'both' bhejta hai, jo purana
+    // (CE+PE dono saath) compare-view khol deta hai. ─────────────────────────
+    const ceClick = `_ocSelectStrike(${row.strike},'CE')`;
+    const peClick = `_ocSelectStrike(${row.strike},'PE')`;
+    html += `<div class="oc-row${isAtm ? ' oc-atm' : ''}${selCls}" data-strike="${row.strike}">`
          +   `<span class="oc-star-cell${isWl ? ' on' : ''}" onclick="_ocToggleWatchlist(${row.strike}, event)">${isWl ? '★' : '☆'}</span>`
-         +   `<span class="oc-cell">${_fmtNum(ce.oi)}${SV1OC.depthOn ? depthLine(ce) : ''}</span>`
-         +   `<span class="oc-cell ${ceChgCls}">${_fmtNum(ce.chgp)}%</span>`
-         +   `<span class="oc-cell">${_fmtNum(ce.ltp)}</span>`
-         +   `<span class="oc-cell oc-strike-cell">${_fmtNum(row.strike)}</span>`
-         +   `<span class="oc-cell">${_fmtNum(pe.ltp)}</span>`
-         +   `<span class="oc-cell ${peChgCls}">${_fmtNum(pe.chgp)}%</span>`
-         +   `<span class="oc-cell">${_fmtNum(pe.oi)}${SV1OC.depthOn ? depthLine(pe) : ''}</span>`
+         +   (cShowOi  ? `<span class="oc-cell" onclick="${ceClick}">${_fmtNum(ce.oi)}${_ocSubLine(ce, row.strike, 'CE')}</span>` : '')
+         +   `<span class="oc-cell ${ceChgCls}" onclick="${ceClick}">${_fmtNum(ce.chgp)}%</span>`
+         +   (cShowLtp ? `<span class="oc-cell" onclick="${ceClick}">${_fmtNum(ce.ltp)}</span>` : '')
+         +   `<span class="oc-cell oc-strike-cell" onclick="_ocSelectStrike(${row.strike},'both')">${_fmtNum(row.strike)}</span>`
+         +   (cShowLtp ? `<span class="oc-cell" onclick="${peClick}">${_fmtNum(pe.ltp)}</span>` : '')
+         +   `<span class="oc-cell ${peChgCls}" onclick="${peClick}">${_fmtNum(pe.chgp)}%</span>`
+         +   (cShowOi  ? `<span class="oc-cell" onclick="${peClick}">${_fmtNum(pe.oi)}${_ocSubLine(pe, row.strike, 'PE')}</span>` : '')
          +  `</div>`;
   });
   body.innerHTML = html || '<div id="oc-loading">Data nahi mila</div>';
@@ -21788,7 +22858,7 @@ function _startOCPolling() {
   // error-detection ke liye tha. Ab yehi loop asli LTP render bhi karta hai
   // (_pollOptionChain/_pollBinanceOptionChain already _applyOptionChain/
   // _applyBinanceOptionChain call karte hain on success).
-  _ocPollIv = setInterval(() => {
+  _ocPollIv = _pmSetInterval('Option Chain LTP Poll', () => {
     const p = document.getElementById('oc-panel');
     if (p && p.classList.contains('open')) {
       if (_ocIsBinanceAsset()) _pollBinanceOptionChain();
@@ -21845,11 +22915,33 @@ var SV1OC = {
   btcExpiryEpoch: (function () {
     try { return localStorage.getItem('sv1_oc_btc_expiry_epoch_v1') || null; } catch (_) { return null; }
   })(),
-  depthOn: (function () {
-    try { return localStorage.getItem('sv1_oc_depth_on_v1') === '1'; } catch (_) { return false; }
+  // ── Column visibility (☰ Columns popover) — per-metric on/off, replaces
+  // the old all-or-nothing "Show Depth" toggle. Migrates a pre-existing
+  // depthOn=true (old users) into bidask/oichg/volume defaults. ──────────
+  cols: (function () {
+    var legacyDepthOn = false;
+    try { legacyDepthOn = localStorage.getItem('sv1_oc_depth_on_v1') === '1'; } catch (_) {}
+    var def = { ltp: false, oi: false, bidask: legacyDepthOn, oichg: legacyDepthOn, volume: legacyDepthOn,
+                delta: false, gamma: false, theta: false, vega: false, iv: false };
+    try {
+      var raw = localStorage.getItem('sv1_oc_cols_v1');
+      if (raw) return Object.assign(def, JSON.parse(raw));
+    } catch (_) {}
+    return def;
   })(),
   watchlistFilterOn: (function () {
     try { return localStorage.getItem('sv1_oc_watchlist_filter_v1') === '1'; } catch (_) { return false; }
+  })(),
+  // ── ATM ke dono taraf kitni strikes dikhani hain — user-configurable
+  // (☰ jaisa hi ek chhota dropdown chain ke upar). Server hamesha ek bada
+  // fixed window bhejta hai (20 each side); yahan se sirf display-time
+  // par usmein se center-slice hota hai, koi extra network call nahi. ────
+  strikesEachSide: (function () {
+    try {
+      var v = parseInt(localStorage.getItem('sv1_oc_strikes_each_side_v1'), 10);
+      if (!v || v <= 0) return 10;
+      return Math.max(1, Math.min(20, v));
+    } catch (_) { return 10; }
   })(),
   watchlist: (function () {
     try { var raw = localStorage.getItem('sv1_oc_watchlist_v1'); return raw ? JSON.parse(raw) : []; }
@@ -22012,6 +23104,7 @@ function _ocSetBtcExpiry(val) {
   var prevSel = document.querySelector('.oc-row.oc-selected');
   if (prevSel) prevSel.classList.remove('oc-selected');
   _ocSelectedStrike = null;
+  _ocSelectedSide = null;
   _ocHideTradeBar();
   _ocRenderChainFromCache();
 }
@@ -22028,15 +23121,53 @@ function _ocSetExpiryMode(mode) {
   var prevSel = document.querySelector('.oc-row.oc-selected');
   if (prevSel) prevSel.classList.remove('oc-selected');
   _ocSelectedStrike = null;
+  _ocSelectedSide = null;
   _ocHideTradeBar();
   _ocRenderChainFromCache();
 }
-function _ocToggleDepth() {
-  SV1OC.depthOn = !SV1OC.depthOn;
-  try { localStorage.setItem('sv1_oc_depth_on_v1', SV1OC.depthOn ? '1' : '0'); } catch (_) {}
-  var btn = document.getElementById('oc-depth-toggle-btn');
-  if (btn) btn.classList.toggle('on', SV1OC.depthOn);
+// ── ☰ Columns popover — user chuun sakta hai konse extra columns/subline
+// option chain mein dikhein (Bid/Ask, OI Change, Volume, Delta, Gamma,
+// Theta, Vega, IV). LTP aur OI hamesha core columns hain. ────────────────
+function _ocSaveCols() { try { localStorage.setItem('sv1_oc_cols_v1', JSON.stringify(SV1OC.cols)); } catch (_) {} }
+function _ocSyncColsBtn() {
+  var btn = document.getElementById('oc-cols-btn');
+  var anyOn = Object.keys(SV1OC.cols).some(function (k) { return SV1OC.cols[k]; });
+  if (btn) btn.classList.toggle('on', anyOn);
+  ['ltp', 'oi', 'bidask', 'oichg', 'volume', 'delta', 'gamma', 'theta', 'vega', 'iv'].forEach(function (k) {
+    var cb = document.getElementById('oc-col-' + k);
+    if (cb) cb.checked = !!SV1OC.cols[k];
+  });
+}
+function _ocColToggle(key) {
+  SV1OC.cols[key] = !SV1OC.cols[key];
+  _ocSaveCols();
+  _ocSyncColsBtn();
   _ocRenderChainFromCache();
+}
+function _ocColsPopoverToggle(evt) {
+  if (evt) evt.stopPropagation();
+  var pop = document.getElementById('oc-cols-popover');
+  var backdrop = document.getElementById('oc-cols-backdrop');
+  if (!pop) return;
+  if (pop.classList.contains('open')) { _ocColsPopoverClose(); return; }
+  _ocSyncColsBtn();
+  // Position popover just under the ☰ icon.
+  var btn = document.getElementById('oc-cols-btn');
+  if (btn) {
+    var r = btn.getBoundingClientRect();
+    pop.style.top = (r.bottom + 6) + 'px';
+    var left = r.right - 216;
+    if (left < 8) left = 8;
+    pop.style.left = left + 'px';
+  }
+  pop.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+}
+function _ocColsPopoverClose() {
+  var pop = document.getElementById('oc-cols-popover');
+  var backdrop = document.getElementById('oc-cols-backdrop');
+  if (pop) pop.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
 }
 function _ocToggleWatchlistFilter() {
   SV1OC.watchlistFilterOn = !SV1OC.watchlistFilterOn;
@@ -22045,6 +23176,20 @@ function _ocToggleWatchlistFilter() {
   if (btn) btn.classList.toggle('on', SV1OC.watchlistFilterOn);
   _ocRenderChainFromCache();
 }
+function _ocSetStrikesEachSide(val) {
+  var n = parseInt(val, 10);
+  if (!n || n <= 0) return;
+  // Server sirf ATM ke dono taraf 20 strikes tak hi bhejta hai — usse zyada
+  // maangne par bhi 20 hi milega, isliye yahin clamp karke input box bhi
+  // sahi value dikha dete hain (taaki user ko confusion na ho).
+  n = Math.max(1, Math.min(20, n));
+  SV1OC.strikesEachSide = n;
+  try { localStorage.setItem('sv1_oc_strikes_each_side_v1', String(n)); } catch (_) {}
+  var sel = document.getElementById('oc-strikes-select');
+  if (sel) sel.value = String(n);
+  _ocRenderChainFromCache();
+}
+window._ocSetStrikesEachSide = _ocSetStrikesEachSide;
 function _ocSaveWatchlist() { try { localStorage.setItem('sv1_oc_watchlist_v1', JSON.stringify(SV1OC.watchlist)); } catch (_) {} }
 function _ocToggleWatchlist(strike, evt) {
   if (evt) evt.stopPropagation(); // row-select trigger na ho
@@ -22081,6 +23226,7 @@ _ocLoadBalance(); _ocLoadPositions(); _ocLoadPendingOrders(); _ocLoadHistory();
 (function () {
   var b = document.getElementById('oc-pnl-btn');
   if (b) b.classList.toggle('on', SV1OC.pnlOverlayOn);
+  if (typeof _ocSyncColsBtn === 'function') _ocSyncColsBtn();
 })();
 
 function _ocFmtMoney(v) {
@@ -22436,6 +23582,47 @@ function _ocLtpFor(strike, type, expiryEpoch) {
   return null;
 }
 function _ocSpot() { var d = _ocActiveChainData(); return (d && d.spot != null) ? Number(d.spot) : null; }
+
+// ══════════════════════════════════════════════════════════════════════
+// ── REALISTIC MARKET-ORDER FILL (BTC only) ──────────────────────────────
+// Purpose: pehle sirf LTP par flat-fill hota tha — matlab "unlimited
+// liquidity hamesha available hai" assume ho raha tha, jo real trading
+// jaisa nahi tha. Ab market order place karte waqt live order book fetch
+// karke us book ke against qty-weighted average price nikalte hain (jaise
+// real broker order ko book ke levels ke against match karta hai). Ye
+// depth-MODAL ke state (_ocDepthSymbol/DOM) se independent hai — sirf
+// backend '/api/market_depth' ko direct hit karta hai, chahe depth-sheet
+// khuli ho ya na ho. ──────────────────────────────────────────────────────
+async function _ocFetchBookForFill(symbol) {
+  try {
+    var url = _ocDepthUrl(symbol);
+    var r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) return null;
+    var data = await r.json();
+    if (!data || data.error) return null;
+    return { bids: data.bids || [], asks: data.asks || [] };
+  } catch (e) { return null; }
+}
+
+// Book ke levels ko top se walk karke qty-weighted average price nikalta
+// hai (buy → asks consume karo lowest-price-first, sell → bids consume
+// karo highest-price-first) — jitni depth uplabdh hai usi hisaab se price
+// worsen hota jaata hai, real order-matching jaisa. `shortQty` = kitni qty
+// visible book levels me hi nahi mili (liquidity kam padi). ─────────────
+function _ocWeightedFillFromBook(levels, qtyNeeded) {
+  levels = levels || [];
+  var remaining = qtyNeeded, cost = 0, filled = 0;
+  for (var i = 0; i < levels.length && remaining > 0; i++) {
+    var lvl = levels[i];
+    var vol = Number(lvl.volume) || 0;
+    if (vol <= 0) continue;
+    var take = Math.min(remaining, vol);
+    cost += take * Number(lvl.price);
+    filled += take;
+    remaining -= take;
+  }
+  return { price: filled > 0 ? (cost / filled) : null, filledQty: filled, shortQty: remaining };
+}
 // Selected strike ke CE/PE ka poora Fyers symbol nikalta hai (jaise
 // "NSE:BANKNIFTY25AUG50000CE") — Market Depth API ko yahi symbol chahiye.
 function _ocSymbolFor(strike, type, expiryEpoch) {
@@ -22727,7 +23914,7 @@ async function _ocOpenDepth(type) {
     _ocConnectDepthWS(symbol);
   }
 
-  _ocDepthPollTid = setInterval(function () { _ocPollDepth(); }, 1500);
+  _ocDepthPollTid = _pmSetInterval('Option Chain Depth Poll', function () { _ocPollDepth(); }, 1500);
 }
 
 function _ocCloseDepth() {
@@ -22885,6 +24072,19 @@ function _ocTradeQtyStep(delta) {
   if (peEl) peEl.textContent = _ocTradeQtyLots;
   _ocUpdateTradeTotal();
 }
+// ── Limit price ± stepper — har tap se price 5 point kam/zyada, BankNifty
+// aur BTC (Binance) dono ke liye same 5-point step. Khaali box par pehla
+// tap 0 se shuru karke seedha ±5 daal deta hai (koi crash/NaN nahi). ──────
+function _ocStepLimitPrice(delta) {
+  var inp = document.getElementById('oc-trade-limit-price');
+  if (!inp) return;
+  var cur = parseFloat(inp.value);
+  if (isNaN(cur)) cur = 0;
+  var next = Math.max(0, cur + delta);
+  // Floating-point junk (127.49999999) se bachne ke liye 2-decimal round.
+  inp.value = Math.round(next * 100) / 100;
+  _ocUpdateTradeTotal();
+}
 // ── Total premium preview — selected strike ke CE aur PE dono ka "1 lot ke
 // kitne rupaye lagenge" (current qty × lotSize × price), strike label ke
 // neeche dikhta hai. Market order mein LTP use hota hai; Limit order mein
@@ -22895,6 +24095,7 @@ function _ocUpdateTradeTotal() {
   if (!totalEl) return;
   var strike = _ocSelectedStrike;
   if (strike == null) { totalEl.textContent = '—'; return; }
+  var side = _ocSelectedSide || 'both';
   var ceLtp = _ocLtpFor(strike, 'CE');
   var peLtp = _ocLtpFor(strike, 'PE');
   var usingLimit = false;
@@ -22907,10 +24108,10 @@ function _ocUpdateTradeTotal() {
   var ceTotal = (ceLtp != null) ? ceLtp * qty : null;
   var peTotal = (peLtp != null) ? peLtp * qty : null;
   var label = usingLimit ? 'Total @ Limit' : 'Total';
-  totalEl.innerHTML = label + ' (' + _ocTradeQtyLots + ' lot = ' + qty + ' qty): ' +
-    '<span class="oc-total-ce">CE ' + (ceTotal != null ? _ocFmtMoney(ceTotal) : '—') + '</span>' +
-    ' · ' +
-    '<span class="oc-total-pe">PE ' + (peTotal != null ? _ocFmtMoney(peTotal) : '—') + '</span>';
+  var parts = [];
+  if (side !== 'PE') parts.push('<span class="oc-total-ce">CE ' + (ceTotal != null ? _ocFmtMoney(ceTotal) : '—') + '</span>');
+  if (side !== 'CE') parts.push('<span class="oc-total-pe">PE ' + (peTotal != null ? _ocFmtMoney(peTotal) : '—') + '</span>');
+  totalEl.innerHTML = label + ' (' + _ocTradeQtyLots + ' lot = ' + qty + ' qty): ' + parts.join(' · ');
 }
 function _ocSetOrderType(t) {
   _ocOrderType = t;
@@ -22937,17 +24138,154 @@ function _ocSetSLType(mode) {
   if (lBtn) lBtn.classList.toggle('active', _ocSLType === 'SLL');
   if (sllRow) sllRow.classList.toggle('show', _ocSLType === 'SLL');
 }
-function _ocShowTradeBar(strike, keepQty) {
+// ══════════════════════════════════════════════════════════════════════
+// ── INLINE LIVE ORDER BOOK (BTC only) ────────────────────────────────────
+// Strike select hone par trade bar khulte hi ye panel bhi automatically
+// khulta hai — Buy/Sell aur order book SAME screen par saath dikhte hain,
+// koi alag click/modal nahi. Apne khud ke WS/state variables use karta hai
+// (modal ke _ocDepthWs/_ocDepthSymbol se bilkul independent) taaki dono
+// features ek dusre ko kabhi disturb na karein. 📊 icon se CE/PE ke beech
+// switch hota hai. BankNifty ke liye ye panel nahi khulta (wahan 📊 purana
+// full modal hi kholta hai — _ocDepthBtnClick() neeche decide karta hai). ──
+var _ocInlineBookLeg    = 'CE';   // last-viewed leg — CE/PE switch persist karta hai jab tak trade bar khula hai
+var _ocInlineBookSymbol = null;
+var _ocInlineDepthWs    = null;
+var _ocInlineDepthBook  = { bids: [], asks: [] };
+
+function _ocApplyInlineDepthWsUpdate(data) {
+  var bUpdates = data.b || data.bids || [];
+  var aUpdates = data.a || data.asks || [];
+  function applyLevels(book, updates, isBid) {
+    for (var u = 0; u < updates.length; u++) {
+      var p = parseFloat(updates[u][0]), q = parseFloat(updates[u][1]);
+      var idx = -1;
+      for (var i = 0; i < book.length; i++) { if (book[i].price === p) { idx = i; break; } }
+      if (q === 0) { if (idx !== -1) book.splice(idx, 1); }
+      else if (idx !== -1) { book[idx].volume = q; }
+      else { book.push({ price: p, volume: q, ord: 0 }); }
+    }
+    book.sort(function (x, y) { return isBid ? (y.price - x.price) : (x.price - y.price); });
+    if (book.length > 10) book.length = 10;
+  }
+  applyLevels(_ocInlineDepthBook.bids, bUpdates, true);
+  applyLevels(_ocInlineDepthBook.asks, aUpdates, false);
+}
+
+function _ocConnectInlineDepthWS(symbol) {
+  _ocCloseInlineDepthWS();
+  var url = 'wss://nbstream.binance.com/eoptions/stream?streams=' +
+            encodeURIComponent(symbol.toLowerCase()) + '@depth10@100ms';
+  var ws;
+  try { ws = new WebSocket(url); } catch (e) { return; }
+  _ocInlineDepthWs = ws;
+  ws.onmessage = function (evt) {
+    if (_ocInlineDepthWs !== ws) return;
+    try {
+      var raw = JSON.parse(evt.data);
+      var data = raw.data || raw;
+      _ocApplyInlineDepthWsUpdate(data);
+      if (_ocInlineBookSymbol === symbol) {
+        _ocRenderInlineBookRows(_ocInlineDepthBook.bids, _ocInlineDepthBook.asks);
+      }
+    } catch (e) {}
+  };
+  ws.onclose = function () { if (_ocInlineDepthWs === ws) _ocInlineDepthWs = null; };
+}
+function _ocCloseInlineDepthWS() {
+  if (_ocInlineDepthWs) { try { _ocInlineDepthWs.close(); } catch (e) {} _ocInlineDepthWs = null; }
+  _ocInlineDepthBook = { bids: [], asks: [] };
+}
+
+function _ocRenderInlineBookRows(bids, asks) {
+  var rowsEl = document.getElementById('oc-trade-book-rows');
+  if (!rowsEl) return;
+  bids = bids || []; asks = asks || [];
+  var n = Math.max(bids.length, asks.length, 5);
+  var html = '';
+  for (var i = 0; i < n; i++) {
+    var b = bids[i] || {}, a = asks[i] || {};
+    html += '<div class="oc-book-inline-row">' +
+      '<span class="dqb">' + (b.volume != null ? _fmtNum(b.volume) : '—') + '</span>' +
+      '<span class="dpb">' + (b.price  != null ? _fmtNum(b.price)  : '—') + '</span>' +
+      '<span class="dpa">' + (a.price  != null ? _fmtNum(a.price)  : '—') + '</span>' +
+      '<span class="dqa">' + (a.volume != null ? _fmtNum(a.volume) : '—') + '</span>' +
+      '</div>';
+  }
+  rowsEl.innerHTML = html;
+}
+
+// Panel khud kholta hai — strike select/trade-bar-show se call hota hai,
+// aur 📊 icon se leg (CE/PE) switch karne ke liye bhi. ────────────────────
+async function _ocSyncInlineBook(type) {
+  if (!_ocIsBinanceAsset()) { _ocHideInlineBook(); return; }
+  var strike = _ocSelectedStrike;
+  if (strike == null) return;
+  _ocInlineBookLeg = type;
+  var panel   = document.getElementById('oc-trade-book-panel');
+  var rowsEl  = document.getElementById('oc-trade-book-rows');
+  var titleEl = document.getElementById('oc-trade-book-title');
+  if (!panel || !rowsEl) return;
+  panel.classList.add('show');
+  if (titleEl) titleEl.textContent = '📖 Live Order Book — ' + type + ' ' + _fmtNum(strike);
+  var ceBtn = document.getElementById('oc-depth-btn-ce');
+  var peBtn = document.getElementById('oc-depth-btn-pe');
+  if (ceBtn) ceBtn.classList.toggle('active-leg', type === 'CE');
+  if (peBtn) peBtn.classList.toggle('active-leg', type === 'PE');
+
+  var symbol = _ocSymbolFor(strike, type);
+  if (!symbol) { rowsEl.innerHTML = '<div class="oc-book-inline-err">Symbol nahi mila</div>'; return; }
+  if (_ocInlineBookSymbol === symbol && _ocInlineDepthWs) return; // already live for this leg
+
+  _ocInlineBookSymbol = symbol;
+  rowsEl.innerHTML = '<div class="oc-book-inline-err">Loading…</div>';
+  // Instant snapshot pehle (REST, existing helper) — turant kuch dikhe,
+  // fir live WS connect hota hai jo aage rows ko 100ms pe update karega.
+  var snap = await _ocFetchBookForFill(symbol);
+  if (_ocInlineBookSymbol !== symbol) return; // strike/leg badal gaya jab tak fetch chal rahi thi
+  if (snap) _ocRenderInlineBookRows(snap.bids, snap.asks);
+  else rowsEl.innerHTML = '<div class="oc-book-inline-err">Book abhi available nahi</div>';
+  _ocConnectInlineDepthWS(symbol);
+}
+
+function _ocHideInlineBook() {
+  var panel = document.getElementById('oc-trade-book-panel');
+  if (panel) panel.classList.remove('show');
+  _ocCloseInlineDepthWS();
+  _ocInlineBookSymbol = null;
+}
+
+// 📊 icon dispatcher — BTC: inline panel (naya), BankNifty: purana full
+// modal (koi live WS pattern wahan nahi hai, is se untouched). ───────────
+function _ocDepthBtnClick(type) {
+  if (_ocIsBinanceAsset()) { _ocSyncInlineBook(type); return; }
+  _ocOpenDepth(type);
+}
+
+function _ocShowTradeBar(strike, keepQty, side) {
+  side = side || _ocSelectedSide || 'both';
+  _ocSelectedSide = side;
   var bar = document.getElementById('oc-trade-bar');
   var lbl = document.getElementById('oc-trade-bar-strike');
   if (!bar) return;
   var ceLtp = _ocLtpFor(strike, 'CE');
   var peLtp = _ocLtpFor(strike, 'PE');
   if (lbl) {
-    lbl.textContent = 'Strike ' + _fmtNum(strike) +
-      '  ·  CE ' + (ceLtp != null ? _fmtNum(ceLtp) : '—') +
-      '  ·  PE ' + (peLtp != null ? _fmtNum(peLtp) : '—');
+    if (side === 'CE') {
+      lbl.textContent = 'Strike ' + _fmtNum(strike) + '  ·  CE ' + (ceLtp != null ? _fmtNum(ceLtp) : '—');
+    } else if (side === 'PE') {
+      lbl.textContent = 'Strike ' + _fmtNum(strike) + '  ·  PE ' + (peLtp != null ? _fmtNum(peLtp) : '—');
+    } else {
+      lbl.textContent = 'Strike ' + _fmtNum(strike) +
+        '  ·  CE ' + (ceLtp != null ? _fmtNum(ceLtp) : '—') +
+        '  ·  PE ' + (peLtp != null ? _fmtNum(peLtp) : '—');
+    }
   }
+  // ── Sirf clicked side ka Buy/Sell row dikhao, dusra hide kar do. Strike-
+  // number (side='both') pe tap karne par dono row saath dikhte hain. ──────
+  var ceRow = document.getElementById('oc-trade-row-ce');
+  var peRow = document.getElementById('oc-trade-row-pe');
+  if (ceRow) ceRow.style.display = (side === 'PE') ? 'none' : '';
+  if (peRow) peRow.style.display = (side === 'CE') ? 'none' : '';
   var greeksRow = document.getElementById('oc-trade-greeks-row');
   if (greeksRow) {
     if (SV1OC.greeksOn) {
@@ -22956,7 +24294,10 @@ function _ocShowTradeBar(strike, keepQty) {
       function fmtG(g) {
         return g ? ('Δ' + g.delta.toFixed(2) + ' IV' + (g.iv * 100).toFixed(1) + '% Θ' + g.theta.toFixed(1) + ' V' + g.vega.toFixed(1)) : '—';
       }
-      greeksRow.innerHTML = '<span class="oc-greeks-ce">CE: ' + fmtG(ceG) + '</span><span class="oc-greeks-pe">PE: ' + fmtG(peG) + '</span>';
+      var gHtml = '';
+      if (side !== 'PE') gHtml += '<span class="oc-greeks-ce">CE: ' + fmtG(ceG) + '</span>';
+      if (side !== 'CE') gHtml += '<span class="oc-greeks-pe">PE: ' + fmtG(peG) + '</span>';
+      greeksRow.innerHTML = gHtml;
       greeksRow.style.display = 'flex';
     } else {
       greeksRow.style.display = 'none';
@@ -22966,11 +24307,30 @@ function _ocShowTradeBar(strike, keepQty) {
   _ocSetSLType('SLM'); // naya trade khulne par SL type reset (jaisa SV2 karta hai)
   _ocUpdateTradeTotal();
   bar.classList.add('show');
+  // Note field ko "cell show-" se pre-fill karo (sirf jab khaali ho) — user
+  // ko sirf timeframe (3D/9D/etc) type karna pade, poora tag khud se ban
+  // jaaye. Cursor tap karte hi end mein hi aayega (chhoti single-line value).
+  var _ocPrefillNoteEl = document.getElementById('oc-trade-note');
+  if (_ocPrefillNoteEl && !_ocPrefillNoteEl.value) _ocPrefillNoteEl.value = 'cell show-';
+  // BTC: order book ab clicked side ke hisaab se khulta hai — CE tap → CE
+  // book, PE tap → PE book, automatically (koi alag click nahi chahiye).
+  // Strike-number tap (side='both') par purana default (last-viewed leg,
+  // ya CE) chalta hai — 📊 se manually leg switch kar sakte ho. ───────────
+  if (_ocIsBinanceAsset()) {
+    var bookLeg = (side === 'CE' || side === 'PE') ? side : (_ocInlineBookLeg || 'CE');
+    _ocSyncInlineBook(bookLeg);
+  } else {
+    _ocHideInlineBook();
+  }
 }
 function _ocHideTradeBar() {
   var bar = document.getElementById('oc-trade-bar');
   if (bar) bar.classList.remove('show');
   if (typeof _ocCloseDepth === 'function') _ocCloseDepth();
+  _ocHideInlineBook();
+  // Note field clear karo for next trade
+  var _ocNoteEl = document.getElementById('oc-trade-note');
+  if (_ocNoteEl) _ocNoteEl.value = '';
 }
 // Read optional SL/TP/Trail/SL-type values from the trade bar inputs (blank = none).
 function _ocReadRiskInputs() {
@@ -22988,16 +24348,24 @@ function _ocReadRiskInputs() {
 
 // ── Core fill executor — mutates balance + opens a position. Used both for
 // an immediate MARKET order and for a LIMIT order that just got triggered. ─
-function _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk) {
+function _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk, meta) {
   var qty = qtyLots * SV1OC.lotSize;
   var premiumAmt = fillPrice * qty;
   var charges = _ocApproxCharges(premiumAmt, side);
   risk = risk || {};
+  meta = meta || {};
+  var orderTypeForLog = meta.orderType || 'market';
 
   if (side === 'buy') {
     var totalCost = premiumAmt + charges.total;
     if (totalCost > _ocAvailableBalance()) {
-      alert('❌ Insufficient available balance! ' + _ocFmtMoney(totalCost) + ' chahiye (premium + charges), available sirf ' + _ocFmtMoney(_ocAvailableBalance()) + ' hai.');
+      _ocToast('❌ Insufficient available balance! ' + _ocFmtMoney(totalCost) + ' chahiye (premium + charges), available sirf ' + _ocFmtMoney(_ocAvailableBalance()) + ' hai.', 'err');
+      _sv1LogTrade({
+        strike: strike, type: type, side: side, orderType: orderTypeForLog, qtyLots: qtyLots,
+        reqPrice: fillPrice, fillPrice: null, status: 'rejected',
+        reason: 'Insufficient available balance',
+        detail: 'Chahiye ' + _ocFmtMoney(totalCost) + ' (premium+charges), available sirf ' + _ocFmtMoney(_ocAvailableBalance())
+      });
       return false;
     }
     SV1OC.balance -= totalCost;
@@ -23010,14 +24378,26 @@ function _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk) {
       slLimitPrice: risk.slLimitPrice != null ? risk.slLimitPrice : null,
       slTriggered: false,
       trailPoints: risk.trail != null ? risk.trail : null, trailBest: fillPrice,
-      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocActiveChainData() && _ocActiveChainData().expiry_label) || null
+      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocActiveChainData() && _ocActiveChainData().expiry_label) || null,
+      note: meta.note || ''  // user-written trade reason/note (cell show-XXX tag ke liye)
     });
     _ocSoundBuyFill();
+    _sv1LogTrade({
+      strike: strike, type: type, side: side, orderType: orderTypeForLog, qtyLots: qtyLots,
+      reqPrice: fillPrice, fillPrice: fillPrice, status: 'filled', reason: 'Filled',
+      detail: 'Cost ' + _ocFmtMoney(totalCost) + ' (premium ' + _ocFmtMoney(premiumAmt) + ' + charges ' + _ocFmtMoney(charges.total) + ')'
+    });
   } else { // sell (option writing) — margin block hota hai, premium turant credit
     var margin = _ocApproxMargin(_ocSpot(), premiumAmt, qty);
     var netCredit = premiumAmt - charges.total;
     if (margin > _ocAvailableBalance()) {
-      alert('❌ Insufficient margin! Sell karne ke liye ' + _ocFmtMoney(margin) + ' margin chahiye, available sirf ' + _ocFmtMoney(_ocAvailableBalance()) + ' hai.');
+      _ocToast('❌ Insufficient margin! Sell karne ke liye ' + _ocFmtMoney(margin) + ' margin chahiye, available sirf ' + _ocFmtMoney(_ocAvailableBalance()) + ' hai.', 'err');
+      _sv1LogTrade({
+        strike: strike, type: type, side: side, orderType: orderTypeForLog, qtyLots: qtyLots,
+        reqPrice: fillPrice, fillPrice: null, status: 'rejected',
+        reason: 'Insufficient margin',
+        detail: 'Chahiye ' + _ocFmtMoney(margin) + ' margin, available sirf ' + _ocFmtMoney(_ocAvailableBalance())
+      });
       return false;
     }
     SV1OC.balance += netCredit;
@@ -23030,9 +24410,15 @@ function _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk) {
       slLimitPrice: risk.slLimitPrice != null ? risk.slLimitPrice : null,
       slTriggered: false,
       trailPoints: risk.trail != null ? risk.trail : null, trailBest: fillPrice,
-      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocActiveChainData() && _ocActiveChainData().expiry_label) || null
+      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocActiveChainData() && _ocActiveChainData().expiry_label) || null,
+      note: meta.note || ''  // user-written trade reason/note (cell show-XXX tag ke liye)
     });
     _ocSoundSellFill();
+    _sv1LogTrade({
+      strike: strike, type: type, side: side, orderType: orderTypeForLog, qtyLots: qtyLots,
+      reqPrice: fillPrice, fillPrice: fillPrice, status: 'filled', reason: 'Filled',
+      detail: 'Margin blocked ' + _ocFmtMoney(margin) + ', net credit ' + _ocFmtMoney(netCredit)
+    });
   }
   _ocSaveBalance(); _ocSavePositions();
   return true;
@@ -23040,7 +24426,7 @@ function _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk) {
 
 // ── Place a Buy/Sell — Market fills immediately; Limit becomes a "working"
 // order that fills automatically once the live LTP reaches the price. ────
-function _ocPlaceTrade(type, side) {
+async function _ocPlaceTrade(type, side) {
   var strike = _ocSelectedStrike;
   if (strike == null) return;
   var qtyLots = _ocTradeQtyLots;
@@ -23048,7 +24434,13 @@ function _ocPlaceTrade(type, side) {
   // SL-Limit chuna hai to SL-Limit fill price bharna zaroori hai (jaisa SV2) —
   // sirf tab enforce karo jab SL bhi actually set kiya ho.
   if (risk.slType === 'SLL' && risk.sl != null && risk.slLimitPrice == null) {
-    alert('⚠️ SL-Limit select kiya hai to "SL-Limit ₹" fill price bharna zaroori hai.');
+    _ocToast('⚠️ SL-Limit select kiya hai to "SL-Limit ₹" fill price bharna zaroori hai.', 'err');
+    _sv1LogTrade({
+      strike: strike, type: type, side: side, orderType: _ocOrderType, qtyLots: qtyLots,
+      reqPrice: null, fillPrice: null, status: 'rejected',
+      reason: 'SL-Limit fill price missing',
+      detail: 'SL set hai aur SL-type = SL-Limit chuna hai, lekin "SL-Limit ₹" field khaali hai.'
+    });
     return;
   }
 
@@ -23056,36 +24448,98 @@ function _ocPlaceTrade(type, side) {
     var limitInp = document.getElementById('oc-trade-limit-price');
     var limitPrice = limitInp ? parseFloat(limitInp.value) : NaN;
     if (isNaN(limitPrice) || limitPrice <= 0) {
-      alert('⚠️ Limit price daalo pehle.');
+      _ocToast('⚠️ Limit price daalo pehle.', 'err');
+      _sv1LogTrade({
+        strike: strike, type: type, side: side, orderType: 'limit', qtyLots: qtyLots,
+        reqPrice: null, fillPrice: null, status: 'rejected',
+        reason: 'Limit price missing/invalid',
+        detail: 'Order type = Limit hai lekin "Limit ₹" field khaali hai ya 0/negative hai.'
+      });
       return;
     }
     var _ocPendChain = _ocActiveChainData();
+    var _ocPendNoteEl = document.getElementById('oc-trade-note');
+    var _ocPendNote = _ocPendNoteEl ? _ocPendNoteEl.value.trim() : '';
     SV1OC.pendingOrders.push({
       id: 'w' + Date.now() + Math.floor(Math.random() * 1000),
       strike: strike, type: type, side: side, qtyLots: qtyLots, limitPrice: limitPrice,
       sl: risk.sl, tp: risk.tp, trailPoints: risk.trail,
       slType: risk.slType, slLimitPrice: risk.slLimitPrice, placedTime: Date.now(),
-      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocPendChain && _ocPendChain.expiry_label) || null
+      expiryEpoch: _ocExpiryEpoch(), expiryLabel: (_ocPendChain && _ocPendChain.expiry_label) || null,
+      note: _ocPendNote  // trade reason — fill hone par position mein carry hoga
     });
+    if (_ocPendNoteEl) _ocPendNoteEl.value = '';
     _ocSavePendingOrders();
     _ocRenderPositions();
-    alert('📝 Working order place ho gaya — ' + (side === 'buy' ? 'Buy' : 'Sell') + ' ' + type + ' ' +
-          _fmtNum(strike) + ' @ ' + _fmtNum(limitPrice) + ' (' + qtyLots + ' lot). LTP reach hote hi auto-fill hoga.');
+    _sv1LogTrade({
+      strike: strike, type: type, side: side, orderType: 'limit', qtyLots: qtyLots,
+      reqPrice: limitPrice, fillPrice: null, status: 'pending',
+      reason: 'Working order placed',
+      detail: 'LTP jab ' + (side === 'buy' ? '≤' : '≥') + ' ' + _fmtNum(limitPrice) + ' pahunchegi tab auto-fill hoga.'
+    });
+    _ocToast('📝 Working order place ho gaya — ' + (side === 'buy' ? 'Buy' : 'Sell') + ' ' + type + ' ' +
+          _fmtNum(strike) + ' @ ' + _fmtNum(limitPrice) + ' (' + qtyLots + ' lot). LTP reach hote hi auto-fill hoga.', 'ok');
     return;
   }
 
   // Market order
   var ltp = _ocLtpFor(strike, type);
   if (ltp == null || ltp <= 0) {
-    alert('⚠️ Live LTP abhi available nahi hai, thodi der me try karo.');
+    _ocToast('⚠️ Live LTP abhi available nahi hai, thodi der me try karo.', 'err');
+    _sv1LogTrade({
+      strike: strike, type: type, side: side, orderType: 'market', qtyLots: qtyLots,
+      reqPrice: null, fillPrice: null, status: 'rejected',
+      reason: 'Live LTP not available',
+      detail: 'Option chain LTP feed se abhi is strike/type ka price nahi mil raha (feed down ya data lag ho sakta hai).'
+    });
     return;
   }
-  var ok = _ocExecuteFill(strike, type, side, qtyLots, ltp, risk);
+
+  var fillPrice = ltp;
+  var fillNote  = '';
+
+  // ── BTC: LTP par flat-fill karne ke bajaye, live order book se
+  // qty-weighted average price nikalo — jaisa real market order asli
+  // exchange me fill hota. BankNifty (Fyers) is se untouched hai, wahan
+  // depth REST-poll based hai aur abhi bhi LTP-based hi rahega. ──────────
+  if (_ocIsBinanceAsset()) {
+    var _fillSymbol = _ocSymbolFor(strike, type);
+    var _qtyNeeded  = qtyLots * SV1OC.lotSize;
+    if (_fillSymbol) {
+      var _book = await _ocFetchBookForFill(_fillSymbol);
+      if (_book && (_book.bids.length || _book.asks.length)) {
+        var _levels = (side === 'buy') ? _book.asks : _book.bids;
+        var _wf = _ocWeightedFillFromBook(_levels, _qtyNeeded);
+        if (_wf.price != null) {
+          if (_wf.shortQty > 0) {
+            // Book me poori qty ki liquidity nahi thi — jitni mili usi book
+            // price par, baaki (worst-case) LTP par blend kiya, jaisa
+            // partial-fill/slippage real trading me hota hai.
+            fillPrice = ((_wf.price * _wf.filledQty) + (ltp * _wf.shortQty)) / _qtyNeeded;
+            fillNote = ' ⚠️ Order book me sirf ' + _wf.filledQty.toFixed(4) + '/' + _qtyNeeded.toFixed(4) +
+                       ' qty ki liquidity thi — baaki LTP par blend hua (realistic slippage).';
+          } else {
+            fillPrice = _wf.price;
+            fillNote = ' (📖 order book se fill — LTP se thoda alag ho sakta hai, real jaisa)';
+          }
+        }
+        // Book mila lekin dono side khaali (bids/asks empty) → LTP par hi
+        // silently fallback, koi extra warning nahi (rare edge case).
+      }
+      // Book fetch fail/timeout ho jaaye (network/backend issue) → LTP par
+      // hi silently fallback, taaki trading kabhi block na ho.
+    }
+  }
+
+  var _ocMktNoteEl = document.getElementById('oc-trade-note');
+  var _ocMktNote = _ocMktNoteEl ? _ocMktNoteEl.value.trim() : '';
+  var ok = _ocExecuteFill(strike, type, side, qtyLots, fillPrice, risk, { orderType: 'market', note: _ocMktNote });
   if (!ok) return;
+  if (_ocMktNoteEl) _ocMktNoteEl.value = '';
   _ocRenderPositions(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge();
   _ocShowTradeBar(strike, true);
-  alert('✅ ' + (side === 'buy' ? 'Buy' : 'Sell') + ' ' + type + ' ' + _fmtNum(strike) +
-        ' — ' + qtyLots + ' lot(s) @ ' + _fmtNum(ltp) + ' (virtual)');
+  _ocToast('✅ ' + (side === 'buy' ? 'Buy' : 'Sell') + ' ' + type + ' ' + _fmtNum(strike) +
+        ' — ' + qtyLots + ' lot(s) @ ' + _fmtNum(fillPrice) + ' (virtual)' + fillNote, 'ok');
 }
 
 // ── Pre-trade confirm — Buy/Sell button seedha _ocPlaceTrade nahi call
@@ -23097,7 +24551,7 @@ function _ocPlaceTrade(type, side) {
 // hota hai; SV1 ka trade bar single-tap hai isliye yahan browser confirm()
 // use kiya hai). Limit-price missing/invalid case mein seedha
 // _ocPlaceTrade par fallback karta hai — wahi apna validation alert dega. ─
-function _ocConfirmTrade(type, side) {
+async function _ocConfirmTrade(type, side) {
   var strike = _ocSelectedStrike;
   if (strike == null) return;
   var qtyLots = _ocTradeQtyLots;
@@ -23123,16 +24577,24 @@ function _ocConfirmTrade(type, side) {
     ? ('\nSL type: ' + (_riskPreview.slType === 'SLL' ? ('SL-Limit (trigger @ ' + _fmtNum(_riskPreview.sl) + ', fill @ ' + (_riskPreview.slLimitPrice != null ? _fmtNum(_riskPreview.slLimitPrice) : '—') + ')') : ('SL-Market (trigger @ ' + _fmtNum(_riskPreview.sl) + ')')))
     : '';
 
+  var btcBookNote = (_ocIsBinanceAsset() && _ocOrderType !== 'limit')
+    ? '\n📖 Actual fill live order book se hoga — is LTP se thoda alag ho sakta hai (real trading jaisa).'
+    : '';
+
+  var _ocNotePreviewEl = document.getElementById('oc-trade-note');
+  var _ocNotePreviewVal = _ocNotePreviewEl ? _ocNotePreviewEl.value.trim() : '';
+  var notePreview = _ocNotePreviewVal ? ('\n📝 Note: ' + _ocNotePreviewVal) : '';
+
   var msg = (side === 'buy' ? '🟢 BUY ' : '🔴 SELL ') + type + ' ' + _fmtNum(strike) +
     (_ocOrderType === 'limit' ? ' (Limit)' : ' (Market)') +
     ' — ' + qtyLots + ' lot(s) @ ' + _fmtNum(ltp) + '\n' +
-    'Charges (approx): ' + _ocFmtMoney(charges.total) + slTypeNote + '\n\n' +
+    'Charges (approx): ' + _ocFmtMoney(charges.total) + slTypeNote + btcBookNote + notePreview + '\n\n' +
     '📐 Agar ye trade execute ho jaaye (sab open positions milaake):\n' +
     'Max Profit: ' + _ocFmtPnlOrUnlimited(analysis.maxProfit, analysis.unlimitedProfit) + '\n' +
     'Max Loss: ' + _ocFmtPnlOrUnlimited(analysis.maxLoss, analysis.unlimitedLoss) + '\n\n' +
     'Confirm karein?';
 
-  if (!confirm(msg)) return;
+  if (!(await _ocModalConfirm(msg))) return;
   _ocPlaceTrade(type, side);
 }
 
@@ -23148,24 +24610,53 @@ function _ocCancelPendingOrder(id) {
 // ── On every live tick: check working limit orders for a fill ───────────
 // Buy-limit fills when LTP has dropped to/below the limit price; sell-limit
 // fills when LTP has risen to/above it (standard limit-order convention).
-function _ocCheckPendingOrders() {
+// BTC ke liye ab yahan bhi — jaisa market order me kiya — flat LTP-fill ke
+// bajaye live order book se qty-weighted price nikalte hain, taaki trigger
+// hone par bhi fill "real" lage (BankNifty is se untouched hai). ─────────
+async function _ocCheckPendingOrders() {
   if (!SV1OC.pendingOrders.length) return;
   var stillPending = [];
   var filledAny = false;
-  SV1OC.pendingOrders.forEach(function (o) {
+  for (var _i = 0; _i < SV1OC.pendingOrders.length; _i++) {
+    var o = SV1OC.pendingOrders[_i];
     var ltp = _ocLtpFor(o.strike, o.type, o.expiryEpoch);
     var shouldFill = (ltp != null) && (
       (o.side === 'buy' && ltp <= o.limitPrice) ||
       (o.side === 'sell' && ltp >= o.limitPrice)
     );
     if (shouldFill) {
-      var ok = _ocExecuteFill(o.strike, o.type, o.side, o.qtyLots, ltp, {
+      var _fillPrice = ltp;
+      if (_ocIsBinanceAsset()) {
+        var _fSymbol = _ocSymbolFor(o.strike, o.type, o.expiryEpoch);
+        var _fQty = o.qtyLots * SV1OC.lotSize;
+        if (_fSymbol) {
+          var _fBook = await _ocFetchBookForFill(_fSymbol);
+          // ── Race-condition fix: await ke dauraan user ne "Cancel" dabaya ho
+          // sakta hai — is order ko already SV1OC.pendingOrders se hata diya
+          // gaya ho sakta hai. Agar ab bhi list me nahi hai to fill mat karo,
+          // warna cancelled order bhi silently fill ho ja raha tha (aur turant
+          // EOD square-off se close ho ke sirf charges kaat raha tha). ──────
+          if (!SV1OC.pendingOrders.some(function (p) { return p.id === o.id; })) {
+            continue; // cancelled while awaiting — don't fill, don't re-add to stillPending
+          }
+          if (_fBook && (_fBook.bids.length || _fBook.asks.length)) {
+            var _fLevels = (o.side === 'buy') ? _fBook.asks : _fBook.bids;
+            var _fWf = _ocWeightedFillFromBook(_fLevels, _fQty);
+            if (_fWf.price != null) {
+              _fillPrice = (_fWf.shortQty > 0)
+                ? (((_fWf.price * _fWf.filledQty) + (ltp * _fWf.shortQty)) / _fQty)
+                : _fWf.price;
+            }
+          }
+        }
+      }
+      var ok = _ocExecuteFill(o.strike, o.type, o.side, o.qtyLots, _fillPrice, {
         sl: o.sl, tp: o.tp, trail: o.trailPoints, slType: o.slType, slLimitPrice: o.slLimitPrice
-      });
-      if (ok) { filledAny = true; return; } // drop from pending — filled
+      }, { orderType: 'limit-triggered', note: o.note || '' });
+      if (ok) { filledAny = true; continue; } // drop from pending — filled
     }
     stillPending.push(o);
-  });
+  }
   SV1OC.pendingOrders = stillPending;
   if (filledAny) { _ocSavePendingOrders(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge(); }
 }
@@ -23251,7 +24742,7 @@ function _ocClosePosition(id, reason, explicitPrice) {
     id: 'h' + Date.now(), strike: p.strike, type: p.type, side: p.side, qtyLots: p.qtyLots,
     entryPrice: p.entryPrice, exitPrice: ltp, entryTime: p.entryTime, exitTime: Date.now(),
     grossPnl: grossPnl, charges: charges, netPnl: netPnl, balanceAfter: SV1OC.balance,
-    reason: reason || 'manual'
+    reason: reason || 'manual', note: p.note || ''  // carry entry-note (incl. cell show-XXX tag) to closed trade record
   });
   _ocSaveBalance(); _ocSavePositions(); _ocSaveHistory();
   _ocRenderPositions(); _ocRenderHistory(); _ocSyncBalanceTab(); _ocRefreshHeaderBadge();
@@ -23659,16 +25150,73 @@ function _ocUpdatePnlOverlay() {
   _ocRenderPnlTopLeft();
 }
 function _ocRenderPnlTopLeft() {
-  var mainEl = document.getElementById('main-chart');
-  if (!mainEl) return;
-  var box = mainEl.querySelector('.sv1-pnl-topleft');
+  // ── Multi-cell Stack View 1 support — SV2 ke STACK2_CELLS jaisa hi SV1
+  // ka apna STACK_CELLS hota hai (jab kai cells/timeframes ek saath stacked
+  // hon). Us case mein SV2 wala hi "cell show-XXX" note-tag routing use
+  // karo. Agar kabhi (rare) STACK_CELLS available hi na ho (e.g. single
+  // grid/main-chart layout), purane single-#main-chart wale behavior par
+  // fallback karo, taaki wo mode bhi kaam karta rahe. ─────────────────────
+  if (typeof STACK_CELLS === 'undefined' || !STACK_CELLS.length) {
+    var mainEl = document.getElementById('main-chart');
+    if (!mainEl) return;
+    var box = mainEl.querySelector('.sv1-pnl-topleft');
 
-  if (!SV1OC.pnlOverlayOn || !SV1OC.positions || !SV1OC.positions.length) {
-    if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+    if (!SV1OC.pnlOverlayOn || !SV1OC.positions || !SV1OC.positions.length) {
+      if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+      return;
+    }
+
+    var html = '';
+    SV1OC.positions.forEach(function (p) {
+      var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
+      if (ltp == null) return;
+      var qty = p.qtyLots * SV1OC.lotSize;
+      var pnl = (p.side === 'buy') ? (ltp - p.entryPrice) * qty : (p.entryPrice - ltp) * qty;
+      var invested = (p.side === 'buy') ? (p.entryPrice * qty) : (p.marginBlocked || (p.entryPrice * qty));
+      var pct = (invested > 0) ? (pnl / invested * 100) : 0;
+      var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
+      var pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+      var cls = pnl >= 0 ? 'pos' : 'neg';
+      html += '<div class="sv1-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV1OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
+    });
+
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'sv1-pnl-topleft';
+      mainEl.appendChild(box);
+    }
+    box.innerHTML = html;
+    box.style.display = html ? '' : 'none';
     return;
   }
 
-  var html = '';
+  // ── Helper: note se "cell show-XXX" tag parse karo (SV2 se identical) ──
+  function _parseCellShowTag(note) {
+    if (!note) return null;
+    var firstLine = note.split('\n')[0].trim().toLowerCase();
+    var m = firstLine.match(/^cell\s+show\s*-\s*(\S+)/);
+    if (!m) return null;
+    var raw = m[1];
+    return raw.replace(/([a-zA-Z]+)$/, function(u){ return u === 'm' ? 'm' : u.toUpperCase(); });
+  }
+  function _cellLabel(c) {
+    if (!c) return '';
+    if (typeof tfMinToLabel === 'function' && c.tf) return tfMinToLabel(c.tf);
+    return '';
+  }
+
+  // Sabse pehle: saari existing sv1-pnl-topleft boxes clear karo.
+  STACK_CELLS.forEach(function(c) {
+    if (!c || !c.el) return;
+    var host = c.el.parentElement || c.el;
+    var box = host.querySelector('.sv1-pnl-topleft');
+    if (box) { box.innerHTML = ''; box.style.display = 'none'; }
+  });
+
+  if (!SV1OC.pnlOverlayOn || !SV1OC.positions || !SV1OC.positions.length) return;
+
+  // cellHtml[cellIdx] = accumulated html string
+  var cellHtml = {};
   SV1OC.positions.forEach(function (p) {
     var ltp = _ocLtpFor(p.strike, p.type, p.expiryEpoch);
     if (ltp == null) return;
@@ -23679,16 +25227,39 @@ function _ocRenderPnlTopLeft() {
     var pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(0);
     var pctStr = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
     var cls = pnl >= 0 ? 'pos' : 'neg';
-    html += '<div class="sv1-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV1OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
+    var row = '<div class="sv1-pnl-topleft-row ' + cls + '">' + p.strike + ' ' + p.type + '&nbsp;&nbsp;' + SV1OC.cur + pnlStr + '&nbsp;(' + pctStr + ')</div>';
+
+    var tag = _parseCellShowTag(p.note || '');
+    if (!tag) {
+      cellHtml[0] = (cellHtml[0] || '') + row;
+    } else {
+      var matched = false;
+      for (var ci = 0; ci < STACK_CELLS.length; ci++) {
+        if (_cellLabel(STACK_CELLS[ci]).toLowerCase() === tag.toLowerCase()) {
+          cellHtml[ci] = (cellHtml[ci] || '') + row;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) cellHtml[0] = (cellHtml[0] || '') + row;
+    }
   });
 
-  if (!box) {
-    box = document.createElement('div');
-    box.className = 'sv1-pnl-topleft';
-    mainEl.appendChild(box);
-  }
-  box.innerHTML = html;
-  box.style.display = html ? '' : 'none';
+  // Ab har target cell mein html inject karo.
+  Object.keys(cellHtml).forEach(function(idxStr) {
+    var idx = parseInt(idxStr, 10);
+    var c = STACK_CELLS[idx];
+    if (!c || !c.el) return;
+    var host = c.el.parentElement || c.el;
+    var box = host.querySelector('.sv1-pnl-topleft');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'sv1-pnl-topleft';
+      host.appendChild(box);
+    }
+    box.innerHTML = cellHtml[idxStr];
+    box.style.display = '';
+  });
 }
 
 function _ocRenderPendingOrders() {
@@ -23711,6 +25282,7 @@ function _ocRenderPendingOrders() {
       +   (riskBits.length ? ' · ' + riskBits.join(' · ') : '') + '</div>'
       + '<div class="oc-pos-bottom">'
       +   '<span class="oc-pos-meta">' + new Date(o.placedTime).toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'}) + '</span>'
+      +   '<button class="oc-pend-edit-btn" onclick="_ocOpenEditPendingOrder(\'' + o.id + '\')">Edit</button>'
       +   '<button class="oc-pend-cancel-btn" onclick="_ocCancelPendingOrder(\'' + o.id + '\')">Cancel</button>'
       + '</div>'
       + '</div>';
@@ -23776,11 +25348,26 @@ function _ocRenderPositions() {
 // _sv2OCEditPositionNote). Prompt-based edit, khaali chhodne par note
 // hata deta hai. Save + re-render dono karta hai (note + Edit/Add-Note
 // button label turant update ho jaata hai). ─────────────────────────────
+// Helper: note ki pehli line mein "cell show-" tag guaranteed rakhta hai —
+// agar already hai (kisi bhi timeframe ke saath) to note untouched, agar
+// nahi hai (naya note ya purana note bina tag ke) to "cell show-" ek nayi
+// pehli line ke roop mein aage add kar deta hai (purana content niche shift
+// ho jaata hai, delete nahi hota).
+function _ocEnsureCellShowPrefix(note) {
+  note = note || '';
+  var firstLine = note.split('\n')[0].trim();
+  if (/^cell\s+show\s*-\s*\S+/i.test(firstLine)) return note; // already tagged
+  return note ? ('cell show-\n' + note) : 'cell show-';
+}
 function _ocEditPositionNote(id) {
   var idx = SV1OC.positions.findIndex(function (p) { return p.id === id; });
   if (idx === -1) return;
   var currentNote = SV1OC.positions[idx].note || '';
-  var newNote = prompt('📝 Trade note / reason edit karo:\n(Khaali chhodne par note hata jaayega)', currentNote);
+  // "cell show-" hamesha pehli line mein guaranteed dikhe — chahe note naya
+  // ho ya purana (bina tag ke) — taaki user sirf timeframe (3D/9D/etc) type
+  // kare, poora tag khud ban jaaye.
+  var promptDefault = _ocEnsureCellShowPrefix(currentNote);
+  var newNote = prompt('📝 Trade note / reason edit karo:\n(Pehli line "cell show-9D" jaisa rakho to us cell par P&L badge dikhega. Khaali chhodne par note hata jaayega)', promptDefault);
   if (newNote === null) return; // cancelled
   SV1OC.positions[idx].note = newNote.trim();
   _ocSavePositions();
@@ -23818,6 +25405,9 @@ function _ocRenderHistory() {
          ' = ' + SV1OC.cur + c.total.toFixed(0) + ' total')
       : ('Charges ' + SV1OC.cur + chargesTotal.toFixed(0));
     var reasonLbl = OC_REASON_LABEL[h.reason] || h.reason || 'Manual';
+    var histNoteHtml = h.note
+      ? ('<div class="oc-hist-note">📝 ' + h.note.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>')
+      : '';
     html += '<div class="oc-hist-row">'
       + '<div class="oc-hist-top">'
       +   '<span class="oc-hist-name">' + h.type + ' ' + _fmtNum(h.strike) + ' · ' + h.side.toUpperCase() + '</span>'
@@ -23826,6 +25416,7 @@ function _ocRenderHistory() {
       + '<div class="oc-hist-meta">' + h.qtyLots + ' lot(s) · Entry ' + _fmtNum(h.entryPrice) + ' → Exit ' + _fmtNum(h.exitPrice)
       +   ' · ' + reasonLbl + (h.partial ? (' (' + h.remainingLots + ' lot abhi bhi open)') : '') + ' · ' + new Date(h.exitTime).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) + '</div>'
       +   '<div class="oc-hist-charges">' + chargesLine + '</div>'
+      +   histNoteHtml
       + '</div>';
   });
   list.innerHTML = html;
@@ -24004,13 +25595,14 @@ function _ocSyncVBalCard() {
   var el = document.getElementById('oc-vbal-value');
   var subEl = document.getElementById('oc-vbal-sub');
   var resetBtn = document.getElementById('oc-vbal-reset-btn');
-  if (el) el.textContent = _ocFmtMoney(SV1OC.balance);
-  if (resetBtn) resetBtn.textContent = '↺ Reset to ' + _ocFmtMoney(SV1OC.startingBalance);
+  var isBTC = (typeof _ocIsBinanceAsset === 'function') && _ocIsBinanceAsset();
+  if (el) el.textContent = _ocFmtMoney(SV1OC.balance) + (isBTC ? _ocInrEquiv(SV1OC.balance) : '');
+  if (resetBtn) resetBtn.title = 'Sab kuch reset karega — balance (' + _ocFmtMoney(SV1OC.startingBalance) + '), positions, pending orders aur history';
   var blocked = _ocTotalBlockedMargin();
   if (subEl) {
     if (blocked > 0) {
       var avail = SV1OC.balance - blocked;
-      subEl.innerHTML = 'Available ' + _ocFmtMoney(avail) + ' · <span class="oc-margin-amt">' + _ocFmtMoney(blocked) + ' margin blocked</span>';
+      subEl.innerHTML = 'Available ' + _ocFmtMoney(avail) + (isBTC ? _ocInrEquiv(avail) : '') + ' · <span class="oc-margin-amt">' + _ocFmtMoney(blocked) + ' margin blocked</span>';
     } else {
       subEl.textContent = '';
     }
@@ -24064,6 +25656,7 @@ function _ocUpdateMarginCallBanner() {
   if (vbalBanner) { vbalBanner.classList.remove('warn', 'danger'); vbalBanner.classList.add('show', cls); vbalBanner.textContent = msg; }
 }
 function _ocVBalStartEdit() {
+  _ocVBalCancelAdd(); _ocVBalCancelWithdraw();
   var row = document.getElementById('oc-vbal-edit-row');
   var input = document.getElementById('oc-vbal-input');
   if (row) row.classList.add('open');
@@ -24084,16 +25677,73 @@ function _ocVBalSaveEdit() {
   if (row) row.classList.remove('open');
   _ocSyncVBalCard(); _ocRefreshHeaderBadge();
 }
-function _ocVBalReset() {
-  if (SV1OC.positions.length || SV1OC.pendingOrders.length) {
-    if (!confirm('Reset karne se saari open positions aur working orders bhi clear ho jayengi (history safe rahegi). Continue?')) return;
-    SV1OC.positions = [];
-    SV1OC.pendingOrders = [];
-    _ocSavePositions(); _ocSavePendingOrders();
-    _ocRenderPositions();
-  }
+// ── ➕ Add Balance — purana balance reset kiye BINA usme amount jodta hai
+// (positions/history/pending sab untouched rehte hain). ────────────────
+function _ocVBalStartAdd() {
+  _ocVBalCancelEdit(); _ocVBalCancelWithdraw();
+  var row = document.getElementById('oc-vbal-add-row');
+  var input = document.getElementById('oc-vbal-add-input');
+  if (row) row.classList.add('open');
+  if (input) { input.value = ''; input.focus(); }
+}
+function _ocVBalCancelAdd() {
+  var row = document.getElementById('oc-vbal-add-row');
+  if (row) row.classList.remove('open');
+}
+function _ocVBalSaveAdd() {
+  var input = document.getElementById('oc-vbal-add-input');
+  var row = document.getElementById('oc-vbal-add-row');
+  if (!input) return;
+  var amt = parseFloat(input.value);
+  if (isNaN(amt) || amt <= 0) { alert('Sahi amount daalo (0 se zyada)'); return; }
+  SV1OC.balance = (SV1OC.balance || 0) + amt;
+  _ocSaveBalance();
+  if (row) row.classList.remove('open');
+  _ocSyncVBalCard(); _ocRefreshHeaderBadge();
+}
+// ── ➖ Withdraw Balance — balance se amount ghataata hai. Margin-blocked
+// paisa withdraw nahi ho sakta (open SELL positions ka collateral), isliye
+// max sirf available balance (_ocAvailableBalance()) tak hi allowed hai. ──
+function _ocVBalStartWithdraw() {
+  _ocVBalCancelEdit(); _ocVBalCancelAdd();
+  var row = document.getElementById('oc-vbal-withdraw-row');
+  var input = document.getElementById('oc-vbal-withdraw-input');
+  if (row) row.classList.add('open');
+  if (input) { input.value = ''; input.focus(); }
+}
+function _ocVBalCancelWithdraw() {
+  var row = document.getElementById('oc-vbal-withdraw-row');
+  if (row) row.classList.remove('open');
+}
+function _ocVBalSaveWithdraw() {
+  var input = document.getElementById('oc-vbal-withdraw-input');
+  var row = document.getElementById('oc-vbal-withdraw-row');
+  if (!input) return;
+  var amt = parseFloat(input.value);
+  if (isNaN(amt) || amt <= 0) { alert('Sahi amount daalo (0 se zyada)'); return; }
+  var avail = (typeof _ocAvailableBalance === 'function') ? _ocAvailableBalance() : SV1OC.balance;
+  if (amt > avail) { alert('Itna withdraw nahi ho sakta — sirf ' + _ocFmtMoney(avail) + ' available hai (margin-blocked paisa withdraw nahi ho sakta).'); return; }
+  SV1OC.balance = SV1OC.balance - amt;
+  _ocSaveBalance();
+  if (row) row.classList.remove('open');
+  _ocSyncVBalCard(); _ocRefreshHeaderBadge();
+}
+// ── ⚠️ Full Reset — balance, open positions, pending orders AUR trade
+// history (closed trades record) sab clear ho jaate hain — bilkul fresh
+// shuruaat. (Pehle "Reset" sirf balance+positions clear karta tha, history
+// safe rehti thi — ab user ke ask par history bhi isi mein clear hoti hai.) ──
+async function _ocVBalReset() {
+  var hasData = SV1OC.positions.length || SV1OC.pendingOrders.length || SV1OC.history.length || SV1OC.balance !== SV1OC.startingBalance;
+  if (hasData && !(await _ocModalConfirm('⚠️ FULL RESET — Balance, saari open positions, pending orders AUR trade history (closed trades record) sab clear ho jaayenge. Ye undo nahi ho sakta. Continue?'))) return;
+  SV1OC.positions = [];
+  SV1OC.pendingOrders = [];
+  SV1OC.history = [];
+  _ocSavePositions(); _ocSavePendingOrders(); _ocSaveHistory();
   SV1OC.balance = SV1OC.startingBalance;
   _ocSaveBalance();
+  _ocRenderPositions();
+  if (typeof _ocRenderHistory === 'function') _ocRenderHistory();
+  if (typeof _ocRenderAnalytics === 'function') _ocRenderAnalytics();
   _ocSyncVBalCard(); _ocRefreshHeaderBadge();
 }
 
@@ -24152,7 +25802,7 @@ async function _pollBNTickFast() {
 function _startBNFastPolling() {
   if (_bnFastPollIv) return;
   _pollBNTickFast();
-  _bnFastPollIv = setInterval(_pollBNTickFast, 300);
+  _bnFastPollIv = _pmSetInterval('BankNifty Fast Tick Poll', _pollBNTickFast, 300);
 }
 _startBNFastPolling();
 
@@ -24188,7 +25838,7 @@ function _stopBNPolling() {
 function _startBNPolling() {
   _stopBNPolling();
   _pollBNLive();
-  _bnPollIv = setInterval(_pollBNLive, 800);
+  _bnPollIv = _pmSetInterval('BankNifty Live Poll', _pollBNLive, 800);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -24604,23 +26254,18 @@ window.addEventListener('pagehide', _swingTFSave);
 window.addEventListener('beforeunload', _swingTFSave);
 
 // ── Symbol-aware Presets with Lock feature ────────────────────────────────────
-// Image se liye gaye exact colours:
-// BankNifty: 27D=yellow, 9D=red, 3D=green, 1D=orange, 135m=cyan, 45m=pink, 15m=black, 5m=blue
-// BTCUSDT:   27D=yellow, 9D=red, 3D=green, 1D=orange, 8H=orange, 160m=purple
+// BankNifty: 27D=yellow, 9D=red, 3D=green, 1D=orange, 125m=blue (future-line default)
+// BTCUSDT:   27D=yellow, 9D=red, 3D=green, 1D=orange, 8H=blue (future-line default)
 const SWING_PRESETS = {
   BN: [
-    { min: 5,     label: '5m',   enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
-    { min: 15,    label: '15m',  enabled: true, swingColor: '#000000', candleColor: '#000000' },
-    { min: 45,    label: '45m',  enabled: true, swingColor: '#ff1493', candleColor: '#ff1493' },
-    { min: 135,   label: '135m', enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
+    { min: 125,   label: '125m', enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
     { min: 1440,  label: '1D',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
     { min: 4320,  label: '3D',   enabled: true, swingColor: '#4caf50', candleColor: '#4caf50' },
     { min: 12960, label: '9D',   enabled: true, swingColor: '#f23645', candleColor: '#f23645' },
     { min: 38880, label: '27D',  enabled: true, swingColor: '#ffeb3b', candleColor: '#ffeb3b' },
   ],
   BTC: [
-    { min: 160,   label: '160m', enabled: true, swingColor: '#9c27b0', candleColor: '#9c27b0' },
-    { min: 480,   label: '8H',   enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
+    { min: 480,   label: '8H',   enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
     { min: 1440,  label: '1D',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
     { min: 4320,  label: '3D',   enabled: true, swingColor: '#4caf50', candleColor: '#4caf50' },
     { min: 12960, label: '9D',   enabled: true, swingColor: '#f23645', candleColor: '#f23645' },
@@ -25667,14 +27312,17 @@ function swingDraw() {
 
 function swingSubscribeChart() {
   if (!chart || !mainSeries) return;
-  chart.timeScale().subscribeVisibleLogicalRangeChange(swingDraw);
-  // RAF-throttle swing draw on crosshair move
-  let _swXhRAF = null;
-  chart.subscribeCrosshairMove(() => {
-    if (_swXhRAF) return;
-    _swXhRAF = requestAnimationFrame(() => { _swXhRAF = null; swingDraw(); });
-  });
-  try { mainSeries.priceScale().subscribeVisiblePriceRangeChange(swingDraw); } catch(_) {}
+  // Single shared RAF guard for range-change, crosshair-move AND price-scale
+  // change — swingDraw runs at most once per animation frame no matter how
+  // many of these fire during a fast pinch-zoom / pan gesture.
+  let _swRAF = null;
+  const _swingDrawThrottled = () => {
+    if (_swRAF) return;
+    _swRAF = requestAnimationFrame(() => { _swRAF = null; _pmMeasure('Swing S-R Redraw', swingDraw); });
+  };
+  chart.timeScale().subscribeVisibleLogicalRangeChange(_swingDrawThrottled);
+  chart.subscribeCrosshairMove(_swingDrawThrottled);
+  try { mainSeries.priceScale().subscribeVisiblePriceRangeChange(_swingDrawThrottled); } catch(_) {}
 }
 
 // ── Global redraw trigger for vertical price-scale scroll (mobile touch + desktop wheel)
@@ -26115,17 +27763,14 @@ function sv2SetSwSlideMult(v) {
 function _sv2ApplyPreset(presetName) {
   const PRESETS = {
     BN: [
-      { min: 5,     label: '5m',   enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
-      { min: 15,    label: '15m',  enabled: true, swingColor: '#000000', candleColor: '#000000' },
-      { min: 45,    label: '45m',  enabled: true, swingColor: '#ff1493', candleColor: '#ff1493' },
-      { min: 135,   label: '135m', enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
+      { min: 125,   label: '125m', enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
       { min: 1440,  label: '1D',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
       { min: 4320,  label: '3D',   enabled: true, swingColor: '#4caf50', candleColor: '#4caf50' },
       { min: 12960, label: '9D',   enabled: true, swingColor: '#f23645', candleColor: '#f23645' },
       { min: 38880, label: '27D',  enabled: true, swingColor: '#ffeb3b', candleColor: '#ffeb3b' },
     ],
     BTC: [
-      { min: 480,   label: '8H',   enabled: true, swingColor: '#00bcd4', candleColor: '#00bcd4' },
+      { min: 480,   label: '8H',   enabled: true, swingColor: '#2962ff', candleColor: '#2962ff' },
       { min: 1440,  label: '1D',   enabled: true, swingColor: '#ff9800', candleColor: '#ff9800' },
       { min: 4320,  label: '3D',   enabled: true, swingColor: '#4caf50', candleColor: '#4caf50' },
       { min: 12960, label: '9D',   enabled: true, swingColor: '#f23645', candleColor: '#f23645' },
@@ -28936,7 +30581,7 @@ if (document.readyState === 'loading') {
       fetch('/_stcore/health', { method: 'GET', cache: 'no-store' }).catch(() => {});
     } catch(_) {}
   }
-  setInterval(ping, INTERVAL);
+  _pmSetInterval('Keep-Alive Ping', ping, INTERVAL);
   // Also ping immediately on page visibility restore (user switches back to tab)
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') ping();
