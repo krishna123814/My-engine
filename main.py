@@ -679,7 +679,12 @@ BINANCE_TRADE_STALE_SEC  = 30     # trade stream sparse hoti hai, isliye thoda z
 
 BINANCE_WS_MARK_URL  = "wss://fstream.binance.com/market/stream?streams=btcusdt@optionMarkPrice"
 BINANCE_WS_TRADE_URL = "wss://fstream.binance.com/public/stream?streams=btcusdt@optionTrade"
-BINANCE_WS_SPOT_URL  = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
+BINANCE_WS_SPOT_URL  = "wss://stream.binance.com:9443/ws/btcusdt@miniTicker"
+# PEHLE: btcusdt@aggTrade — BTCUSDT jaisa liquid pair har second dozens/
+# hundreds trades karta hai, isliye ye stream sabse zyada proxy-bandwidth
+# khaata tha (sirf LTP chahiye tha, poora trade-tape nahi). AB: @miniTicker —
+# Binance khud fixed 1 update/second bhejta hai (24hr rolling stats + "c" =
+# last price), same LTP purpose, bahut kam data.
 
 # symbol -> {mark,bid,ask,last,delta,gamma,theta,vega,iv,oi,chg,chgp,volume,vol_cum,ts}
 _BN_LIVE_QUOTES = {}
@@ -730,7 +735,7 @@ _BN_WS_APPS_LOCK = threading.Lock()
 BINANCE_WATCHDOG_CHECK_SEC   = 5     # kitni baar check karein
 BINANCE_WATCHDOG_MARK_MULT   = 2.0   # mark: stale-threshold ka itna guna age ho to force-reconnect
 BINANCE_WATCHDOG_TRADE_MULT  = 2.0
-BINANCE_WATCHDOG_SPOT_SEC    = 20    # spot ke liye seedha seconds (agg trade sparse ho sakta hai)
+BINANCE_WATCHDOG_SPOT_SEC    = 8     # miniTicker fixed 1/sec aata hai, isliye stale-threshold ab tight rakh sakte hain
 
 def _bn_watchdog_loop():
     """Independent watchdog — ping/pong se bhi zyada bharosemand. Har
@@ -1110,12 +1115,14 @@ def _bn_ws_trade_loop():
         fail_count += 1
         _bn_ws_backoff_sleep(fail_count)
 
-# ── Step 5: WebSocket #3 — BTCUSDT spot price (agg trade), REST price-poll ki
-# jagah — pehle har second ek REST call lagti thi, ab bilkul nahi. ──────────
+# ── Step 5: WebSocket #3 — BTCUSDT spot price (24hr miniTicker), REST
+# price-poll ki jagah — pehle har second ek REST call lagti thi, ab bilkul
+# nahi. miniTicker "c" field = current/last price (aggTrade ke "p" jaisa hi
+# kaam, lekin fixed 1 update/sec — poora trade-tape nahi milta). ──────────
 def _bn_ws_spot_on_message(ws, message):
     try:
         data = json.loads(message)
-        price = data.get("p")
+        price = data.get("c")
         if price not in (None, ""):
             with _BN_SPOT_LOCK:
                 _BN_SPOT_PRICE["price"]  = float(price)

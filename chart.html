@@ -4650,7 +4650,6 @@ input.tv-cp-op-inp::-webkit-slider-runnable-track{background:transparent;height:
     <button class="hdr-icon-btn" onclick="toggleSettings()" title="Settings">⚙</button>
     <button class="hdr-icon-btn" id="fs-btn" onclick="toggleFS()" title="Fullscreen">⛶</button>
     <button class="hdr-icon-btn" id="pm-icon-btn" onclick="_pmToggle()" title="Performance Monitor (processes / RAM / load)">⏱<span id="pm-badge">0</span></button>
-    <button class="hdr-icon-btn" id="master-switch-btn" onclick="_masterSwitchToggle()" title="Live Data (Fyers + Binance) — ON. Tap to turn OFF before exiting app.">🟢</button>
     <span id="ws-status"><span id="ws-dot"></span></span>
   </div>
 </div>
@@ -21412,62 +21411,6 @@ async function _probeApiPort() {
   }
   return 0;
 }
-
-// ─── Master Live Switch — header icon (common to SV1 + SV2, sits in #hdr
-// jo poore page ka shared header hai). ON (🟢, default) = app-start hote hi
-// saare background threads (Fyers WS/REST + Binance WS/REST) auto-chalte
-// hain, jaisa pehle hota tha. OFF (🔴) = manual tap se saare background
-// network threads ruk jaate hain (Streamlit Cloud par background me bhi
-// proxy-quota na khaayein). State sirf backend process ke session ke liye
-// hai — naya app-load hamesha wapas default ON se shuru hota hai. ─────────
-let _masterSwitchOn = true;   // optimistic default — backend bhi default ON hai
-
-function _masterSwitchApplyUI(on) {
-  _masterSwitchOn = on;
-  const btn = document.getElementById('master-switch-btn');
-  if (!btn) return;
-  btn.textContent = on ? '🟢' : '🔴';
-  btn.title = on
-    ? 'Live Data (Fyers + Binance) — ON. Tap to turn OFF before exiting app.'
-    : 'Live Data (Fyers + Binance) — OFF. Tap to turn back ON.';
-}
-
-async function _masterSwitchUrl(setVal) {
-  if (_resolvedApiPort === 0) { await _probeApiPort(); }
-  if (_resolvedApiPort === 0) return null;
-  const q = setVal ? `?set=${setVal}` : '';
-  return `http://${_ocApiHost()}:${_resolvedApiPort}/api/master_switch${q}`;
-}
-
-async function _masterSwitchInit() {
-  const url = await _masterSwitchUrl();
-  if (!url) return;
-  try {
-    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
-    if (r.ok) {
-      const d = await r.json();
-      _masterSwitchApplyUI(!!d.on);
-    }
-  } catch (_) { /* server abhi ready nahi — default ON UI hi rehne do */ }
-}
-
-async function _masterSwitchToggle() {
-  const nextVal = _masterSwitchOn ? 'off' : 'on';
-  const url = await _masterSwitchUrl(nextVal);
-  if (!url) return;
-  try {
-    const r = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
-    if (r.ok) {
-      const d = await r.json();
-      _masterSwitchApplyUI(!!d.on);
-    }
-  } catch (_) { /* fail ho gaya to icon purani state par hi rahega, dobara tap karein */ }
-}
-
-// Page load ke turant baad current state fetch karo (server thoda der se
-// ready hota hai, isliye chhota delay + backup retry).
-setTimeout(_masterSwitchInit, 1500);
-setTimeout(_masterSwitchInit, 5000);
 
 function _bnHistoryUrl(res, fromDate, toDate) {
   const path = `/api/bn_history?resolution=${res}&from=${fromDate}&to=${toDate}`;
