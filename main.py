@@ -485,9 +485,43 @@ def fyers_get_option_chain(app_id: str, access_token: str, symbol: str = BN_OC_S
 BINANCE_BASE_URL = "https://api.binance.com"
 BINANCE_EAPI_URL = "https://eapi.binance.com"
 
+# ── Binance-only outbound proxy (optional, manual — login screen se daala
+# jaata hai) ─────────────────────────────────────────────────────────────
+# Streamlit Cloud ke IP par Binance REST + WebSocket dono block ho sakte hain.
+# Host/Port/Username/Password "🌐 Binance Proxy" card (login screen) se
+# manually save karte ho — .fyers_creds.json mein save hote hain, code mein
+# kahin hardcoded nahi. Khaali chhoda to bina proxy ke seedha connect hoga.
+def _binance_proxy_cfg() -> dict:
+    creds = load_creds()
+    host = (creds.get("binance_proxy_host") or "").strip()
+    port_raw = creds.get("binance_proxy_port")
+    user = (creds.get("binance_proxy_user") or "").strip()
+    pw   = (creds.get("binance_proxy_pass") or "").strip()
+    if not host or not port_raw:
+        return {}
+    try:
+        port = int(str(port_raw).strip())
+    except Exception:
+        return {}
+    if user and pw:
+        auth_url = f"http://{user}:{pw}@{host}:{port}"
+    else:
+        auth_url = f"http://{host}:{port}"
+    ws_kwargs = {"http_proxy_host": host, "http_proxy_port": port, "proxy_type": "http"}
+    if user and pw:
+        ws_kwargs["http_proxy_auth"] = (user, pw)
+    return {
+        "requests_proxies": {"http": auth_url, "https": auth_url},
+        "ws_kwargs": ws_kwargs,
+    }
+def _binance_requests_proxies() -> "dict | None":
+    return _binance_proxy_cfg().get("requests_proxies")
+def _binance_ws_proxy_kwargs() -> dict:
+    return _binance_proxy_cfg().get("ws_kwargs", {})
+
 def _binance_server_time() -> int:
     try:
-        r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10)
+        r = requests.get(f"{BINANCE_BASE_URL}/api/v3/time", timeout=10, proxies=_binance_requests_proxies())
         if r.status_code == 200:
             return r.json().get("serverTime", int(time.time() * 1000))
     except Exception:
@@ -512,7 +546,7 @@ def _binance_call(base: str, path: str, params: dict, api_key: str,
     if qs:
         url = f"{url}?{qs}"
     try:
-        r = requests.get(url, headers=headers, timeout=20)
+        r = requests.get(url, headers=headers, timeout=20, proxies=_binance_requests_proxies())
         ct = r.headers.get("Content-Type", "")
         if "application/json" in ct:
             data = r.json()
@@ -977,7 +1011,7 @@ def _bn_ws_mark_loop():
             )
             with _BN_WS_APPS_LOCK:
                 _BN_WS_APPS["mark"] = wsapp
-            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+            wsapp.run_forever(ping_interval=20, ping_timeout=10, **_binance_ws_proxy_kwargs())
         except Exception as e:
             _BN_WS_STATE["last_error"] = str(e)
         _BN_WS_STATE["mark_connected"] = False
@@ -1038,7 +1072,7 @@ def _bn_ws_trade_loop():
             )
             with _BN_WS_APPS_LOCK:
                 _BN_WS_APPS["trade"] = wsapp
-            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+            wsapp.run_forever(ping_interval=20, ping_timeout=10, **_binance_ws_proxy_kwargs())
         except Exception as e:
             _BN_WS_STATE["last_error"] = str(e)
         _BN_WS_STATE["trade_connected"] = False
@@ -1078,7 +1112,7 @@ def _bn_ws_spot_loop():
             )
             with _BN_WS_APPS_LOCK:
                 _BN_WS_APPS["spot"] = wsapp
-            wsapp.run_forever(ping_interval=20, ping_timeout=10)
+            wsapp.run_forever(ping_interval=20, ping_timeout=10, **_binance_ws_proxy_kwargs())
         except Exception as e:
             _BN_WS_STATE["last_error"] = str(e)
         _BN_WS_STATE["spot_connected"] = False
@@ -4083,6 +4117,34 @@ else:
                 st.session_state["binance_logged_in"] = False
                 _slog(f"Binance Login FAILED — {_login_result}", level="err")
                 st.error(f"❌ Login failed: {_login_result}")
+
+    st.markdown('''</div>''', unsafe_allow_html=True)
+
+    # ── Binance Proxy (optional, manual) ─────────────────────────────────────
+    # Binance REST + WebSocket dono block ho sakte hain jis server par app
+    # deploy hai (jaise Streamlit Cloud). Yahan proxy manually daal do — REST
+    # calls (balance/price/option-chain) aur teeno WebSocket streams
+    # (Mark/Trade/Spot) sab isi ko automatically use karenge. Khaali chhodne
+    # par bina proxy ke seedha connect try hoga.
+    st.markdown('''<div class="login-card">''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-title">🌐 Binance Proxy (optional)</div>''', unsafe_allow_html=True)
+    st.markdown('''<div class="login-sub">Agar yahan se Binance block hai to proxy daal do — REST + WebSocket dono isi se jayenge</div>''', unsafe_allow_html=True)
+
+    _px_creds   = load_creds()
+    _px_host_in = st.text_input("Proxy Host / IP", value=_px_creds.get("binance_proxy_host", ""), key="binance_proxy_host_in")
+    _px_port_in = st.text_input("Proxy Port", value=str(_px_creds.get("binance_proxy_port", "") or ""), key="binance_proxy_port_in")
+    _px_user_in = st.text_input("Proxy Username", value=_px_creds.get("binance_proxy_user", ""), key="binance_proxy_user_in")
+    _px_pass_in = st.text_input("Proxy Password", type="password", value=_px_creds.get("binance_proxy_pass", ""), key="binance_proxy_pass_in")
+
+    if st.button("💾 Save Proxy", use_container_width=True, key="binance_proxy_save_btn"):
+        save_creds({
+            **load_creds(),
+            "binance_proxy_host": _px_host_in.strip(),
+            "binance_proxy_port": _px_port_in.strip(),
+            "binance_proxy_user": _px_user_in.strip(),
+            "binance_proxy_pass": _px_pass_in.strip(),
+        })
+        st.success("✅ Proxy saved — agli Binance call/WebSocket reconnect se apply ho jaayega")
 
     st.markdown('''</div>''', unsafe_allow_html=True)
 
