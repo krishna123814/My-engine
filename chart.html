@@ -19869,6 +19869,15 @@ function _applyBTCKline(k, opts) {
     _sv1DebugCandlePriceAt = Date.now();
   }
 
+  // Perf: is BTC kahin bhi visible hai abhi (1x1 / grid / stack2)? Used
+  // below to skip work that's only useful for an asset actually on screen
+  // (candle-history append aur bucket tracking hamesha chalte hain — un me
+  // haath nahi lagaya, taaki BankNifty se wapas BTC pe aane par data me
+  // koi gap na aaye).
+  const _btcVisible = (S.asset === BTC_ASSET) ||
+    CELLS.some(c => c.asset === BTC_ASSET) ||
+    (typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS.some(c => c.asset === BTC_ASSET));
+
   // Track per-minute open for timer color
   const minBucket=Math.floor(kOpenSec/60)*60;
   if (_candleOpen[BTC_ASSET]===undefined||_btcBucket.time!==bucket)
@@ -19893,11 +19902,17 @@ function _applyBTCKline(k, opts) {
         }
       }
       // Recompute candle H/L lines with the updated data (debounced 300ms)
-      clearTimeout(_swingRebuildTimer);
-      _swingRebuildTimer=setTimeout(()=>{
-        if (S.layout==='1x1') swingAfterRebuild();
-        else CELLS.forEach((_,i)=>buildCellSwing(i));
-      }, 300);
+      // — skip scheduling this when BTC isn't visible anywhere; nothing on
+      // screen needs it right now, and it re-syncs itself once BTC becomes
+      // visible again (rebuildChart/buildCellChart calls swingAfterRebuild
+      // fresh on that switch anyway).
+      if (_btcVisible) {
+        clearTimeout(_swingRebuildTimer);
+        _swingRebuildTimer=setTimeout(()=>{
+          if (S.layout==='1x1') swingAfterRebuild();
+          else CELLS.forEach((_,i)=>buildCellSwing(i));
+        }, 300);
+      }
     }
     _btcBucket.tf=S.tf; _btcBucket.time=bucket;
     // Parent dot update — new bucket = new candle closed, dot may shift
@@ -19963,7 +19978,7 @@ function _applyBTCKline(k, opts) {
   // Single chart mode (Fix 5: rAF-batched update to prevent last-candle flicker)
   if (S.layout==='1x1'&&mainSeries&&S.asset===BTC_ASSET) {
     _lastLTP=close;
-    _mainVLTime = bucket; _vlDraw();
+    _mainVLTime = bucket;
     cancelAnimationFrame(_btcRafId);
     _btcRafId=requestAnimationFrame(()=>{
       if(!mainSeries) return;
@@ -19976,6 +19991,10 @@ function _applyBTCKline(k, opts) {
       const fmt=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
       const ltpEl=document.getElementById('hdr-ltp');
       if (ltpEl && !_hdrXActive) ltpEl.textContent=fmt(close);
+      // Vertical/future-line canvas redraw — moved into this same RAF so it
+      // no longer runs synchronously on every single trade tick (was
+      // fighting touchmove for main-thread time during scroll/pan → hang).
+      _vlDraw();
     });
   }
 
@@ -20770,6 +20789,59 @@ function _sv1DebugPopupRefreshLog() {
     }).join('\n');
   }
   html += '\n<span>' + '─'.repeat(20) + ' Order Book (Market Depth) ' + '─'.repeat(20) + '</span>\n' + depthHtml;
+
+  // ── Inline Order Book (📖 panel, Buy/Sell ke upar 📊 icon se khulta hai) —
+  // ye purani "Order Book" section se ALAG code-path hai (dekho comment
+  // upar _ocSyncInlineBook mein), isliye alag se track karte hain taaki
+  // guess na karna pade ki fail kahan ho raha hai. ───────────────────────
+  let inlineHtml;
+  if (typeof _ocInlineBookSymbol === 'undefined' || !_ocInlineBookSymbol) {
+    inlineHtml = '<span>— Inline Order Book panel (📊 icon) abhi khula nahi hai.</span>';
+  } else {
+    const _sym = _ocInlineBookSymbol;
+    const inlineLines = [
+      { ok: null, text: '● Symbol : ' + _sym },
+    ];
+    // Channel 1: side-port REST snapshot
+    if (_ocFetchBookForFillDebug.symbol === _sym) {
+      inlineLines.push({ ok: _ocFetchBookForFillDebug.ok, text: '  [1] Side-port snapshot : ' +
+        (_ocFetchBookForFillDebug.ok ? ('OK — bids=' + _ocFetchBookForFillDebug.bidLevels + ' asks=' + _ocFetchBookForFillDebug.askLevels) :
+         ('FAILED — ' + _ocFetchBookForFillDebug.reason)) });
+      inlineLines.push({ ok: null, text: '      URL hit : ' + (_ocFetchBookForFillDebug.url || '-') + (_ocFetchBookForFillDebug.httpStatus != null ? (' (HTTP ' + _ocFetchBookForFillDebug.httpStatus + ')') : '') });
+    } else {
+      inlineLines.push({ ok: null, text: '  [1] Side-port snapshot : abhi tak result nahi (in-flight ya symbol badla)' });
+    }
+    // Channel 2: backend postMessage push
+    const _bridgeOk = _ocDepthDebug.bridgeOk;
+    const _backendMatch = _ocDepthDebug.backendActiveSymbol === _sym;
+    if (!_ocDepthDebug.backendHeartbeatSeen) {
+      inlineLines.push({ ok: false, text: '  [2] Backend push (proxy) : heartbeat hi kabhi nahi mila — pusher fragment ya postMessage bridge down.' });
+    } else if (_bridgeOk === false) {
+      inlineLines.push({ ok: false, text: '  [2] Backend push (proxy) : pushState bridge FAILED — ' + _ocDepthDebug.bridgeLastMsg });
+    } else if (!_backendMatch) {
+      inlineLines.push({ ok: false, text: '  [2] Backend push (proxy) : bridge OK bheja gaya, lekin backend ka active_depth_symbol = "' +
+        (_ocDepthDebug.backendActiveSymbol || '(none)') + '" hai — humara symbol wahan tak pahuncha hi nahi.' });
+    } else {
+      inlineLines.push({ ok: true, text: '  [2] Backend push (proxy) : symbol backend tak pahunch gaya (active_depth_symbol match).' });
+    }
+    // Channel 3: direct browser WS
+    if (typeof _ocInlineWsDebug !== 'undefined' && _ocInlineWsDebug.symbol === _sym) {
+      const w = _ocInlineWsDebug;
+      let wsOk = (w.state === 'open' && w.msgCount > 0) ? true : (w.state === 'error' ? false : null);
+      let wsText = '  [3] Direct WS : state=' + w.state + ', messages=' + w.msgCount;
+      if (w.state === 'error') wsText += ' — ' + w.errorDetail;
+      if (w.state === 'closed') wsText += ' (code=' + w.closeCode + ', reason=' + (w.closeReason || '-') + ', clean=' + w.closeWasClean + ')';
+      inlineLines.push({ ok: wsOk, text: wsText });
+    } else {
+      inlineLines.push({ ok: null, text: '  [3] Direct WS : abhi tak try nahi hua' });
+    }
+    inlineHtml = inlineLines.map(function(l) {
+      if (l.ok === true)  return '<span class="log-ok">'  + l.text + '</span>';
+      if (l.ok === false) return '<span class="log-err">' + l.text + '</span>';
+      return '<span>' + l.text + '</span>';
+    }).join('\n');
+  }
+  html += '\n<span>' + '─'.repeat(20) + ' Inline Order Book (📊 panel) ' + '─'.repeat(20) + '</span>\n' + inlineHtml;
 
   // ── App Startup / Login Debug log (pehle alag "boot-debug-tracker" mein
   // tha, ab yahan isi merged popup mein) — window.__STARTUP_LOG__ backend
@@ -21789,7 +21861,13 @@ function _applyBNLiveTick(d) {
   _bnUpdateRaw(latest);
 
   // ── Step 2: SR lines redraw agar 1-min candle close hua ──────────────────
-  if (isNewCandle) {
+  // Sirf tab schedule karo jab BankNifty kahin visible ho (1x1/grid/stack2) —
+  // BTC dekhte waqt is recompute ki koi zaroorat nahi, kyunki kuch bhi
+  // screen pe nahi dikh raha jo ye affect kare.
+  const _bnVisible = (S.asset === BN_ASSET) ||
+    CELLS.some(c => c.asset === BN_ASSET) ||
+    (typeof STACK2_CELLS !== 'undefined' && STACK2_CELLS.some(c => c.asset === BN_ASSET));
+  if (isNewCandle && _bnVisible) {
     clearTimeout(_swingRebuildTimer);
     _swingRebuildTimer = setTimeout(() => {
       if (S.layout === '1x1') swingAfterRebuild();
@@ -21810,6 +21888,10 @@ function _applyBNLiveTick(d) {
       if (tfMin >= 1440 && chart && _followLive) {
         try { chart.timeScale().scrollToRealTime(); } catch(_) {}
       }
+      // Vertical/future-line canvas redraw — moved into this same RAF so it
+      // no longer runs synchronously on every single live tick (was fighting
+      // touchmove for main-thread time during scroll/pan → hang).
+      _mainVLTime = bar.time; _vlDraw();
     });
 
     const ltpEl = document.getElementById('hdr-ltp');
@@ -21830,7 +21912,6 @@ function _applyBNLiveTick(d) {
     if (!_candleOpen[BN_ASSET]) _candleOpen[BN_ASSET] = latest.open;
 
     _lastLTP = latest.close;
-    _mainVLTime = bar.time; _vlDraw();
   }
 
   // ── Step 4: Grid cells update ─────────────────────────────────────────────
@@ -22580,6 +22661,10 @@ function _ocDebugBuildLogHtml() {
           text: '  Ticker loop     : ' + (ews.ticker_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ews.ticker_thread_age_sec) + ' ago') : 'never started') },
         { ok: (ews.meta_thread_age_sec != null && ews.meta_thread_age_sec < 90),
           text: '  Meta loop       : ' + (ews.meta_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ews.meta_thread_age_sec) + ' ago') : 'never started') },
+        { ok: (ews.meta_last_ok === true),
+          text: '  Meta last try   : ' + (ews.meta_last_ok == null ? 'abhi tak try nahi hua'
+                : (ews.meta_last_ok ? ('✅ ' + ews.meta_last_msg) : ('❌ ' + ews.meta_last_msg)))
+                + (ews.meta_last_age_sec != null ? ('  (' + _ocDebugAgeText(ews.meta_last_age_sec) + ' pehle)') : '') },
       );
     } else {
       lines.push({ ok: null, text: '  (Ye backend build purane version ka lag raha hai — WS/thread diagnostics is error ke saath nahi bheje gaye.)' });
@@ -22670,6 +22755,10 @@ function _ocDebugBuildLogHtml() {
       text: '  Ticker loop     : ' + (ws.ticker_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.ticker_thread_age_sec) + ' ago') : 'never started') },
     { ok: (ws.meta_thread_age_sec != null && ws.meta_thread_age_sec < 90),
       text: '  Meta loop       : ' + (ws.meta_thread_age_sec != null ? ('last tick ' + _ocDebugAgeText(ws.meta_thread_age_sec) + ' ago') : 'never started') },
+    { ok: (ws.meta_last_ok === true),
+      text: '  Meta last try   : ' + (ws.meta_last_ok == null ? 'abhi tak try nahi hua'
+            : (ws.meta_last_ok ? ('✅ ' + ws.meta_last_msg) : ('❌ ' + ws.meta_last_msg)))
+            + (ws.meta_last_age_sec != null ? ('  (' + _ocDebugAgeText(ws.meta_last_age_sec) + ' pehle)') : '') },
     ...((ws.payload_thread_age_sec != null && ws.payload_thread_age_sec >= 5) ||
         (ws.ticker_thread_age_sec != null && ws.ticker_thread_age_sec >= 20) ||
         (ws.meta_thread_age_sec != null && ws.meta_thread_age_sec >= 90)
@@ -23594,15 +23683,53 @@ function _ocSpot() { var d = _ocActiveChainData(); return (d && d.spot != null) 
 // backend '/api/market_depth' ko direct hit karta hai, chahe depth-sheet
 // khuli ho ya na ho. ──────────────────────────────────────────────────────
 async function _ocFetchBookForFill(symbol) {
+  _ocFetchBookForFillDebug.symbol = symbol;
+  _ocFetchBookForFillDebug.ts = Date.now();
   try {
     var url = _ocDepthUrl(symbol);
+    _ocFetchBookForFillDebug.url = url;
     var r = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    if (!r.ok) return null;
+    _ocFetchBookForFillDebug.httpStatus = r.status;
+    if (!r.ok) {
+      _ocFetchBookForFillDebug.ok = false;
+      _ocFetchBookForFillDebug.reason = 'HTTP ' + r.status + ' (non-2xx response)';
+      return null;
+    }
     var data = await r.json();
-    if (!data || data.error) return null;
+    if (!data || data.error) {
+      _ocFetchBookForFillDebug.ok = false;
+      _ocFetchBookForFillDebug.reason = (data && data.error) ? ('backend error: ' + data.error) : 'empty/null response body';
+      return null;
+    }
+    _ocFetchBookForFillDebug.ok = true;
+    _ocFetchBookForFillDebug.reason = null;
+    _ocFetchBookForFillDebug.bidLevels = (data.bids || []).length;
+    _ocFetchBookForFillDebug.askLevels = (data.asks || []).length;
     return { bids: data.bids || [], asks: data.asks || [] };
-  } catch (e) { return null; }
+  } catch (e) {
+    _ocFetchBookForFillDebug.ok = false;
+    // AbortSignal.timeout() se aane wali cancellation "TimeoutError" naam se
+    // aati hai — ise alag se pehchano taaki "network unreachable" (jaise
+    // side-port blocked hosting par) aur "server slow tha" mein farak pata
+    // chale.
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
+      _ocFetchBookForFillDebug.reason = 'TIMEOUT (3s) — server ne response hi nahi diya. Agar side-port URL hai (' + (_ocFetchBookForFillDebug.url || '') + ') to ye port hosting par unreachable ho sakta hai (single-port deployment jaise Render).';
+    } else if (e && e.name === 'TypeError') {
+      _ocFetchBookForFillDebug.reason = 'NETWORK/CONNECTION ERROR (' + (e.message || 'fetch failed') + ') — URL reach hi nahi hua. Agar side-port URL hai (' + (_ocFetchBookForFillDebug.url || '') + ') to browser se seedha us port tak pahunchna blocked ho sakta hai.';
+    } else {
+      _ocFetchBookForFillDebug.reason = (e && e.message) ? e.message : String(e);
+    }
+    return null;
+  }
 }
+// Side-channel debug state — _ocFetchBookForFill ke andar hi bharta hai,
+// taaki teeno callers (order-fill pricing + inline book) ka behavior
+// bilkul same rahe (still returns null on failure) lekin debug panel ko
+// asli reason bhi mil sake, guess nahi karna pade.
+var _ocFetchBookForFillDebug = {
+  symbol: null, ts: 0, url: null, httpStatus: null,
+  ok: null, reason: null, bidLevels: 0, askLevels: 0,
+};
 
 // Book ke levels ko top se walk karke qty-weighted average price nikalta
 // hai (buy → asks consume karo lowest-price-first, sell → bids consume
@@ -23848,6 +23975,21 @@ function _applyMarketDepthPush(data) {
   _ocDepthDebugUpdateDot();
 
   if (data._heartbeat) return;  // sirf status update tha, koi actual depth data nahi
+
+  // Inline panel (📊 icon wala) bhi isi backend push se update hota hai ab —
+  // isko full "Market Depth" sheet (_ocDepthSymbol) se independently handle
+  // karo, kyunki dono alag-alag ho sakte hain (sirf ek time me ek khula
+  // rehta hai UI mein, lekin state tracking alag rakhi hai).
+  if (_ocInlineBookSymbol && (!data.symbol || data.symbol === _ocInlineBookSymbol)) {
+    if (data.error) {
+      var rowsEl = document.getElementById('oc-trade-book-rows');
+      if (rowsEl && rowsEl.textContent.indexOf('Loading') !== -1) {
+        rowsEl.innerHTML = '<div class="oc-book-inline-err">' + data.error + '</div>';
+      }
+    } else if (data.bids || data.asks) {
+      _ocRenderInlineBookRows(data.bids, data.asks);
+    }
+  }
 
   if (!_ocDepthSymbol) return;
   if (data.symbol && data.symbol !== _ocDepthSymbol) return;  // stale/mismatched — ignore
@@ -24171,15 +24313,44 @@ function _ocApplyInlineDepthWsUpdate(data) {
   applyLevels(_ocInlineDepthBook.asks, aUpdates, false);
 }
 
+// Debug state — inline WS ka asli connect/error/close status, guess nahi
+// (pehle koi onerror hi nahi tha, isliye silent fail dikhta tha "kuch nahi
+// ho raha" jaisa — ab exact reason capture hota hai).
+var _ocInlineWsDebug = {
+  symbol: null, state: 'idle',   // 'idle' | 'connecting' | 'open' | 'error' | 'closed'
+  openTs: 0, closeTs: 0, errorTs: 0,
+  closeCode: null, closeReason: null, closeWasClean: null,
+  errorDetail: null, msgCount: 0, lastMsgTs: 0,
+};
+
 function _ocConnectInlineDepthWS(symbol) {
   _ocCloseInlineDepthWS();
   var url = 'wss://nbstream.binance.com/eoptions/stream?streams=' +
             encodeURIComponent(symbol.toLowerCase()) + '@depth10@100ms';
+  _ocInlineWsDebug.symbol = symbol;
+  _ocInlineWsDebug.state = 'connecting';
+  _ocInlineWsDebug.openTs = 0; _ocInlineWsDebug.closeTs = 0; _ocInlineWsDebug.errorTs = 0;
+  _ocInlineWsDebug.closeCode = null; _ocInlineWsDebug.closeReason = null; _ocInlineWsDebug.closeWasClean = null;
+  _ocInlineWsDebug.errorDetail = null; _ocInlineWsDebug.msgCount = 0; _ocInlineWsDebug.lastMsgTs = 0;
   var ws;
-  try { ws = new WebSocket(url); } catch (e) { return; }
+  try {
+    ws = new WebSocket(url);
+  } catch (e) {
+    _ocInlineWsDebug.state = 'error';
+    _ocInlineWsDebug.errorTs = Date.now();
+    _ocInlineWsDebug.errorDetail = 'WebSocket() constructor threw: ' + ((e && e.message) || e);
+    return;
+  }
   _ocInlineDepthWs = ws;
+  ws.onopen = function () {
+    if (_ocInlineDepthWs !== ws) return;
+    _ocInlineWsDebug.state = 'open';
+    _ocInlineWsDebug.openTs = Date.now();
+  };
   ws.onmessage = function (evt) {
     if (_ocInlineDepthWs !== ws) return;
+    _ocInlineWsDebug.msgCount++;
+    _ocInlineWsDebug.lastMsgTs = Date.now();
     try {
       var raw = JSON.parse(evt.data);
       var data = raw.data || raw;
@@ -24189,7 +24360,27 @@ function _ocConnectInlineDepthWS(symbol) {
       }
     } catch (e) {}
   };
-  ws.onclose = function () { if (_ocInlineDepthWs === ws) _ocInlineDepthWs = null; };
+  // PEHLE ye handler hi nahi tha — connection fail (region block, DNS,
+  // TLS, wrong symbol format se Binance ka reject, etc.) chup-chaap
+  // onclose mein chali jaati thi bina kisi reason ke. Ab capture hota hai.
+  ws.onerror = function (evt) {
+    if (_ocInlineDepthWs !== ws) return;
+    _ocInlineWsDebug.state = 'error';
+    _ocInlineWsDebug.errorTs = Date.now();
+    // Browser WebSocket onerror event security reasons se detail nahi deta
+    // (koi status code/message nahi milta) — bas itna pata chalta hai ki
+    // connection fail hua. readyState se thoda context milta hai.
+    _ocInlineWsDebug.errorDetail = 'WS error event fired (browser security se exact reason nahi milta) — readyState=' + ws.readyState +
+      '. Common causes: Binance eoptions stream is unreachable from this network/region, DNS/TLS block, ya symbol format Binance ko reject.';
+  };
+  ws.onclose = function (evt) {
+    if (_ocInlineDepthWs === ws) _ocInlineDepthWs = null;
+    _ocInlineWsDebug.state = 'closed';
+    _ocInlineWsDebug.closeTs = Date.now();
+    _ocInlineWsDebug.closeCode = evt ? evt.code : null;
+    _ocInlineWsDebug.closeReason = (evt && evt.reason) ? evt.reason : null;
+    _ocInlineWsDebug.closeWasClean = evt ? evt.wasClean : null;
+  };
 }
 function _ocCloseInlineDepthWS() {
   if (_ocInlineDepthWs) { try { _ocInlineDepthWs.close(); } catch (e) {} _ocInlineDepthWs = null; }
@@ -24238,19 +24429,99 @@ async function _ocSyncInlineBook(type) {
 
   _ocInlineBookSymbol = symbol;
   rowsEl.innerHTML = '<div class="oc-book-inline-err">Loading…</div>';
-  // Instant snapshot pehle (REST, existing helper) — turant kuch dikhe,
-  // fir live WS connect hota hai jo aage rows ko 100ms pe update karega.
+
+  // PRIMARY (fix): backend ko batao ki ye symbol ka depth chahiye — backend
+  // ka _market_depth_pusher isi proxy wale _binance_call() se fetch karke
+  // postMessage se push karega (dekho _applyMarketDepthPush). Ye wahi
+  // already-working channel hai jo full "Market Depth" sheet use karta hai
+  // — side-port (browser se seedha :8502-8510 port) ki zaroorat nahi, aur
+  // proxy ke through jaata hai (backend REST calls proxy use karte hain).
+  _ocPushDepthSymbolToParent(symbol);
+
+  // FALLBACK 1: side-port REST se instant snapshot try karo — kaam karega
+  // agar side-port reachable hai (jaise local dev). Production (Render
+  // jaisi single-port hosting) mein ye fail hoga, tab postMessage push hi
+  // primary source rahega (thoda slow — agla backend run tak wait).
   var snap = await _ocFetchBookForFill(symbol);
   if (_ocInlineBookSymbol !== symbol) return; // strike/leg badal gaya jab tak fetch chal rahi thi
   if (snap) _ocRenderInlineBookRows(snap.bids, snap.asks);
-  else rowsEl.innerHTML = '<div class="oc-book-inline-err">Book abhi available nahi</div>';
+  // NOTE: yahan ab "Book abhi available nahi" turant nahi dikhate — snap na
+  // milna sirf side-port unreachable hone ka matlab ho sakta hai, backend
+  // push (upar trigger kiya) abhi bhi rows bhar sakta hai thodi der mein.
+  // Agar dono (postMessage bhi) fail ho jaayen, uska apna timeout neeche hai.
+
+  // FALLBACK 2: seedha browser→Binance WS — proxy ke bina hai (browser JS
+  // se proxy route nahi ho sakta), isliye agar user ka network/region
+  // Binance ko block karta hai to ye bhi silently fail ho sakta hai. Isko
+  // ab bhi rakha hai kyunki jahan ye chal jaaye wahan sabse fast (100ms)
+  // update deta hai — backend push channel isse dheema hai.
   _ocConnectInlineDepthWS(symbol);
+
+  // Agar 4s ke andar na side-port snapshot, na postMessage push, na WS —
+  // koi bhi channel se kuch nahi aaya, tabhi error dikhao — aur ab GUESS
+  // nahi, teeno channel ka exact status dikhate hain taaki root cause turant
+  // pata chale (side-port ka http error/timeout reason, backend tak signal
+  // pahucha ya nahi, WS kis stage pe fail hua).
+  setTimeout(function () {
+    if (_ocInlineBookSymbol !== symbol) return; // already band/badal gaya
+    var stillEmpty = rowsEl.textContent.indexOf('Loading') !== -1;
+    if (!stillEmpty) return;
+
+    var lines = [];
+    // Channel 1: side-port REST snapshot
+    if (_ocFetchBookForFillDebug.symbol === symbol) {
+      lines.push('Side-port snapshot: ' + (_ocFetchBookForFillDebug.ok ? 'OK' :
+        ('FAILED — ' + _ocFetchBookForFillDebug.reason)));
+    } else {
+      lines.push('Side-port snapshot: result kabhi nahi aaya (in-flight ya symbol mismatch)');
+    }
+    // Channel 2: backend postMessage push (proxy ke through)
+    var bridgeOk = _ocDepthDebug.bridgeOk;
+    var bridgeMsg = _ocDepthDebug.bridgeLastMsg;
+    var backendGotSymbol = _ocDepthDebug.backendActiveSymbol === symbol;
+    if (bridgeOk === false) {
+      lines.push('Backend push (proxy): pushState bridge hi FAIL hua — ' + bridgeMsg);
+    } else if (!_ocDepthDebug.backendHeartbeatSeen) {
+      lines.push('Backend push (proxy): backend se kabhi heartbeat hi nahi mila — pusher fragment chal nahi raha, ya postMessage parent tak nahi pahunch raha.');
+    } else if (!backendGotSymbol) {
+      lines.push('Backend push (proxy): pushState bheja gaya (bridgeOk=' + bridgeOk + ') lekin backend ka active_depth_symbol abhi bhi "' +
+        (_ocDepthDebug.backendActiveSymbol || '(none)') + '" hai (expected "' + symbol + '") — signal backend session_state tak pahuncha hi nahi (Streamlit query-param/popstate sync fail).');
+    } else {
+      lines.push('Backend push (proxy): symbol backend tak pahunch gaya, lekin abhi tak koi valid depth data nahi aaya — backend ki apni Binance/proxy call fail ho rahi ho sakti hai.');
+    }
+    // Channel 3: direct browser WS
+    if (_ocInlineWsDebug.symbol === symbol) {
+      if (_ocInlineWsDebug.state === 'error') {
+        lines.push('Direct WS: ERROR — ' + _ocInlineWsDebug.errorDetail);
+      } else if (_ocInlineWsDebug.state === 'closed') {
+        lines.push('Direct WS: band ho gaya (code=' + _ocInlineWsDebug.closeCode + ', reason=' + (_ocInlineWsDebug.closeReason || '-') + ', clean=' + _ocInlineWsDebug.closeWasClean + ') bina koi message mile.');
+      } else if (_ocInlineWsDebug.state === 'connecting') {
+        lines.push('Direct WS: 4s baad bhi "connecting" state mein hai — na open hua na error, network shayad silently drop kar raha hai.');
+      } else if (_ocInlineWsDebug.state === 'open' && _ocInlineWsDebug.msgCount === 0) {
+        lines.push('Direct WS: connection open hai lekin 4s mein ek bhi depth message nahi aaya — is strike ka live order book genuinely khaali ho sakta hai (illiquid).');
+      } else {
+        lines.push('Direct WS: state=' + _ocInlineWsDebug.state + ', messages=' + _ocInlineWsDebug.msgCount);
+      }
+    } else {
+      lines.push('Direct WS: kabhi try hi nahi hua (unexpected)');
+    }
+
+    rowsEl.innerHTML = '<div class="oc-book-inline-err">Book abhi available nahi<br><span style="font-size:11px;opacity:.85;display:block;margin-top:6px;line-height:1.5;">' +
+      lines.join('<br>') + '</span></div>';
+  }, 4000);
 }
 
 function _ocHideInlineBook() {
   var panel = document.getElementById('oc-trade-book-panel');
   if (panel) panel.classList.remove('show');
   _ocCloseInlineDepthWS();
+  // Backend ko batao ki depth-sheet band ho gayi — sirf tab jab full
+  // "Market Depth" sheet bhi khuli na ho (dono ek hi _active_depth_symbol
+  // share karte hain backend par; agar sheet abhi khuli hai to uska symbol
+  // clear mat karo).
+  if (typeof _ocDepthSymbol === 'undefined' || !_ocDepthSymbol) {
+    _ocPushDepthSymbolToParent(null);
+  }
   _ocInlineBookSymbol = null;
 }
 
@@ -27318,11 +27589,35 @@ function swingSubscribeChart() {
   let _swRAF = null;
   const _swingDrawThrottled = () => {
     if (_swRAF) return;
-    _swRAF = requestAnimationFrame(() => { _swRAF = null; _pmMeasure('Swing S-R Redraw', swingDraw); });
+    _swRAF = requestAnimationFrame(() => {
+      _swRAF = null;
+      // While the user is actively touching/panning the chart, skip the
+      // heavy per-line SR redraw (it was fighting touchmove for the same
+      // frame — the #1 cause of pan feeling laggy with SR on). Nothing is
+      // lost: _scheduleSwingCatchup() runs one clean redraw right after
+      // the drag actually ends.
+      if (_userDragActive) { _scheduleSwingCatchup(); return; }
+      _pmMeasure('Swing S-R Redraw', swingDraw);
+    });
   };
   chart.timeScale().subscribeVisibleLogicalRangeChange(_swingDrawThrottled);
   chart.subscribeCrosshairMove(_swingDrawThrottled);
   try { mainSeries.priceScale().subscribeVisiblePriceRangeChange(_swingDrawThrottled); } catch(_) {}
+}
+
+// Runs one clean SR redraw shortly after an active drag ends (180ms grace
+// period in _markUserDragEnd + a small buffer), so lines that were skipped
+// mid-drag catch up without ever fighting touchmove for the frame.
+let _swingDragCatchupTid = null;
+function _scheduleSwingCatchup() {
+  clearTimeout(_swingDragCatchupTid);
+  _swingDragCatchupTid = setTimeout(() => {
+    if (_userDragActive) { _scheduleSwingCatchup(); return; } // still dragging — wait more
+    if (SWING_STATE.visible) {
+      _pmMeasure('Swing S-R Redraw', swingDraw);
+      CELLS.forEach(c => { if (c.swing && c.swing.draw) c.swing.draw(); });
+    }
+  }, 220);
 }
 
 // ── Global redraw trigger for vertical price-scale scroll (mobile touch + desktop wheel)
@@ -27333,6 +27628,8 @@ function _scheduleSwingRedraw() {
   _swingRafId = requestAnimationFrame(() => {
     _swingRafId = null;
     if (!SWING_STATE.visible) return;
+    // Same lazy-during-drag behavior as swingSubscribeChart above.
+    if (_userDragActive) { _scheduleSwingCatchup(); return; }
     swingDraw();
     CELLS.forEach(c => { if (c.swing && c.swing.draw) c.swing.draw(); });
   });
@@ -27341,6 +27638,7 @@ document.addEventListener('touchmove',  _scheduleSwingRedraw, { passive: true })
 document.addEventListener('wheel',      _scheduleSwingRedraw, { passive: true });
 document.addEventListener('touchstart', _scheduleSwingRedraw, { passive: true });
 document.addEventListener('touchend',   _scheduleSwingRedraw, { passive: true });
+
 
 // ── Multi-timeframe SR: current TF + user-configured higher TF levels ────
 // Uses SWING_TF_LIST (set in indicator settings panel) — each enabled TF
